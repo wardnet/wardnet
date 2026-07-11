@@ -14,10 +14,8 @@ import {
   AlertModalAction,
   AlertModalCancel,
   AlertModalContent,
-  AlertModalDescription,
   AlertModalFooter,
-  AlertModalHeader,
-  AlertModalTitle,
+  AlertModalTitleBlock,
 } from "@wardnet/web";
 
 interface Props {
@@ -74,7 +72,7 @@ export function PowerCard({
         </CardHeader>
         <CardContent>
           <Text as="p" size="sm" className="text-ink-3">
-            Reboot the system. Wardnet will be unavailable for ~30–60 seconds
+            Reboot the system. Wardnet will be unavailable for ~30-60 seconds
             while it comes back up; managed devices fall back to the upstream
             router during that gap.
           </Text>
@@ -136,13 +134,10 @@ export function PowerCard({
 
       <AlertModal open={rebootOpen} onOpenChange={setRebootOpen}>
         <AlertModalContent>
-          <AlertModalHeader>
-            <AlertModalTitle>Reboot Wardnet?</AlertModalTitle>
-            <AlertModalDescription>
-              Wardnet will restart. Your network will be unavailable for ~30–60
-              seconds while it comes back up.
-            </AlertModalDescription>
-          </AlertModalHeader>
+          <AlertModalTitleBlock
+            title="Reboot Wardnet?"
+            description="Wardnet will restart. Your network will be unavailable for ~30-60 seconds while it comes back up."
+          />
           <AlertModalFooter>
             <AlertModalCancel asChild>
               <Button variant="outline">Cancel</Button>
@@ -163,13 +158,10 @@ export function PowerCard({
 
       <AlertModal open={shutdownOpen} onOpenChange={setShutdownOpen}>
         <AlertModalContent>
-          <AlertModalHeader>
-            <AlertModalTitle>Shut Wardnet down?</AlertModalTitle>
-            <AlertModalDescription>
-              Wardnet will power off. Internet will be unavailable until you
-              turn the system back on manually.
-            </AlertModalDescription>
-          </AlertModalHeader>
+          <AlertModalTitleBlock
+            title="Shut Wardnet down?"
+            description="Wardnet will power off. Internet will be unavailable until you turn the system back on manually."
+          />
           <AlertModalFooter>
             <AlertModalCancel asChild>
               <Button variant="outline">Cancel</Button>
@@ -191,14 +183,10 @@ export function PowerCard({
 
       <AlertModal open={restartOpen} onOpenChange={setRestartOpen}>
         <AlertModalContent>
-          <AlertModalHeader>
-            <AlertModalTitle>Restart daemon?</AlertModalTitle>
-            <AlertModalDescription>
-              The wardnetd process will exit and the supervisor will bring it
-              back up. The host keeps running; the network stays online except
-              for a few seconds while the daemon comes back.
-            </AlertModalDescription>
-          </AlertModalHeader>
+          <AlertModalTitleBlock
+            title="Restart daemon?"
+            description="The wardnetd process will exit and the supervisor will bring it back up. The host keeps running; the network stays online except for a few seconds while the daemon comes back."
+          />
           <AlertModalFooter>
             <AlertModalCancel asChild>
               <Button variant="outline">Cancel</Button>

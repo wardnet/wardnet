@@ -3,7 +3,6 @@ import { NavLink, useNavigate } from "react-router";
 import {
   Archive,
   Boxes,
-  Cable,
   Globe,
   GlobeLock,
   Inbox,
@@ -11,11 +10,11 @@ import {
   Monitor,
   Network,
   Power,
+  Route,
   Router,
   Settings as SettingsIcon,
-  ShieldCheck,
-  Waypoints,
 } from "lucide-react";
+import { ShieldWifi, GlobeFilter } from "@wardnet/web";
 import { useAuth } from "@wardnet/web";
 import { useDaemonStatus } from "@wardnet/web";
 import { useUpdateStatus } from "@wardnet/web";
@@ -66,8 +65,8 @@ const adminSections: NavSection[] = [
         icon: Monitor,
         testId: "nav-devices",
       },
-      { to: "/tunnels", label: "Tunnels", icon: Cable, testId: "nav-tunnels" },
-      { to: "/vpn", label: "VPN", icon: Waypoints, testId: "nav-vpn" },
+      { to: "/tunnels", label: "Tunnels", icon: Route, testId: "nav-tunnels" },
+      { to: "/vpn", label: "VPN", icon: ShieldWifi, testId: "nav-vpn" },
       { to: "/zones", label: "Zones", icon: Boxes, testId: "nav-zones" },
       { to: "/dhcp", label: "DHCP", icon: Router, testId: "nav-dhcp" },
     ],
@@ -85,7 +84,7 @@ const adminSections: NavSection[] = [
       {
         to: "/dns/filter",
         label: "DNS Filtering",
-        icon: ShieldCheck,
+        icon: GlobeFilter,
         testId: "nav-dns-filter",
       },
       {

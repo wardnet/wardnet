@@ -425,6 +425,7 @@ impl InboundWgService for NoopInboundWgService {
     async fn add_peer(
         &self,
         _device_id: uuid::Uuid,
+        _endpoint: Option<String>,
     ) -> Result<wardnet_common::api::AddInboundWgPeerResponse, wardnetd_services::error::AppError>
     {
         Err(wardnetd_services::error::AppError::Internal(

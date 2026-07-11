@@ -130,7 +130,7 @@ beforeEach(() => {
   });
 });
 
-describe("RemoteAccess — unconfigured", () => {
+describe("RemoteAccess - unconfigured", () => {
   it("renders the enable form with provider options and wardnet fields", () => {
     renderWithProviders(<RemoteAccess />);
     expect(screen.getByText("Remote access")).toBeInTheDocument();
@@ -208,7 +208,7 @@ describe("RemoteAccess — unconfigured", () => {
   });
 });
 
-describe("RemoteAccess — configured", () => {
+describe("RemoteAccess - configured", () => {
   beforeEach(() => {
     useDdnsStatus.mockReturnValue({ data: { provider: "wardnet" } });
     useTlsStatus.mockReturnValue({ data: { phase: "ready" } });

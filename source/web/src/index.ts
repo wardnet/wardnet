@@ -329,12 +329,16 @@ export {
   useRemoveInboundWgPeer,
   useSetInboundWgPeerEnabled,
 } from "./hooks/useInboundWg";
-export {
-  buildInboundWgClientConfig,
-  placeholderEndpoint,
-} from "./lib/inboundWgConfig";
-export type { InboundWgClientConfigInput } from "./lib/inboundWgConfig";
+export { peerConfigFilename } from "./lib/inboundWgConfig";
 export { InboundWgQrCode } from "./components/InboundWgQrCode";
+export { triggerBrowserDownload } from "./lib/download";
+export { ModalTitleBlock } from "./components/ModalTitleBlock";
+export { AlertModalTitleBlock } from "./components/AlertModalTitleBlock";
+
+// Custom icons (composed marks not in lucide). Exported individually so
+// consumers only bundle the ones they import.
+export { ShieldWifi } from "./icons/ShieldWifi";
+export { GlobeFilter } from "./icons/GlobeFilter";
 
 // PWA helpers
 export { registerSW } from "./lib/registerSW";

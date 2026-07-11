@@ -288,7 +288,7 @@ impl SecretStore for FileSecretStore {
 #[derive(Debug, Default)]
 pub struct NullSecretStore;
 
-const NULL_MSG: &str = "no secret store configured — add a [secret_store] section to wardnet.toml to enable tunnels and backup";
+const NULL_MSG: &str = "no secret store configured - add a [secret_store] section to wardnet.toml to enable tunnels and backup";
 
 #[async_trait]
 impl SecretStore for NullSecretStore {
@@ -324,7 +324,7 @@ impl SecretStore for NullSecretStore {
         // them, fail loud — the operator must configure a secret store
         // before importing.
         anyhow::bail!(
-            "bundle contains {} secret entries but no secret store is configured — add a [secret_store] section to wardnet.toml before importing",
+            "bundle contains {} secret entries but no secret store is configured - add a [secret_store] section to wardnet.toml before importing",
             entries.len()
         );
     }
@@ -350,7 +350,7 @@ pub fn build_secret_store(config: Option<&SecretStoreConfig>) -> Arc<dyn SecretS
         }
         None => {
             tracing::warn!(
-                "secret store: no [secret_store] section in config — tunnels and backup will be unavailable"
+                "secret store: no [secret_store] section in config - tunnels and backup will be unavailable"
             );
             Arc::new(NullSecretStore)
         }

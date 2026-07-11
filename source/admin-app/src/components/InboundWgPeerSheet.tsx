@@ -42,7 +42,7 @@ export function InboundWgPeerSheet({ peer, open, onOpenChange }: Props) {
         <DrawerContent side="bottom" aria-describedby={undefined}>
           <div className="mx-auto mt-3 mb-4 h-1 w-10 rounded-full bg-line" />
           <DrawerTitle className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
-            Remote access — {activePeer.name}
+            Remote access - {activePeer.name}
           </DrawerTitle>
           <div
             className="flex flex-col gap-4 px-4"
@@ -54,7 +54,7 @@ export function InboundWgPeerSheet({ peer, open, onOpenChange }: Props) {
                   {activePeer.enabled ? "Active" : "Paused"}
                 </Text>
                 <Text as="p" size="xs" className="mt-0.5 text-ink-3">
-                  Pausing keeps the credential — resuming needs no new QR scan.
+                  Pausing keeps the credential - resuming needs no new QR scan.
                 </Text>
               </div>
               <Toggle

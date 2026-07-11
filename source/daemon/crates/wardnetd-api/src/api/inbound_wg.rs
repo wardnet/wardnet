@@ -131,8 +131,30 @@ pub async fn add_peer(
     _auth: AdminAuth,
     Json(body): Json<AddInboundWgPeerRequest>,
 ) -> Result<(StatusCode, Json<AddInboundWgPeerResponse>), AppError> {
-    let response = state.inbound_wg_service().add_peer(body.device_id).await?;
+    // Compose the reachable endpoint here (the API layer has both services):
+    // the client dials `<host>:<listen_port>`. `host` is the public hostname
+    // (or last-known public IP) from DDNS — a placeholder for the real cloud
+    // relay until #824 lands. When neither is known, the peer is still granted
+    // but the response carries no client config.
+    let endpoint = build_endpoint(&state).await?;
+    let response = state
+        .inbound_wg_service()
+        .add_peer(body.device_id, endpoint)
+        .await?;
     Ok((StatusCode::CREATED, Json(response)))
+}
+
+/// `<host>:<listen_port>` for a peer's `Endpoint`, or `None` when no public
+/// hostname / IP is configured yet. Prefers the DDNS FQDN, falling back to the
+/// last-known public IP.
+async fn build_endpoint(state: &AppState) -> Result<Option<String>, AppError> {
+    let ddns = state.ddns_service().status().await?;
+    let host = ddns.fqdn.or(ddns.last_public_ip);
+    let Some(host) = host else {
+        return Ok(None);
+    };
+    let listen_port = state.inbound_wg_service().get_config().await?.listen_port;
+    Ok(Some(format!("{host}:{listen_port}")))
 }
 
 #[utoipa::path(

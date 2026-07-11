@@ -252,7 +252,7 @@ impl AuthService for AuthServiceImpl {
 
         if !is_refreshable {
             return Err(AppError::Forbidden(
-                "session was not created with remember_me — refresh not permitted".to_owned(),
+                "session was not created with remember_me - refresh not permitted".to_owned(),
             ));
         }
 
@@ -263,7 +263,7 @@ impl AuthService for AuthServiceImpl {
         let absolute_expiry = created_at + chrono::Duration::days(MAX_SESSION_DAYS);
         if now >= absolute_expiry {
             return Err(AppError::Unauthorized(
-                "session has exceeded maximum lifetime — please log in again".to_owned(),
+                "session has exceeded maximum lifetime - please log in again".to_owned(),
             ));
         }
 

@@ -395,7 +395,7 @@ impl DhcpServiceImpl {
         }
 
         Err(AppError::Conflict(
-            "DHCP pool exhausted — no available IP addresses".to_owned(),
+            "DHCP pool exhausted - no available IP addresses".to_owned(),
         ))
     }
 

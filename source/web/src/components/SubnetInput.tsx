@@ -139,12 +139,12 @@ export function SubnetInput({ value, onChange, id, testId }: SubnetInputProps) {
 
       {resolved && !isPrivate ? (
         <Text size="xs" className="text-danger" data-testid={`${t}-cidr`}>
-          Must be a private range (10.x, 172.16–31.x, or 192.168.x).
+          Must be a private range (10.x, 172.16-31.x, or 192.168.x).
         </Text>
       ) : (
         <Text size="xs" className="text-ink-3" data-testid={`${t}-cidr`}>
           {resolved
-            ? `Resolves to ${resolved} — ${usableHosts(prefix)} usable hosts`
+            ? `Resolves to ${resolved} - ${usableHosts(prefix)} usable hosts`
             : "Enter a base address to build the subnet."}
         </Text>
       )}

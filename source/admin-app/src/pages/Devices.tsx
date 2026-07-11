@@ -16,7 +16,6 @@ import {
 } from "@wardnet/web";
 import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { DeviceRoutingSheet } from "@/components/DeviceRoutingSheet";
-import { InboundWgGrantSheet } from "@/components/InboundWgGrantSheet";
 import { InboundWgPeerSheet } from "@/components/InboundWgPeerSheet";
 import { ChevronRightIcon } from "lucide-react";
 import type { Device, InboundWgPeerSummary, Tunnel } from "@wardnet/js";
@@ -84,50 +83,51 @@ const DeviceRow = memo(function DeviceRow({
   onSelect: (id: string) => void;
   onSelectPeer: (peer: InboundWgPeerSummary) => void;
 }) {
+  const displayName = device.name ?? device.hostname ?? device.mac;
   return (
-    <button
-      data-testid="device-row"
-      onClick={() => onSelect(device.id)}
-      className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-snap active:bg-sunken first:rounded-t-xl last:rounded-b-xl"
-    >
-      <span
-        className={[
-          "mt-0.5 size-2 shrink-0 self-start rounded-full",
-          online ? "bg-accent" : "bg-line-strong",
-        ].join(" ")}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-center gap-1.5">
+    // A row container (not itself a button): the device area and the Remote
+    // badge are separate sibling buttons. Nesting the badge inside the row
+    // button was invalid (interactive-in-interactive) and left the badge
+    // keyboard-inaccessible.
+    <div className="flex w-full items-center gap-3 px-4 py-3 transition-colors duration-snap active:bg-sunken first:rounded-t-xl last:rounded-b-xl">
+      <button
+        data-testid="device-row"
+        onClick={() => onSelect(device.id)}
+        className="flex min-w-0 flex-1 items-center gap-3 text-left"
+      >
+        <span
+          className={[
+            "mt-0.5 size-2 shrink-0 self-start rounded-full",
+            online ? "bg-accent" : "bg-line-strong",
+          ].join(" ")}
+        />
+        <div className="flex min-w-0 flex-1 flex-col">
           <Text
             as="span"
             size="base"
             weight="medium"
             className="truncate text-ink"
           >
-            {device.name ?? device.hostname ?? device.mac}
+            {displayName}
           </Text>
-          {remotePeer && (
-            <span
-              role="button"
-              tabIndex={0}
-              data-testid="device-remote-badge"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSelectPeer(remotePeer);
-              }}
-            >
-              <Pill variant={remotePeer.enabled ? "info" : "ghost"}>
-                Remote
-              </Pill>
-            </span>
-          )}
+          <Text as="span" size="xs" className="truncate text-ink-3">
+            {device.last_ip} · {routeLabel(device, tunnels)}
+          </Text>
         </div>
-        <Text as="span" size="xs" className="truncate text-ink-3">
-          {device.last_ip} · {routeLabel(device, tunnels)}
-        </Text>
-      </div>
+      </button>
+      {remotePeer && (
+        <button
+          type="button"
+          data-testid="device-remote-badge"
+          aria-label={`Manage remote access for ${displayName}`}
+          onClick={() => onSelectPeer(remotePeer)}
+          className="shrink-0"
+        >
+          <Pill variant={remotePeer.enabled ? "info" : "ghost"}>Remote</Pill>
+        </button>
+      )}
       <ChevronRightIcon size={16} className="shrink-0 text-ink-4" />
-    </button>
+    </div>
   );
 });
 
@@ -204,7 +204,6 @@ export default function Devices() {
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [grantSheetOpen, setGrantSheetOpen] = useState(false);
   const [selectedPeer, setSelectedPeer] = useState<InboundWgPeerSummary | null>(
     null,
   );
@@ -220,11 +219,6 @@ export default function Devices() {
     for (const p of peers) if (p.device_id) map.set(p.device_id, p);
     return map;
   }, [peers]);
-
-  const grantableDevices = useMemo(
-    () => allDevices.filter((d) => d.connection_mode !== "remote"),
-    [allDevices],
-  );
 
   const handleSelectPeer = useCallback((peer: InboundWgPeerSummary) => {
     setSelectedPeer(peer);
@@ -310,22 +304,13 @@ export default function Devices() {
 
   return (
     <div className="flex flex-col p-4">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <Heading level={1} size="3xl" weight="bold" className="text-ink">
-            Devices
-          </Heading>
-          <Text as="p" size="base" className="text-ink-3">
-            Manage devices and routing overrides.
-          </Text>
-        </div>
-        <button
-          data-testid="grant-remote-access"
-          onClick={() => setGrantSheetOpen(true)}
-          className="shrink-0 rounded-full bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-ink transition-colors duration-snap active:opacity-80"
-        >
-          Grant access
-        </button>
+      <div className="mb-4">
+        <Heading level={1} size="3xl" weight="bold" className="text-ink">
+          Devices
+        </Heading>
+        <Text as="p" size="base" className="text-ink-3">
+          Manage devices and routing overrides.
+        </Text>
       </div>
 
       <div
@@ -384,12 +369,6 @@ export default function Devices() {
         tunnels={tunnels}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
-      />
-
-      <InboundWgGrantSheet
-        devices={grantableDevices}
-        open={grantSheetOpen}
-        onOpenChange={setGrantSheetOpen}
       />
 
       <InboundWgPeerSheet

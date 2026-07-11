@@ -188,7 +188,7 @@ export function AvailabilityHint({
           {slug.length < 3
             ? "At least 3 characters."
             : isReservedName(slug)
-              ? "This name is reserved — try another."
+              ? "This name is reserved - try another."
               : "Use lowercase letters, digits, and hyphens only."}
         </span>
       );
@@ -197,11 +197,11 @@ export function AvailabilityHint({
     case "available":
       return <span className="text-ink-2">✓ {slug} is available</span>;
     case "taken":
-      return <span className="text-danger">{slug} is taken — try another</span>;
+      return <span className="text-danger">{slug} is taken - try another</span>;
     case "error":
       return (
         <span className="text-ink-3">
-          Couldn't check availability — you can still continue or try again.
+          Couldn't check availability - you can still continue or try again.
         </span>
       );
     default:

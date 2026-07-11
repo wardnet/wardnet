@@ -162,7 +162,7 @@ export default function StepDhcp({
           <div className="flex items-center justify-end gap-3">
             {probe.isError && (
               <Text as="p" size="sm" className="flex-1 text-danger">
-                Probe failed — try again.
+                Probe failed - try again.
               </Text>
             )}
             {probeBlocked && (
@@ -176,7 +176,7 @@ export default function StepDhcp({
             )}
             {probeClean && (
               <Text as="p" size="sm" className="flex-1 text-ink">
-                Only Wardnet responded — good.
+                Only Wardnet responded - good.
               </Text>
             )}
             <Button

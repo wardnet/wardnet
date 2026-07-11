@@ -314,7 +314,7 @@ export default function System() {
                     Version
                   </Text>
                   <Text as="p" size="base" className="mt-1 font-mono text-ink">
-                    {daemonStatus?.version ? `v${daemonStatus.version}` : "—"}
+                    {daemonStatus?.version ? `v${daemonStatus.version}` : "-"}
                   </Text>
                 </div>
                 <div>
@@ -327,7 +327,7 @@ export default function System() {
                     Uptime
                   </Text>
                   <Text as="p" size="base" className="mt-1 text-ink">
-                    {status ? formatUptime(status.uptime_seconds) : "—"}
+                    {status ? formatUptime(status.uptime_seconds) : "-"}
                   </Text>
                 </div>
                 <div>
@@ -340,7 +340,7 @@ export default function System() {
                     CPU
                   </Text>
                   <Text as="p" size="base" className="mt-1 text-ink">
-                    {status ? `${status.cpu_usage_percent.toFixed(1)}%` : "—"}
+                    {status ? `${status.cpu_usage_percent.toFixed(1)}%` : "-"}
                   </Text>
                   {status && <Bar percent={status.cpu_usage_percent} />}
                 </div>
@@ -356,7 +356,7 @@ export default function System() {
                   <Text as="p" size="base" className="mt-1 text-ink">
                     {status
                       ? `${formatBytes(status.memory_used_bytes)} / ${formatBytes(status.memory_total_bytes)}`
-                      : "—"}
+                      : "-"}
                   </Text>
                   {status && status.memory_total_bytes > 0 && (
                     <Bar percent={memoryPercent} />
@@ -405,7 +405,7 @@ export default function System() {
                     size="sm"
                     className="mt-1 break-all font-mono text-ink"
                   >
-                    {ddns?.fqdn ?? "—"}
+                    {ddns?.fqdn ?? "-"}
                   </Text>
                 </div>
 
@@ -424,7 +424,7 @@ export default function System() {
                         <Pill variant={pill.variant}>{pill.label}</Pill>
                       ) : (
                         <Text as="span" size="base" className="text-ink">
-                          —
+                          -
                         </Text>
                       )}
                     </div>
@@ -443,7 +443,7 @@ export default function System() {
                         ? `Until ${formatDate(tls.not_after)}`
                         : tls?.phase === "issuing"
                           ? "Issuing…"
-                          : "—"}
+                          : "-"}
                     </Text>
                   </div>
                 </div>

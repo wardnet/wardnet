@@ -306,18 +306,25 @@ pub struct AddInboundWgPeerRequest {
 
 /// Response for `POST /api/inbound-wg/peers`.
 ///
-/// Carries the freshly generated **private key** exactly once — it is never
-/// persisted server-side, so the admin must copy it now to configure the peer.
+/// Carries the complete, ready-to-import `WireGuard` client configuration —
+/// assembled server-side and containing the freshly generated **private key**
+/// exactly once. The daemon never persists the private key (it lives only in
+/// this response); the admin must copy/scan it now. This is the ONLY endpoint
+/// that ever exposes private key material, and it is admin-gated.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AddInboundWgPeerResponse {
     pub id: Uuid,
     pub name: String,
     /// Base64 `WireGuard` public key (stored server-side).
     pub public_key: String,
-    /// Base64 `WireGuard` private key — returned once, never stored.
-    pub private_key: String,
     /// The peer's allocated `/32` inside the inbound tunnel subnet.
     pub allowed_ip: String,
+    /// The full `WireGuard` client config (`.conf`) — `[Interface]`/`[Peer]`
+    /// stanzas including the private key and endpoint — ready to render as a QR
+    /// code or download. `None` when no reachable endpoint is known yet (remote
+    /// access / DDNS not configured); the credential is created but not usable
+    /// until an endpoint exists.
+    pub client_config: Option<String>,
 }
 
 /// A single inbound-`WireGuard` peer, without any private key material.

@@ -46,7 +46,7 @@ export function DhcpLanInfoCard() {
             lan
           </Text>{" "}
           zone. These records are managed for you and aren&apos;t listed under
-          Records — revoke a lease or remove the device on the DHCP page to
+          Records - revoke a lease or remove the device on the DHCP page to
           clear one.
         </Text>
       </CardContent>

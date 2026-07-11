@@ -73,14 +73,22 @@ impl InboundWgService for MockInboundWg {
         })
     }
 
-    async fn add_peer(&self, device_id: Uuid) -> Result<AddInboundWgPeerResponse, AppError> {
+    async fn add_peer(
+        &self,
+        device_id: Uuid,
+        endpoint: Option<String>,
+    ) -> Result<AddInboundWgPeerResponse, AppError> {
         match self.add_peer_outcome {
             AddPeerOutcome::Success => Ok(AddInboundWgPeerResponse {
                 id: Uuid::nil(),
                 name: "kitchen-tv".to_owned(),
                 public_key: "cHVia2V5".to_owned(),
-                private_key: "cHJpdmtleQ==".to_owned(),
                 allowed_ip: "10.100.64.2/32".to_owned(),
+                // Echo the endpoint the handler derived so the test can assert
+                // the DDNS-status → endpoint wiring ran.
+                client_config: endpoint.map(|e| {
+                    format!("[Interface]\nPrivateKey = cHJpdmtleQ==\n\n[Peer]\nEndpoint = {e}\n")
+                }),
             }),
             AddPeerOutcome::DeviceNotFound => {
                 Err(AppError::NotFound(format!("device {device_id} not found")))
@@ -289,7 +297,7 @@ async fn list_peers_returns_configured_peers() {
 }
 
 #[tokio::test]
-async fn add_peer_success_returns_private_key_once() {
+async fn add_peer_success_returns_client_config_with_endpoint() {
     let state = make_state(Arc::new(MockInboundWg {
         add_peer_outcome: AddPeerOutcome::Success,
         set_peer_enabled_outcome: SetPeerEnabledOutcome::Success,
@@ -303,7 +311,11 @@ async fn add_peer_success_returns_private_key_once() {
     assert_eq!(resp.status(), StatusCode::CREATED);
     let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
     let json: AddInboundWgPeerResponse = serde_json::from_slice(&body).unwrap();
-    assert!(!json.private_key.is_empty());
+    // The handler derived an endpoint from DDNS status and the service built a
+    // config carrying the private key — the only place it is ever exposed.
+    let cfg = json.client_config.expect("client_config present");
+    assert!(cfg.contains("PrivateKey ="));
+    assert!(cfg.contains("Endpoint ="));
 }
 
 #[tokio::test]

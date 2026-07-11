@@ -104,7 +104,7 @@ describe("useUpdate", () => {
       await result.current.mutateAsync();
     });
     expect(toast.success).toHaveBeenCalledWith(
-      "Rollback staged — daemon will restart",
+      "Rollback staged - daemon will restart",
       { id: "update-rollback" },
     );
   });

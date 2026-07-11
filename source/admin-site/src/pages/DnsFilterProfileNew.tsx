@@ -60,7 +60,7 @@ export default function DnsFilterProfileNew() {
               id="profile-desc"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="e.g. Strict — for kids' devices"
+              placeholder="e.g. Strict - for kids' devices"
             />
           </Field>
 

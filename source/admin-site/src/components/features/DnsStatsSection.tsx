@@ -118,8 +118,8 @@ export function DnsStatsSection({ range }: Props) {
 
   const topBlockedDomain = data?.topDomains.entries[0];
   const topBlockedLabel = topBlockedDomain
-    ? (parseLabels(topBlockedDomain.labels).domain ?? "—")
-    : "—";
+    ? (parseLabels(topBlockedDomain.labels).domain ?? "-")
+    : "-";
 
   if (isError) {
     return (
@@ -136,11 +136,11 @@ export function DnsStatsSection({ range }: Props) {
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <DashboardStatCard
           title={`Queries (${zoomLabel ?? range})`}
-          value={cardTotal != null ? cardTotal.toLocaleString() : "—"}
+          value={cardTotal != null ? cardTotal.toLocaleString() : "-"}
         />
         <DashboardStatCard
           title={`Blocked (${zoomLabel ?? range})`}
-          value={cardBlockedPct != null ? `${cardBlockedPct.toFixed(1)}%` : "—"}
+          value={cardBlockedPct != null ? `${cardBlockedPct.toFixed(1)}%` : "-"}
           subtitle={
             cardTotal != null && cardBlocked != null
               ? `${cardBlocked.toLocaleString()} of ${cardTotal.toLocaleString()}`
@@ -159,7 +159,7 @@ export function DnsStatsSection({ range }: Props) {
         />
         <DashboardStatCard
           title={`Active clients (${zoomLabel ?? range})`}
-          value={data ? data.topClients.entries.length.toString() : "—"}
+          value={data ? data.topClients.entries.length.toString() : "-"}
         />
       </div>
 

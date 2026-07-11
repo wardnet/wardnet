@@ -172,7 +172,7 @@ export function TunnelThroughputChart({
             size="sm"
             className="flex h-64 items-center justify-center text-ink-3"
           >
-            No throughput history yet — bring this tunnel up to start collecting
+            No throughput history yet - bring this tunnel up to start collecting
             samples.
           </Text>
         ) : (

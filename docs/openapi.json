@@ -191,7 +191,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -223,7 +223,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -358,7 +358,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -390,7 +390,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -526,7 +526,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -558,7 +558,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -651,7 +651,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -683,7 +683,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -776,7 +776,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -808,7 +808,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -894,7 +894,7 @@
             "description": "Remote access torn down (or already absent)"
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -926,7 +926,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -1030,7 +1030,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -1062,7 +1062,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -1197,7 +1197,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -1229,7 +1229,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -1357,7 +1357,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -1389,7 +1389,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -1517,7 +1517,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -1549,7 +1549,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -1684,7 +1684,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -1716,7 +1716,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -1809,7 +1809,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -1841,7 +1841,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -1934,7 +1934,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -1966,7 +1966,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -2059,7 +2059,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -2091,7 +2091,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -2593,7 +2593,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -2625,7 +2625,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -2802,7 +2802,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -2834,7 +2834,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -3165,7 +3165,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -3197,7 +3197,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -3322,7 +3322,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -3354,7 +3354,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -3487,7 +3487,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -3519,7 +3519,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -3654,7 +3654,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -3686,7 +3686,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -3821,7 +3821,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -3853,7 +3853,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -3946,7 +3946,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -3978,7 +3978,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -4083,7 +4083,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -4115,7 +4115,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -4240,7 +4240,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -4272,7 +4272,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -4405,7 +4405,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -4437,7 +4437,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -4542,7 +4542,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -4574,7 +4574,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -4699,7 +4699,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -4731,7 +4731,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -4824,7 +4824,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -4856,7 +4856,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -4949,7 +4949,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -4981,7 +4981,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -5114,7 +5114,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -5146,7 +5146,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -5281,7 +5281,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -5313,7 +5313,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -5406,7 +5406,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -5438,7 +5438,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -5571,7 +5571,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -5603,7 +5603,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -5742,7 +5742,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -5774,7 +5774,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -5879,7 +5879,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -5911,7 +5911,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -6056,7 +6056,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -6088,7 +6088,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -6213,7 +6213,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -6245,7 +6245,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -6378,7 +6378,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -6410,7 +6410,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -6515,7 +6515,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -6547,7 +6547,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -6724,7 +6724,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -6756,7 +6756,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -6891,7 +6891,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -6923,7 +6923,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -7063,7 +7063,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -7095,7 +7095,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -7272,7 +7272,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -7304,7 +7304,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -7451,7 +7451,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -7483,7 +7483,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -7620,7 +7620,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -7652,7 +7652,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -7829,7 +7829,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -7861,7 +7861,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -8050,7 +8050,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -8082,7 +8082,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -8227,7 +8227,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -8259,7 +8259,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -8406,7 +8406,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -8438,7 +8438,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -8575,7 +8575,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -8607,7 +8607,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -8784,7 +8784,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -8816,7 +8816,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -9005,7 +9005,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -9037,7 +9037,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -9182,7 +9182,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -9214,7 +9214,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -9339,7 +9339,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -9371,7 +9371,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -9504,7 +9504,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -9536,7 +9536,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -9641,7 +9641,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -9673,7 +9673,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -9850,7 +9850,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -9882,7 +9882,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -10017,7 +10017,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -10049,7 +10049,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -10174,7 +10174,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -10206,7 +10206,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -10339,7 +10339,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -10371,7 +10371,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -10508,7 +10508,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -10540,7 +10540,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -10717,7 +10717,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -10749,7 +10749,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -10884,7 +10884,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -10916,7 +10916,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -11041,7 +11041,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -11073,7 +11073,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -11206,7 +11206,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -11238,7 +11238,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -11343,7 +11343,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -11375,7 +11375,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -11552,7 +11552,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -11584,7 +11584,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -11719,7 +11719,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -11751,7 +11751,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -11888,7 +11888,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -11920,7 +11920,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -12142,7 +12142,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -12174,7 +12174,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -12267,7 +12267,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -12299,7 +12299,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -12392,7 +12392,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -12424,7 +12424,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -12525,7 +12525,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -12557,7 +12557,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -12650,7 +12650,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -12682,7 +12682,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -12783,7 +12783,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -12815,7 +12815,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -12977,7 +12977,7 @@
             "description": "Peer removed"
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -13009,7 +13009,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -13154,7 +13154,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -13186,7 +13186,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -13357,7 +13357,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -13389,7 +13389,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -13514,7 +13514,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -13546,7 +13546,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -13659,7 +13659,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -13691,7 +13691,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -13794,7 +13794,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -13826,7 +13826,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -13959,7 +13959,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -13991,7 +13991,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -14084,7 +14084,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -14116,7 +14116,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -14209,7 +14209,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -14241,7 +14241,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -14374,7 +14374,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -14406,7 +14406,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -14509,7 +14509,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -14541,7 +14541,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -14674,7 +14674,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -14706,7 +14706,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -14811,7 +14811,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -14843,7 +14843,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -15020,7 +15020,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -15052,7 +15052,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -15187,7 +15187,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -15219,7 +15219,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -15356,7 +15356,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -15388,7 +15388,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -15565,7 +15565,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -15597,7 +15597,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -15742,7 +15742,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -15774,7 +15774,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -15909,7 +15909,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -15941,7 +15941,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -16045,7 +16045,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -16077,7 +16077,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -16255,7 +16255,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -16287,7 +16287,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -16465,7 +16465,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -16497,7 +16497,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -16675,7 +16675,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -16707,7 +16707,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -16848,7 +16848,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -16880,7 +16880,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -16949,7 +16949,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -16981,7 +16981,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -17227,7 +17227,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -17259,7 +17259,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -17383,7 +17383,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -17415,7 +17415,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -17624,7 +17624,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -17656,7 +17656,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -17850,7 +17850,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -17882,7 +17882,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -18022,7 +18022,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -18054,7 +18054,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -18147,7 +18147,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -18179,7 +18179,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -18290,7 +18290,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -18322,7 +18322,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -18415,7 +18415,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -18447,7 +18447,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -18545,7 +18545,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -18577,7 +18577,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -18664,7 +18664,7 @@
             "description": "Reboot scheduled"
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -18696,7 +18696,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -18783,7 +18783,7 @@
             "description": "Restart scheduled"
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -18815,7 +18815,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -18902,7 +18902,7 @@
             "description": "Shutdown scheduled"
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -18934,7 +18934,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -19021,7 +19021,7 @@
             "description": "Acknowledgement recorded"
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -19053,7 +19053,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -19146,7 +19146,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -19178,7 +19178,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -19271,7 +19271,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -19303,7 +19303,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -19396,7 +19396,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -19428,7 +19428,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -19561,7 +19561,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -19593,7 +19593,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -19698,7 +19698,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -19730,7 +19730,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -19865,7 +19865,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -19897,7 +19897,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -20034,7 +20034,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -20066,7 +20066,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -20213,7 +20213,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -20245,7 +20245,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -20382,7 +20382,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -20414,7 +20414,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -20551,7 +20551,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -20583,7 +20583,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -20752,7 +20752,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -20784,7 +20784,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -20921,7 +20921,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -20953,7 +20953,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -21142,7 +21142,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -21174,7 +21174,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -21309,7 +21309,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -21341,7 +21341,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -21447,7 +21447,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -21479,7 +21479,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -21615,7 +21615,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -21647,7 +21647,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -21740,7 +21740,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -21772,7 +21772,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -21865,7 +21865,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -21897,7 +21897,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -21990,7 +21990,7 @@
             }
           },
           "401": {
-            "description": "Unauthenticated — session cookie or API key missing/invalid",
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
             "content": {
               "application/json": {
                 "schema": {
@@ -22022,7 +22022,7 @@
             }
           },
           "403": {
-            "description": "Forbidden — caller is not an admin",
+            "description": "Forbidden - caller is not an admin",
             "content": {
               "application/json": {
                 "schema": {
@@ -22127,12 +22127,11 @@
       },
       "AddInboundWgPeerResponse": {
         "type": "object",
-        "description": "Response for `POST /api/inbound-wg/peers`.\n\nCarries the freshly generated **private key** exactly once — it is never\npersisted server-side, so the admin must copy it now to configure the peer.",
+        "description": "Response for `POST /api/inbound-wg/peers`.\n\nCarries the complete, ready-to-import `WireGuard` client configuration —\nassembled server-side and containing the freshly generated **private key**\nexactly once. The daemon never persists the private key (it lives only in\nthis response); the admin must copy/scan it now. This is the ONLY endpoint\nthat ever exposes private key material, and it is admin-gated.",
         "required": [
           "id",
           "name",
           "public_key",
-          "private_key",
           "allowed_ip"
         ],
         "properties": {
@@ -22140,16 +22139,19 @@
             "type": "string",
             "description": "The peer's allocated `/32` inside the inbound tunnel subnet."
           },
+          "client_config": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The full `WireGuard` client config (`.conf`) — `[Interface]`/`[Peer]`\nstanzas including the private key and endpoint — ready to render as a QR\ncode or download. `None` when no reachable endpoint is known yet (remote\naccess / DDNS not configured); the credential is created but not usable\nuntil an endpoint exists."
+          },
           "id": {
             "type": "string",
             "format": "uuid"
           },
           "name": {
             "type": "string"
-          },
-          "private_key": {
-            "type": "string",
-            "description": "Base64 `WireGuard` private key — returned once, never stored."
           },
           "public_key": {
             "type": "string",

@@ -1124,7 +1124,7 @@ impl TunnelService for TunnelServiceImpl {
         let _guard = self.acquire_in_flight(id)?;
         self.tear_down_core(id, "admin rebuild").await?;
         if let Err(e) = self.bring_up_core(id).await {
-            tracing::error!(tunnel_id = %id, error = %e, "rebuild: tear-down succeeded but bring-up failed — tunnel is down");
+            tracing::error!(tunnel_id = %id, error = %e, "rebuild: tear-down succeeded but bring-up failed - tunnel is down");
             return Err(e);
         }
         Ok(())

@@ -209,7 +209,7 @@ describe("StepRemoteAccess", () => {
     });
     renderWithProviders(<StepRemoteAccess />);
     expect(
-      screen.getByText("Couldn't save progress — try again."),
+      screen.getByText("Couldn't save progress - try again."),
     ).toBeInTheDocument();
   });
 

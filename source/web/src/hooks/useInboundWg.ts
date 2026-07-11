@@ -34,7 +34,11 @@ export function useInboundWgPeers() {
   return useQuery({
     queryKey: ["inbound-wg", "peers"],
     queryFn: () => inboundWgService.listPeers(),
-    refetchInterval: 15_000,
+    // No refetchInterval: the peer list only changes via admin mutations
+    // (grant/revoke/pause), each of which already invalidates this key. A
+    // timer here would idle-poll on every surface that mounts the hook —
+    // including the Devices list, which polls devices separately — and each
+    // refetch would hand memoized rows fresh objects, defeating their memo.
   });
 }
 

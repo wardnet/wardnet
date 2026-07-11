@@ -178,7 +178,7 @@ describe("Dns", () => {
   it("renders the disabled query-log branch", () => {
     setConfig({ query_log_enabled: false });
     renderWithProviders(<Dns />);
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText("-")).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Edit" }),
     ).not.toBeInTheDocument();

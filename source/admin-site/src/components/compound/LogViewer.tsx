@@ -97,7 +97,7 @@ export function LogViewer({
     <div className="logs" style={{ maxHeight }}>
       {skipped > 0 && (
         <div className="logrow is-warn">
-          <div className="t">—</div>
+          <div className="t">-</div>
           <div className="l">SKIP</div>
           <div className="m">{skipped} entries skipped (buffer lag)</div>
         </div>

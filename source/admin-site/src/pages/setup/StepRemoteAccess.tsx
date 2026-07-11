@@ -109,7 +109,7 @@ export default function StepRemoteAccess() {
           </Heading>
           <Text as="p" size="sm" className="mt-1 text-ink-3">
             Your hostname is registered. The certificate is being issued in the
-            background — you can wait here or finish setup; it'll keep going.
+            background - you can wait here or finish setup; it'll keep going.
           </Text>
         </div>
 
@@ -127,7 +127,7 @@ export default function StepRemoteAccess() {
 
         {nav.isError && (
           <Text as="p" size="sm" className="text-danger">
-            Couldn't save progress — try again.
+            Couldn't save progress - try again.
           </Text>
         )}
 
@@ -165,7 +165,7 @@ export default function StepRemoteAccess() {
           className="rounded-md border border-line bg-sunken p-4 text-ink-3"
         >
           This is usually temporary. You can finish setup now and enable remote
-          access later from Settings — the rest of your configuration is
+          access later from Settings - the rest of your configuration is
           unaffected.
         </Text>
 
@@ -180,7 +180,7 @@ export default function StepRemoteAccess() {
 
         {nav.isError && (
           <Text as="p" size="sm" className="text-danger">
-            Couldn't save progress — try again.
+            Couldn't save progress - try again.
           </Text>
         )}
 
@@ -210,7 +210,7 @@ export default function StepRemoteAccess() {
       <div className="flex flex-col gap-2">
         <ProviderOption
           label="Wardnet"
-          description="Zero-config. We assign a hostname under wardnet.services and handle DNS — enroll with your wardnet account."
+          description="Zero-config. We assign a hostname under wardnet.services and handle DNS - enroll with your wardnet account."
           selected={provider === "wardnet"}
           onSelect={() => setProvider("wardnet")}
         />
@@ -246,7 +246,7 @@ export default function StepRemoteAccess() {
 
       {(formError || nav.isError) && (
         <Text as="p" size="sm" className="text-danger">
-          {formError ?? "Couldn't save progress — try again."}
+          {formError ?? "Couldn't save progress - try again."}
         </Text>
       )}
 
