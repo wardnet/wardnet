@@ -6,13 +6,20 @@ Every log entry includes the daemon version via a hierarchical span tree. This i
 
 ### Span hierarchy
 
+**Illustrative excerpt, not an exhaustive list.** The tree below shows the shape
+and the naming convention; the daemon runs more background spans than are listed
+here, and a hand-maintained full list would go stale immediately. The rule in
+"Rules for new components" below is what actually binds — every background
+component opens a child span of the root. To see the current set, grep for
+`#[instrument]` and `info_span!`.
+
 ```
 wardnetd{version=0.1.1-dev.5+gabc1234}       # root span in main.rs
   ├── tunnel_monitor{}                         # background task
   ├── idle_watcher{}                           # background task
   ├── device_detector{}                        # background task
   ├── routing_listener{}                       # background task (event→routing dispatcher)
-  ├── dhcp_server{}                            # background task (if DHCP enabled)
+  ├── dhcp_runner{}                            # background task (if DHCP enabled)
   ├── update_runner{}                          # background task (auto-update poll)
   ├── backup_cleanup_runner{}                  # background task (.bak-* sweep)
   ├── stats_flush_runner{}                     # background task (10s buffer flush + 1h rollup/trim)

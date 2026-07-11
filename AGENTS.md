@@ -39,8 +39,9 @@ you're about to make, rather than the whole set.
 - **[Local-DNS subsystem](.agents/architecture.md#local-dns-subsystem-issue-217)** —
   `AuthoritativeView` (ArcSwap-backed, lock-free), resolution pipeline order
   (authoritative → cache → filter → conditional/tunnel upstream),
-  event-driven rebuild on `DnsLocalChanged`, and why `DnsRunner` reads
-  `dns_local_repo` directly instead of going through `DnsLocalService`.
+  event-driven rebuild on `DnsLocalChanged`, and why background runners
+  (including `DnsRunner`) call `DnsLocalService` rather than holding
+  `dns_local_repo` directly.
 - **[DDNS subsystem](.agents/architecture.md#ddns-subsystem-issue-527--521-umbrella)** —
   `DnsProvider` trait (bridge + Cloudflare impls), `DdnsService` (auth-gated, stores config in
   `system_config` and secrets in `SecretStore`), `DdnsUpdateRunner` (idle-until-configured 5-min

@@ -25,7 +25,10 @@ tracing::info!("device detected: mac={mac}, ip={ip}", mac = obs.mac, ip = obs.ip
 1. Always use `tracing` macros (`tracing::info!`, `tracing::warn!`, etc.), never `log` or `println!`.
 2. Structured fields go first: `field = %value` or `field = value` (for Display vs Debug).
 3. The message string repeats key values using tracing's `{variable}` interpolation syntax (resolved at the macro level, zero-cost when level is disabled).
-4. `error` level — always include the error in the message: `"operation failed on {thing}: {e}"`.
+4. `error` level — always capture the error as a structured field (`error = %e`).
+   Interpolating it into the message text as well (`"operation failed on {thing}: {e}"`)
+   is optional, and worth doing for one-off or rare errors. The structured field is
+   what Loki queries key off, so it is the part that must never be omitted.
 5. `warn` level — include enough context to diagnose: what failed, which entity, the error.
 6. `info` level — include the primary identifiers: MAC, IP, device_id, interface, etc.
 7. `debug` level — include counts and operational details: `"flushed {count} timestamps"`.

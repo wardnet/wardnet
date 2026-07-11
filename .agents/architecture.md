@@ -43,12 +43,18 @@ Key conventions:
 
 A generic pre-aggregating stats subsystem. All layers (data, services, API) are complete as of PR 2.
 
-### Two-tier storage — mirrors the `tunnel_metrics` pattern
+### Three-tier storage — mirrors the `tunnel_metrics` pattern
 
 | Table | Granularity | Retention | Key |
 |---|---|---|---|
-| `stats_intraday` | 1-minute buckets (`bucket_ts` = Unix seconds truncated to minute) | 48 h | `(metric, labels, bucket_ts)` |
-| `stats_daily` | 1-day rollup (`day` = `YYYY-MM-DD` UTC) | 13 months | `(metric, labels, day)` |
+| `stats_intraday` | 1-minute buckets (`bucket_ts` = Unix seconds truncated to minute) | 25 h (`INTRADAY_RETENTION`) | `(metric, labels, bucket_ts)` |
+| `stats_hourly` | 1-hour rollup (`hour_ts`) | 8 days (`HOURLY_RETENTION`) | `(metric, labels, hour_ts)` |
+| `stats_daily` | 1-day rollup (`day` = `YYYY-MM-DD` UTC) | 13 months / 397 days (`DAILY_RETENTION_DAYS`) | `(metric, labels, day)` |
+
+The retention constants live in `wardnetd-services/src/stats/service.rs`; the
+hourly tier was added by the `20260611000000_stats_hourly.sql` migration. The
+`Hour` query granularity reads the `stats_hourly` table — it is **not** computed
+on the fly from intraday rows.
 
 ### Instrument kinds
 
@@ -105,7 +111,7 @@ StatsRepository::trim_intraday / trim_daily  (retention enforcement)
 | `service.rs` | `StatsService` trait + `StatsServiceImpl` (time-series and top-N queries; calls `require_admin`) |
 | `flush_runner.rs` | `StatsFlushRunner` — background task: 10 s flush + 1 h maintenance; follows runner contract |
 
-`StatsService::query` supports three granularities: `Minute` (raw intraday rows), `Hour` (server-side aggregation of intraday), and `Day` (daily rollup table).
+`StatsService::query` supports three granularities: `Minute` (raw intraday rows), `Hour` (the `stats_hourly` rollup table), and `Day` (the `stats_daily` rollup table).
 
 ### API endpoints (`wardnetd-api/src/api/stats.rs`)
 
