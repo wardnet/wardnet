@@ -67,6 +67,7 @@ describe("localDate / todayLocal / recentDates", () => {
     expect(dates[6]).toBe(todayLocal());
     // Strictly ascending.
     for (let i = 1; i < dates.length; i += 1) {
+      // eslint-disable-next-line security/detect-object-injection -- loop index over the local recentDates(7) array in a test assertion
       expect(dates[i] > dates[i - 1]).toBe(true);
     }
   });

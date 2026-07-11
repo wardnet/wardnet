@@ -16,6 +16,7 @@ interface Window {
 }
 
 function makeWindow(range: StatsRange): Window {
+  // eslint-disable-next-line security/detect-object-injection -- key is a StatsRange union member indexing Record<StatsRange, number>, not remote input
   const hours = RANGE_HOURS[range];
   const to = new Date();
   const from = new Date(to.getTime() - hours * 3_600_000);

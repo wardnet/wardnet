@@ -29,6 +29,8 @@ import { fileURLToPath } from "node:url";
 
 import { Octokit } from "@octokit/rest";
 
+import { parseSha256Asset } from "./sha256";
+
 const REPO_OWNER = "wardnet";
 const REPO_NAME = "wardnet";
 
@@ -88,7 +90,9 @@ function parseVersion(tag: string): ParsedVersion | null {
 function compareVersion(a: ParsedVersion, b: ParsedVersion): number {
   const len = Math.max(a.parts.length, b.parts.length);
   for (let i = 0; i < len; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- numeric loop index into a local number[] from parseVersion; not an attacker-chosen key
     const ai = a.parts[i] ?? 0;
+    // eslint-disable-next-line security/detect-object-injection -- numeric loop index into a local number[] from parseVersion; not an attacker-chosen key
     const bi = b.parts[i] ?? 0;
     if (ai !== bi) return ai - bi;
   }
@@ -96,7 +100,9 @@ function compareVersion(a: ParsedVersion, b: ParsedVersion): number {
   if (a.prerelease.length === 0) return 1;
   if (b.prerelease.length === 0) return -1;
   for (let i = 0; i < Math.max(a.prerelease.length, b.prerelease.length); i++) {
+    // eslint-disable-next-line security/detect-object-injection -- numeric loop index into a local string[] of prerelease segments; array read
     const ai = a.prerelease[i];
+    // eslint-disable-next-line security/detect-object-injection -- numeric loop index into a local string[] of prerelease segments; array read
     const bi = b.prerelease[i];
     if (ai === undefined) return -1;
     if (bi === undefined) return 1;
@@ -284,8 +290,10 @@ function emptyManifest(): Manifest {
 }
 
 async function writeManifest(path: string, manifest: Manifest | null): Promise<void> {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is always resolve(PUBLIC_RELEASES, "stable.json"|"beta.json") — build-local constants
   await mkdir(dirname(path), { recursive: true });
   const body = manifest ?? emptyManifest();
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- same build-local constant path as above; only the JSON body is remote, the filename is fixed
   await writeFile(path, `${JSON.stringify(body, null, 2)}\n`, "utf8");
   console.log(`wrote ${path}`);
 }
@@ -336,7 +344,7 @@ async function buildOpenapiVersions(releases: GithubRelease[]): Promise<OpenapiV
       if (!resp.ok) {
         throw new Error(`sha256 fetch failed (${resp.status})`);
       }
-      const hash = (await resp.text()).trim().split(/\s+/)[0]!.toLowerCase();
+      const hash = parseSha256Asset(await resp.text(), release.tag_name);
       return { release, version, json, hash };
     }),
   );
@@ -355,9 +363,11 @@ async function buildOpenapiVersions(releases: GithubRelease[]): Promise<OpenapiV
   >();
 
   for (let i = 0; i < settled.length; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- numeric loop index into the local Promise.allSettled result array
     const outcome = settled[i]!;
     if (outcome.status === "rejected") {
       console.warn(
+        // eslint-disable-next-line security/detect-object-injection -- numeric loop index into the local candidates array, aligned 1:1 with settled
         `openapi-versions: skipping ${candidates[i]!.release.tag_name}: ${
           (outcome.reason as Error).message
         }`,
@@ -435,6 +445,7 @@ async function writeOpenapiSpecs(rows: OpenapiVersion[]): Promise<OpenapiVersion
         // Guard against writing a GitHub error/HTML page as if it were a
         // spec — parse before persisting.
         JSON.parse(body);
+        // eslint-disable-next-line security/detect-non-literal-fs-filename -- filename is a SHA-256 validated by parseSha256Asset (64 hex chars), so it cannot traverse
         await writeFile(resolve(PUBLIC_API_SPECS, `${row.sha256}.json`), body, "utf8");
         return row;
       } catch (error) {

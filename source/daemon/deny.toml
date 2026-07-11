@@ -1,0 +1,84 @@
+# cargo-deny configuration for the daemon workspace.
+#
+# Run via bulwark (`cargo-deny check licenses bans`) in CI — see the
+# `bulwark` job in .github/workflows/coverage.yml. Advisories are
+# deliberately NOT checked here: cargo-audit already covers RustSec CVEs,
+# and running both would double-report them.
+#
+# Without this file cargo-deny falls back to a near-empty allow-list and
+# rejects essentially every dependency, including ordinary
+# `Apache-2.0 OR MIT` crates.
+
+[licenses]
+# Every license we accept in the dependency tree. cargo-deny resolves SPDX
+# `OR` expressions against this list, so a crate offering
+# "Apache-2.0 OR GPL-2.0-only" (self_cell) satisfies via Apache-2.0 and
+# GPL-2.0-only never needs to appear here. Only licenses a crate offers
+# with no permissive alternative have to be listed explicitly.
+allow = [
+    # Permissive — the overwhelming majority of the tree.
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "BSD-1-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "0BSD",
+    "BSL-1.0",
+    "CC0-1.0",
+    "Unlicense",
+    "Unicode-3.0",
+    # webpki-roots / webpki-root-certs — Mozilla's CA bundle, redistributable.
+    "CDLA-Permissive-2.0",
+
+    # Copyleft — the two crates below offer NO permissive alternative, and
+    # both are load-bearing. See LICENSING.md at the repo root.
+    #
+    # rustables + rustables-macros (nftables over netlink; the firewall
+    # subsystem). GPL-3.0-or-later since it was forked from nftnl-rs in
+    # 2021 — it has never been published under any other license. This is
+    # why the daemon itself ships as GPL-3.0-or-later: Rust links
+    # statically, so the compiled binary is a combined work.
+    "GPL-3.0-or-later",
+    # wireguard-control (WireGuard interface management). LGPL's linking
+    # exception means this one does not, on its own, impose GPL terms on
+    # the binary.
+    "LGPL-2.1-or-later",
+]
+
+# Ring's license is a non-standard BSD-ish blend cargo-deny can't infer
+# from an SPDX expression alone; clarify it against a known file hash so a
+# tampered/changed license text fails loudly rather than passing silently.
+[[licenses.clarify]]
+name = "ring"
+expression = "MIT AND ISC AND OpenSSL"
+license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
+
+[licenses.private]
+# Our own crates are unpublished workspace members; don't license-check them.
+ignore = true
+
+[bans]
+# Duplicate versions of a transitive crate (nix, windows-sys, rand, ... all
+# resolve to several versions via different parents) are noise we don't
+# control, so this never failed the build. It can't even usefully warn: each
+# duplicate prints a full box-drawing dependency tree, and across this
+# workspace that is ~5,100 lines / ~290 KB of output. bulwark embeds the scan
+# output verbatim in its PR summary comment, so that alone pushed the comment
+# past GitHub's 65,536-character limit and failed the job. Silencing it takes
+# cargo-deny's output from ~290 KB to 21 bytes ("bans ok, licenses ok").
+multiple-versions = "allow"
+# A wildcard version on an external crates.io dependency is a real
+# supply-chain hazard, so deny it — but our own workspace members are declared
+# as `{ path = "crates/..." }` with no version, which cargo-deny reads as a
+# wildcard. allow-wildcard-paths exempts path dependencies only, keeping the
+# deny meaningful for everything that actually comes from a registry.
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

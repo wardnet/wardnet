@@ -75,6 +75,7 @@ export function MacInput({
     (index: number, raw: string) => {
       const hex = raw.replace(/[^a-fA-F0-9]/g, "").slice(0, 2);
       const next = [...segments];
+      // eslint-disable-next-line security/detect-object-injection -- index is the 0-5 MAC segment index from the render map; writes a local array copy
       next[index] = hex;
       onChange(joinSegments(next));
 
@@ -154,10 +155,12 @@ export function MacInput({
       {segments.map((seg, i) => (
         <div key={i} className="flex items-center">
           <input
+            // eslint-disable-next-line security/detect-object-injection -- i from .map() over the 6 parsed MAC segments; refs is a fixed 6-element array
             ref={refs[i]}
             id={i === 0 ? id : undefined}
             type="text"
             value={seg.toUpperCase()}
+            // eslint-disable-next-line security/detect-object-injection -- i from .map() over the 6 MAC segments indexing the locally split placeholder
             placeholder={placeholderSegs[i] ?? "00"}
             disabled={disabled}
             readOnly={readOnly}

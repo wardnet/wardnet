@@ -54,6 +54,7 @@ export interface Logger {
 
 export function createLogger(tag: string): Logger {
   const scoped = _root.withTag(tag);
+  // eslint-disable-next-line security/detect-object-injection -- keys are LogLevel union members indexing a Record<LogLevel, number>, never external input
   const enabled = (level: LogLevel) => NUMERIC[resolveLevel(tag)] >= NUMERIC[level];
   // Cast to satisfy TypeScript's strict spread-into-rest rules while keeping
   // our public interface typed as unknown[].

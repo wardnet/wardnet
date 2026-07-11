@@ -46,5 +46,6 @@ const ICON_MAP: Record<string, ComponentType<LucideProps>> = {
 
 /** Resolves a string icon name from YAML content to a Lucide icon component. */
 export function resolveIcon(name: string): ComponentType<LucideProps> | undefined {
+  // eslint-disable-next-line security/detect-object-injection -- read-only lookup in a fixed ICON_MAP; name comes from build-time repo YAML, not user input
   return ICON_MAP[name];
 }

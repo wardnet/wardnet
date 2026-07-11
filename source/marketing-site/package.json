@@ -16,7 +16,7 @@
     "generate:release-manifests": "tsx scripts/generate-release-manifests.ts",
     "generate:sdk-reference": "typedoc --entryPoints ../sdk/wardnet-js/src/index.ts --tsconfig ../sdk/wardnet-js/tsconfig.json --out public/sdk-docs --disableSources --name @wardnet/js --hideGenerator",
     "copy:install-script": "mkdir -p public && cp ../../deploy/install.sh public/install.sh",
-    "copy:scalar": "mkdir -p public/api-docs && cp ../daemon/crates/wardnetd-api/assets/scalar-api-reference.js public/api-docs/scalar.js"
+    "copy:scalar": "mkdir -p public/api-docs && cp ../daemon/crates/wardnetd-api/assets/vendor/scalar-api-reference.js public/api-docs/scalar.js"
   },
   "dependencies": {
     "@fontsource-variable/inter-tight": "^5.2.7",

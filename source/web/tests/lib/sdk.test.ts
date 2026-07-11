@@ -26,6 +26,7 @@ describe("sdk singletons", () => {
       "remoteAccessService",
       "ruleRequestService",
     ] as const) {
+      // eslint-disable-next-line security/detect-object-injection -- name iterates a hardcoded as-const list of SDK service exports in a test
       expect(sdk[name], name).toBeDefined();
     }
   });

@@ -8,6 +8,7 @@ import { useDiscoverGatewayMac } from "@wardnet/web";
 import { WizardFooter } from "@/pages/setup/WizardFooter";
 import { useWizardNav } from "@/pages/setup/useWizardNav";
 
+// eslint-disable-next-line security/detect-unsafe-regex -- bounded, unambiguous quantifiers (MAC); measured sub-ms on 50k adversarial input, no ReDoS
 const MAC_RE = /^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$/;
 
 /**

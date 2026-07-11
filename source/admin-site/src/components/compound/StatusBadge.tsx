@@ -36,6 +36,7 @@ export function StatusBadge({
   ...rest
 }: StatusBadgeProps) {
   return (
+    // eslint-disable-next-line security/detect-object-injection -- tone is a closed-union prop (success/neutral/danger) into a local const map
     <Pill variant={variantForTone[tone]} {...rest}>
       {withIcon && tone === "success" && <CheckIcon />}
       {children}

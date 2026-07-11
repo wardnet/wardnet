@@ -139,8 +139,12 @@ jobs:
       needs.preflight.outputs['user-app'] == 'true' ||
       needs.preflight.outputs.ci == 'true'
     # site-coverage reads @wardnet/{brand,styles} from GitHub Packages.
+    # contents:write + pull-requests:write grant the ceiling coverage.yml's
+    # `bulwark` job needs (baseline caching on bulwark-state + PR summary
+    # comment) — every other job in that reusable workflow stays read-only.
     permissions:
-      contents: read
+      contents: write
+      pull-requests: write
       packages: read
     uses: ./.github/workflows/coverage.yml
     # Gate each coverage job on the relevant change bucket (see pr.yml).

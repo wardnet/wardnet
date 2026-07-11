@@ -164,6 +164,7 @@ export function UpstreamServersCard({
     const next = [...servers];
     const target = index + delta;
     if (target < 0 || target >= next.length) return;
+    // eslint-disable-next-line security/detect-object-injection -- row-reorder swap on a local array copy; index from the servers table row, target bounds-checked
     [next[index], next[target]] = [next[target], next[index]];
     onUpdate(next);
   }
@@ -312,6 +313,7 @@ export function UpstreamServersCard({
                     value={m}
                     disabled={m === "single" && servers.length === 0}
                   >
+                    {/* eslint-disable-next-line security/detect-object-injection -- m from .map() over the local const MODE_ORDER list */}
                     {MODE_META[m].label}
                   </SelectItem>
                 ))}
@@ -324,6 +326,7 @@ export function UpstreamServersCard({
             className="text-ink-3"
             data-testid="upstream-mode-desc"
           >
+            {/* eslint-disable-next-line security/detect-object-injection -- effMode is a closed ForwarderSelectionMode union key into the MODE_META const map */}
             {MODE_META[effMode].description}
           </Text>
         </div>

@@ -41,6 +41,7 @@ const topics = docsContent.topics as TopicEntry[];
 export function DocsArticle() {
   const { slug = "" } = useParams();
   const topic = topics.find((t) => t.slug === slug);
+  // eslint-disable-next-line security/detect-object-injection -- read-only index into a build-time map of bundled markdown; slug from URL cannot write or reach the FS
   const body = DOCS_BY_SLUG[slug];
   const title = topic?.title ?? slug;
 

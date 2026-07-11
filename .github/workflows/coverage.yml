@@ -5,10 +5,13 @@ name: Coverage
 # Called from pr.yml and ci.yml. Each coverage job (daemon / site /
 # frontend) is gated on a boolean input so the caller only spins up the
 # work its change set touches — a frontend-only PR skips the 30-min daemon
-# coverage, and vice versa. The parallel jobs each emit LCOV + JUnit, and a
-# single `upload` job combines everything into ONE Codecov invocation so we
-# get a single PR comment with a coherent base comparison rather than
-# dueling uploads from separate leaves.
+# coverage, and vice versa. The parallel jobs each emit LCOV + JUnit.
+#
+# We only COMPUTE the reports. Everything downstream of that — the coverage
+# gate, and the Codecov upload of both coverage AND test-results — belongs to
+# bulwark (the `bulwark` job below), which we hand a codecov-token. It finds
+# the reports in its working directory, where the artifact downloads put them.
+# Doing any of it a second time here would just be a redundant Codecov push.
 
 on:
   workflow_call:
@@ -34,10 +37,21 @@ on:
           back to tokenless upload, accepted for unprotected (fork-
           prefixed) branch refs on public repos.
         required: false
+      SEMGREP_APP_TOKEN:
+        description: |
+          Semgrep AppSec Platform token, passed to bulwark. Optional for
+          the same fork-PR reason as CODECOV_TOKEN above — bulwark falls
+          back to a local-only `semgrep scan` when empty.
+        required: false
 
 # Explicit scopes (not read-all) so this leaf's workflow-level stays a
 # subset of the caller's workflow-level — GitHub's reusable-workflow
-# permission rules reject leaf > caller.
+# permission rules reject leaf > caller. This is the DEFAULT for jobs below
+# that don't declare their own `permissions:` block — the `bulwark` job
+# overrides it with contents:write/pull-requests:write (baseline caching +
+# PR summary comment), which requires the caller (pr.yml/ci.yml
+# `coverage:` job) to grant that same ceiling; every other job here stays
+# read-only.
 permissions:
   contents: read
   # site-coverage installs marketing-site, which pulls @wardnet/{brand,styles}
@@ -94,6 +108,11 @@ jobs:
             COV_FMT="--lcov --output-path ../../coverage/daemon-lcov.info"
           cp source/daemon/target/nextest/ci/junit.xml coverage/daemon-junit.xml
 
+      - name: Generate daemon coverage JSON report for bulwark
+        # Reuses the profile data the step above already collected — see
+        # coverage-daemon-report-json in the Makefile.
+        run: make coverage-daemon-report-json
+
       - name: Upload daemon coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -134,10 +153,17 @@ jobs:
         run: cd source/marketing-site && yarn install --immutable && yarn test:coverage
 
       - name: Collect into shared layout
+        # coverage/pkg-summaries/<pkg>/coverage-summary.json preserves the
+        # package-relative layout bulwark's TS coverage auto-discovery
+        # expects (it reads <pkgDir>/coverage/coverage-summary.json
+        # in-place, not from a flag) — the bulwark job restores these back
+        # to their original per-package paths before invoking bulwark.
         run: |
           mkdir -p coverage
           cp source/marketing-site/coverage/lcov.info coverage/site-lcov.info
           cp source/marketing-site/test-results/junit.xml coverage/site-junit.xml
+          mkdir -p coverage/pkg-summaries/marketing-site
+          cp source/marketing-site/coverage/coverage-summary.json coverage/pkg-summaries/marketing-site/
 
       - name: Upload site coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -176,6 +202,12 @@ jobs:
         # Prefix them with `source/<pkg>/` so the combined report maps to
         # unambiguous repo paths (four packages all have a `src/`), then
         # concatenate into one LCOV. JUnit files are copied per package.
+        #
+        # coverage/pkg-summaries/<pkg>/coverage-summary.json preserves the
+        # package-relative layout bulwark's TS coverage auto-discovery
+        # expects (it reads <pkgDir>/coverage/coverage-summary.json
+        # in-place, not from a flag) — the bulwark job restores these back
+        # to their original per-package paths before invoking bulwark.
         run: |
           mkdir -p coverage
           : > coverage/frontend-lcov.info
@@ -188,6 +220,11 @@ jobs:
             if [[ -f "$junit" ]]; then
               cp "$junit" "coverage/frontend-$pkg-junit.xml"
             fi
+            summary="source/$pkg/coverage/coverage-summary.json"
+            if [[ -f "$summary" ]]; then
+              mkdir -p "coverage/pkg-summaries/$pkg"
+              cp "$summary" "coverage/pkg-summaries/$pkg/"
+            fi
           done
 
       - name: Upload frontend coverage artifact
@@ -197,19 +234,22 @@ jobs:
           path: coverage/
           retention-days: 1
 
-  upload:
-    name: Upload to Codecov
+  bulwark:
+    name: bulwark
     needs: [daemon-coverage, site-coverage, frontend-coverage]
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    # Run even if one side failed so partial coverage still uploads —
-    # a failing daemon test shouldn't hide a site coverage regression.
+    timeout-minutes: 15
+    # Run whenever at least one producer actually ran, so a partial
+    # (path-filtered) PR still gets scanned.
     if: |
       always() && (
         needs.daemon-coverage.result == 'success' ||
         needs.site-coverage.result == 'success' ||
         needs.frontend-coverage.result == 'success'
       )
+    permissions:
+      contents: write # bulwark coverage caches baselines on the bulwark-state branch
+      pull-requests: write # bulwark posts/updates a sticky PR summary comment
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@9af89fc71515a100421586dfdb3dc9c984fbf411 # v2.19.4
@@ -217,6 +257,28 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0 # bulwark coverage needs full history to resolve the PR's base commit
+
+      - name: Restore bulwark's own tool installs
+        # bulwark installs cargo-audit/cargo-deny (compiled from source,
+        # several minutes) and its pinned eslint toolchain into
+        # ~/.cache/bulwark, keyed by tool version internally (see
+        # wardnet/bulwark internal/rust's ensure() and internal/typescript's
+        # ensureToolchain()) — a version bump gets its own subdirectory, so a
+        # static key here is safe: it can only ever ADD entries for a new
+        # version, never serve a stale one.
+        #
+        # restore/save are split (rather than one `actions/cache`) because the
+        # combined action only saves on job SUCCESS. A failing scan would then
+        # never populate the cache, so the tools would recompile on every run —
+        # exactly when you least want a slow job. Saving with `if: always()`
+        # breaks that chicken-and-egg.
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: bulwark-cache
+        with:
+          path: ~/.cache/bulwark
+          key: bulwark-tools-${{ runner.os }}
 
       - name: Download daemon coverage
         if: needs.daemon-coverage.result == 'success'
@@ -239,54 +301,46 @@ jobs:
           name: coverage-frontend
           path: coverage/
 
-      - name: Resolve present coverage files
-        id: files
+      - name: Restore per-package coverage reports for bulwark
+        # bulwark's TS coverage auto-discovery reads
+        # <pkgDir>/coverage/coverage-summary.json in-place (no flag), so the
+        # downloaded pkg-summaries have to land back at their original
+        # per-package paths. Rust coverage is a single explicit
+        # --rust-report flag instead. Both are skipped gracefully (empty
+        # rust-report output, package simply absent) when their producer
+        # job didn't run — bulwark just measures whatever's present.
+        id: restore
         run: |
           set -euo pipefail
-          LCOV=""
-          JUNIT=""
-          [[ -f coverage/daemon-lcov.info ]] && LCOV="${LCOV}coverage/daemon-lcov.info,"
-          [[ -f coverage/site-lcov.info ]] && LCOV="${LCOV}coverage/site-lcov.info,"
-          [[ -f coverage/frontend-lcov.info ]] && LCOV="${LCOV}coverage/frontend-lcov.info,"
-          [[ -f coverage/daemon-junit.xml ]] && JUNIT="${JUNIT}coverage/daemon-junit.xml,"
-          [[ -f coverage/site-junit.xml ]] && JUNIT="${JUNIT}coverage/site-junit.xml,"
-          for f in coverage/frontend-*-junit.xml; do
-            [[ -f "$f" ]] && JUNIT="${JUNIT}${f},"
+          rust_report=""
+          if [[ -f coverage/daemon-llvm-cov.json ]]; then
+            mkdir -p source/daemon/coverage
+            cp coverage/daemon-llvm-cov.json source/daemon/coverage/daemon-llvm-cov.json
+            rust_report="daemon/coverage/daemon-llvm-cov.json"
+          fi
+          echo "rust-report=${rust_report}" >> "$GITHUB_OUTPUT"
+          for pkg in web admin-site admin-app user-app marketing-site; do
+            summary="coverage/pkg-summaries/$pkg/coverage-summary.json"
+            if [[ -f "$summary" ]]; then
+              mkdir -p "source/$pkg/coverage"
+              cp "$summary" "source/$pkg/coverage/coverage-summary.json"
+            fi
           done
-          echo "lcov=${LCOV%,}" >> $GITHUB_OUTPUT
-          echo "junit=${JUNIT%,}" >> $GITHUB_OUTPUT
 
-      # Pre-install the Codecov CLI from PyPI and hand it to both upload
-      # steps via `binary:`. The default path (download from cli.codecov.io
-      # + PGP verification against keybase.io) currently hangs until the
-      # job timeout: Codecov migrated their keybase account, bricking the
-      # old one and breaking signature verification — codecov/codecov-action#1956.
-      # PyPI provides its own integrity, so this avoids the broken keybase
-      # path WITHOUT `skip_validation` (which would disable integrity
-      # checking outright). Revert to the action's own download once
-      # upstream ships the fix.
-      - name: Install Codecov CLI from PyPI
-        id: codecovcli
-        if: ${{ !cancelled() && (steps.files.outputs.lcov != '' || steps.files.outputs.junit != '') }}
-        run: |
-          python3 -m venv "$RUNNER_TEMP/codecov-cli-venv"
-          "$RUNNER_TEMP/codecov-cli-venv/bin/pip" install --quiet codecov-cli
-          echo "bin=$RUNNER_TEMP/codecov-cli-venv/bin/codecovcli" >> "$GITHUB_OUTPUT"
-
-      - name: Upload coverage to Codecov
-        if: steps.files.outputs.lcov != ''
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      - uses: wardnet/bulwark@v1
         with:
-          files: ${{ steps.files.outputs.lcov }}
-          binary: ${{ steps.codecovcli.outputs.bin }}
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          dir: source
+          tests-mode: skip
+          rust-report: ${{ steps.restore.outputs.rust-report }}
+          codecov-token: ${{ secrets.CODECOV_TOKEN }}
+          semgrep-app-token: ${{ secrets.SEMGREP_APP_TOKEN }}
 
-      - name: Upload test results to Codecov
-        if: ${{ !cancelled() && steps.files.outputs.junit != '' }}
-        uses: codecov/test-results-action@0fa95f0e1eeaafde2c782583b36b28ad0d8c77d3 # v1
+      - name: Save bulwark's tool installs
+        # `if: always()` so a failing scan still populates the cache — see the
+        # restore step above for why that matters. Skipped on an exact hit,
+        # since there'd be nothing new to write.
+        if: always() && steps.bulwark-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          files: ${{ steps.files.outputs.junit }}
-          binary: ${{ steps.codecovcli.outputs.bin }}
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
+          path: ~/.cache/bulwark
+          key: bulwark-tools-${{ runner.os }}

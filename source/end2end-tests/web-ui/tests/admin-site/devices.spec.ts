@@ -55,6 +55,7 @@ test("the device detail page shows the device fields", async ({ page }) => {
 
   // Row-click navigates to the detail route.
   await page.getByRole("row").filter({ hasText: SEED_DEVICE_IP }).click();
+  // eslint-disable-next-line security/detect-non-literal-regexp -- test-only regex over a UUID from the seeded local daemon fixture; no user input
   await expect(page).toHaveURL(new RegExp(`/admin/devices/${deviceId}$`));
 
   // Identity card surfaces the MAC; the network card / header surface the IP.
@@ -65,6 +66,7 @@ test("the device detail page shows the device fields", async ({ page }) => {
 
 test("the device routing rule can be changed to a tunnel", async ({ page }) => {
   await page.goto(`./devices/${deviceId}`);
+  // eslint-disable-next-line security/detect-non-literal-regexp -- test-only regex over a UUID from the seeded local daemon fixture; no user input
   await expect(page).toHaveURL(new RegExp(`/admin/devices/${deviceId}$`));
 
   // Enter edit mode on the Settings card.

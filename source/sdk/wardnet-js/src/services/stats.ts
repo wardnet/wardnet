@@ -51,6 +51,7 @@ export class StatsService {
       label_filter: args.label_filter,
     });
     const out: Record<string, StatsSeriesPoint[]> = {};
+    // eslint-disable-next-line security/detect-object-injection -- key is the caller-supplied metric name from the local request list, not from the API response
     for (const m of args.metrics) out[m] = resp.results?.[m] ?? [];
     return out;
   }

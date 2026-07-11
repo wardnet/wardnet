@@ -25,6 +25,11 @@ const VALID_TOKEN = process.env.NORDVPN_VALID_TOKEN ?? "valid-nordvpn-token";
 // Read a fixture fresh on each request so a mounted-volume edit takes effect
 // without an image rebuild (mirrors the busybox blocklist_server pattern).
 function fixture(name) {
+  // `name` is never request-derived: every call site below passes one of three
+  // hardcoded literals ("countries.json", "servers.json", "credentials.json"),
+  // and no route feeds url.pathname into it — so no traversal is reachable.
+  // FIXTURES_DIR is operator-supplied env (compose sets it), not remote input.
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- see above
   return readFileSync(join(FIXTURES_DIR, name), "utf8");
 }
 

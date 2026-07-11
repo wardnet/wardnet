@@ -25,6 +25,12 @@ rust-version = "1.96"
 # compiled binary is a combined work GPL-3.0's terms extend to. The SDK and web
 # UI stay MIT; see LICENSING.md at the repo root.
 license = "GPL-3.0-or-later"
+# None of these crates go to crates.io — the daemon ships as a Debian package
+# and a container image. Declaring it keeps `cargo publish` from firing by
+# accident, and lets cargo-deny's `allow-wildcard-paths` apply to our internal
+# `{ path = ... }` dependencies (it doesn't for publishable crates, since
+# crates.io forbids path deps outright).
+publish = false
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }

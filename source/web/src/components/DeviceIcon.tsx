@@ -65,6 +65,7 @@ interface DeviceIconProps {
 
 /** Icon for a device type. Renders a matching Lucide icon. */
 export function DeviceIcon({ type, size = 18, className }: DeviceIconProps) {
+  // eslint-disable-next-line security/detect-object-injection -- read-only lookup on a local icon map keyed by the DeviceType union; no write, so no pollution
   const Icon = iconMap[type] ?? HelpCircle;
   return <Icon size={size} className={cn("text-ink-3", className)} />;
 }

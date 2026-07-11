@@ -23,6 +23,7 @@ const LEGAL_BY_SLUG: Record<string, string> = Object.fromEntries(
 
 /** Renders a static legal page (Terms of Service, Privacy Policy) from `content/legal/<slug>.md`. */
 export function Legal({ slug }: { slug: "terms" | "privacy" }) {
+  // eslint-disable-next-line security/detect-object-injection -- slug is the literal union "terms"|"privacy" from the route table; read-only map lookup
   const body = LEGAL_BY_SLUG[slug];
 
   return (

@@ -1,0 +1,25 @@
+# bulwark configuration for the wardnet monorepo.
+#
+# This file can only NARROW what bulwark does — it cannot tune rule severity or
+# suppress individual findings, and that is deliberate. Genuine findings get
+# fixed; a reviewed false positive gets an `eslint-disable-next-line <rule> --
+# <why>` on the exact line, with a reason naming where the value actually comes
+# from. No rule is switched off globally — that would hide the next genuine
+# finding, which is the whole point of running this.
+#
+# There is nothing to narrow today, so this file sets nothing. It is kept as the
+# place such decisions would be recorded, and to explain why two tempting ones
+# were rejected:
+#
+#   * `typescript: {enabled: false}` — used briefly while bulwark's ESLint check
+#     was broken: it declared no `files:` glob, so it silently linted no
+#     TypeScript at all, and it failed any package carrying an
+#     `eslint-disable-next-line` for one of our own plugins. Fixed upstream in
+#     wardnet/bulwark#13, so the check now scans .ts/.tsx for real and stays on.
+#     Disabling it would have meant zero TypeScript linting, permanently.
+#
+#   * excluding `assets` — the vendored Scalar bundle used to live there and
+#     produced 3040 of 3045 ESLint findings. `typescript.exclude` would not have
+#     helped regardless: it narrows package *discovery*, not what ESLint recurses
+#     into once inside a package. The bundle now sits under `assets/vendor/`,
+#     which linters skip by convention.

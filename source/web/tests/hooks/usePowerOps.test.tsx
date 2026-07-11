@@ -30,11 +30,13 @@ describe("power-op hooks", () => {
   ] as const)(
     "%s: fires the endpoint and enters scheduled on a 204",
     async (_n, hook, method) => {
+      // eslint-disable-next-line security/detect-object-injection -- method is a literal from an it.each as-const tuple in a test; no external key
       (systemService[method] as ReturnType<typeof vi.fn>).mockResolvedValue(
         undefined,
       );
       const { result } = renderHook(() => hook());
       act(() => result.current.start());
+      // eslint-disable-next-line security/detect-object-injection -- method is a literal from an it.each as-const tuple in a test; no external key
       await waitFor(() => expect(systemService[method]).toHaveBeenCalledOnce());
       expect(result.current.phase).toBe("scheduled");
       expect(result.current.isOpen).toBe(true);

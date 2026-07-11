@@ -48,9 +48,11 @@ describe("useDhcp queries", () => {
     ["leases", useDhcpLeases, "listLeases"],
     ["reservations", useDhcpReservations, "listReservations"],
   ] as const)("%s query calls its service method", async (_n, hook, method) => {
+    // eslint-disable-next-line security/detect-object-injection -- method is a literal from an it.each as-const tuple in a test; no external key
     (dhcpService[method] as ReturnType<typeof vi.fn>).mockResolvedValue({});
     const { result } = renderHook(() => hook(), { wrapper: wrapper() });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    // eslint-disable-next-line security/detect-object-injection -- method is a literal from an it.each as-const tuple in a test; no external key
     expect(dhcpService[method]).toHaveBeenCalled();
   });
 });

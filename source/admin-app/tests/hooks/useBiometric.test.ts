@@ -20,6 +20,7 @@ function installLocalStorage() {
     setItem: (k: string, v: string) => void store.set(k, String(v)),
     removeItem: (k: string) => void store.delete(k),
     clear: () => store.clear(),
+    // eslint-disable-next-line security/detect-object-injection -- numeric index into a locally spread array in a test localStorage mock
     key: (i: number) => [...store.keys()][i] ?? null,
     get length() {
       return store.size;

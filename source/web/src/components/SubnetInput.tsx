@@ -62,6 +62,7 @@ function resolveOctets(
   const required = Math.floor(prefix / 8); // leading fully-network octets
   const out: number[] = [];
   for (let i = 0; i < 4; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- i is a bounded 0-3 loop counter reading a locally split octet array
     const raw = parts[i];
     if (i < required) {
       if (raw === undefined || raw === "") return null;

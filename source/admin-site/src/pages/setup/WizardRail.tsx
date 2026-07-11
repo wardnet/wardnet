@@ -20,6 +20,7 @@ export function WizardRail({ current }: { current: WizardStep }) {
   const nav = useWizardNav(current);
   const currentIdx = ordinalOf(current);
   const percent = Math.round(((currentIdx + 1) / WIZARD_STEPS.length) * 100);
+  // eslint-disable-next-line security/detect-object-injection -- currentIdx is a findIndex result into the same local WIZARD_STEPS const array
   const currentLabel = WIZARD_STEPS[currentIdx]?.label ?? "";
 
   return (

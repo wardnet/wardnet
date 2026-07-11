@@ -17,7 +17,9 @@ async function typeMac(user: ReturnType<typeof userEvent.setup>, mac: string) {
     screen.getByTestId("dhcp-reservation-mac"),
   ).getAllByRole("textbox");
   for (let i = 0; i < segments.length; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- loop index over locally queried MAC segment inputs in a test helper
     await user.click(inputs[i]);
+    // eslint-disable-next-line security/detect-object-injection -- loop index over segments split from a test-local literal MAC string
     await user.keyboard(segments[i]);
   }
 }
