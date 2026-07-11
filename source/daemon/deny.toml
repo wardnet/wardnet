@@ -61,10 +61,15 @@ license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 ignore = true
 
 [bans]
-# Duplicate versions of a transitive crate are noise we don't control (nix,
-# windows-sys, rand, ... all show up multiply via different parents) — warn,
-# don't fail the build on them.
-multiple-versions = "warn"
+# Duplicate versions of a transitive crate (nix, windows-sys, rand, ... all
+# resolve to several versions via different parents) are noise we don't
+# control, so this never failed the build. It can't even usefully warn: each
+# duplicate prints a full box-drawing dependency tree, and across this
+# workspace that is ~5,100 lines / ~290 KB of output. bulwark embeds the scan
+# output verbatim in its PR summary comment, so that alone pushed the comment
+# past GitHub's 65,536-character limit and failed the job. Silencing it takes
+# cargo-deny's output from ~290 KB to 21 bytes ("bans ok, licenses ok").
+multiple-versions = "allow"
 # A wildcard version on an external crates.io dependency is a real
 # supply-chain hazard, so deny it — but our own workspace members are declared
 # as `{ path = "crates/..." }` with no version, which cargo-deny reads as a

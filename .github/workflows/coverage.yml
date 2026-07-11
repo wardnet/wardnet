@@ -260,15 +260,22 @@ jobs:
         with:
           fetch-depth: 0 # bulwark coverage needs full history to resolve the PR's base commit
 
-      - name: Cache bulwark's own tool installs
+      - name: Restore bulwark's own tool installs
         # bulwark installs cargo-audit/cargo-deny (compiled from source,
-        # several minutes) and its pinned eslint+eslint-plugin-security
-        # toolchain into ~/.cache/bulwark, keyed by tool version internally
-        # (see wardnet/bulwark internal/rust's ensure() and
-        # internal/typescript's ensureToolchain()) — a version bump gets
-        # its own subdirectory, so a static cache key here is safe: it can
-        # only ever ADD entries for new versions, never serve a stale one.
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        # several minutes) and its pinned eslint toolchain into
+        # ~/.cache/bulwark, keyed by tool version internally (see
+        # wardnet/bulwark internal/rust's ensure() and internal/typescript's
+        # ensureToolchain()) — a version bump gets its own subdirectory, so a
+        # static key here is safe: it can only ever ADD entries for a new
+        # version, never serve a stale one.
+        #
+        # restore/save are split (rather than one `actions/cache`) because the
+        # combined action only saves on job SUCCESS. A failing scan would then
+        # never populate the cache, so the tools would recompile on every run —
+        # exactly when you least want a slow job. Saving with `if: always()`
+        # breaks that chicken-and-egg.
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: bulwark-cache
         with:
           path: ~/.cache/bulwark
           key: bulwark-tools-${{ runner.os }}
@@ -327,3 +334,13 @@ jobs:
           rust-report: ${{ steps.restore.outputs.rust-report }}
           codecov-token: ${{ secrets.CODECOV_TOKEN }}
           semgrep-app-token: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+      - name: Save bulwark's tool installs
+        # `if: always()` so a failing scan still populates the cache — see the
+        # restore step above for why that matters. Skipped on an exact hit,
+        # since there'd be nothing new to write.
+        if: always() && steps.bulwark-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/bulwark
+          key: bulwark-tools-${{ runner.os }}
