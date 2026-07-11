@@ -89,11 +89,17 @@ pub const LOGO_SVG: &[u8] = include_bytes!("../assets/wardnet-logo-dark.svg");
 ///
 /// ```sh
 /// curl -sL "https://cdn.jsdelivr.net/npm/@scalar/api-reference@<version>/dist/browser/standalone.js" \
-///   -o source/daemon/crates/wardnetd-api/assets/scalar-api-reference.js
+///   -o source/daemon/crates/wardnetd-api/assets/vendor/scalar-api-reference.js
 /// ```
 ///
 /// Current pin: `1.52.5`.
-pub const SCALAR_JS: &[u8] = include_bytes!("../assets/scalar-api-reference.js");
+///
+/// Lives under `assets/vendor/` because it is third-party code we ship
+/// verbatim and never patch. Linters skip `vendor/` by convention (bulwark's
+/// bundled ESLint config ignores `**/vendor/**`) — without that, this one
+/// minified bundle produces ~3000 findings that are neither ours to fix nor
+/// meaningful, drowning out real findings in code we actually write.
+pub const SCALAR_JS: &[u8] = include_bytes!("../assets/vendor/scalar-api-reference.js");
 
 /// HTML for the `/api/docs` Scalar UI.
 ///
