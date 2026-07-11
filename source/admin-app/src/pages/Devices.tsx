@@ -294,6 +294,7 @@ export default function Devices() {
                   : "bg-sunken text-ink-3 active:bg-line",
               ].join(" ")}
             >
+              {/* eslint-disable-next-line security/detect-object-injection -- id from .map() over the hardcoded ["all","online","vpn"] Filter literal array */}
               {FILTER_LABELS[id]} ({counts[id]})
             </button>
           ))}

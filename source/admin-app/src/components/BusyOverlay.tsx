@@ -27,6 +27,7 @@ const COPY: Record<
 };
 
 export function BusyOverlay({ phase, action }: Props) {
+  // eslint-disable-next-line security/detect-object-injection -- keys are closed-union props (BusyAction/BusyPhase) into a local Record const
   const { title, subtitle } = COPY[action][phase];
 
   return (

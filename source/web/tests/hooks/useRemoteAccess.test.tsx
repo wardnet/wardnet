@@ -52,6 +52,7 @@ describe("useRemoteAccess mutations", () => {
       { token: "t" },
     ],
   ] as const)("%s calls its service method", async (_n, hook, method, arg) => {
+    // eslint-disable-next-line security/detect-object-injection -- method is a literal from an it.each as-const tuple in a test; no external key
     (remoteAccessService[method] as ReturnType<typeof vi.fn>).mockResolvedValue(
       {},
     );
@@ -59,6 +60,7 @@ describe("useRemoteAccess mutations", () => {
     await act(async () => {
       await result.current.mutateAsync(arg as never);
     });
+    // eslint-disable-next-line security/detect-object-injection -- method is a literal from an it.each as-const tuple in a test; no external key
     expect(remoteAccessService[method]).toHaveBeenCalledWith(arg);
   });
 

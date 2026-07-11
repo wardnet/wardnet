@@ -43,6 +43,7 @@ export function urlBase64ToUint8Array(base64Url: string): Uint8Array {
   const raw = atob(base64);
   const output = new Uint8Array(raw.length);
   for (let i = 0; i < raw.length; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- i is a bounded loop counter writing into a Uint8Array; typed arrays cannot be polluted
     output[i] = raw.charCodeAt(i);
   }
   return output;

@@ -25,6 +25,7 @@ import { seedReservation } from "../../fixtures/dhcp.js";
 async function fillSegments(field: Locator, parts: string[]): Promise<void> {
   const inputs = field.locator("input");
   for (let i = 0; i < parts.length; i++) {
+    // eslint-disable-next-line security/detect-object-injection -- numeric loop index into the caller-supplied local string[] of IP/MAC segments
     await inputs.nth(i).fill(parts[i]);
   }
 }

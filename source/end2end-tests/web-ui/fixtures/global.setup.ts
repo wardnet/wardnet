@@ -45,6 +45,8 @@ setup("seed admin and capture session", async () => {
     origins: [],
   };
 
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is the STORAGE_STATE constant (".auth/admin.json") from seed.ts; no dynamic segment
   mkdirSync(dirname(STORAGE_STATE), { recursive: true });
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is the STORAGE_STATE constant (".auth/admin.json") from seed.ts; no dynamic segment
   writeFileSync(STORAGE_STATE, JSON.stringify(storageState, null, 2));
 });

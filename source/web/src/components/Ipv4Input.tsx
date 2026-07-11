@@ -71,6 +71,7 @@ export function Ipv4Input({
       if (num === "NaN") num = "";
 
       const next: [string, string, string, string] = [...octets];
+      // eslint-disable-next-line security/detect-object-injection -- index is the 0-3 octet position from a 4-element map, writing into a fixed 4-tuple
       next[index] = num;
       onChange(joinOctets(next));
 
@@ -158,11 +159,13 @@ export function Ipv4Input({
         return (
           <div key={i} className="flex items-center">
             <input
+              // eslint-disable-next-line security/detect-object-injection -- i is the 0-3 map index over four local octet refs
               ref={refs[i]}
               id={i === 0 ? id : undefined}
               type="text"
               inputMode="numeric"
               value={locked ? "0" : octet}
+              // eslint-disable-next-line security/detect-object-injection -- i is the 0-3 map index over the locally parsed placeholder tuple
               placeholder={placeholders[i]}
               disabled={disabled}
               readOnly={readOnly || locked}

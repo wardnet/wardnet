@@ -30,6 +30,7 @@ const chartConfig: ChartConfig = {
 
 function formatXAxis(tsMs: number, range: StatsRange): string {
   const d = new Date(tsMs);
+  // eslint-disable-next-line security/detect-object-injection -- range is a closed StatsRange union key into the RANGE_HOURS const map
   const hours = RANGE_HOURS[range];
   if (hours <= 24)
     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -315,6 +316,7 @@ function TopList({
         {entries && entries.length > 0 ? (
           <Text as="ul" size="sm" className="flex flex-col gap-2">
             {entries.map((entry, i) => {
+              // eslint-disable-next-line security/detect-object-injection -- labelKey is a literal ("domain"/"client") from the two local TopList call sites; read-only
               const label = parseLabels(entry.labels)[labelKey] ?? entry.labels;
               return (
                 <li key={i} className="flex items-center justify-between gap-2">

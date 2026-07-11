@@ -17,6 +17,7 @@ function makeFakeSw() {
   const matchAll = vi.fn().mockResolvedValue([]);
   const sw = {
     addEventListener: (type: string, handler: Handler) => {
+      // eslint-disable-next-line security/detect-object-injection -- type is the event name the SUT registers on a test-local fake ServiceWorker stub
       handlers[type] = handler;
     },
     registration: { scope: SCOPE, showNotification },

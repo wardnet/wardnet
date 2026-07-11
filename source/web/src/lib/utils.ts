@@ -55,6 +55,7 @@ export function formatBytes(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
   const i = Math.floor(Math.log(bytes) / Math.log(1024));
   const value = bytes / Math.pow(1024, i);
+  // eslint-disable-next-line security/detect-object-injection -- i is a numeric magnitude index into a local const unit array; no attacker-controlled key
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
 

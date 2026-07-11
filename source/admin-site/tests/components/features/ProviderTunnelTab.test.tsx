@@ -104,6 +104,7 @@ async function selectProvider(
 ) {
   await user.click(screen.getByRole("combobox"));
   await user.click(
+    // eslint-disable-next-line security/detect-non-literal-regexp -- pattern is a hardcoded provider name literal from the test's own call sites
     await screen.findByRole("option", { name: new RegExp(name) }),
   );
 }

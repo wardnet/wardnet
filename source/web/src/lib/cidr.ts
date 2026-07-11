@@ -128,6 +128,7 @@ export function isPrivateCidr(cidr: string): boolean {
   return RFC1918_BLOCKS.some((block) => {
     if (parsed.prefix < block.prefix) return false;
     const net = networkOctets(parsed.octets, block.prefix);
+    // eslint-disable-next-line security/detect-object-injection -- i is the 0-3 index from .every() over a fixed 4-octet tuple
     return net.every((o, i) => o === block.octets[i]);
   });
 }

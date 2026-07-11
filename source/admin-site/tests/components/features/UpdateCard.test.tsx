@@ -176,6 +176,7 @@ describe("UpdateCard", () => {
       />,
     );
     expect(
+      // eslint-disable-next-line security/detect-non-literal-regexp -- pattern is a phase label literal from the local it.each table
       screen.getAllByText(new RegExp(label)).length,
     ).toBeGreaterThanOrEqual(1);
   });

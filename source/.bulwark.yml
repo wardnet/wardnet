@@ -1,34 +1,25 @@
 # bulwark configuration for the wardnet monorepo.
 #
 # This file can only NARROW what bulwark does — it cannot tune rule severity or
-# suppress individual findings. Genuine findings in our own code get fixed, or
-# suppressed at the exact line with a traceable reason (see the
-# `eslint-disable-next-line ... -- <why>` in end2end-tests/daemon/mocks). We do
-# not disable rules globally to make a scan go quiet.
-
-typescript:
-  # bulwark's ESLint check is disabled because, as shipped, it does not lint
-  # TypeScript at all — so leaving it on buys no security coverage while
-  # failing the build.
-  #
-  # Its bundled flat config (internal/typescript/eslint.config.mjs) declares no
-  # `files:` key and no TS parser, so ESLint's default applies and only
-  # `**/*.js`, `**/*.mjs`, `**/*.cjs` are linted. Every one of wardnet's ~550
-  # .ts/.tsx files is silently skipped. The proof is in which packages fail:
-  # bulwark runs ESLint once per package dir, and the four with ZERO plain-JS
-  # files (marketing-site, admin-app, user-app, sdk/wardnet-js) die with
-  # "all of the files matching the glob pattern '.' are ignored" — ESLint's
-  # exit-2 for "nothing to lint" — while web and admin-site "pass" only because
-  # each happens to contain a single stray .js file. Neither outcome reflects
-  # our TypeScript.
-  #
-  # This flag gates the ESLint scan ONLY (cmd/bulwark/scan.go). It does NOT
-  # gate the TypeScript coverage gate — internal/coverage's Compute() has no
-  # equivalent check, so tsCoverage still runs and still gates the merge. And
-  # Semgrep, which does parse TypeScript properly, is configured separately and
-  # stays on. So TS keeps both its coverage gate and its SAST.
-  #
-  # Re-enable once bulwark's ESLint config actually covers .ts/.tsx (needs a
-  # `files:` glob plus typescript-eslint's parser) and tolerates a package with
-  # nothing to lint instead of erroring. Tracked upstream in wardnet/bulwark.
-  enabled: false
+# suppress individual findings, and that is deliberate. Genuine findings get
+# fixed; a reviewed false positive gets an `eslint-disable-next-line <rule> --
+# <why>` on the exact line, with a reason naming where the value actually comes
+# from. No rule is switched off globally — that would hide the next genuine
+# finding, which is the whole point of running this.
+#
+# There is nothing to narrow today, so this file sets nothing. It is kept as the
+# place such decisions would be recorded, and to explain why two tempting ones
+# were rejected:
+#
+#   * `typescript: {enabled: false}` — used briefly while bulwark's ESLint check
+#     was broken: it declared no `files:` glob, so it silently linted no
+#     TypeScript at all, and it failed any package carrying an
+#     `eslint-disable-next-line` for one of our own plugins. Fixed upstream in
+#     wardnet/bulwark#13, so the check now scans .ts/.tsx for real and stays on.
+#     Disabling it would have meant zero TypeScript linting, permanently.
+#
+#   * excluding `assets` — the vendored Scalar bundle used to live there and
+#     produced 3040 of 3045 ESLint findings. `typescript.exclude` would not have
+#     helped regardless: it narrows package *discovery*, not what ESLint recurses
+#     into once inside a package. The bundle now sits under `assets/vendor/`,
+#     which linters skip by convention.

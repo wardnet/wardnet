@@ -234,6 +234,7 @@ export function CronSchedulePicker({
                         variant={active ? "default" : "outline"}
                         size="sm"
                         className="flex-1 px-0"
+                        // eslint-disable-next-line security/detect-object-injection -- index from .map() over the local const DOW_SHORT array (0-6)
                         aria-label={DOW_LABELS[i]}
                         aria-pressed={active}
                         onClick={() => {
@@ -266,6 +267,7 @@ export function CronSchedulePicker({
                   <SelectContent>
                     {domOptions.map((d) => (
                       <SelectItem key={d} value={d}>
+                        {/* eslint-disable-next-line security/detect-object-injection -- d from .map() over locally generated domOptions ("1".."28") */}
                         {DOM_ORDINALS[d]}
                       </SelectItem>
                     ))}
