@@ -5,10 +5,13 @@ name: Coverage
 # Called from pr.yml and ci.yml. Each coverage job (daemon / site /
 # frontend) is gated on a boolean input so the caller only spins up the
 # work its change set touches — a frontend-only PR skips the 30-min daemon
-# coverage, and vice versa. The parallel jobs each emit LCOV + JUnit, and a
-# single `upload` job combines everything into ONE Codecov invocation so we
-# get a single PR comment with a coherent base comparison rather than
-# dueling uploads from separate leaves.
+# coverage, and vice versa. The parallel jobs each emit LCOV + JUnit.
+#
+# Coverage-file upload to Codecov and the coverage-gate itself are
+# bulwark's job (the `bulwark` job below), not ours — we only compute the
+# reports; duplicating that upload here would just be a second, redundant
+# Codecov push. The `upload` job that remains here handles JUnit
+# test-results only, which bulwark has no concept of.
 
 on:
   workflow_call:
@@ -257,6 +260,19 @@ jobs:
         with:
           fetch-depth: 0 # bulwark coverage needs full history to resolve the PR's base commit
 
+      - name: Cache bulwark's own tool installs
+        # bulwark installs cargo-audit/cargo-deny (compiled from source,
+        # several minutes) and its pinned eslint+eslint-plugin-security
+        # toolchain into ~/.cache/bulwark, keyed by tool version internally
+        # (see wardnet/bulwark internal/rust's ensure() and
+        # internal/typescript's ensureToolchain()) — a version bump gets
+        # its own subdirectory, so a static cache key here is safe: it can
+        # only ever ADD entries for new versions, never serve a stale one.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/bulwark
+          key: bulwark-tools-${{ runner.os }}
+
       - name: Download daemon coverage
         if: needs.daemon-coverage.result == 'success'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
@@ -313,11 +329,17 @@ jobs:
           semgrep-app-token: ${{ secrets.SEMGREP_APP_TOKEN }}
 
   upload:
-    name: Upload to Codecov
+    name: Upload test results to Codecov
+    # Coverage-file (LCOV) upload is bulwark's job now, not ours — the
+    # `bulwark` job above passes it a codecov-token, and its own
+    # codecov-action call auto-discovers the same coverage/*-lcov.info
+    # files already sitting in its working directory (downloaded there for
+    # the restore step). This job only handles JUnit test-results, which
+    # bulwark has no concept of.
     needs: [daemon-coverage, site-coverage, frontend-coverage]
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Run even if one side failed so partial coverage still uploads —
+    # Run even if one side failed so partial results still upload —
     # a failing daemon test shouldn't hide a site coverage regression.
     if: |
       always() && (
@@ -354,48 +376,34 @@ jobs:
           name: coverage-frontend
           path: coverage/
 
-      - name: Resolve present coverage files
+      - name: Resolve present test-result files
         id: files
         run: |
           set -euo pipefail
-          LCOV=""
           JUNIT=""
-          [[ -f coverage/daemon-lcov.info ]] && LCOV="${LCOV}coverage/daemon-lcov.info,"
-          [[ -f coverage/site-lcov.info ]] && LCOV="${LCOV}coverage/site-lcov.info,"
-          [[ -f coverage/frontend-lcov.info ]] && LCOV="${LCOV}coverage/frontend-lcov.info,"
           [[ -f coverage/daemon-junit.xml ]] && JUNIT="${JUNIT}coverage/daemon-junit.xml,"
           [[ -f coverage/site-junit.xml ]] && JUNIT="${JUNIT}coverage/site-junit.xml,"
           for f in coverage/frontend-*-junit.xml; do
             [[ -f "$f" ]] && JUNIT="${JUNIT}${f},"
           done
-          echo "lcov=${LCOV%,}" >> $GITHUB_OUTPUT
           echo "junit=${JUNIT%,}" >> $GITHUB_OUTPUT
 
-      # Pre-install the Codecov CLI from PyPI and hand it to both upload
-      # steps via `binary:`. The default path (download from cli.codecov.io
-      # + PGP verification against keybase.io) currently hangs until the
-      # job timeout: Codecov migrated their keybase account, bricking the
-      # old one and breaking signature verification — codecov/codecov-action#1956.
-      # PyPI provides its own integrity, so this avoids the broken keybase
-      # path WITHOUT `skip_validation` (which would disable integrity
-      # checking outright). Revert to the action's own download once
-      # upstream ships the fix.
+      # Pre-install the Codecov CLI from PyPI. The default path (download
+      # from cli.codecov.io + PGP verification against keybase.io)
+      # currently hangs until the job timeout: Codecov migrated their
+      # keybase account, bricking the old one and breaking signature
+      # verification — codecov/codecov-action#1956. PyPI provides its own
+      # integrity, so this avoids the broken keybase path WITHOUT
+      # `skip_validation` (which would disable integrity checking
+      # outright). Revert to the action's own download once upstream ships
+      # the fix.
       - name: Install Codecov CLI from PyPI
         id: codecovcli
-        if: ${{ !cancelled() && (steps.files.outputs.lcov != '' || steps.files.outputs.junit != '') }}
+        if: ${{ !cancelled() && steps.files.outputs.junit != '' }}
         run: |
           python3 -m venv "$RUNNER_TEMP/codecov-cli-venv"
           "$RUNNER_TEMP/codecov-cli-venv/bin/pip" install --quiet codecov-cli
           echo "bin=$RUNNER_TEMP/codecov-cli-venv/bin/codecovcli" >> "$GITHUB_OUTPUT"
-
-      - name: Upload coverage to Codecov
-        if: steps.files.outputs.lcov != ''
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
-        with:
-          files: ${{ steps.files.outputs.lcov }}
-          binary: ${{ steps.codecovcli.outputs.bin }}
-          fail_ci_if_error: false
-          token: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Upload test results to Codecov
         if: ${{ !cancelled() && steps.files.outputs.junit != '' }}
