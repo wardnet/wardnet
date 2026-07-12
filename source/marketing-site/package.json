@@ -1,7 +1,7 @@
 {
   "name": "@wardnet/site",
   "private": true,
-  "version": "0.4.1",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "yarn copy:install-script && yarn copy:scalar && yarn generate:sdk-reference && vite",
