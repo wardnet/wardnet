@@ -53,7 +53,7 @@ describe("Features", () => {
 
   it("tags the Premium cards", () => {
     renderFeatures();
-    // Remote access and mobile apps are the two Premium features.
-    expect(screen.getAllByText("Premium")).toHaveLength(2);
+    // Remote access, Personal VPN, and mobile apps are the Premium features.
+    expect(screen.getAllByText("Premium")).toHaveLength(3);
   });
 });
