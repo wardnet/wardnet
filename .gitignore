@@ -53,8 +53,13 @@ source/sdk/wardnet-js/dist/
 .DS_Store
 .vscode/
 .idea/
-.claude/settings.local.json
-.claude/scheduled_tasks.lock
+# Agentic-toolkit generated outputs — synced from .agents/ (+ the extended
+# stacks) on every toolkit sync. The sources are committed; these regenerate,
+# so they are never committed. Anchored to the repo root so intentionally
+# tracked CLAUDE.md/AGENTS.md files in subdirectories are unaffected.
+/.claude/
+/CLAUDE.md
+/.mcp.json
 .wardnet-local/
 .target-linux/
 .design-sync/sb-reference/

@@ -3,6 +3,7 @@ extends:
    - github.com/wardnet/agentic-stacks/wardnet.yaml@main
 skills:
   - ./.agents/skills/bump-rust
+  - ./.agents/skills/full-repo-review
 agents:
   - ./.agents/agents/rust-engineer
 mcp:
