@@ -8,8 +8,14 @@ The **private** signing key is never committed. It lives as a pair of GitHub Act
 
 | Secret name                    | Content                                                                 |
 | ------------------------------ | ----------------------------------------------------------------------- |
-| `WARDNET_MINISIGN_KEY`         | The password-protected `minisign.key` file, base64-encoded              |
+| `WARDNET_MINISIGN_KEY`         | The password-protected `minisign.key` file, verbatim                    |
 | `WARDNET_MINISIGN_PASSWORD`    | The password that decrypts the key                                      |
+
+`WARDNET_MINISIGN_KEY` holds the **raw** key file, because the same secret is
+consumed verbatim by other Wardnet repositories. The signing steps also accept a
+base64-encoded key — the historical format — by sniffing for the `untrusted
+comment:` header a raw minisign key always carries. Either form works; do not
+re-encode the secret without checking the other consumers first.
 
 The release workflow (`.github/workflows/release.yml`) pulls both secrets at build time, signs each tarball, and destroys the decoded key file before the job finishes.
 
@@ -42,7 +48,7 @@ git commit -m "chore: add release signing public key"
 
 # 2. Set the GitHub Actions secrets. `gh` reads from stdin so the key never
 #    hits your shell history.
-gh secret set WARDNET_MINISIGN_KEY --repo wardnet/wardnet < <(base64 < wardnet-release.key)
+gh secret set WARDNET_MINISIGN_KEY --repo wardnet/wardnet < wardnet-release.key
 gh secret set WARDNET_MINISIGN_PASSWORD --repo wardnet/wardnet
 #    ^ gh prompts; paste the password
 
