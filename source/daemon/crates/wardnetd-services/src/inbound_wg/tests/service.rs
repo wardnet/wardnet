@@ -10,6 +10,7 @@ use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
 
 use crate::auth_context;
 use crate::device::service::DeviceService;
+use crate::entitlement::Entitlement;
 use crate::error::AppError;
 use crate::inbound_wg::interface::{
     InboundWgInterface, InboundWgPeerConfig, InboundWgPeerStats, InboundWgServerConfig,
@@ -403,6 +404,7 @@ struct Harness {
     interface: Arc<MockInterface>,
     firewall: Arc<MockFirewall>,
     devices: Arc<MockDeviceService>,
+    entitlement: Arc<Entitlement>,
     service: InboundWgServiceImpl,
 }
 
@@ -420,6 +422,10 @@ fn harness() -> Harness {
     let interface = Arc::new(MockInterface::default());
     let firewall = Arc::new(MockFirewall::default());
     let devices = Arc::new(MockDeviceService::default());
+    // Personal VPN is Premium; default the harness to an entitled box so the
+    // existing specs exercise the happy path. The gate spec flips this off.
+    let entitlement = Entitlement::shared();
+    entitlement.set_premium(true);
     let service = InboundWgServiceImpl::with_key_store(
         peers.clone(),
         system_config.clone(),
@@ -427,6 +433,7 @@ fn harness() -> Harness {
         interface.clone(),
         firewall.clone(),
         devices.clone(),
+        entitlement.clone(),
     );
     Harness {
         peers,
@@ -435,6 +442,7 @@ fn harness() -> Harness {
         interface,
         firewall,
         devices,
+        entitlement,
         service,
     }
 }
@@ -481,6 +489,64 @@ async fn enable_persists_config_and_calls_backends() {
         vec![INBOUND_WG_INTERFACE.to_owned()]
     );
     assert_eq!(*h.firewall.accept_added.lock().unwrap(), vec![51821]);
+}
+
+#[tokio::test]
+async fn enable_without_entitlement_is_forbidden() {
+    let h = harness();
+    h.entitlement.set_premium(false); // not Premium
+    let err = auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .expect_err("enabling Personal VPN without Premium is rejected");
+    assert!(matches!(err, AppError::Forbidden(_)));
+    // Nothing was stood up or persisted.
+    assert!(!h.system_config.inbound_wg_enabled().await.unwrap());
+    assert!(h.interface.ensure_calls.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn add_peer_without_entitlement_is_forbidden() {
+    let h = harness();
+    let device_id = h.add_device("Laptop");
+    h.entitlement.set_premium(false);
+    let err = auth_context::with_context(admin_ctx(), h.service.add_peer(device_id, None))
+        .await
+        .expect_err("granting a peer without Premium is rejected");
+    assert!(matches!(err, AppError::Forbidden(_)));
+}
+
+#[tokio::test]
+async fn disable_is_allowed_without_entitlement() {
+    let h = harness();
+    // Enable while entitled, then lose Premium and confirm disabling still works
+    // (an unentitled box must be able to turn the server off).
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .expect("enable while entitled");
+    h.entitlement.set_premium(false);
+    let resp = auth_context::with_context(admin_ctx(), h.service.set_config(false, 51821))
+        .await
+        .expect("disable is allowed without Premium");
+    assert!(!resp.enabled);
+    assert!(!h.system_config.inbound_wg_enabled().await.unwrap());
+}
+
+#[tokio::test]
+async fn reconcile_disables_server_when_entitlement_lost() {
+    let h = harness();
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .expect("enable while entitled");
+    assert!(h.system_config.inbound_wg_enabled().await.unwrap());
+
+    // Premium lapses, then the daemon restarts (reconcile). The server must not
+    // come back up; it is disabled and persisted so.
+    h.entitlement.set_premium(false);
+    h.service.reconcile().await.expect("reconcile succeeds");
+    assert!(
+        !h.system_config.inbound_wg_enabled().await.unwrap(),
+        "reconcile disables an enabled server once Premium is lost"
+    );
 }
 
 #[tokio::test]

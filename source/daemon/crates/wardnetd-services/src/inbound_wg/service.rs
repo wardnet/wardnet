@@ -12,6 +12,7 @@ use wardnet_common::api::{
 
 use crate::auth_context;
 use crate::device::service::DeviceService;
+use crate::entitlement::Entitlement;
 use crate::error::AppError;
 use crate::inbound_wg::interface::{
     InboundWgInterface, InboundWgPeerConfig, InboundWgServerConfig,
@@ -153,6 +154,10 @@ pub struct InboundWgServiceImpl {
     /// [`DeviceService`] (never `DeviceRepository` directly) so the
     /// single-service-per-repository rule holds.
     devices: Arc<dyn DeviceService>,
+    /// Shared entitlement handle. Personal VPN is a Premium capability, so
+    /// enabling the server and granting peers require an active entitlement,
+    /// and a box that has lost entitlement disables the server on reconcile.
+    entitlement: Arc<Entitlement>,
 }
 
 impl InboundWgServiceImpl {
@@ -165,6 +170,7 @@ impl InboundWgServiceImpl {
         interface: Arc<dyn InboundWgInterface>,
         firewall: Arc<dyn FirewallManager>,
         devices: Arc<dyn DeviceService>,
+        entitlement: Arc<Entitlement>,
     ) -> Self {
         let keys: Arc<dyn ServerKeyStore> = Arc::new(ServerKeyStoreAdapter::new(secret_store));
         Self {
@@ -174,6 +180,7 @@ impl InboundWgServiceImpl {
             interface,
             firewall,
             devices,
+            entitlement,
         }
     }
 
@@ -186,6 +193,7 @@ impl InboundWgServiceImpl {
         interface: Arc<dyn InboundWgInterface>,
         firewall: Arc<dyn FirewallManager>,
         devices: Arc<dyn DeviceService>,
+        entitlement: Arc<Entitlement>,
     ) -> Self {
         Self {
             peers,
@@ -194,6 +202,21 @@ impl InboundWgServiceImpl {
             interface,
             firewall,
             devices,
+            entitlement,
+        }
+    }
+
+    /// Premium gate for the Personal VPN feature. Enabling the inbound server
+    /// and granting peers require an active entitlement, mirroring the 403 the
+    /// serving layer returns for the premium PWA surfaces.
+    fn require_entitled(&self) -> Result<(), AppError> {
+        if self.entitlement.is_entitled() {
+            Ok(())
+        } else {
+            Err(AppError::Forbidden(
+                "inbound WireGuard (Personal VPN) requires an active Premium subscription"
+                    .to_owned(),
+            ))
         }
     }
 
@@ -439,6 +462,10 @@ impl InboundWgService for InboundWgServiceImpl {
         auth_context::require_admin()?;
 
         if enabled {
+            // Disabling is always allowed (an unentitled box must be able to
+            // turn the server off); only enabling is Premium-gated.
+            self.require_entitled()?;
+
             let (private_key, server_pubkey) = self.ensure_server_keypair().await?;
 
             self.bring_up_server(private_key, listen_port).await?;
@@ -505,6 +532,7 @@ impl InboundWgService for InboundWgServiceImpl {
         endpoint: Option<String>,
     ) -> Result<AddInboundWgPeerResponse, AppError> {
         auth_context::require_admin()?;
+        self.require_entitled()?;
 
         // Precondition first: no keygen / DB work if the server is off.
         if !self
@@ -771,6 +799,27 @@ impl InboundWgService for InboundWgServiceImpl {
             .await
             .map_err(AppError::Internal)?
         {
+            return Ok(());
+        }
+
+        // Personal VPN is Premium. If the server was enabled while entitled but
+        // the box has since lost entitlement (subscription lapsed, or moved off
+        // the wardnet provider), do not stand it back up: disable it and persist
+        // that, so the daemon never serves a Premium feature the box no longer
+        // has. Interface/firewall teardown is best-effort (nothing is up yet on
+        // a fresh boot; this only matters if a prior process left state behind).
+        if !self.entitlement.is_entitled() {
+            tracing::warn!(
+                "inbound wireguard server was enabled but the box is no longer entitled to \
+                 Premium; disabling it on reconcile"
+            );
+            self.system_config
+                .set_inbound_wg_enabled(false)
+                .await
+                .map_err(AppError::Internal)?;
+            let _ = self.interface.tear_down_server(INBOUND_WG_INTERFACE).await;
+            let _ = self.firewall.remove_masquerade(INBOUND_WG_INTERFACE).await;
+            let _ = self.firewall.remove_inbound_wg_accept().await;
             return Ok(());
         }
 

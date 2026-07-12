@@ -660,6 +660,7 @@ fn create_services(
         backends.inbound_wg_interface.clone(),
         backends.firewall.clone(),
         device_service.clone(),
+        entitlement.clone(),
     ));
 
     let discovery_service = build_discovery_service(
