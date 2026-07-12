@@ -37,12 +37,17 @@
 //! logged once (on the edge) so the journal shows when a box's state changed,
 //! not every poll.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, OnceLock};
+
+use chrono::Utc;
+use wardnet_common::event::WardnetEvent;
+
+use crate::event::EventPublisher;
 
 /// Shared entitlement state. Construct one per process via [`Entitlement::shared`]
 /// and clone the `Arc` to every reader/writer.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Entitlement {
     /// `true` once a token mint was refused for entitlement; cleared on the next
     /// successful mint. Starts `false` (assume active until told otherwise, so
@@ -54,6 +59,22 @@ pub struct Entitlement {
     /// entitled to the premium app surfaces by default. Flipped by the DDNS
     /// service when the configured provider changes.
     premium: AtomicBool,
+    /// Optional event sink, wired once after construction (the DDNS service
+    /// creates this handle before the event bus exists). When present, every
+    /// `is_entitled()` edge publishes [`WardnetEvent::EntitlementChanged`], so
+    /// listeners can tear down Premium-only runtime state the moment the box
+    /// loses entitlement (e.g. disable the inbound-WireGuard server).
+    publisher: OnceLock<Arc<dyn EventPublisher>>,
+}
+
+impl std::fmt::Debug for Entitlement {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // `dyn EventPublisher` is not `Debug`; report the observable state only.
+        f.debug_struct("Entitlement")
+            .field("premium", &self.premium.load(Ordering::Relaxed))
+            .field("suspended", &self.suspended.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
+    }
 }
 
 impl Entitlement {
@@ -61,6 +82,32 @@ impl Entitlement {
     #[must_use]
     pub fn shared() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    /// Wire the event bus so `is_entitled()` edges publish
+    /// [`WardnetEvent::EntitlementChanged`]. Idempotent: the first call wins,
+    /// later calls are ignored. Called once during service init, after the
+    /// bus is built. Until set, edges are silent (fine for tests / the mock).
+    pub fn set_publisher(&self, publisher: Arc<dyn EventPublisher>) {
+        let _ = self.publisher.set(publisher);
+    }
+
+    /// Publish an [`WardnetEvent::EntitlementChanged`] iff `is_entitled()`
+    /// actually flipped relative to `was_entitled`. No-op when no publisher is
+    /// wired. Best-effort: the event is an optimization over the reconcile /
+    /// request-time gates, and listeners re-check state, so a missed or
+    /// spurious edge is not load-bearing.
+    fn emit_if_entitlement_changed(&self, was_entitled: bool) {
+        let now_entitled = self.is_entitled();
+        if now_entitled == was_entitled {
+            return;
+        }
+        if let Some(publisher) = self.publisher.get() {
+            publisher.publish(WardnetEvent::EntitlementChanged {
+                entitled: now_entitled,
+                timestamp: Utc::now(),
+            });
+        }
     }
 
     /// Whether the daemon currently believes its subscription has lapsed.
@@ -80,6 +127,7 @@ impl Entitlement {
     /// Record that a token mint was refused for entitlement. Logs once on the
     /// active → suspended edge.
     pub fn suspend(&self) {
+        let was_entitled = self.is_entitled();
         if self
             .suspended
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -90,10 +138,12 @@ impl Entitlement {
                  premium app surfaces are disabled until it is restored"
             );
         }
+        self.emit_if_entitlement_changed(was_entitled);
     }
 
     /// Record a successful token mint. Logs once on the suspended → active edge.
     pub fn restore(&self) {
+        let was_entitled = self.is_entitled();
         if self
             .suspended
             .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
@@ -101,6 +151,7 @@ impl Entitlement {
         {
             tracing::info!("entitlement restored: the wardnet subscription is active again");
         }
+        self.emit_if_entitlement_changed(was_entitled);
     }
 
     /// Record whether the box is currently on the wardnet-operated DDNS
@@ -109,6 +160,7 @@ impl Entitlement {
     /// once at startup to prime the flag from persisted config. Logs once on
     /// each edge.
     pub fn set_premium(&self, premium: bool) {
+        let was_entitled = self.is_entitled();
         let prev = self.premium.swap(premium, Ordering::AcqRel);
         if prev != premium {
             if premium {
@@ -123,6 +175,7 @@ impl Entitlement {
                 );
             }
         }
+        self.emit_if_entitlement_changed(was_entitled);
     }
 }
 
@@ -180,6 +233,76 @@ mod tests {
         e.set_premium(true);
         e.set_premium(true); // no-op edge
         assert!(e.is_entitled());
+        e.set_premium(false);
+        assert!(!e.is_entitled());
+    }
+
+    /// Records published events so edge emission can be asserted.
+    #[derive(Default)]
+    struct RecordingPublisher {
+        events: std::sync::Mutex<Vec<wardnet_common::event::WardnetEvent>>,
+    }
+
+    impl crate::event::EventPublisher for RecordingPublisher {
+        fn publish(&self, event: wardnet_common::event::WardnetEvent) {
+            self.events.lock().unwrap().push(event);
+        }
+        fn subscribe(
+            &self,
+        ) -> tokio::sync::broadcast::Receiver<wardnet_common::event::WardnetEvent> {
+            tokio::sync::broadcast::channel(16).1
+        }
+    }
+
+    fn entitled_edges(pubr: &RecordingPublisher) -> Vec<bool> {
+        pubr.events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|ev| match ev {
+                wardnet_common::event::WardnetEvent::EntitlementChanged { entitled, .. } => {
+                    Some(*entitled)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn premium_edges_emit_entitlement_changed() {
+        let e = Entitlement::shared();
+        let pubr = std::sync::Arc::new(RecordingPublisher::default());
+        e.set_publisher(pubr.clone());
+        e.set_premium(true); // not-entitled -> entitled
+        e.set_premium(true); // no-op edge, no event
+        e.set_premium(false); // entitled -> not-entitled
+        assert_eq!(entitled_edges(&pubr), vec![true, false]);
+    }
+
+    #[test]
+    fn suspend_restore_edges_emit_only_while_premium() {
+        let e = Entitlement::shared();
+        let pubr = std::sync::Arc::new(RecordingPublisher::default());
+        e.set_publisher(pubr.clone());
+        // A free box (never premium): suspend/restore never cross the entitled
+        // edge, so nothing is published.
+        e.suspend();
+        e.restore();
+        assert!(entitled_edges(&pubr).is_empty());
+        // Once premium, suspension crosses the edge and restoration crosses back.
+        e.set_premium(true); // -> entitled
+        e.suspend(); // -> not entitled
+        e.restore(); // -> entitled
+        assert_eq!(entitled_edges(&pubr), vec![true, false, true]);
+    }
+
+    #[test]
+    fn no_publisher_wired_is_silent() {
+        // The mock and unit tests may never wire a publisher; edges must not panic.
+        let e = Entitlement::shared();
+        e.set_premium(true);
+        e.suspend();
+        e.restore();
         e.set_premium(false);
         assert!(!e.is_entitled());
     }

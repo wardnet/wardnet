@@ -248,6 +248,16 @@ pub enum WardnetEvent {
         policy: String,
         timestamp: DateTime<Utc>,
     },
+    /// The box's entitlement (Premium) state changed, i.e. `is_entitled()`
+    /// flipped: premium was gained or lost, or the subscription was suspended /
+    /// restored (issue #266). Emitted once on the edge by the shared
+    /// `Entitlement` handle. Listeners tear down Premium-only runtime state on
+    /// loss: notably, the inbound-WireGuard ("Personal VPN") server is disabled
+    /// so a lapsed box does not keep serving a Premium feature.
+    EntitlementChanged {
+        entitled: bool,
+        timestamp: DateTime<Utc>,
+    },
     /// A previously-unseen device was discovered while new-device quarantine is
     /// enabled (issue #738). Fires exactly once per device — only from the
     /// truly-new insert path, never on reconnect — so it is a valid "first-ever"

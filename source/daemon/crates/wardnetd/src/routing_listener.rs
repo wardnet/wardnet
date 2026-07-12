@@ -234,6 +234,8 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         // push-notification concerns only.
         | WardnetEvent::NewDeviceQuarantined { .. }
         | WardnetEvent::RuleRequestCreated { .. }
+        // Entitlement changes are handled by the dedicated `entitlement_listener`.
+        | WardnetEvent::EntitlementChanged { .. }
         | WardnetEvent::DefaultPolicyChanged { .. } => {}
     }
 }
