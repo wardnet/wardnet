@@ -331,6 +331,7 @@ export {
 } from "./hooks/useInboundWg";
 export { peerConfigFilename } from "./lib/inboundWgConfig";
 export { InboundWgQrCode } from "./components/InboundWgQrCode";
+export { InboundWgBetaNotice } from "./components/InboundWgBetaNotice";
 export { triggerBrowserDownload } from "./lib/download";
 export { ModalTitleBlock } from "./components/ModalTitleBlock";
 export { AlertModalTitleBlock } from "./components/AlertModalTitleBlock";

@@ -20,6 +20,7 @@ import {
   useRemoveInboundWgPeer,
   useSetInboundWgPeerEnabled,
   useDevices,
+  InboundWgBetaNotice,
 } from "@wardnet/web";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
@@ -103,6 +104,8 @@ export default function Vpn() {
         title="VPN"
         description="Let devices connect back in from off the LAN through an inbound WireGuard server."
       />
+
+      <InboundWgBetaNotice />
 
       <Card>
         <CardHeader>

@@ -1,5 +1,12 @@
 import { useRef, useState } from "react";
-import { Drawer, DrawerContent, DrawerTitle, Text, Button } from "@wardnet/web";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerTitle,
+  Text,
+  Button,
+  InboundWgBetaNotice,
+} from "@wardnet/web";
 import {
   useUpdateDevice,
   useNetworkZones,
@@ -271,6 +278,7 @@ export function DeviceRoutingSheet({
                 >
                   Remote access
                 </Text>
+                <InboundWgBetaNotice className="mx-4 mb-2" />
                 <div className="px-4 pt-1">
                   <Button
                     className="w-full"
