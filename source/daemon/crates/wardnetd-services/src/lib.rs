@@ -580,6 +580,11 @@ fn create_services(
         ddns_settings,
     );
     let entitlement = ddns_impl.entitlement();
+    // Wire the event bus so entitlement edges (Premium gained/lost, subscription
+    // suspended/restored) publish `EntitlementChanged`. The `entitlement_listener`
+    // in `wardnetd` consumes it to disable the inbound-WireGuard server the moment
+    // the box loses entitlement, rather than waiting for the next reconcile.
+    entitlement.set_publisher(event_publisher.clone());
     let ddns: Arc<dyn DdnsService> = Arc::new(ddns_impl);
 
     // Reverse-tunnel connector (issue #809): the runner in `wardnetd`'s `main`
@@ -660,6 +665,7 @@ fn create_services(
         backends.inbound_wg_interface.clone(),
         backends.firewall.clone(),
         device_service.clone(),
+        entitlement.clone(),
     ));
 
     let discovery_service = build_discovery_service(

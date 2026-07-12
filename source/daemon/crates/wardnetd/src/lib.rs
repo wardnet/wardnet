@@ -27,6 +27,7 @@ pub mod tls_server;
 
 // Background tasks.
 pub mod device_detector;
+pub mod entitlement_listener;
 pub mod garp_learning;
 pub mod health_runner;
 pub mod heartbeat;

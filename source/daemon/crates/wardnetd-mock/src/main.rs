@@ -44,7 +44,6 @@ use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::HttpBlocklistFetcher;
-use wardnetd_services::entitlement::Entitlement;
 use wardnetd_services::health::checks::{DbHealthCheck, LivenessHealthCheck};
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
@@ -310,6 +309,14 @@ async fn run(
     )
     .await?;
 
+    // Personal VPN (inbound WireGuard) and the premium app surfaces (user PWA +
+    // admin mobile app) are Premium capabilities gated on `services.entitlement`
+    // (the one shared handle the DDNS service owns and inbound-WG reads). The
+    // mock always stands in for a wardnet-subscribed box, so mark it entitled
+    // up front — in particular before the inbound-WG reconcile below, whose
+    // Premium gate would otherwise disable an enabled-across-restart server.
+    services.entitlement.set_premium(true);
+
     // Startup reconcile of the inbound-WireGuard server, mirroring the real
     // daemon (`wardnetd` main): stands the interface back up if enabled and,
     // crucially for the mock's persistent secret store, re-caches the server
@@ -342,12 +349,6 @@ async fn run(
     // Demo DDNS: an already-issued host so remote-access QR codes / `.conf`
     // downloads have a reachable-looking Endpoint out of the box.
     remote_access_state.configure_demo();
-    // Entitlement (issue #795): the premium app surfaces (user PWA + admin
-    // mobile app) self-gate on `/api/info`'s `entitled` flag. The mock always
-    // stands in for a wardnet-subscribed box so those apps are testable
-    // locally.
-    let entitlement = Entitlement::shared();
-    entitlement.set_premium(true);
     let mock_ddns: Arc<dyn wardnetd_services::ddns::DdnsService> =
         Arc::new(MockDdnsService::new(remote_access_state.clone()));
     let mock_tls: Arc<dyn wardnetd_services::tls::TlsService> =
@@ -394,7 +395,7 @@ async fn run(
     )
     .with_push_service(services.push.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
-    .with_entitlement(entitlement)
+    .with_entitlement(services.entitlement.clone())
     .with_health_monitor(health_monitor);
 
     // Drain the DNS query log persistence channel into SQLite so the

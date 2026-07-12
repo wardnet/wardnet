@@ -181,6 +181,8 @@ async fn handle_event(event: WardnetEvent, enforcer: &dyn ZoneEnforcementService
         // Rule requests (#482) likewise only drive an admin push.
         | WardnetEvent::NewDeviceQuarantined { .. }
         | WardnetEvent::RuleRequestCreated { .. }
+        // Entitlement changes are handled by the dedicated `entitlement_listener`.
+        | WardnetEvent::EntitlementChanged { .. }
         | WardnetEvent::DnsEventInserted { .. } => {}
 
         // A cross-zone exception changed — rebuild the L3 isolation state so its

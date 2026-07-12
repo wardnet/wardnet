@@ -22,6 +22,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::config::{ApplicationConfiguration, LogFormat, LogRotation, OtelConfig};
 use wardnetd::device_detector::DeviceDetector;
+use wardnetd::entitlement_listener::EntitlementListener;
 use wardnetd::firewall_netlink::NetlinkFirewallManager;
 use wardnetd::garp_pnet::PnetGarpOps;
 use wardnetd::health_runner::HealthMonitorRunner;
@@ -513,6 +514,14 @@ async fn run(
         services.zone_enforcement.clone(),
         &root_span,
     );
+    // Disables the inbound-WireGuard (Personal VPN) server the instant the box
+    // loses entitlement, complementing the request-time gate and the
+    // reconcile-on-restart teardown (issue #266).
+    let entitlement_listener = EntitlementListener::start(
+        &services.event_publisher,
+        services.inbound_wg.clone(),
+        &root_span,
+    );
     let push_listener = PushNotificationListener::start(
         &services.event_publisher,
         services.push.clone(),
@@ -985,6 +994,7 @@ async fn run(
     health_runner.shutdown().await;
     routing_listener.shutdown().await;
     zone_enforcement_listener.shutdown().await;
+    entitlement_listener.shutdown().await;
     push_listener.shutdown().await;
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;
