@@ -66,12 +66,12 @@ jobs:
       - name: Sign post-upgrade payload, repack, rename, sha256, sign tarball
         env:
           VERSION: ${{ inputs.version }}
-          MINISIGN_KEY_B64: ${{ secrets.WARDNET_MINISIGN_KEY }}
+          MINISIGN_KEY: ${{ secrets.WARDNET_MINISIGN_KEY }}
           MINISIGN_PASSWORD: ${{ secrets.WARDNET_MINISIGN_PASSWORD }}
         run: |
           set -euo pipefail
 
-          if [[ -z "${MINISIGN_KEY_B64:-}" || -z "${MINISIGN_PASSWORD:-}" ]]; then
+          if [[ -z "${MINISIGN_KEY:-}" || -z "${MINISIGN_PASSWORD:-}" ]]; then
             echo "::error::WARDNET_MINISIGN_KEY and WARDNET_MINISIGN_PASSWORD secrets are required. See deploy/keys/README.md."
             exit 1
           fi
@@ -82,9 +82,25 @@ jobs:
 
           # Write the encrypted private key once. Shredded in the
           # trailing step regardless of earlier failure.
-          echo "${MINISIGN_KEY_B64}" | base64 -d > minisign.key
+          #
+          # The secret is shared with other repos, which consume the key file
+          # verbatim, so it is stored raw. Historically it was base64-encoded.
+          # Accept either: a raw minisign key always opens with the "untrusted
+          # comment:" header, anything else is treated as base64.
+          if [[ "${MINISIGN_KEY}" == untrusted\ comment:* ]]; then
+            printf '%s\n' "${MINISIGN_KEY}" > minisign.key
+          else
+            printf '%s' "${MINISIGN_KEY}" | base64 -d > minisign.key
+          fi
           chmod 0600 minisign.key
           trap 'shred -u minisign.key || true' EXIT
+
+          # Fail with a diagnosable message rather than letting minisign report
+          # a generic parse error several steps later.
+          if ! head -n1 minisign.key | grep -q '^untrusted comment:'; then
+            echo "::error::WARDNET_MINISIGN_KEY is neither a raw minisign key nor valid base64 of one. See deploy/keys/README.md."
+            exit 1
+          fi
 
           for ARCH in x86_64 aarch64; do
             # build-daemon.yml ships the tarball with `wardnet-postupgrade`
