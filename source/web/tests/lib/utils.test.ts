@@ -140,11 +140,11 @@ describe("date/time formatters", () => {
     expect(formatDateTime(d)).toBe("2026.07.02 09:05:07");
   });
   it("returns em dash for null/invalid/pre-2000 values", () => {
-    expect(formatDate(null)).toBe("—");
-    expect(formatDate("not a date")).toBe("—");
-    expect(formatTime(undefined)).toBe("—");
-    expect(formatTimeShort(new Date("1999-01-01"))).toBe("—");
-    expect(formatDateTime("garbage")).toBe("—");
+    expect(formatDate(null)).toBe("-");
+    expect(formatDate("not a date")).toBe("-");
+    expect(formatTime(undefined)).toBe("-");
+    expect(formatTimeShort(new Date("1999-01-01"))).toBe("-");
+    expect(formatDateTime("garbage")).toBe("-");
   });
   it("accepts string and numeric inputs", () => {
     expect(formatDate("2026-07-02T00:00:00")).toBe("2026.07.02");

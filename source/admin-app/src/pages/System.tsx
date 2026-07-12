@@ -19,6 +19,8 @@ import {
   useDdnsStatus,
   useTlsStatus,
   useResolutionCheck,
+  useInboundWgConfig,
+  useSetInboundWgConfig,
   usePushNotifications,
   useRecentNotifications,
   useClearNotifications,
@@ -190,6 +192,8 @@ export default function System() {
   const secureEnabled = !!ddns?.provider;
   const { data: tls } = useTlsStatus({ enabled: secureEnabled });
   const { data: resolution } = useResolutionCheck(secureEnabled);
+  const { data: inboundWg } = useInboundWgConfig();
+  const setInboundWgConfig = useSetInboundWgConfig();
   const pill = resolution ? verdictPill(resolution.verdict) : null;
   const { showingLastKnownState } = useOnlineStatusContext();
   const { logout } = useAuth();
@@ -310,7 +314,7 @@ export default function System() {
                     Version
                   </Text>
                   <Text as="p" size="base" className="mt-1 font-mono text-ink">
-                    {daemonStatus?.version ? `v${daemonStatus.version}` : "—"}
+                    {daemonStatus?.version ? `v${daemonStatus.version}` : "-"}
                   </Text>
                 </div>
                 <div>
@@ -323,7 +327,7 @@ export default function System() {
                     Uptime
                   </Text>
                   <Text as="p" size="base" className="mt-1 text-ink">
-                    {status ? formatUptime(status.uptime_seconds) : "—"}
+                    {status ? formatUptime(status.uptime_seconds) : "-"}
                   </Text>
                 </div>
                 <div>
@@ -336,7 +340,7 @@ export default function System() {
                     CPU
                   </Text>
                   <Text as="p" size="base" className="mt-1 text-ink">
-                    {status ? `${status.cpu_usage_percent.toFixed(1)}%` : "—"}
+                    {status ? `${status.cpu_usage_percent.toFixed(1)}%` : "-"}
                   </Text>
                   {status && <Bar percent={status.cpu_usage_percent} />}
                 </div>
@@ -352,7 +356,7 @@ export default function System() {
                   <Text as="p" size="base" className="mt-1 text-ink">
                     {status
                       ? `${formatBytes(status.memory_used_bytes)} / ${formatBytes(status.memory_total_bytes)}`
-                      : "—"}
+                      : "-"}
                   </Text>
                   {status && status.memory_total_bytes > 0 && (
                     <Bar percent={memoryPercent} />
@@ -401,7 +405,7 @@ export default function System() {
                     size="sm"
                     className="mt-1 break-all font-mono text-ink"
                   >
-                    {ddns?.fqdn ?? "—"}
+                    {ddns?.fqdn ?? "-"}
                   </Text>
                 </div>
 
@@ -420,7 +424,7 @@ export default function System() {
                         <Pill variant={pill.variant}>{pill.label}</Pill>
                       ) : (
                         <Text as="span" size="base" className="text-ink">
-                          —
+                          -
                         </Text>
                       )}
                     </div>
@@ -439,13 +443,43 @@ export default function System() {
                         ? `Until ${formatDate(tls.not_after)}`
                         : tls?.phase === "issuing"
                           ? "Issuing…"
-                          : "—"}
+                          : "-"}
                     </Text>
                   </div>
                 </div>
               </div>
             </div>
           )}
+
+          {/* ── VPN section (issue #813) ── */}
+          <div>
+            <SectionLabel>VPN</SectionLabel>
+            <div className="rounded-xl border border-line bg-card p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <Text as="p" size="base" weight="medium" className="text-ink">
+                    Inbound WireGuard server
+                  </Text>
+                  <Text as="p" size="xs" className="mt-0.5 text-ink-3">
+                    {inboundWg?.enabled
+                      ? `Listening on port ${inboundWg.listen_port}`
+                      : "Lets granted devices connect back in from off the LAN"}
+                  </Text>
+                </div>
+                <Toggle
+                  aria-label="Enable inbound WireGuard server"
+                  checked={inboundWg?.enabled ?? false}
+                  disabled={setInboundWgConfig.isPending}
+                  onCheckedChange={(next) =>
+                    setInboundWgConfig.mutate({
+                      enabled: next,
+                      listen_port: inboundWg?.listen_port ?? 51821,
+                    })
+                  }
+                />
+              </div>
+            </div>
+          </div>
 
           {/* ── Notifications section (issue #482) ── */}
           <NotificationsSection />

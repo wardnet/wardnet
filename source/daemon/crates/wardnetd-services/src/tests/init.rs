@@ -57,6 +57,40 @@ impl TunnelInterface for StubTunnelInterface {
     }
 }
 
+struct StubInboundWgInterface;
+#[async_trait]
+impl crate::inbound_wg::interface::InboundWgInterface for StubInboundWgInterface {
+    async fn ensure_server(
+        &self,
+        _config: crate::inbound_wg::interface::InboundWgServerConfig,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn tear_down_server(&self, _interface_name: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn add_peer(
+        &self,
+        _interface_name: &str,
+        _peer: crate::inbound_wg::interface::InboundWgPeerConfig,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn remove_peer(
+        &self,
+        _interface_name: &str,
+        _public_key: [u8; 32],
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn peer_stats(
+        &self,
+        _interface_name: &str,
+    ) -> anyhow::Result<Vec<crate::inbound_wg::interface::InboundWgPeerStats>> {
+        unimplemented!()
+    }
+}
+
 struct StubTunnelExitProbe;
 #[async_trait]
 impl TunnelExitProbe for StubTunnelExitProbe {
@@ -158,6 +192,14 @@ impl FirewallManager for StubFirewall {
     async fn remove_masquerade(&self, _interface: &str) -> anyhow::Result<()> {
         unimplemented!()
     }
+    async fn add_inbound_wg_accept(&self, _port: u16) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn remove_inbound_wg_accept(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
         unimplemented!()
     }
@@ -254,6 +296,7 @@ impl SecretStore for StubSecretStore {
 fn stub_backends() -> Backends {
     Backends {
         tunnel_interface: Arc::new(StubTunnelInterface),
+        inbound_wg_interface: Arc::new(StubInboundWgInterface),
         tunnel_exit_probe: Arc::new(StubTunnelExitProbe),
         tunnel_latency_prober: Arc::new(StubTunnelLatencyProber),
         tunnel_throughput_tester: Arc::new(StubThroughputTester),

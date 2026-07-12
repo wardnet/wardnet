@@ -1,6 +1,13 @@
 /** DHCP status for a device. */
 export type DhcpStatus = "lease" | "reservation" | "external";
 
+/**
+ * How a device is currently reachable on the network: over the LAN, or via
+ * the inbound WireGuard server. A live status (last-observation-wins), not a
+ * record of how the device was first discovered. See issue #810.
+ */
+export type DeviceConnectionMode = "lan" | "remote";
+
 /** The type/category of a network device. */
 export type DeviceType =
   | "tv"
@@ -39,6 +46,8 @@ export interface Device {
    * explicit persisted default choice.
    */
   current_rule: RoutingTarget | null;
+  /** How the device is currently reachable (LAN vs. inbound WireGuard). */
+  connection_mode: DeviceConnectionMode;
 }
 
 /** Where a device's traffic is routed. */

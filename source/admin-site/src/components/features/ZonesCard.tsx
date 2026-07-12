@@ -80,7 +80,7 @@ export function ZonesCard() {
               {row.original.name}
             </Text>
             {row.original.is_default && (
-              <span title="The home zone — your main trusted network. Full trust, exactly one, can't be deleted.">
+              <span title="The home zone - your main trusted network. Full trust, exactly one, can't be deleted.">
                 <Pill variant="ghost">Home</Pill>
               </span>
             )}
@@ -90,7 +90,7 @@ export function ZonesCard() {
               </span>
             )}
             {row.original.provenance === "system" && (
-              <span title="Built-in zone seeded by Wardnet — can't be deleted (unlike zones you create).">
+              <span title="Built-in zone seeded by Wardnet - can't be deleted (unlike zones you create).">
                 <Pill variant="ghost">System</Pill>
               </span>
             )}
@@ -116,7 +116,7 @@ export function ZonesCard() {
         meta: { className: "hidden md:table-cell" },
         cell: ({ row }) => (
           <Text as="span" size="sm" className="capitalize">
-            {row.original.allowed_targets.join(", ") || "—"}
+            {row.original.allowed_targets.join(", ") || "-"}
           </Text>
         ),
       },

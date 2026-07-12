@@ -10,6 +10,7 @@ import {
   type RestorePreviewResponse,
 } from "@wardnet/js";
 import { backupService } from "../lib/sdk";
+import { triggerBrowserDownload } from "../lib/download";
 
 /** Extract the most user-friendly message we can from an API error. */
 function errorMessage(err: unknown, fallback: string): string {
@@ -91,27 +92,10 @@ export function useApplyImport() {
   return useMutation<ApplyImportResponse, unknown, ApplyImportRequest>({
     mutationFn: (body) => backupService.applyImport(body),
     onSuccess: () => {
-      toast.success("Backup restored — restart the daemon to complete");
+      toast.success("Backup restored - restart the daemon to complete");
       qc.invalidateQueries({ queryKey: STATUS_KEY });
       qc.invalidateQueries({ queryKey: SNAPSHOTS_KEY });
     },
     onError: (err) => toast.error(errorMessage(err, "Restore failed")),
   });
-}
-
-/**
- * Build an `<a download>` link, click it, then release the object
- * URL. The Blob never touches disk outside the browser's download
- * flow — in particular, plaintext secrets inside the archive are
- * encrypted before they ever leave the daemon.
- */
-function triggerBrowserDownload(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
 }

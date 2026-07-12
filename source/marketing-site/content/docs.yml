@@ -79,6 +79,11 @@ topics:
     icon: radio
     description: Dynamic DNS, secure remote tunneling, and automatic HTTPS. A Premium capability.
 
+  - slug: personal-vpn
+    title: Personal VPN
+    icon: shield
+    description: Run your own inbound WireGuard VPN so your phone and laptop connect back to your home network from anywhere. A Premium capability.
+
   - slug: mobile-apps
     title: Mobile apps
     icon: smartphone

@@ -75,6 +75,14 @@ impl FirewallManager for RecordingFirewall {
     async fn remove_masquerade(&self, _interface: &str) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn add_inbound_wg_accept(&self, _port: u16) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn remove_inbound_wg_accept(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
         Ok(())
     }
@@ -416,6 +424,7 @@ async fn insert_device(devices: &Arc<dyn DeviceRepository>, ip: &str, zone_id: &
             last_seen: "2026-07-01T00:00:00Z".to_owned(),
             last_ip: ip.to_owned(),
             zone_id: zone_id.to_owned(),
+            connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
         })
         .await
         .unwrap();

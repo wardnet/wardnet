@@ -88,7 +88,7 @@ pub async fn refresh_blocklist(
 
     if count == 0 {
         let msg =
-            "parsed 0 domains from response (check the URL — it may redirect to an HTML page)"
+            "parsed 0 domains from response (check the URL - it may redirect to an HTML page)"
                 .to_owned();
         tracing::error!(blocklist_id = %blocklist.id, "{msg}");
         let _ = repo.set_blocklist_error(blocklist.id, Some(&msg)).await;

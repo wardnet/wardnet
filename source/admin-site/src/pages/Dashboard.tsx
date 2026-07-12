@@ -106,14 +106,14 @@ export default function Dashboard() {
           <DashboardStatCard
             testId="stat-dns-queries"
             title="DNS queries (24h)"
-            value={dnsStats?.total.toLocaleString() ?? "—"}
+            value={dnsStats?.total.toLocaleString() ?? "-"}
             to="/dns/logs"
             error={dnsStatsErrorMsg}
           />
           <DashboardStatCard
             testId="stat-blocked"
             title="Blocked traffic (24h)"
-            value={dnsStats ? `${dnsStats.blockedPercent.toFixed(1)}%` : "—"}
+            value={dnsStats ? `${dnsStats.blockedPercent.toFixed(1)}%` : "-"}
             subtitle={
               dnsStats
                 ? `${dnsStats.blocked.toLocaleString()} of ${dnsStats.total.toLocaleString()}`

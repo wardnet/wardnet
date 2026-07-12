@@ -120,6 +120,15 @@ impl MockDnsDeviceService {
 
 #[async_trait]
 impl DeviceService for MockDnsDeviceService {
+    async fn get_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<wardnet_common::device::Device>, AppError> {
+        unimplemented!()
+    }
+    async fn clear_remote_connection_mode(&self, _device_id: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         unimplemented!()
     }

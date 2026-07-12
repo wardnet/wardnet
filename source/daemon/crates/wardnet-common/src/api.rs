@@ -270,6 +270,94 @@ pub struct UpdateTunnelDnsOverrideResponse {
     pub tunnel: Tunnel,
 }
 
+// -- Inbound (multi-peer) WireGuard server (issue #809) -------------------
+
+/// Request body for `PUT /api/inbound-wg/config`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct InboundWgConfigRequest {
+    /// Whether the inbound `WireGuard` server should be running.
+    pub enabled: bool,
+    /// UDP port the server listens on for inbound peer handshakes.
+    pub listen_port: u16,
+}
+
+/// Response for `PUT /api/inbound-wg/config`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct InboundWgConfigResponse {
+    /// The applied enabled state.
+    pub enabled: bool,
+    /// The applied listen port.
+    pub listen_port: u16,
+    /// The server's public key once a keypair exists (generated on first
+    /// enable). `None` until the server has been enabled at least once.
+    pub server_public_key: Option<String>,
+}
+
+/// Request body for `POST /api/inbound-wg/peers`.
+///
+/// A remote-access grant targets an already-managed device (issue #810): the
+/// peer's user-facing name is taken from that device, not supplied here.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AddInboundWgPeerRequest {
+    /// The device to grant remote access to. Must already exist (discovered on
+    /// the LAN at least once) and must not already have a credential.
+    pub device_id: Uuid,
+}
+
+/// Response for `POST /api/inbound-wg/peers`.
+///
+/// Carries the complete, ready-to-import `WireGuard` client configuration —
+/// assembled server-side and containing the freshly generated **private key**
+/// exactly once. The daemon never persists the private key (it lives only in
+/// this response); the admin must copy/scan it now. This is the ONLY endpoint
+/// that ever exposes private key material, and it is admin-gated.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AddInboundWgPeerResponse {
+    pub id: Uuid,
+    pub name: String,
+    /// Base64 `WireGuard` public key (stored server-side).
+    pub public_key: String,
+    /// The peer's allocated `/32` inside the inbound tunnel subnet.
+    pub allowed_ip: String,
+    /// The full `WireGuard` client config (`.conf`) — `[Interface]`/`[Peer]`
+    /// stanzas including the private key and endpoint — ready to render as a QR
+    /// code or download. `None` when no reachable endpoint is known yet (remote
+    /// access / DDNS not configured); the credential is created but not usable
+    /// until an endpoint exists.
+    pub client_config: Option<String>,
+}
+
+/// A single inbound-`WireGuard` peer, without any private key material.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct InboundWgPeerSummary {
+    pub id: Uuid,
+    pub name: String,
+    pub public_key: String,
+    pub allowed_ip: String,
+    pub enabled: bool,
+    pub created_at: DateTime<Utc>,
+    /// The `Device` this credential grants remote access to. `None` only for
+    /// pre-#810 rows written before the device link existed; every row
+    /// written since always carries it.
+    pub device_id: Option<Uuid>,
+}
+
+/// Response for `GET /api/inbound-wg/peers`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListInboundWgPeersResponse {
+    pub peers: Vec<InboundWgPeerSummary>,
+}
+
+/// Request body for `PATCH /api/inbound-wg/peers/{id}`.
+///
+/// Pauses or resumes a peer without deleting its credential — distinct from
+/// `DELETE`, which revokes it permanently and requires a fresh keypair (and
+/// QR scan) to re-grant.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetInboundWgPeerEnabledRequest {
+    pub enabled: bool,
+}
+
 /// Response for `GET /api/tunnels/{id}/devices`.
 ///
 /// The devices currently routed through the given tunnel — i.e. those

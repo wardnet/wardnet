@@ -35,3 +35,9 @@
 - `DhcpScope.subnet_prefix: Option<u8>` — Some(prefix) for zone scope, None for base. `assign_lease` skips a static reservation whose IP is outside the zone subnet.
 - dhcproto 0.15 exposes `DhcpOption::ClasslessStaticRoute(Vec<(ipnet::Ipv4Net, Ipv4Addr)>)`; `ipnet` is a direct dep of wardnetd. Member-isolation /32 scopes advertise `0.0.0.0/0 -> gateway` (option 121).
 - wardnetd/wardnetd-mock are Linux-only (can't build on macOS host); CI is their gate — edit by inspection.
+
+## Inbound WireGuard server (#809)
+- `wardnetd-services/src/inbound_wg/`: peer-list-shaped mirror of `tunnel/`. `InboundWgInterface` trait (ensure_server/add_peer/remove_peer/peer_stats), singleton `ServerKeyStore` facade over SecretStore at `wireguard-inbound/server.key`, `InboundWgServiceImpl`. Interface = `wg_wardin0`, subnet `10.100.64.0/24` (server .1, peers .2+).
+- WireGuard keygen for services layer uses `x25519-dalek` `x25519()` free fn (NOT wireguard-control — that's Linux-only). See `inbound_wg/keygen.rs`. rand 0.10 uses `rand::fill(&mut buf)`.
+- `FirewallManager` gained `add_inbound_wg_accept(port)`/`remove_inbound_wg_accept()` (input-chain UDP accept, comment `wardnet:inbound-wg:listen`). Every test stub FirewallManager impl must add these (routing/tests, zone_enforcement/tests, tests/init.rs stubs).
+- AppState uses builder `.with_inbound_wg_service()` + default `NoopInboundWgService` (avoids touching ~23 AppState::new test callers).

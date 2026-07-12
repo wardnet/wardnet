@@ -10,6 +10,7 @@ pub mod dns_filter;
 pub mod dns_local;
 pub mod dns_log_ws;
 pub mod health;
+pub mod inbound_wg;
 pub mod info;
 pub mod jobs;
 pub mod logs_ws;
@@ -118,6 +119,7 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = dns_capture::register(r);
     r = dns_events::register(r);
     r = tunnels::register(r);
+    r = inbound_wg::register(r);
     r = providers::register(r);
     r = dhcp::register(r);
     r = dns::register(r);

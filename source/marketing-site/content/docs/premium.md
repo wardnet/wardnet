@@ -12,6 +12,9 @@ required to run the gateway itself:
 - **Secure remote tunneling**, encrypted inbound access from anywhere,
   with automatic HTTPS. See [remote access](/docs/remote-access).
 - **Roaming private DNS**, keep your filtering with you off the LAN.
+- **Personal VPN**, run your own inbound WireGuard server so your phone
+  and laptop connect back to your home network from anywhere. See
+  [personal VPN](/docs/personal-vpn).
 - **Both mobile apps**, the User PWA and the Admin mobile PWA. See
   [mobile apps](/docs/mobile-apps).
 
@@ -36,6 +39,7 @@ same account is what you enroll with when setting up
 | Dynamic DNS | | ✓ |
 | Secure remote tunneling & auto-HTTPS | | ✓ |
 | Roaming private DNS | | ✓ |
+| Personal VPN, inbound WireGuard | | ✓ |
 | User PWA & Admin mobile PWA | | ✓ |
 
 Premium starts with a free trial and can be cancelled at any time from

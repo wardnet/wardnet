@@ -157,7 +157,7 @@ function PremiumRequired() {
   return (
     <FullScreenNotice
       heading="This app requires wardnet Premium"
-      body="The mobile apps are a Premium capability. Subscribe or check your subscription status from the admin website. Everything on your network keeps running locally — only these apps are paused."
+      body="The mobile apps are a Premium capability. Subscribe or check your subscription status from the admin website. Everything on your network keeps running locally - only these apps are paused."
     />
   );
 }

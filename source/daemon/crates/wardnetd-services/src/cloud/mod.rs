@@ -21,15 +21,19 @@
 //! * [`request`] — request building (PoP/bearer), status classification, JSON
 //!   decoding.
 //!
-//! The clients ([`TenantsClient`], [`DdnsClient`]) and the wardnet-managed
-//! [`WardnetDnsProvider`] sit on top. The `tunneller` client is intentionally
-//! absent (reverse-tunnel is out of scope).
+//! The clients ([`TenantsClient`], [`DdnsClient`], [`TunnelerClient`]) and the
+//! wardnet-managed [`WardnetDnsProvider`] sit on top. [`TunnelerClient`] is the odd
+//! one out: instead of one-shot HTTP calls it owns a **persistent WebSocket** —
+//! the reverse tunnel that relays inbound `WireGuard` UDP to the daemon (cloud
+//! ADR-0015, issue #809) — driven by [`tunneller_runner::TunnelerRunner`].
 
 pub mod ddns;
 pub mod identity;
 pub mod pop;
 pub(crate) mod request;
 pub mod tenants;
+pub mod tunneller;
+pub mod tunneller_runner;
 
 #[cfg(test)]
 mod tests;
@@ -37,6 +41,8 @@ mod tests;
 pub use ddns::{DdnsClient, WardnetDnsProvider};
 pub use identity::DaemonIdentity;
 pub use tenants::{NetworkRegistration, TenantsClient};
+pub use tunneller::TunnelerClient;
+pub use tunneller_runner::{TunnelerConnector, TunnelerRunner};
 
 use thiserror::Error;
 

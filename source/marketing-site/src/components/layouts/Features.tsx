@@ -1,6 +1,7 @@
 import {
   Route,
   Shield,
+  ShieldCheck,
   Ban,
   Layers,
   Server,
@@ -82,6 +83,14 @@ const FEATURES: Feature[] = [
     premium: true,
   },
   {
+    icon: <ShieldCheck size={28} />,
+    title: "Personal VPN",
+    description:
+      "Your own inbound WireGuard server, so your phone and laptop reach your home network from anywhere.",
+    href: "/docs/personal-vpn",
+    premium: true,
+  },
+  {
     icon: <Smartphone size={28} />,
     title: "Mobile apps",
     description:
@@ -93,8 +102,8 @@ const FEATURES: Feature[] = [
 
 /**
  * Grid of feature cards describing Wardnet's core capabilities. Each card
- * links to its docs detail page; the two Premium cards (remote access,
- * mobile apps) carry a Premium tag.
+ * links to its docs detail page; the Premium cards (remote access, personal
+ * VPN, mobile apps) carry a Premium tag.
  */
 export function Features() {
   return (

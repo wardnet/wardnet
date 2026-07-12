@@ -14,6 +14,7 @@ import TunnelDetail from "@/pages/TunnelDetail";
 import Zones from "@/pages/Zones";
 import Settings from "@/pages/Settings";
 import RemoteAccess from "@/pages/RemoteAccess";
+import Vpn from "@/pages/Vpn";
 import Power from "@/pages/Power";
 import Backups from "@/pages/Backups";
 import Dhcp from "@/pages/Dhcp";
@@ -238,6 +239,14 @@ export default function App() {
           element={
             <AdminRoute>
               <RemoteAccess />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="vpn"
+          element={
+            <AdminRoute>
+              <Vpn />
             </AdminRoute>
           }
         />

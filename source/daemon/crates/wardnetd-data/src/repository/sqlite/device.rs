@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use sqlx::SqlitePool;
-use wardnet_common::device::{Device, DeviceType};
+use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
 use wardnet_common::routing::{RoutingRule, RoutingTarget, RuleCreator};
 
 use super::super::DeviceRepository;
@@ -43,12 +43,16 @@ struct DeviceRow {
     dns_capture_enabled: i32,
     dns_capture_cap_count: i64,
     dns_capture_cap_days: i64,
+    connection_mode: String,
 }
 
 impl DeviceRow {
     fn into_device(self) -> anyhow::Result<Device> {
         let device_type: DeviceType = serde_json::from_str(&format!("\"{}\"", self.device_type))
             .unwrap_or(DeviceType::Unknown);
+        let connection_mode: DeviceConnectionMode =
+            serde_json::from_str(&format!("\"{}\"", self.connection_mode))
+                .unwrap_or(DeviceConnectionMode::Lan);
         Ok(Device {
             id: self.id.parse()?,
             mac: self.mac,
@@ -64,8 +68,17 @@ impl DeviceRow {
             dns_capture_enabled: self.dns_capture_enabled != 0,
             dns_capture_cap_count: self.dns_capture_cap_count,
             dns_capture_cap_days: self.dns_capture_cap_days,
+            connection_mode,
         })
     }
+}
+
+/// Serialize a [`DeviceConnectionMode`] to its stored `snake_case` string form
+/// (mirrors how `device_type` is persisted). Infallible for this closed enum;
+/// falls back to `"lan"` defensively.
+fn connection_mode_to_db(mode: DeviceConnectionMode) -> String {
+    serde_json::to_string(&mode)
+        .map_or_else(|_| "lan".to_owned(), |s| s.trim_matches('"').to_owned())
 }
 
 /// Raw row from the `routing_rules` table used for internal mapping.
@@ -76,7 +89,7 @@ struct RuleRow {
     created_by: String,
 }
 
-const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days";
+const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode";
 
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
@@ -121,8 +134,8 @@ impl DeviceRepository for SqliteDeviceRepository {
 
     async fn insert(&self, device: &InsertDeviceRow) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO devices (id, mac, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, zone_id) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO devices (id, mac, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, zone_id, connection_mode) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&device.id)
         .bind(device.mac.to_lowercase())
@@ -133,6 +146,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         .bind(&device.last_seen)
         .bind(&device.last_ip)
         .bind(&device.zone_id)
+        .bind(connection_mode_to_db(device.connection_mode))
         .execute(&self.pools.write)
         .await?;
         Ok(())
@@ -143,13 +157,17 @@ impl DeviceRepository for SqliteDeviceRepository {
         id: &str,
         ip: &str,
         last_seen: &str,
+        mode: DeviceConnectionMode,
     ) -> anyhow::Result<()> {
-        sqlx::query("UPDATE devices SET last_seen = ?, last_ip = ? WHERE id = ?")
-            .bind(last_seen)
-            .bind(ip)
-            .bind(id)
-            .execute(&self.pools.write)
-            .await?;
+        sqlx::query(
+            "UPDATE devices SET last_seen = ?, last_ip = ?, connection_mode = ? WHERE id = ?",
+        )
+        .bind(last_seen)
+        .bind(ip)
+        .bind(connection_mode_to_db(mode))
+        .bind(id)
+        .execute(&self.pools.write)
+        .await?;
         Ok(())
     }
 
@@ -163,6 +181,19 @@ impl DeviceRepository for SqliteDeviceRepository {
                 .await?;
         }
         tx.commit().await?;
+        Ok(())
+    }
+
+    async fn update_connection_mode(
+        &self,
+        id: &str,
+        mode: DeviceConnectionMode,
+    ) -> anyhow::Result<()> {
+        sqlx::query("UPDATE devices SET connection_mode = ? WHERE id = ?")
+            .bind(connection_mode_to_db(mode))
+            .bind(id)
+            .execute(&self.pools.write)
+            .await?;
         Ok(())
     }
 
@@ -275,7 +306,8 @@ impl DeviceRepository for SqliteDeviceRepository {
         let pattern = format!("%\"tunnel_id\":\"{tunnel_id}\"%");
         let query = "SELECT d.id, d.mac, d.name, d.hostname, d.manufacturer, d.device_type, \
              d.first_seen, d.last_seen, d.last_ip, d.admin_locked, d.zone_id, \
-             d.dns_capture_enabled, d.dns_capture_cap_count, d.dns_capture_cap_days \
+             d.dns_capture_enabled, d.dns_capture_cap_count, d.dns_capture_cap_days, \
+             d.connection_mode \
              FROM devices d \
              JOIN routing_rules r ON r.device_id = d.id \
              WHERE r.target_json LIKE ? \

@@ -23,6 +23,7 @@ import {
   NetworkZonesService,
   ZoneExceptionsService,
   PushService,
+  InboundWgService,
 } from "@wardnet/js";
 
 /** Shared SDK client instance. All services use this single client. */
@@ -54,3 +55,4 @@ export const ruleRequestService = new RuleRequestService(client);
 export const networkZonesService = new NetworkZonesService(client);
 export const zoneExceptionsService = new ZoneExceptionsService(client);
 export const pushService = new PushService(client);
+export const inboundWgService = new InboundWgService(client);

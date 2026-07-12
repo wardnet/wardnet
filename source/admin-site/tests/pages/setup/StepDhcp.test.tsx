@@ -112,7 +112,7 @@ describe("StepDhcp", () => {
     const user = userEvent.setup();
     renderWithProviders(<StepDhcp initialMode="primary" />);
     expect(
-      screen.getByText("Only Wardnet responded — good."),
+      screen.getByText("Only Wardnet responded - good."),
     ).toBeInTheDocument();
     const cont = screen.getByTestId("setup-dhcp-continue");
     expect(cont).not.toBeDisabled();
@@ -140,7 +140,7 @@ describe("StepDhcp", () => {
   it("shows a probe-failed message on error", () => {
     setProbe({ isError: true });
     renderWithProviders(<StepDhcp initialMode="primary" />);
-    expect(screen.getByText("Probe failed — try again.")).toBeInTheDocument();
+    expect(screen.getByText("Probe failed - try again.")).toBeInTheDocument();
   });
 
   it("shows 'Probing…' and disables the probe button while pending", () => {

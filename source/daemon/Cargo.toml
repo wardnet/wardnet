@@ -65,6 +65,10 @@ tracing = "0.1"
 tokio = { version = "1", features = ["full"] }
 # https://crates.io/crates/axum
 axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
+# https://crates.io/crates/tokio-tungstenite — persistent client WebSocket for the
+# reverse-tunnel client to wardnet-cloud's Tunneller (issue #809). Pinned to the
+# same 0.29 axum's `ws` feature already resolves transitively (one version only).
+tokio-tungstenite = { version = "0.29", features = ["connect", "rustls-tls-webpki-roots"] }
 # https://crates.io/crates/axum-extra
 axum-extra = { version = "0.12", features = ["typed-header", "cookie", "query"] }
 
@@ -110,6 +114,11 @@ hex = "0.4"
 # random seed bytes via `SigningKey::from_bytes`, so the `rand_core` feature
 # (which pins an older rand_core than the workspace `rand`) is not needed.
 ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
+# https://crates.io/crates/x25519-dalek — Curve25519 / X25519 keygen for the
+# inbound WireGuard server + per-peer keypairs (issue #809). Uses the `x25519`
+# free function + base-point constant, so no `static_secrets` feature is needed;
+# clamping is applied to match `wg genkey`.
+x25519-dalek = { version = "2", default-features = false }
 # https://crates.io/crates/web-push-native — HTTP-agnostic Web Push: VAPID JWT
 # (ES256) + RFC8291/RFC8188 payload encryption via RustCrypto, no OpenSSL/isahc.
 # Returns request headers + encrypted body; we POST with the workspace `reqwest`.

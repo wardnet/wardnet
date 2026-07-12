@@ -6,6 +6,7 @@ mod dns;
 mod dns_events;
 mod dns_filter;
 mod dns_local;
+mod inbound_wg;
 mod network_zone;
 mod notification;
 mod push;

@@ -42,7 +42,7 @@ export default function StepReview() {
       ? "Locked router"
       : setupStatus?.wizard_mode === "primary"
         ? "Primary"
-        : "—";
+        : "-";
 
   const defaultProfileNames = (dnsConfig?.config.default_profile_ids ?? [])
     .map((id) => (dnsProfiles?.profiles ?? []).find((p) => p.id === id)?.name)
@@ -73,11 +73,11 @@ export default function StepReview() {
     value: ReactNode;
     editStep?: WizardStep;
   }> = [
-    { key: "admin", label: "Admin user", value: me?.username ?? "—" },
+    { key: "admin", label: "Admin user", value: me?.username ?? "-" },
     {
       key: "lan-ip",
       label: "LAN IP",
-      value: <span className="mono">{network?.ip ?? "—"}</span>,
+      value: <span className="mono">{network?.ip ?? "-"}</span>,
       editStep: "network",
     },
     { key: "dhcp", label: "DHCP mode", value: dhcpMode, editStep: "dhcp" },
@@ -119,7 +119,7 @@ export default function StepReview() {
           Review &amp; finish
         </Heading>
         <Text as="p" size="sm" className="mt-1 text-ink-3">
-          Everything below is already saved — confirm it looks right, or jump
+          Everything below is already saved - confirm it looks right, or jump
           back to a step to change it.
         </Text>
       </div>
@@ -166,7 +166,7 @@ export default function StepReview() {
 
       {nav.isError && (
         <Text as="p" size="sm" className="text-danger">
-          Couldn't save progress — try again.
+          Couldn't save progress - try again.
         </Text>
       )}
 

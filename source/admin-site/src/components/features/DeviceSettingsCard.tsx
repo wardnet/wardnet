@@ -205,7 +205,7 @@ export function DeviceSettingsCard({
             <Text size="xs" className="uppercase tracking-wide text-ink-3">
               Friendly name
             </Text>
-            <Text size="sm">{device.name ?? "—"}</Text>
+            <Text size="sm">{device.name ?? "-"}</Text>
           </div>
           <div className="flex flex-col gap-0.5">
             <Text size="xs" className="uppercase tracking-wide text-ink-3">

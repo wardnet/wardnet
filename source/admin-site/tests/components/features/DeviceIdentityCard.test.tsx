@@ -29,6 +29,6 @@ describe("DeviceIdentityCard", () => {
     );
 
     // Both hostname and manufacturer render the em dash placeholder.
-    expect(screen.getAllByText("—").length).toBeGreaterThanOrEqual(2);
+    expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(2);
   });
 });

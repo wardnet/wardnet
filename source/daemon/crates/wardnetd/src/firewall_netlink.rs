@@ -29,6 +29,7 @@ use rustables::{
     Table, list_rules_for_chain,
 };
 
+use wardnetd_services::inbound_wg::INBOUND_WG_INTERFACE;
 use wardnetd_services::routing::firewall::{
     ExceptionAllow, FirewallManager, ZoneIsolationRules, ZoneRules,
 };
@@ -44,15 +45,28 @@ const INPUT: &str = "input";
 
 /// nftables interface-name field width (`IFNAMSIZ`); `meta oifname` loads this
 /// many bytes into the comparison register, so masks/values are this length.
-const IFNAMSIZ: usize = 16;
+pub(crate) const IFNAMSIZ: usize = 16;
 /// Wardnet tunnel interface-name prefix. A forwarded packet leaving via a
 /// `wg_ward*` interface is taking the tunnel egress path (issue #736).
+///
+/// The inbound `WireGuard` server interface `wg_wardin0`
+/// (`INBOUND_WG_INTERFACE` in `wardnetd_services::inbound_wg`) shares this
+/// prefix, but is **explicitly excluded** from the zone-egress drop rule since
+/// #810: a zone-denied *remote* device is now a real `Device` row with
+/// `ZoneRules`, and its return traffic over `wg_wardin0` is its *inbound*
+/// attachment point — not an outbound-provider-tunnel egress path — so it must
+/// not be dropped by this gate. The exclusion is expressed by `ANDing` a
+/// `oifname != wg_wardin0` match onto the drop rule (see
+/// `inbound_wg_iface_exact_value` and the egress gate in `apply_zone_rules`).
 const TUNNEL_IFACE_PREFIX: &[u8] = b"wg_ward";
 /// Pi admin surfaces a zone may deny (issue #736): the HTTPS admin site (:443)
 /// and the plain-HTTP API (:7411). Both are TCP, so denial is a TCP reset.
 const ADMIN_UI_PORTS: [u16; 2] = [443, 7411];
 /// Comment-UDATA prefix shared by every Network-Zone rule, keyed by device IP.
 const ZONE_COMMENT_PREFIX: &str = "wardnet:zone:";
+
+/// Comment on the inbound-`WireGuard` listen-port accept rule (issue #809).
+const INBOUND_WG_LISTEN_COMMENT: &str = "wardnet:inbound-wg:listen";
 
 /// Regular (hookless) forward sub-chain that carries the Network-Zone L3
 /// isolation rules (issue #737): cross-subnet allows/denies + member isolation.
@@ -222,6 +236,20 @@ fn tunnel_oifname_mask_and_value() -> (Vec<u8>, Vec<u8>) {
         value[i] = b;
     }
     (mask, value)
+}
+
+/// The `meta oifname` comparison value that matches the inbound `WireGuard`
+/// server interface (`INBOUND_WG_INTERFACE`) *exactly*: its name zero-padded to
+/// `IFNAMSIZ`, the same padding `meta oifname` produces when it loads the full
+/// interface name into the comparison register. Paired with a
+/// [`Cmp`] using [`CmpOp::Neq`] this excludes `wg_wardin0` from the `wg_ward*`
+/// tunnel-egress drop rule (issue #810).
+pub(crate) fn inbound_wg_iface_exact_value() -> Vec<u8> {
+    let mut value = vec![0u8; IFNAMSIZ];
+    for (i, &b) in INBOUND_WG_INTERFACE.as_bytes().iter().enumerate() {
+        value[i] = b;
+    }
+    value
 }
 
 /// The device IP a zone rule is keyed on: the final `:`-delimited segment of a
@@ -429,6 +457,54 @@ impl FirewallManager for NetlinkFirewallManager {
         Ok(())
     }
 
+    async fn add_inbound_wg_accept(&self, port: u16) -> anyhow::Result<()> {
+        run_blocking(move || {
+            // Idempotent add: drop any prior `wardnet:inbound-wg:listen` rule first,
+            // then install the one for the current port. Without this, changing
+            // `listen_port` while enabled — or re-running `reconcile()` on every
+            // daemon restart — would append a fresh accept rule each time and leave
+            // stale ones for old ports (only a full disable clears them, since
+            // `remove_inbound_wg_accept` deletes ALL matching-comment rules). Mirrors
+            // the remove-then-add discipline used for the masquerade rule.
+            delete_rules_where(INPUT, |c| c == INBOUND_WG_LISTEN_COMMENT)?;
+
+            let table = wardnet_table();
+            let chain = chain_ref(&table, INPUT);
+            let mut batch = Batch::new();
+            // udp dport <port> accept comment "wardnet:inbound-wg:listen".
+            // The `input` chain policy already accepts, so this is a
+            // forward-looking safety net (see the trait doc): if the policy is
+            // ever tightened, the inbound WireGuard server stays reachable.
+            Rule::new(&chain)?
+                .dport(port, Protocol::UDP)
+                .accept()
+                .with_userdata(comment_udata(INBOUND_WG_LISTEN_COMMENT))
+                .add_to_batch(&mut batch);
+            batch
+                .send()
+                .map_err(|e| anyhow::anyhow!("add inbound-wg accept on udp/{port}: {e}"))?;
+            Ok(())
+        })
+        .await?;
+        tracing::info!(
+            port,
+            "nftables: inbound-wg UDP accept rule for udp/{port} added"
+        );
+        Ok(())
+    }
+
+    async fn remove_inbound_wg_accept(&self) -> anyhow::Result<()> {
+        let removed =
+            run_blocking(move || delete_rules_where(INPUT, |c| c == INBOUND_WG_LISTEN_COMMENT))
+                .await?;
+        if removed.is_empty() {
+            tracing::debug!("nftables: no inbound-wg accept rule to remove");
+        } else {
+            tracing::info!("nftables: inbound-wg accept rule removed");
+        }
+        Ok(())
+    }
+
     async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
         // Match the legacy `wardnet:dns:*` comments left in prerouting by the
         // pre-#342 DNAT mechanism. This is best-effort startup cleanup: an absent
@@ -567,13 +643,24 @@ impl FirewallManager for NetlinkFirewallManager {
             // 2. Egress gate: drop forwarded packets leaving via a forbidden
             //    path. `allowed_targets` is never empty, so at most one applies.
             if !rules.allow_tunnel {
-                // ip saddr <ip> oifname "wg_ward*" drop
+                // ip saddr <ip> oifname "wg_ward*" oifname != "wg_wardin0" drop
+                //
+                // The prefix match (masked Bitwise + Eq) catches every outbound
+                // provider tunnel `wg_ward*`. The second, unmasked oifname load
+                // + Neq excludes the inbound server interface `wg_wardin0`: a
+                // zone-denied remote device's return traffic over its own
+                // inbound attachment point is not tunnel egress and must not be
+                // dropped here (issue #810). nftables evaluates the two loads in
+                // order, each into the comparison register, so the rule matches
+                // only when BOTH the prefix Eq and the exact Neq hold.
                 let (mask, value) = tunnel_oifname_mask_and_value();
                 Rule::new(&forward)?
                     .saddr(IpAddr::V4(ip))
                     .with_expr(Meta::new(MetaType::OifName))
                     .with_expr(Bitwise::new(mask, vec![0u8; IFNAMSIZ])?)
                     .with_expr(Cmp::new(CmpOp::Eq, value))
+                    .with_expr(Meta::new(MetaType::OifName))
+                    .with_expr(Cmp::new(CmpOp::Neq, inbound_wg_iface_exact_value()))
                     .drop()
                     .with_userdata(comment_udata(&egress_comment))
                     .add_to_batch(&mut batch);

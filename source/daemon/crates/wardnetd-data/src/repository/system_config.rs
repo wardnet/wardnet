@@ -193,4 +193,49 @@ pub trait SystemConfigRepository: Send + Sync {
     async fn set_router_mac(&self, mac: &str) -> anyhow::Result<()> {
         self.set("router_mac", mac).await
     }
+
+    /// Whether the inbound-WireGuard server is enabled (issue #809).
+    ///
+    /// Reads the `inbound_wg_enabled` key; returns `false` if the key is missing
+    /// or set to any value other than `"true"` (off by default).
+    async fn inbound_wg_enabled(&self) -> anyhow::Result<bool> {
+        let value = self.get("inbound_wg_enabled").await?;
+        Ok(value.as_deref() == Some("true"))
+    }
+
+    /// Enable or disable the inbound-WireGuard server (issue #809).
+    async fn set_inbound_wg_enabled(&self, enabled: bool) -> anyhow::Result<()> {
+        let value = if enabled { "true" } else { "false" };
+        self.set("inbound_wg_enabled", value).await
+    }
+
+    /// The UDP port the inbound-WireGuard server listens on (issue #809).
+    ///
+    /// Reads the `inbound_wg_listen_port` key; defaults to `51821` when unset or
+    /// unparseable is treated as an error.
+    async fn inbound_wg_listen_port(&self) -> anyhow::Result<u16> {
+        self.get("inbound_wg_listen_port")
+            .await?
+            .unwrap_or_else(|| "51821".to_owned())
+            .parse::<u16>()
+            .map_err(|e| anyhow::anyhow!("invalid inbound_wg_listen_port: {e}"))
+    }
+
+    /// Persist the inbound-WireGuard listen port (issue #809).
+    async fn set_inbound_wg_listen_port(&self, port: u16) -> anyhow::Result<()> {
+        self.set("inbound_wg_listen_port", &port.to_string()).await
+    }
+
+    /// The inbound-WireGuard server's public key (issue #809), if generated.
+    ///
+    /// Stored as a plain base64 string; `None` when the server has never been
+    /// enabled (no keypair exists yet).
+    async fn inbound_wg_server_pubkey(&self) -> anyhow::Result<Option<String>> {
+        self.get("inbound_wg_server_pubkey").await
+    }
+
+    /// Persist the inbound-WireGuard server public key (issue #809).
+    async fn set_inbound_wg_server_pubkey(&self, pubkey: &str) -> anyhow::Result<()> {
+        self.set("inbound_wg_server_pubkey", pubkey).await
+    }
 }

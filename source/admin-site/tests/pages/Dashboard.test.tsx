@@ -112,8 +112,8 @@ describe("Dashboard", () => {
     // No system status → status cards hidden.
     expect(screen.queryByTestId("stat-uptime")).not.toBeInTheDocument();
     // dnsStats undefined → em dash.
-    expect(screen.getByTestId("stat-dns-queries-value")).toHaveTextContent("—");
-    expect(screen.getByTestId("stat-blocked-value")).toHaveTextContent("—");
+    expect(screen.getByTestId("stat-dns-queries-value")).toHaveTextContent("-");
+    expect(screen.getByTestId("stat-blocked-value")).toHaveTextContent("-");
     expect(screen.getByTestId("recent-errors")).toHaveTextContent("0");
     expect(screen.getByTestId("log-widget")).toBeInTheDocument();
   });

@@ -24,7 +24,7 @@ function createColumns(): ColumnDef<AllowlistEntry>[] {
           className="block truncate text-ink-3"
           title={row.original.reason ?? ""}
         >
-          {row.original.reason ?? "—"}
+          {row.original.reason ?? "-"}
         </span>
       ),
     },

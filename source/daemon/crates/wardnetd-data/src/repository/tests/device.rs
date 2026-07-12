@@ -1,7 +1,7 @@
 use super::test_pool;
 use crate::repository::device::DeviceRow;
 use crate::repository::{DeviceRepository, SqliteDeviceRepository};
-use wardnet_common::device::DeviceType;
+use wardnet_common::device::{DeviceConnectionMode, DeviceType};
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
 
 const DEV1: &str = "00000000-0000-0000-0000-000000000001";
@@ -19,6 +19,7 @@ fn sample_device_row(id: &str, mac: &str, ip: &str) -> DeviceRow {
         last_seen: "2026-03-07T00:00:00Z".to_owned(),
         last_ip: ip.to_owned(),
         zone_id: "00000000-0000-0000-0000-000000000201".to_owned(),
+        connection_mode: DeviceConnectionMode::Lan,
     }
 }
 
@@ -148,13 +149,19 @@ async fn update_last_seen_and_ip() {
     let row = sample_device_row(DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10");
     repo.insert(&row).await.unwrap();
 
-    repo.update_last_seen_and_ip(DEV1, "192.168.1.20", "2026-03-07T12:00:00Z")
-        .await
-        .unwrap();
+    repo.update_last_seen_and_ip(
+        DEV1,
+        "192.168.1.20",
+        "2026-03-07T12:00:00Z",
+        DeviceConnectionMode::Remote,
+    )
+    .await
+    .unwrap();
 
     let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
     assert_eq!(device.last_ip, "192.168.1.20");
     assert_eq!(device.last_seen.to_rfc3339(), "2026-03-07T12:00:00+00:00");
+    assert_eq!(device.connection_mode, DeviceConnectionMode::Remote);
 }
 
 #[tokio::test]

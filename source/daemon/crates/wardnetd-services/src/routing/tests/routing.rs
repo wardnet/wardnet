@@ -79,6 +79,15 @@ impl DeviceRepository for MockDeviceRepo {
         _id: &str,
         _ip: &str,
         _last_seen: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn update_connection_mode(
+        &self,
+        _id: &str,
+        _mode: wardnet_common::device::DeviceConnectionMode,
     ) -> anyhow::Result<()> {
         Ok(())
     }
@@ -597,6 +606,22 @@ impl FirewallManager for MockNftables {
         Ok(())
     }
 
+    async fn add_inbound_wg_accept(&self, port: u16) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("add_inbound_wg_accept:{port}"));
+        Ok(())
+    }
+
+    async fn remove_inbound_wg_accept(&self) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push("remove_inbound_wg_accept".to_owned());
+        Ok(())
+    }
+
     async fn cleanup_legacy_dns_redirects(&self) -> anyhow::Result<()> {
         self.calls
             .lock()
@@ -729,6 +754,7 @@ fn sample_device(id: Uuid, ip: &str) -> Device {
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
+        connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
     }
 }
 

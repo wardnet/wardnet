@@ -68,3 +68,10 @@ source/sdk/wardnet-js/dist/
 .design-sync/node_modules
 .ds-sync/
 ds-bundle/
+
+
+# files and folders managed by agentic toolkit 
+.claude
+.mcp.json
+CLAUDE.md
+.agentic-toolkit.lock.yaml

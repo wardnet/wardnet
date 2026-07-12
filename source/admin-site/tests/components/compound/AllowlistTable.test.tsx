@@ -42,7 +42,7 @@ describe("AllowlistTable", () => {
     expect(screen.getByText("a.com")).toBeInTheDocument();
     expect(screen.getByText("why")).toBeInTheDocument();
     expect(screen.getByText("b.com")).toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.getByText("-")).toBeInTheDocument();
   });
 
   it("removes an entry via the row overflow menu", async () => {

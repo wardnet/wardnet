@@ -86,7 +86,7 @@ export function usePushNotifications(): {
           return;
         }
         const registration = await swReady();
-        if (!registration) return; // No SW on this surface — leave the initial state.
+        if (!registration) return; // No SW on this surface - leave the initial state.
         const sub = await registration.pushManager.getSubscription();
         if (cancelled) return;
         if (sub) {
@@ -120,7 +120,7 @@ export function usePushNotifications(): {
       }
       const registration = await swReady();
       if (!registration) {
-        toast.error("No service worker is active — use the installed app");
+        toast.error("No service worker is active - use the installed app");
         return;
       }
       const existing = await registration.pushManager.getSubscription();
@@ -150,7 +150,7 @@ export function usePushNotifications(): {
     try {
       const registration = await swReady();
       if (!registration) {
-        toast.error("No service worker is active — use the installed app");
+        toast.error("No service worker is active - use the installed app");
         return;
       }
       const sub = await registration.pushManager.getSubscription();

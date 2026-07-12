@@ -26,6 +26,7 @@ use wardnetd_mock::backends::noop_dhcp::NoopDhcpServer;
 use wardnetd_mock::backends::noop_dns::NoopDnsServer;
 use wardnetd_mock::backends::noop_exit_probe::NoopExitProbe;
 use wardnetd_mock::backends::noop_garp::NoopGarpOps;
+use wardnetd_mock::backends::noop_inbound_wg::NoopInboundWgInterface;
 use wardnetd_mock::backends::noop_latency_prober::NoopLatencyProber;
 use wardnetd_mock::backends::noop_network_inspector::NoopNetworkInspector;
 use wardnetd_mock::backends::noop_network_probe::NoopNetworkProbe;
@@ -43,6 +44,7 @@ use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::HttpBlocklistFetcher;
+use wardnetd_services::entitlement::Entitlement;
 use wardnetd_services::health::checks::{DbHealthCheck, LivenessHealthCheck};
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
@@ -272,6 +274,7 @@ async fn run(
 
     let backends = Backends {
         tunnel_interface: Arc::new(NoopTunnelInterface),
+        inbound_wg_interface: Arc::new(NoopInboundWgInterface),
         tunnel_exit_probe: Arc::new(NoopExitProbe::new(factory.tunnel())),
         tunnel_latency_prober: Arc::new(NoopLatencyProber::new()),
         tunnel_throughput_tester: Arc::new(NoopThroughputTester::new()),
@@ -307,6 +310,15 @@ async fn run(
     )
     .await?;
 
+    // Startup reconcile of the inbound-WireGuard server, mirroring the real
+    // daemon (`wardnetd` main): stands the interface back up if enabled and,
+    // crucially for the mock's persistent secret store, re-caches the server
+    // public key into `system_config` so an enabled-across-restart server never
+    // reads back with a null public key.
+    if let Err(e) = services.inbound_wg.reconcile().await {
+        tracing::warn!(error = %e, "inbound wireguard reconcile failed on startup: {e}");
+    }
+
     // No-op DHCP and DNS servers — services and handlers treat them
     // opaquely so the UI gets consistent start/stop semantics.
     let dhcp_server: Arc<dyn wardnetd_services::dhcp::server::DhcpServer> =
@@ -321,6 +333,21 @@ async fn run(
     // reach out to live upstreams; we discard them here. See
     // `backends::noop_remote_access`.
     let remote_access_state = MockRemoteAccessState::new();
+    // Both of these are process-local in-memory state (NOT persisted in the
+    // DB), so they must be re-established on every boot — including a
+    // `--no-seed` resume of an on-disk DB, where the demo data already exists
+    // but this state was lost with the previous process. Gating them on seeding
+    // meant a kept-DB restart silently dropped premium + the demo DDNS host.
+    //
+    // Demo DDNS: an already-issued host so remote-access QR codes / `.conf`
+    // downloads have a reachable-looking Endpoint out of the box.
+    remote_access_state.configure_demo();
+    // Entitlement (issue #795): the premium app surfaces (user PWA + admin
+    // mobile app) self-gate on `/api/info`'s `entitled` flag. The mock always
+    // stands in for a wardnet-subscribed box so those apps are testable
+    // locally.
+    let entitlement = Entitlement::shared();
+    entitlement.set_premium(true);
     let mock_ddns: Arc<dyn wardnetd_services::ddns::DdnsService> =
         Arc::new(MockDdnsService::new(remote_access_state.clone()));
     let mock_tls: Arc<dyn wardnetd_services::tls::TlsService> =
@@ -366,6 +393,8 @@ async fn run(
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
+    .with_inbound_wg_service(services.inbound_wg.clone())
+    .with_entitlement(entitlement)
     .with_health_monitor(health_monitor);
 
     // Drain the DNS query log persistence channel into SQLite so the
@@ -442,7 +471,7 @@ async fn run(
     let addr: SocketAddr = format!("{}:{}", config.server.host, config.server.port).parse()?;
 
     println!(
-        "\n  wardnetd-mock\n  Listening on http://{}\n  Database: {}\n  (Setup wizard runs on every launch — no admin is seeded.)\n",
+        "\n  wardnetd-mock\n  Listening on http://{}\n  Database: {}\n  (Setup wizard runs on every launch - no admin is seeded.)\n",
         addr, config.database.connection_string,
     );
 
