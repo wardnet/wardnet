@@ -506,13 +506,11 @@ async fn reconcile_clears_pending_and_records_applied_when_new_binary_is_running
 
     svc.reconcile_pending_install().await.expect("reconcile ok");
 
-    let status = auth_context::with_context(
-        test_admin_ctx(),
-        (svc as Arc<dyn UpdateService>).status(),
-    )
-    .await
-    .unwrap()
-    .status;
+    let status =
+        auth_context::with_context(test_admin_ctx(), (svc as Arc<dyn UpdateService>).status())
+            .await
+            .unwrap()
+            .status;
 
     // The update landed — nothing is pending any more.
     assert_eq!(
@@ -535,13 +533,11 @@ async fn reconcile_marks_failed_when_restart_came_back_on_the_old_binary() {
 
     svc.reconcile_pending_install().await.expect("reconcile ok");
 
-    let status = auth_context::with_context(
-        test_admin_ctx(),
-        (svc as Arc<dyn UpdateService>).status(),
-    )
-    .await
-    .unwrap()
-    .status;
+    let status =
+        auth_context::with_context(test_admin_ctx(), (svc as Arc<dyn UpdateService>).status())
+            .await
+            .unwrap()
+            .status;
 
     assert_eq!(
         status.pending_version, None,
@@ -563,7 +559,9 @@ async fn reconcile_marks_failed_when_restart_came_back_on_the_old_binary() {
 
     // The reverted swap must be visible in history, not just in memory.
     let rows = history.list(10).await.unwrap();
-    let row = rows.first().expect("expected a history row for the failed swap");
+    let row = rows
+        .first()
+        .expect("expected a history row for the failed swap");
     assert_eq!(row.status, UpdateHistoryStatus::Failed);
     assert_eq!(row.to_version, "0.2.0");
 }
@@ -576,13 +574,11 @@ async fn reconcile_is_a_noop_when_nothing_was_pending() {
 
     svc.reconcile_pending_install().await.expect("reconcile ok");
 
-    let status = auth_context::with_context(
-        test_admin_ctx(),
-        (svc as Arc<dyn UpdateService>).status(),
-    )
-    .await
-    .unwrap()
-    .status;
+    let status =
+        auth_context::with_context(test_admin_ctx(), (svc as Arc<dyn UpdateService>).status())
+            .await
+            .unwrap()
+            .status;
 
     assert_eq!(status.pending_version, None);
     assert_eq!(status.applied_version, None);
