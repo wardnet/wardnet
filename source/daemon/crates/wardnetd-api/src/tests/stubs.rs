@@ -1139,6 +1139,10 @@ impl wardnetd_services::BackupService for StubBackupService {
 pub struct StubUpdateService;
 #[async_trait]
 impl wardnetd_services::UpdateService for StubUpdateService {
+    async fn reconcile_pending_install(&self) -> Result<(), AppError> {
+        unimplemented!("startup-only path; the API layer never calls it")
+    }
+
     async fn status(&self) -> Result<wardnet_common::api::UpdateStatusResponse, AppError> {
         unimplemented!()
     }
