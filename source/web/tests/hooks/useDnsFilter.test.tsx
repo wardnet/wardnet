@@ -178,6 +178,80 @@ describe("useDnsFilter blocklists / allowlist / rules", () => {
     );
   });
 
+  // Regression guard: importing a huge blocklist used to wedge the daemon long
+  // enough for systemd's watchdog to kill it. The job registry is in-memory, so
+  // after the restart `GET /api/jobs/{id}` 404s. The hook only reacted to
+  // `data`, which stays undefined on error — so it polled forever and the toast
+  // sat at "80%" indefinitely. A job that vanishes must surface as a failure.
+  it("fails the refresh when the job disappears (daemon restart) instead of polling forever", async () => {
+    dnsFilterService.refreshBlocklist.mockResolvedValue({ job_id: "job-1" });
+    jobsService.get
+      .mockResolvedValueOnce({
+        id: "job-1",
+        status: "RUNNING",
+        percentage_done: 80,
+      })
+      .mockRejectedValue(
+        Object.assign(new Error("job not found"), { status: 404 }),
+      );
+
+    const { result } = renderHook(() => f.useRefreshBlocklist(PID), {
+      wrapper: w(),
+    });
+    act(() => {
+      result.current.mutate("b1");
+    });
+
+    // The first poll succeeds, so the 404 only lands on the next tick of the
+    // 1s refetch interval — but a 404 is final, so it is not retried past that.
+    await waitFor(
+      () =>
+        expect(toast.error).toHaveBeenCalledWith(
+          "Blocklist refresh failed",
+          expect.any(Object),
+        ),
+      { timeout: 5_000 },
+    );
+    // And the row must stop showing "Updating…" forever.
+    await waitFor(() => expect(result.current.isPending).toBe(false), {
+      timeout: 5_000,
+    });
+  });
+
+  // The counterpart: a blip while the daemon is busy importing must NOT be
+  // reported as a failed refresh. The job is still running server-side, and
+  // telling the user it failed pushes them into re-triggering a second
+  // multi-million-domain import.
+  it("rides out a transient poll failure instead of declaring the refresh failed", async () => {
+    dnsFilterService.refreshBlocklist.mockResolvedValue({ job_id: "job-1" });
+    jobsService.get
+      .mockRejectedValueOnce(
+        Object.assign(new Error("network"), { status: 503 }),
+      )
+      .mockResolvedValue({
+        id: "job-1",
+        status: "SUCCEED",
+        percentage_done: 100,
+      });
+
+    const { result } = renderHook(() => f.useRefreshBlocklist(PID), {
+      wrapper: w(),
+    });
+    act(() => {
+      result.current.mutate("b1");
+    });
+
+    await waitFor(
+      () =>
+        expect(toast.success).toHaveBeenCalledWith(
+          "Blocklist refreshed",
+          expect.any(Object),
+        ),
+      { timeout: 10_000 },
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   it("runs allowlist create/delete and rules CRUD", async () => {
     dnsFilterService.listAllowlist.mockResolvedValue({ entries: [] });
     dnsFilterService.createAllowlistEntry.mockResolvedValue({ message: "" });

@@ -1670,3 +1670,61 @@ async fn check_passes_when_device_kill_switch_off_and_records_would_have_blocked
     assert_eq!(outcome.action, FilterAction::Pass);
     assert!(outcome.would_have_blocked);
 }
+
+/// The daemon serves DNS before the filter cache is compiled, and after the
+/// generation migration the blocklists start empty and refill in the
+/// background. Both are fail-open windows: DNS resolves, blocklists enforce
+/// nothing. The admin must be able to see that, so the config response carries
+/// it explicitly rather than leaving the UI to imply everything is fine.
+#[tokio::test]
+async fn filter_config_reports_fail_open_until_lists_are_imported() {
+    let h = build().await;
+    as_admin(async {
+        // Fresh service: rebuild_all has not run, so the cache is not compiled.
+        let cfg = h.service.get_filter_config().await.unwrap();
+        assert!(
+            !cfg.filters_ready,
+            "filters cannot be ready before the cache is bootstrapped"
+        );
+
+        h.service.rebuild_all().await.unwrap();
+
+        // Enable a blocklist but never import it — an enabled-but-empty list
+        // blocks nothing, which must still read as not-ready.
+        let ad: Uuid = AD_BLOCKING.parse().unwrap();
+        let lists = h.service.list_blocklists(ad).await.unwrap().blocklists;
+        let bl = lists[0].id;
+        h.service
+            .update_blocklist(
+                ad,
+                bl,
+                UpdateBlocklistRequest {
+                    enabled: Some(true),
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+
+        let cfg = h.service.get_filter_config().await.unwrap();
+        assert!(
+            !cfg.filters_ready,
+            "an enabled list that has never been imported is empty — fail-open"
+        );
+        assert_eq!(cfg.pending_blocklists, 1);
+
+        // Import it: now filtering is genuinely in force.
+        h.repo
+            .replace_blocklist_domains(bl, &["ads.example".to_owned()])
+            .await
+            .unwrap();
+
+        let cfg = h.service.get_filter_config().await.unwrap();
+        assert!(
+            cfg.filters_ready,
+            "cache built and every enabled list imported"
+        );
+        assert_eq!(cfg.pending_blocklists, 0);
+    })
+    .await;
+}

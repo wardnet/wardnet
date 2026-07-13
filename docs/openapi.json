@@ -24287,11 +24287,23 @@
         "type": "object",
         "description": "Response for GET /api/dns/filter/config.",
         "required": [
-          "config"
+          "config",
+          "filters_ready",
+          "pending_blocklists"
         ],
         "properties": {
           "config": {
             "$ref": "#/components/schemas/DnsFilterConfig"
+          },
+          "filters_ready": {
+            "type": "boolean",
+            "description": "Whether the filters are actually being enforced right now.\n\nThe DNS server answers queries as soon as it binds, but the compiled\nfilters are built in the background — and after an upgrade that resets\nthe blocklist cache, the lists have to be re-downloaded before they can\nblock anything. During either window DNS resolves normally and\nblocklists are **not** enforced, which is a fail-open the admin has to\nbe able to see. `false` means exactly that."
+          },
+          "pending_blocklists": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many enabled blocklists have never been imported, i.e. are empty and\nenforcing nothing until their first download completes.",
+            "minimum": 0
           }
         }
       },

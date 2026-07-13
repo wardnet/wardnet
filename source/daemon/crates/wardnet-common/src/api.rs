@@ -1409,6 +1409,20 @@ pub struct ListDeviceFilterSettingsParams {
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsFilterConfigResponse {
     pub config: DnsFilterConfig,
+
+    /// Whether the filters are actually being enforced right now.
+    ///
+    /// The DNS server answers queries as soon as it binds, but the compiled
+    /// filters are built in the background — and after an upgrade that resets
+    /// the blocklist cache, the lists have to be re-downloaded before they can
+    /// block anything. During either window DNS resolves normally and
+    /// blocklists are **not** enforced, which is a fail-open the admin has to
+    /// be able to see. `false` means exactly that.
+    pub filters_ready: bool,
+
+    /// How many enabled blocklists have never been imported, i.e. are empty and
+    /// enforcing nothing until their first download completes.
+    pub pending_blocklists: u32,
 }
 
 /// Request body for PUT /api/dns/filter/config.

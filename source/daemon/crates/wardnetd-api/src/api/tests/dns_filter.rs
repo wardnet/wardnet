@@ -358,6 +358,8 @@ impl DnsFilterService for MockDnsFilterService {
                 enabled: true,
                 default_profile_ids: vec![PROFILE_ID],
             },
+            filters_ready: true,
+            pending_blocklists: 0,
         })
     }
     async fn update_filter_config(
@@ -369,6 +371,8 @@ impl DnsFilterService for MockDnsFilterService {
                 enabled: true,
                 default_profile_ids: vec![PROFILE_ID],
             },
+            filters_ready: true,
+            pending_blocklists: 0,
         })
     }
     async fn rebuild_blocklist_filter(&self, _id: Uuid) -> Result<(), AppError> {

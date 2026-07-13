@@ -232,6 +232,20 @@ export interface UpdateDeviceFilterSettingsResponse {
 
 export interface DnsFilterConfigResponse {
   config: DnsFilterConfig;
+
+  /**
+   * Whether the filters are actually being enforced right now.
+   *
+   * The DNS server answers queries as soon as it binds, but the compiled
+   * filters are built in the background — and after an upgrade that resets the
+   * blocklist cache, the lists must be re-downloaded before they can block
+   * anything. During either window DNS resolves normally and blocklists are
+   * NOT enforced. `false` means exactly that.
+   */
+  filters_ready: boolean;
+
+  /** Enabled blocklists that have never been imported, so are empty and enforcing nothing. */
+  pending_blocklists: number;
 }
 
 /**

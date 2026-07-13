@@ -343,7 +343,13 @@ async fn load_filter_inputs_for_profile_returns_only_enabled() {
         .await
         .unwrap();
 
-    assert!(inputs.blocked_domains.iter().any(|d| d == "ads.example"));
+    // Blocked domains are NOT part of a profile's inputs: each blocklist is
+    // compiled into its own filter and the runtime profile references it, so
+    // the profile query must not drag millions of domains along. The domain is
+    // still reachable through the path the rebuild actually uses.
+    let blocked = repo.load_blocklist_domains(bl.id).await.unwrap();
+    assert!(blocked.iter().any(|d| d == "ads.example"));
+
     assert!(inputs.allowlist.iter().any(|d| d == "allowed.example"));
     assert!(
         inputs
@@ -613,4 +619,350 @@ async fn deleting_profile_cascades_default_membership() {
         !cfg.default_profile_ids.contains(&p),
         "ON DELETE CASCADE should drop default-membership"
     );
+}
+
+// ── Bulk-import concurrency (blocklist refresh write-starvation) ─────────
+
+/// Build pools that mirror production: an on-disk WAL database whose write
+/// pool has exactly one connection. The single writer is the whole point —
+/// it is what a long bulk import can monopolise.
+async fn on_disk_pools(acquire_timeout: std::time::Duration) -> (crate::db::DbPools, String) {
+    use sqlx::sqlite::{
+        SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
+    };
+
+    let path = std::env::temp_dir().join(format!("wardnet_bulk_{}.db", Uuid::new_v4().simple()));
+    let path_str = path.to_string_lossy().into_owned();
+
+    let make_options = || {
+        SqliteConnectOptions::new()
+            .filename(&path)
+            .create_if_missing(true)
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal)
+            .busy_timeout(std::time::Duration::from_secs(30))
+            .foreign_keys(true)
+    };
+
+    let write = SqlitePoolOptions::new()
+        .max_connections(1)
+        .min_connections(1)
+        .acquire_timeout(acquire_timeout)
+        .connect_with(make_options())
+        .await
+        .unwrap();
+    let read = SqlitePoolOptions::new()
+        .max_connections(5)
+        .acquire_timeout(acquire_timeout)
+        .connect_with(make_options())
+        .await
+        .unwrap();
+
+    sqlx::migrate!("./migrations").run(&write).await.unwrap();
+
+    (crate::db::DbPools { read, write }, path_str)
+}
+
+/// Regression guard: importing a large blocklist must not hold the daemon's
+/// single write connection for the entire import.
+///
+/// The malware/threat-intel feeds are ~1.9M domains. When `replace_blocklist_domains`
+/// wrote them in one transaction it kept the sole writer busy for minutes, so every
+/// other writer in the daemon (stats, DHCP leases, DNS query log, heartbeat) failed
+/// with "pool timed out while waiting for an open connection". Health then flipped
+/// DOWN, the soft watchdog withheld `sd_notify(WATCHDOG=1)`, and systemd SIGABRT'd
+/// the daemon mid-import — leaving the UI polling a job id that no longer existed.
+///
+/// The invariant: an unrelated write must be able to get through *while* the import
+/// is still running.
+#[tokio::test]
+async fn bulk_import_does_not_starve_concurrent_writers() {
+    // A probe that cannot acquire the writer within this budget means the import
+    // held it continuously for that long — the starvation the daemon died of.
+    const MAX_HOLD: std::time::Duration = std::time::Duration::from_secs(1);
+
+    let (pools, path) = on_disk_pools(MAX_HOLD).await;
+    let repo = std::sync::Arc::new(SqliteDnsFilterRepository::new_pools(pools.clone()));
+
+    let malware: Uuid = MALWARE.parse().unwrap();
+    let lists = repo.list_blocklists(malware).await.unwrap();
+    let target = lists[0].id;
+    let other = lists[1].id;
+
+    // Big enough that a single-transaction import takes well over the 200ms
+    // acquire timeout, so a starved writer cannot simply wait it out.
+    let domains: Vec<String> = (0..400_000)
+        .map(|i| format!("d{i}.malware.example"))
+        .collect();
+
+    let importer = std::sync::Arc::clone(&repo);
+    let import =
+        tokio::spawn(async move { importer.replace_blocklist_domains(target, &domains).await });
+
+    // Wait until the import actually holds the single write connection.
+    // Without this the probe below can grab the still-idle connection before
+    // the spawned task is ever polled and pass for the wrong reason.
+    while pools.write.num_idle() > 0 && !import.is_finished() {
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        !import.is_finished(),
+        "import finished before it could be observed holding the writer; raise the domain count"
+    );
+
+    // Probe an unrelated small write repeatedly for as long as the import runs.
+    // A probe only fails if the writer stayed unavailable for the whole MAX_HOLD
+    // window, so a failure here is unambiguous starvation — no tail race with the
+    // import's final commit (that would have woken the waiter and succeeded).
+    let mut starved_for = None;
+    while !import.is_finished() {
+        let probe = std::time::Instant::now();
+        if repo
+            .set_blocklist_error(other, Some("probe"))
+            .await
+            .is_err()
+        {
+            starved_for = Some(probe.elapsed());
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    assert!(
+        starved_for.is_none(),
+        "an unrelated write could not acquire the write connection for {:?} while the bulk \
+         import ran — the import monopolises the single writer for its whole transaction, \
+         which is what starves stats/DHCP/heartbeat/health and trips the systemd watchdog",
+        starved_for.unwrap()
+    );
+
+    let count = import.await.unwrap().unwrap();
+    assert_eq!(count, 400_000);
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// The import must stay atomic from a reader's point of view: while a refresh is
+/// in flight, readers keep seeing the previous list — never a half-loaded one,
+/// never an empty one.
+#[tokio::test]
+async fn bulk_import_is_atomic_for_readers() {
+    let (pools, path) = on_disk_pools(std::time::Duration::from_secs(30)).await;
+    let repo = std::sync::Arc::new(SqliteDnsFilterRepository::new_pools(pools.clone()));
+
+    let malware: Uuid = MALWARE.parse().unwrap();
+    let lists = repo.list_blocklists(malware).await.unwrap();
+    let target = lists[0].id;
+
+    // Seed a known "previous" generation.
+    repo.replace_blocklist_domains(target, &["old.example".to_owned()])
+        .await
+        .unwrap();
+
+    let domains: Vec<String> = (0..200_000).map(|i| format!("new{i}.example")).collect();
+    let importer = std::sync::Arc::clone(&repo);
+    let import =
+        tokio::spawn(async move { importer.replace_blocklist_domains(target, &domains).await });
+
+    // Every observation must be either the whole old list or the whole new one —
+    // never a partially-loaded blocklist. (A reader can legitimately land after
+    // the flip, so "still the old list" is not assertable; "never partial" is.)
+    while !import.is_finished() {
+        let seen = repo.load_blocklist_domains(target).await.unwrap();
+        assert!(
+            seen == vec!["old.example".to_owned()] || seen.len() == 200_000,
+            "reader observed a partially-applied import ({} domains); the swap must be atomic",
+            seen.len()
+        );
+        tokio::task::yield_now().await;
+    }
+    import.await.unwrap().unwrap();
+
+    let seen = repo.load_blocklist_domains(target).await.unwrap();
+    assert_eq!(
+        seen.len(),
+        200_000,
+        "after the flip readers see the new list"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Regression guard: deleting a blocklist must not starve the writer either.
+///
+/// `dns_filter_blocked_domains.blocklist_id` is `ON DELETE CASCADE`, so removing
+/// a blocklist row made `SQLite` drop every one of its domains inside a single
+/// implicit transaction — millions of rows for a threat-intel feed. That holds
+/// the sole write connection exactly as the old single-transaction import did,
+/// with the same watchdog-kill ending. Deleting a profile cascades through its
+/// blocklists into the same place.
+#[tokio::test]
+async fn deleting_a_blocklist_does_not_starve_concurrent_writers() {
+    const MAX_HOLD: std::time::Duration = std::time::Duration::from_secs(1);
+
+    let (pools, path) = on_disk_pools(MAX_HOLD).await;
+    let repo = std::sync::Arc::new(SqliteDnsFilterRepository::new_pools(pools.clone()));
+
+    let malware: Uuid = MALWARE.parse().unwrap();
+    let lists = repo.list_blocklists(malware).await.unwrap();
+    let target = lists[0].id;
+    let other = lists[1].id;
+
+    let domains: Vec<String> = (0..400_000)
+        .map(|i| format!("d{i}.malware.example"))
+        .collect();
+    repo.replace_blocklist_domains(target, &domains)
+        .await
+        .unwrap();
+
+    let deleter = std::sync::Arc::clone(&repo);
+    let delete = tokio::spawn(async move { deleter.delete_blocklist(target).await });
+
+    while pools.write.num_idle() > 0 && !delete.is_finished() {
+        tokio::task::yield_now().await;
+    }
+
+    let mut starved_for = None;
+    while !delete.is_finished() {
+        let probe = std::time::Instant::now();
+        if repo
+            .set_blocklist_error(other, Some("probe"))
+            .await
+            .is_err()
+        {
+            starved_for = Some(probe.elapsed());
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+
+    assert!(
+        starved_for.is_none(),
+        "an unrelated write could not acquire the write connection for {:?} while a blocklist \
+         was being deleted — the ON DELETE CASCADE drops every domain in one transaction",
+        starved_for.unwrap()
+    );
+
+    assert!(delete.await.unwrap().unwrap());
+    assert!(repo.get_blocklist(target).await.unwrap().is_none());
+    assert!(
+        repo.load_blocklist_domains(target)
+            .await
+            .unwrap()
+            .is_empty(),
+        "the deleted blocklist's domains must be gone"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// A refresh re-imports a list whose domains mostly did not change. The new
+/// generation is written while the old one is still present, so the two
+/// generations must be able to hold the same domain for the same blocklist at
+/// once — otherwise `PRIMARY KEY (domain, blocklist_id)` rejects the insert and
+/// every real refresh fails.
+#[tokio::test]
+async fn reimporting_overlapping_domains_succeeds() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsFilterRepository::new(pool);
+
+    let malware: Uuid = MALWARE.parse().unwrap();
+    let target = repo.list_blocklists(malware).await.unwrap()[0].id;
+
+    let first = vec!["ads.example".to_owned(), "evil.example".to_owned()];
+    repo.replace_blocklist_domains(target, &first)
+        .await
+        .unwrap();
+
+    // Same list again, plus one new domain — exactly what a scheduled refresh does.
+    let second = vec![
+        "ads.example".to_owned(),
+        "evil.example".to_owned(),
+        "new.example".to_owned(),
+    ];
+    let count = repo
+        .replace_blocklist_domains(target, &second)
+        .await
+        .expect("re-importing an overlapping list must not violate the primary key");
+    assert_eq!(count, 3);
+
+    let mut seen = repo.load_blocklist_domains(target).await.unwrap();
+    seen.sort();
+    assert_eq!(seen, ["ads.example", "evil.example", "new.example"]);
+}
+
+/// A daemon killed between the flip and the cleanup orphans a generation that
+/// the superseded-generation sweep would never look at again. The next import
+/// must reclaim it, or those rows leak for the life of the database.
+#[tokio::test]
+async fn import_reclaims_generations_orphaned_by_a_crash() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsFilterRepository::new(pool.clone());
+
+    let malware: Uuid = MALWARE.parse().unwrap();
+    let target = repo.list_blocklists(malware).await.unwrap()[0].id;
+
+    repo.replace_blocklist_domains(target, &["a.example".to_owned()])
+        .await
+        .unwrap();
+
+    // Simulate the crash: rows stranded at a generation nothing points at
+    // (a flip happened, its cleanup never ran).
+    sqlx::query(
+        "INSERT INTO dns_filter_blocked_domains (domain, blocklist_id, generation) \
+         VALUES ('orphan.example', ?, 99)",
+    )
+    .bind(target.to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    repo.replace_blocklist_domains(target, &["b.example".to_owned()])
+        .await
+        .unwrap();
+
+    let total: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM dns_filter_blocked_domains WHERE blocklist_id = ?",
+    )
+    .bind(target.to_string())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        total, 1,
+        "only the active generation should remain; the orphaned generation must be reclaimed"
+    );
+    assert_eq!(
+        repo.load_blocklist_domains(target).await.unwrap(),
+        vec!["b.example".to_owned()]
+    );
+}
+
+/// `entry_count` must reflect rows actually stored, and a duplicate in the
+/// caller's slice must not abort the import on the composite primary key.
+#[tokio::test]
+async fn import_dedupes_and_counts_stored_rows() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsFilterRepository::new(pool);
+
+    let malware: Uuid = MALWARE.parse().unwrap();
+    let target = repo.list_blocklists(malware).await.unwrap()[0].id;
+
+    let count = repo
+        .replace_blocklist_domains(
+            target,
+            &[
+                "dup.example".to_owned(),
+                "dup.example".to_owned(),
+                "other.example".to_owned(),
+            ],
+        )
+        .await
+        .expect("a duplicated domain must not abort the import");
+
+    assert_eq!(
+        count, 2,
+        "entry_count must be the rows stored, not the input length"
+    );
+    assert_eq!(repo.load_blocklist_domains(target).await.unwrap().len(), 2);
 }
