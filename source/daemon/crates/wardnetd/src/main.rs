@@ -74,6 +74,7 @@ use wardnetd_services::secret_store::build_secret_store;
 use wardnetd_services::system::WatchdogOps;
 use wardnetd_services::update::{
     EMBEDDED_PUBLIC_KEY, FsBinaryApplier, HttpsManifestSource, Sha256MinisignVerifier, UpdateRunner,
+    UpdateService,
 };
 use wardnetd_services::{Backends, UpdateBackends, auth_context, init_services_with_factory};
 
@@ -683,6 +684,18 @@ async fn run(
     // regardless of any per-feature flag so it covers all tables.
     let db_maintenance_runner =
         DbMaintenanceRunner::start(services.maintenance.clone(), &root_span);
+
+    // Settle any `update_pending_version` marker left behind by an install
+    // that restarted us. Must run before the update runner's first check so a
+    // status poll never observes a version still "pending" that is in fact
+    // the binary now serving the request. A failure here is not fatal — it
+    // only affects reporting, so log and carry on rather than refusing to boot.
+    if let Err(err) = services.update.reconcile_pending_install().await {
+        tracing::warn!(
+            error = %err,
+            "failed to reconcile pending update marker at startup: {err}",
+        );
+    }
 
     // Start the auto-update poller. An initial check runs immediately; then
     // every `check_interval_secs` with ±10% jitter.

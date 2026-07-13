@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@wardnet/ui";
 import {
@@ -31,13 +32,63 @@ function errorMessage(err: unknown, fallback: string): string {
 const STATUS_KEY = ["update", "status"] as const;
 const HISTORY_KEY = ["update", "history"] as const;
 
-/** Poll the update status at ~15 s so banners reflect new releases quickly. */
+const TOAST_APPLIED = "update-applied";
+/**
+ * Last `applied_at` we announced. Persisted because the announcement has to
+ * survive the very page load it is announcing: the daemon restarts under us,
+ * so the browser that started the install is typically remounting when the
+ * news arrives.
+ */
+const APPLIED_SEEN_KEY = "wardnet.update.appliedAt";
+
+function readAppliedSeen(): string | null {
+  try {
+    return window.localStorage.getItem(APPLIED_SEEN_KEY);
+  } catch {
+    // Private mode / storage disabled — degrade to announcing once per mount
+    // rather than breaking the status poll.
+    return null;
+  }
+}
+
+function writeAppliedSeen(value: string): void {
+  try {
+    window.localStorage.setItem(APPLIED_SEEN_KEY, value);
+  } catch {
+    // Ignore: worst case the toast repeats on the next mount.
+  }
+}
+
+/**
+ * Poll the update status at ~15 s so banners reflect new releases quickly.
+ *
+ * Also announces a completed update. The daemon has no event channel to the
+ * browser — it restarts mid-install and this poll is the only thing that comes
+ * back — so a successful upgrade is reported by the *status* carrying
+ * `applied_version` / `applied_at`, stamped by the daemon's startup reconcile.
+ * We announce each `applied_at` exactly once per browser.
+ */
 export function useUpdateStatus() {
-  return useQuery<UpdateStatusResponse>({
+  const query = useQuery<UpdateStatusResponse>({
     queryKey: STATUS_KEY,
     queryFn: () => updateService.status(),
     refetchInterval: 15_000,
   });
+
+  const status = query.data?.status;
+  const appliedAt = status?.applied_at ?? null;
+  const appliedVersion = status?.applied_version ?? null;
+
+  useEffect(() => {
+    if (!appliedAt || !appliedVersion) return;
+    if (readAppliedSeen() === appliedAt) return;
+    writeAppliedSeen(appliedAt);
+    toast.success(`Wardnet updated to v${appliedVersion}`, {
+      id: TOAST_APPLIED,
+    });
+  }, [appliedAt, appliedVersion]);
+
+  return query;
 }
 
 export function useUpdateHistory(limit = 20) {

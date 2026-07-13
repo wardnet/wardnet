@@ -159,7 +159,20 @@ pub struct UpdateStatus {
     /// Current install phase.
     pub install_phase: InstallPhase,
     /// Version the in-flight install is targeting (if any).
+    ///
+    /// Cleared by the startup reconcile once the daemon comes back up on the
+    /// new binary — a pending version that outlives the restart would other-
+    /// wise be reported forever.
     pub pending_version: Option<String>,
+    /// Version the daemon most recently *finished* applying across a restart.
+    ///
+    /// Set by the startup reconcile when `pending_version` matched the running
+    /// binary. The UI polls status and has no event channel, so this (paired
+    /// with `applied_at`) is how a browser learns an update landed.
+    pub applied_version: Option<String>,
+    /// When `applied_version` was observed running. Clients dedupe their
+    /// "updated to vX" notification on this timestamp.
+    pub applied_at: Option<DateTime<Utc>>,
     /// Whether a `.old` binary is present that could be rolled back to.
     pub rollback_available: bool,
 }

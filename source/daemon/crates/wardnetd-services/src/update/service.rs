@@ -62,6 +62,15 @@ pub trait UpdateService: Send + Sync {
     /// Returns `Ok(None)` when no action was taken (disabled, already
     /// up-to-date, or an install is already in flight).
     async fn auto_install_if_due(&self) -> Result<Option<InstallHandle>, AppError>;
+
+    /// Settle the `update_pending_version` marker against the binary that
+    /// actually came back up. Called once at daemon startup, before the HTTP
+    /// server accepts requests.
+    ///
+    /// System startup path, not a user-facing call: it runs before any request
+    /// context exists and therefore carries no `auth_context` guard, in the
+    /// same manner as the routing and zone-enforcement startup reconcilers.
+    async fn reconcile_pending_install(&self) -> Result<(), AppError>;
 }
 
 /// Track the in-flight install so concurrent callers see the same handle.
@@ -175,6 +184,25 @@ impl UpdateServiceImpl {
             .filter(|s| !s.is_empty()))
     }
 
+    async fn get_applied_version(&self) -> Result<Option<String>, AppError> {
+        Ok(self
+            .system_config
+            .get("update_applied_version")
+            .await
+            .map_err(AppError::Internal)?
+            .filter(|s| !s.is_empty()))
+    }
+
+    async fn get_applied_at(&self) -> Result<Option<DateTime<Utc>>, AppError> {
+        Ok(self
+            .system_config
+            .get("update_applied_at")
+            .await
+            .map_err(AppError::Internal)?
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse().ok()))
+    }
+
     async fn set_cfg(&self, key: &str, value: &str) -> Result<(), AppError> {
         self.system_config
             .set(key, value)
@@ -189,6 +217,8 @@ impl UpdateServiceImpl {
         let last_install_at = self.get_last_install_at().await?;
         let latest = self.get_last_known_version().await?;
         let pending = self.get_pending_version().await?;
+        let applied_version = self.get_applied_version().await?;
+        let applied_at = self.get_applied_at().await?;
         let update_available = match latest.as_deref() {
             Some(v) if !v.is_empty() => is_newer(v, &self.current_version),
             _ => false,
@@ -207,8 +237,89 @@ impl UpdateServiceImpl {
             last_install_at,
             install_phase,
             pending_version: pending,
+            applied_version,
+            applied_at,
             rollback_available: self.applier.rollback_available().await,
         })
+    }
+
+    async fn do_reconcile_pending_install(&self) -> Result<(), AppError> {
+        let Some(pending) = self.get_pending_version().await? else {
+            return Ok(());
+        };
+
+        // Whatever we conclude, the claim has now been adjudicated.
+        self.set_cfg("update_pending_version", "").await?;
+
+        if pending == self.current_version {
+            // The swap took: we are running the version we staged.
+            let now = Utc::now();
+            self.set_cfg("update_applied_version", &self.current_version)
+                .await?;
+            self.set_cfg("update_applied_at", &now.to_rfc3339()).await?;
+
+            let mut inflight = self.inflight.lock().await;
+            inflight.phase = InstallPhase::Applied;
+            drop(inflight);
+
+            tracing::info!(
+                version = %pending,
+                "update applied across restart: now running {version}",
+                version = pending,
+            );
+            return Ok(());
+        }
+
+        // We staged `pending` but came back up as something else — the binary
+        // swap silently reverted (or systemd started an older unit). Surface
+        // it rather than letting the version quietly stay behind.
+        let reason = format!(
+            "update to {pending} did not take effect; running {current}",
+            current = self.current_version,
+        );
+
+        let mut inflight = self.inflight.lock().await;
+        inflight.phase = InstallPhase::Failed {
+            reason: reason.clone(),
+        };
+        drop(inflight);
+
+        let history_id = self
+            .history
+            .insert(&UpdateHistoryRow {
+                from_version: self.current_version.clone(),
+                to_version: pending.clone(),
+                phase: "restart_pending".to_owned(),
+                status: UpdateHistoryStatus::Started,
+                error: None,
+            })
+            .await
+            .map_err(AppError::Internal)?;
+        self.history
+            .finalize(
+                history_id,
+                UpdateHistoryStatus::Failed,
+                "restart_pending",
+                Some(reason.as_str()),
+            )
+            .await
+            .map_err(AppError::Internal)?;
+
+        self.events.publish(WardnetEvent::UpdateFailed {
+            target_version: pending.clone(),
+            phase: InstallPhase::RestartPending,
+            error: reason.clone(),
+            timestamp: Utc::now(),
+        });
+
+        tracing::error!(
+            target = %pending,
+            current = %self.current_version,
+            "binary swap reverted: {reason}",
+            reason = reason,
+        );
+
+        Ok(())
     }
 
     async fn publish_progress(&self, target: &str, phase: InstallPhase) {
@@ -484,6 +595,20 @@ fn phase_name(p: &InstallPhase) -> &'static str {
 
 #[async_trait]
 impl UpdateService for UpdateServiceImpl {
+    /// `run_install` writes `update_pending_version` and then cancels the
+    /// shutdown token so systemd restarts us on the new binary. Nothing else
+    /// clears that marker, so without this the UI reports a version as
+    /// "pending" forever after it has already been applied.
+    ///
+    /// The marker is an unverified *claim* that a restart onto the target is
+    /// coming. Boot is the only place that claim can be checked against
+    /// reality, so we either confirm it (record it as applied) or contradict
+    /// it (record the swap as reverted). Either way the marker does not
+    /// survive.
+    async fn reconcile_pending_install(&self) -> Result<(), AppError> {
+        self.do_reconcile_pending_install().await
+    }
+
     async fn status(&self) -> Result<UpdateStatusResponse, AppError> {
         auth_context::require_admin()?;
         Ok(UpdateStatusResponse {

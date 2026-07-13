@@ -20,6 +20,10 @@ struct CountingService {
 
 #[async_trait]
 impl UpdateService for CountingService {
+    async fn reconcile_pending_install(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
     async fn status(&self) -> Result<UpdateStatusResponse, AppError> {
         Ok(UpdateStatusResponse {
             status: UpdateStatus {
@@ -32,6 +36,8 @@ impl UpdateService for CountingService {
                 last_install_at: None,
                 install_phase: InstallPhase::Idle,
                 pending_version: None,
+                applied_version: None,
+                applied_at: None,
                 rollback_available: false,
             },
         })
