@@ -58,7 +58,7 @@ FROM web-${WEB_DIST} AS web
 # ---- Builder stage: compile wardnetd + wardnet-test-agent ----
 # Pinned by digest for supply-chain integrity. Matches the workspace
 # rust-version in source/daemon/rust-toolchain.toml.
-FROM rust:1.96-slim-bookworm@sha256:4732ca96fd086cb9be682050c3f0176288eebaac2b80aa2bcefccfaf198e1950 AS builder
+FROM rust:1.97-slim-bookworm@sha256:cfbb0e0ef7a73e736386bfa346f1cb0503c6d162969dc9426fb37834f3f64c25 AS builder
 
 # minisign is needed at build time to generate the ephemeral signing
 # key + sign the synthetic release tarball that install.sh consumes.
