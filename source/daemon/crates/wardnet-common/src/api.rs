@@ -700,6 +700,11 @@ pub struct DdnsRegisterResponse {
     pub fqdn: String,
     /// The region slug (display only); `None` for BYOD-Cloudflare.
     pub region: Option<String>,
+    /// `true` when the daemon JOINED an already-existing network of this
+    /// account (same slug, re-enrollment) instead of creating a fresh one —
+    /// the network's region and name won over the request (display only).
+    #[serde(default)]
+    pub adopted: bool,
 }
 
 /// Response for `GET /api/ddns/status`.

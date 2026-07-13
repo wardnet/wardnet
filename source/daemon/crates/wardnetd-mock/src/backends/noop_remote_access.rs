@@ -194,6 +194,7 @@ impl DdnsService for MockDdnsService {
         Ok(DdnsRegistration {
             subdomain: fqdn,
             region: "use1".to_owned(),
+            adopted: false,
         })
     }
 
@@ -212,6 +213,7 @@ impl DdnsService for MockDdnsService {
         Ok(DdnsRegistration {
             subdomain: domain,
             region: "cloudflare".to_owned(),
+            adopted: false,
         })
     }
 

@@ -38,6 +38,8 @@ export default function StepRemoteAccess() {
   const [formError, setFormError] = useState<string | null>(null);
   // Once provisioning has been kicked off we swap the form for live progress.
   const [started, setStarted] = useState(false);
+  /** Set when registration JOINED an existing network instead of creating one. */
+  const [adoptedFqdn, setAdoptedFqdn] = useState<string | null>(null);
   // Set when an attempt failed because the upstream service was unreachable (vs
   // a fixable input error) — swaps the form for a clear "service unavailable,
   // continue anyway" view.
@@ -61,7 +63,10 @@ export default function StepRemoteAccess() {
   }
 
   const enrollment = useWardnetEnrollment({
-    onProvisioned: () => setStarted(true),
+    onProvisioned: (registration) => {
+      setStarted(true);
+      setAdoptedFqdn(registration?.adopted ? registration.fqdn : null);
+    },
     onError: (err) => {
       if (isUpstreamDown(err)) {
         setUpstreamDown(true);
@@ -110,8 +115,13 @@ export default function StepRemoteAccess() {
             Remote access
           </Heading>
           <Text as="p" size="sm" className="mt-1 text-ink-3">
-            Your hostname is registered. The certificate is being issued in the
-            background - you can wait here or finish setup; it'll keep going.
+            {adoptedFqdn
+              ? `Joined your existing network ${adoptedFqdn} - its region and ` +
+                "settings apply. The certificate is being issued in the " +
+                "background - you can wait here or finish setup; it'll keep going."
+              : "Your hostname is registered. The certificate is being issued " +
+                "in the background - you can wait here or finish setup; it'll " +
+                "keep going."}
           </Text>
         </div>
 

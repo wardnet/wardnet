@@ -150,6 +150,23 @@ describe("useWardnetEnrollment", () => {
     });
   });
 
+  it("passes the register response through to onProvisioned (adoption signal)", async () => {
+    hoisted.register.mutateAsync.mockResolvedValueOnce({
+      fqdn: "nairobi.my.wardnet.services",
+      region: "euc",
+      adopted: true,
+    });
+    const { view, onProvisioned } = setup();
+    await act(async () => {
+      await view.result.current.registerWardnet();
+    });
+    expect(onProvisioned).toHaveBeenCalledWith({
+      fqdn: "nairobi.my.wardnet.services",
+      region: "euc",
+      adopted: true,
+    });
+  });
+
   it("reports errors from each action via onError", async () => {
     hoisted.requestCode.mutateAsync.mockRejectedValueOnce(new Error("boom"));
     hoisted.enroll.mutateAsync.mockRejectedValueOnce(new Error("boom"));
@@ -179,6 +196,7 @@ describe("useWardnetEnrollment", () => {
     await act(async () => {
       await view.result.current.enableCloudflare();
     });
+    expect(onProvisioned).toHaveBeenCalledWith(null);
     expect(hoisted.configureCf.mutateAsync).toHaveBeenCalledWith({
       token: "tok",
       domain: "example.com",

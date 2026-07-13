@@ -23269,6 +23269,10 @@
           "fqdn"
         ],
         "properties": {
+          "adopted": {
+            "type": "boolean",
+            "description": "`true` when the daemon JOINED an already-existing network of this\naccount (same slug, re-enrollment) instead of creating a fresh one —\nthe network's region and name won over the request (display only)."
+          },
           "fqdn": {
             "type": "string",
             "description": "The public hostname now assigned to this network."

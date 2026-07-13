@@ -59,7 +59,13 @@ const registerWardnet = vi.fn();
 const enableCloudflare = vi.fn();
 
 type EnrollmentOpts = {
-  onProvisioned: () => void;
+  onProvisioned: (
+    registration?: {
+      fqdn: string;
+      region: string | null;
+      adopted: boolean;
+    } | null,
+  ) => void;
   onError: (err: unknown) => void;
   clearError: () => void;
 };
@@ -180,6 +186,22 @@ describe("StepRemoteAccess", () => {
     const skip = screen.getByTestId("setup-remote-access-skip");
     expect(skip).toBeDisabled();
     expect(skip).toHaveTextContent("Skipping…");
+  });
+
+  it("says it joined the existing network when registration adopted one", async () => {
+    renderWithProviders(<StepRemoteAccess />);
+    await act(async () =>
+      capturedOpts.onProvisioned({
+        fqdn: "nairobi.my.wardnet.services",
+        region: "euc",
+        adopted: true,
+      }),
+    );
+    expect(
+      screen.getByText(
+        /Joined your existing network nairobi\.my\.wardnet\.services/,
+      ),
+    ).toBeInTheDocument();
   });
 
   it("shows a pending label on the progress view while advancing", async () => {

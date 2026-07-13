@@ -86,6 +86,10 @@ pub struct DdnsRegistration {
     pub subdomain: String,
     /// The bridge's region label (display only).
     pub region: String,
+    /// `true` when the daemon joined an already-existing network of this
+    /// account instead of creating a fresh one — the network's region, state,
+    /// and name won over the request (display only).
+    pub adopted: bool,
 }
 
 /// Current DDNS state, surfaced to Settings / status views (C10).
@@ -702,19 +706,41 @@ impl DdnsService for DdnsServiceImpl {
         // The next token must be network-scoped (the daemon can now reach ddns).
         identity.forget_token();
 
+        // Defend at write time: the response's region is server-controlled
+        // (an ADOPTED network's region wins over our request) and every later
+        // gateway resolution — IP reports, ACME, the tunnel — keys off the
+        // persisted value strictly through the local catalog. Persisting a slug
+        // the catalog cannot resolve would 200 the wizard and then silently
+        // brick remote access on every background tick, so refuse it here,
+        // before any config is written.
+        self.gateway_base_for_region(&network.region).map_err(|_| {
+            AppError::UpstreamUnavailable(format!(
+                "your network '{}' lives in region '{}', which this wardnet build does not                  know — update wardnet and retry",
+                network.slug, network.region,
+            ))
+        })?;
+
         let subdomain = format!("{}.{SUBDOMAIN_PARENT}", network.slug);
         self.set_cfg(KEY_NETWORK_ID, &network.network_id).await?;
         self.set_cfg(KEY_SLUG, &network.slug).await?;
         self.set_cfg(KEY_SUBDOMAIN, &subdomain).await?;
-        self.set_cfg(KEY_REGION, &region.slug).await?;
+        // The RESPONSE's region, not our latency-based pick: when the cloud
+        // adopts an existing network (same tenant re-registering its own slug),
+        // that network's region is authoritative — IP reports and ACME calls
+        // key their regional gateway off this value.
+        self.set_cfg(KEY_REGION, &network.region).await?;
         self.set_cfg(KEY_PROVIDER, PROVIDER_WARDNET).await?;
         self.entitlement.set_premium(true);
 
         tracing::info!(
             %subdomain,
-            region = %region.slug,
+            region = %network.region,
             provisioning_state = %network.provisioning_state,
-            "registered DDNS network"
+            adopted = network.adopted,
+            "registered DDNS network: subdomain={subdomain}, region={region}, state={state},              adopted={adopted}",
+            region = network.region,
+            state = network.provisioning_state,
+            adopted = network.adopted,
         );
 
         self.teardown_superseded(
@@ -729,6 +755,7 @@ impl DdnsService for DdnsServiceImpl {
         Ok(DdnsRegistration {
             subdomain,
             region: network.region,
+            adopted: network.adopted,
         })
     }
 
@@ -789,6 +816,7 @@ impl DdnsService for DdnsServiceImpl {
         Ok(DdnsRegistration {
             subdomain: domain,
             region: PROVIDER_CLOUDFLARE.to_owned(),
+            adopted: false,
         })
     }
 

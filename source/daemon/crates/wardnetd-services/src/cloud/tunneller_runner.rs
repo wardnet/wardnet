@@ -176,11 +176,25 @@ impl TunnelerConnector {
         };
         auth_context::with_context(admin_ctx, async {
             let slug = self.system_config.get(KEY_REGION).await.ok().flatten()?;
-            let gateway = self
+            // Distinguish "misconfigured" from "not enrolled": a persisted region
+            // the catalog cannot resolve means the tunnel will never come up, and
+            // silence here previously made that state indistinguishable from a
+            // box without remote access.
+            let Some(gateway) = self
                 .region_catalog
                 .iter()
                 .find(|entry| entry.slug == slug)
-                .map(|entry| entry.gateway_base_url.clone())?;
+                .map(|entry| entry.gateway_base_url.clone())
+            else {
+                tracing::warn!(
+                    region = %slug,
+                    "tunnel runner: persisted DDNS region {slug} is not in this \
+                     build's region catalog — the reverse tunnel cannot connect \
+                     (update wardnet or re-register remote access)",
+                    slug = slug,
+                );
+                return None;
+            };
             let seed_bytes = self.secrets.get(SECRET_DAEMON_KEY).await.ok().flatten()?;
             let seed: [u8; 32] = seed_bytes.try_into().ok()?;
             let identity =

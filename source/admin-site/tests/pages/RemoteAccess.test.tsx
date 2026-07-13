@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -248,6 +248,32 @@ describe("RemoteAccess - configured", () => {
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     // Back to the status view.
     expect(screen.getByTestId("ra-status")).toBeInTheDocument();
+  });
+
+  it("toasts when registration adopted an existing network", async () => {
+    renderWithProviders(<RemoteAccess />);
+    await act(async () =>
+      capturedOpts.onProvisioned({
+        fqdn: "nairobi.my.wardnet.services",
+        region: "euc",
+        adopted: true,
+      }),
+    );
+    expect(toast.success).toHaveBeenCalledWith(
+      "Joined your existing network nairobi.my.wardnet.services (euc)",
+    );
+  });
+
+  it("stays quiet when registration created a fresh network", async () => {
+    renderWithProviders(<RemoteAccess />);
+    await act(async () =>
+      capturedOpts.onProvisioned({
+        fqdn: "nairobi.my.wardnet.services",
+        region: "euc",
+        adopted: false,
+      }),
+    );
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it("recheck reports a matching verdict via toast", async () => {
