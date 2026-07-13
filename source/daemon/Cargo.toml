@@ -118,7 +118,7 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # inbound WireGuard server + per-peer keypairs (issue #809). Uses the `x25519`
 # free function + base-point constant, so no `static_secrets` feature is needed;
 # clamping is applied to match `wg genkey`.
-x25519-dalek = { version = "2", default-features = false }
+x25519-dalek = { version = "3", default-features = false }
 # https://crates.io/crates/web-push-native — HTTP-agnostic Web Push: VAPID JWT
 # (ES256) + RFC8291/RFC8188 payload encryption via RustCrypto, no OpenSSL/isahc.
 # Returns request headers + encrypted body; we POST with the workspace `reqwest`.
