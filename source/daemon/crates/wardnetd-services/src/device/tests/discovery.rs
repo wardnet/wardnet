@@ -1663,3 +1663,102 @@ async fn a_device_changing_ip_normally_is_still_trusted() {
         "a single, ordinary IP change must still be honoured, got {result:?}"
     );
 }
+
+/// Code-review follow-up on #886: a claim of the Pi's own IP must still COUNT
+/// toward the flap threshold. The incident MAC claimed three real addresses
+/// plus the Pi's own inside one second; if the own-IP claim is dropped before
+/// the flap history records it, the MAC stays forever one short of the
+/// threshold and its lies about the three victim IPs keep being trusted.
+#[tokio::test]
+async fn own_ip_claims_count_toward_the_flap_threshold() {
+    let h = build_harness();
+    let mac = "aa:bb:cc:dd:ee:06";
+
+    // The recorded #886 trace: .4, .22, <own IP>, .59 from one MAC.
+    for ip in ["192.168.1.4", "192.168.1.22", OWN_LAN_IP] {
+        h.svc
+            .process_observation(&sample_observation(mac, ip))
+            .await
+            .unwrap();
+    }
+    let result = h
+        .svc
+        .process_observation(&sample_observation(mac, "192.168.1.59"))
+        .await
+        .unwrap();
+
+    assert!(
+        matches!(result, ObservationResult::Ignored),
+        "the fourth distinct claim (own IP counted) must trip the flap \
+         detector (#886), got {result:?}"
+    );
+    let updates = h.repo.last_seen_updates.lock().unwrap();
+    assert!(
+        updates.iter().all(|(_, ip, _, _)| ip != "192.168.1.59"),
+        "the flapping MAC's claim on .59 must not be recorded (#886): {updates:?}"
+    );
+}
+
+/// Code-review follow-up on #886: ignoring a flapping MAC's observations must
+/// not let the departure sweep mark it gone — the claims lie about the address,
+/// but they still prove the MAC is on the wire, and a gone-marking tears down
+/// its zone enforcement fail-open via `DeviceGone` → `remove_device`.
+#[tokio::test]
+async fn flap_ignored_observations_still_count_as_presence() {
+    let h = build_harness();
+    let mac = "aa:bb:cc:dd:ee:07";
+
+    // Register, then trip the flap threshold (4 distinct IPs).
+    for ip in [
+        "192.168.1.61",
+        "192.168.1.62",
+        "192.168.1.63",
+        "192.168.1.64",
+    ] {
+        h.svc
+            .process_observation(&sample_observation(mac, ip))
+            .await
+            .unwrap();
+    }
+
+    // Let more than the departure timeout pass, then observe the (still
+    // flapping) MAC again: the observation is Ignored but must refresh
+    // presence.
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    let result = h
+        .svc
+        .process_observation(&sample_observation(mac, "192.168.1.64"))
+        .await
+        .unwrap();
+    assert!(matches!(result, ObservationResult::Ignored));
+
+    let departed = h.svc.scan_departures(1).await.unwrap();
+    assert!(
+        departed.is_empty(),
+        "a flapping-but-present MAC must not be marked gone (#886): {departed:?}"
+    );
+}
+
+/// Code-review follow-up on #886: a device row claiming the Pi's own IP that
+/// survived in an older database is repaired at startup — its address is
+/// cleared (loudly) rather than left to make every zone action on it a silent
+/// no-op forever.
+#[tokio::test]
+async fn restore_devices_repairs_a_row_claiming_our_own_ip() {
+    let poisoned = sample_device(
+        "0a0a0a0a-0000-0000-0000-000000000001",
+        "aa:bb:cc:dd:ee:08",
+        OWN_LAN_IP,
+    );
+    let h = build_harness_with_devices(vec![poisoned]);
+
+    h.svc.restore_devices().await.unwrap();
+
+    let updates = h.repo.last_seen_updates.lock().unwrap();
+    assert!(
+        updates
+            .iter()
+            .any(|(id, ip, _, _)| id == "0a0a0a0a-0000-0000-0000-000000000001" && ip.is_empty()),
+        "the poisoned row's last_ip must be cleared at startup (#886): {updates:?}"
+    );
+}

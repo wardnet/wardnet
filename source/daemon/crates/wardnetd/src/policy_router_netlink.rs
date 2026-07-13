@@ -9,19 +9,25 @@ use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute, RouteScope};
 use rtnetlink::packet_route::rule::{RuleAction, RuleAttribute, RuleMessage};
 use rtnetlink::{Handle, RouteMessageBuilder};
 
-use rtnetlink::packet_route::route::RouteMessage;
+use rtnetlink::packet_route::route::{RouteHeader, RouteMessage};
 
 use wardnetd_services::command::{CommandExecutor, CommandOutput};
 use wardnetd_services::routing::policy_router::PolicyRouter;
 
-/// The `main` routing table (`RT_TABLE_MAIN`). `add_host_route` sets no table,
-/// so the kernel files the routes it adds here — and it is therefore the only
-/// table `remove_host_route` may delete from.
-///
-/// The table the kernel owns, and which Wardnet must never touch, is `local`
-/// (255): for every address configured on the box it holds a `scope host` `/32`
-/// route that makes packets to that address deliver locally (issue #886).
-pub(crate) const RT_TABLE_MAIN: u8 = 254;
+/// The routing table a route belongs to. For tables > 255 the number lives in
+/// an attribute; otherwise in the header. The attribute wins so a wide table
+/// can't alias onto a small one. Shared with `route_monitor`, which watches
+/// these same tables for external deletions.
+pub(crate) fn route_table(route: &RouteMessage) -> u32 {
+    route
+        .attributes
+        .iter()
+        .find_map(|a| match a {
+            RouteAttribute::Table(t) => Some(*t),
+            _ => None,
+        })
+        .unwrap_or_else(|| u32::from(route.header.table))
+}
 
 /// Production [`PolicyRouter`] backed by Linux netlink sockets.
 ///
@@ -567,17 +573,10 @@ pub(crate) fn is_removable_host_route(route: &RouteMessage, addr: Ipv4Addr, oif:
     if route.header.scope != RouteScope::Link {
         return false;
     }
-    // For tables > 255 the number lives in an attribute; otherwise in the
-    // header. Read the attribute first so a wide table can't alias onto `main`.
-    let table = route
-        .attributes
-        .iter()
-        .find_map(|a| match a {
-            RouteAttribute::Table(t) => Some(*t),
-            _ => None,
-        })
-        .unwrap_or_else(|| u32::from(route.header.table));
-    if table != u32::from(RT_TABLE_MAIN) {
+    // `add_host_route` sets no table, so the kernel files our routes in `main`.
+    // The kernel's own `local` table (255) — holding the `scope host` `/32`
+    // that delivers each of the box's addresses to itself — must never match.
+    if route_table(route) != u32::from(RouteHeader::RT_TABLE_MAIN) {
         return false;
     }
     let dest_matches = route

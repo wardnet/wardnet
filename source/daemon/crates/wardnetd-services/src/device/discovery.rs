@@ -268,14 +268,34 @@ impl DeviceDiscoveryServiceImpl {
                 mac,
                 claimed = ?claimed,
                 window_secs = FLAP_WINDOW.as_secs(),
-                "device discovery: MAC is claiming several IPs at once — ignoring its \
-                 observations until it settles. Something is answering ARP for addresses \
-                 it does not own (issue #886)"
+                "device discovery: {mac} claimed {claimed:?} within {window_secs}s — ignoring \
+                 its observations until it settles; something is answering ARP for addresses \
+                 it does not own (issue #886)",
+                claimed = claimed,
+                window_secs = FLAP_WINDOW.as_secs(),
             );
         } else if !flapping {
             entry.warned = false;
         }
         flapping
+    }
+
+    /// Refresh a tracked, present MAC's in-memory `last_seen` without touching
+    /// its IP or the database.
+    ///
+    /// Called for observations we deliberately ignore (own-IP claims, flapping
+    /// MACs): the observation is a lie about the *address*, but it still proves
+    /// the MAC is on the wire. Without this, a persistently-lying MAC stops
+    /// refreshing `last_seen`, the departure sweep marks it gone after the
+    /// timeout, and `DeviceGone` tears down its zone enforcement fail-open
+    /// while the device is still present (issue #886).
+    async fn touch_presence(&self, mac: &str) {
+        let mut state = self.state.write().await;
+        if let Some(entry) = state.get_mut(mac)
+            && !entry.gone
+        {
+            entry.last_seen = Instant::now();
+        }
     }
 
     /// Fetch (or lazily create) the per-mac serialization lock. The returned
@@ -547,7 +567,31 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         let count = devices.len();
 
         let mut state = self.state.write().await;
-        for device in devices {
+        let mut poisoned: Vec<(Uuid, String, DeviceConnectionMode)> = Vec::new();
+        for mut device in devices {
+            // Repair a row claiming our own LAN IP (written by a pre-fix daemon
+            // — ingest refuses to create one now). Left alone it would be
+            // silently un-enforceable forever while the UI shows it as a normal
+            // device holding the Pi's address (issue #886). Clearing the IP is
+            // truthful: we do not know where this device really is.
+            if device
+                .last_ip
+                .parse::<std::net::Ipv4Addr>()
+                .is_ok_and(|ip| !ip.is_unspecified() && ip == self.lan_ip)
+            {
+                tracing::error!(
+                    device_id = %device.id,
+                    mac = %device.mac,
+                    ip = %device.last_ip,
+                    "device discovery: stored device {mac} claims Wardnet's own LAN IP {ip} — \
+                     clearing its address; it will be re-registered at its real IP on the \
+                     next observation (issue #886)",
+                    mac = device.mac,
+                    ip = device.last_ip,
+                );
+                poisoned.push((device.id, device.mac.clone(), device.connection_mode));
+                device.last_ip = String::new();
+            }
             state.insert(
                 device.mac.clone(),
                 DeviceMemoryState {
@@ -561,6 +605,22 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         }
         drop(state);
 
+        for (device_id, mac, mode) in poisoned {
+            let now = chrono::Utc::now().to_rfc3339();
+            if let Err(e) = self
+                .devices
+                .update_last_seen_and_ip(&device_id.to_string(), "", &now, mode)
+                .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    device_id = %device_id,
+                    mac = %mac,
+                    "device discovery: failed to clear own-IP device row (issue #886)"
+                );
+            }
+        }
+
         tracing::info!(count, "restored device state from database: count={count}");
         Ok(())
     }
@@ -572,27 +632,10 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         // Filter out observations from IPs outside the LAN subnet.
         // When the Pi is the gateway, return traffic from the internet arrives
         // with the router's MAC but remote server IPs — ignore those.
-        if let Ok(ip) = obs.ip.parse::<std::net::Ipv4Addr>()
+        let parsed_ip = obs.ip.parse::<std::net::Ipv4Addr>().ok();
+        if let Some(ip) = parsed_ip
             && !self.lan_subnet.contains(ip)
         {
-            return Ok(ObservationResult::Ignored);
-        }
-
-        // Our own address is never a device, whatever answers ARP for it. A row
-        // claiming it makes zone enforcement act on the Pi itself — installing a
-        // /32 host route for our own IP that collides with the kernel's local
-        // route and blackholes the box to its entire network (issue #886).
-        if obs
-            .ip
-            .parse::<std::net::Ipv4Addr>()
-            .is_ok_and(|ip| ip == self.lan_ip)
-        {
-            tracing::warn!(
-                mac = %obs.mac,
-                ip = %obs.ip,
-                "device discovery: a device is claiming Wardnet's own LAN IP — refusing to \
-                 record it. This is an address conflict on the LAN (issue #886)"
-            );
             return Ok(ObservationResult::Ignored);
         }
 
@@ -603,9 +646,34 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         let mac_lock = self.lock_for_mac(&obs.mac).await;
         let _guard = mac_lock.lock_owned().await;
 
+        // Record the claim in the flap history BEFORE any ignore-branch below:
+        // a claim of our own IP must still count toward the flap threshold —
+        // the #886 incident MAC claimed three real addresses plus the Pi's own,
+        // and dropping the own-IP claim first would leave it forever one short
+        // of the threshold, keeping its lies about the other three trusted.
+        let flapping = self.is_flapping(&obs.mac, &obs.ip).await;
+
+        // Our own address is never a device, whatever answers ARP for it. A row
+        // claiming it makes zone enforcement act on the Pi itself — installing a
+        // /32 host route for our own IP that collides with the kernel's local
+        // route and blackholes the box to its entire network (issue #886).
+        if parsed_ip.is_some_and(|ip| ip == self.lan_ip) {
+            tracing::warn!(
+                mac = %obs.mac,
+                ip = %obs.ip,
+                "device discovery: {mac} is claiming Wardnet's own LAN IP {ip} — refusing to \
+                 record it; this is an address conflict on the LAN (issue #886)",
+                mac = obs.mac,
+                ip = obs.ip,
+            );
+            self.touch_presence(&obs.mac).await;
+            return Ok(ObservationResult::Ignored);
+        }
+
         // A MAC claiming many addresses at once is not a device moving; believe
         // none of them until it settles (issue #886).
-        if self.is_flapping(&obs.mac, &obs.ip).await {
+        if flapping {
+            self.touch_presence(&obs.mac).await;
             return Ok(ObservationResult::Ignored);
         }
 

@@ -181,35 +181,57 @@ impl ZoneEnforcementServiceImpl {
         }
     }
 
-    /// True if `ip` is the daemon's own LAN address — in which case the caller
-    /// must do nothing at all with it.
+    /// True if `ip` is an address the Pi itself owns — the primary LAN IP or
+    /// any per-zone gateway alias — in which case the caller must do nothing
+    /// at all with it.
     ///
-    /// Enforcement is keyed by device IP, so a device row claiming the Pi's own
-    /// address turns every enforcement action against the Pi itself. That is not
-    /// hypothetical: a powerline bridge proxy-ARP'd for the Pi's IP, discovery
-    /// recorded it as that device's `last_ip`, and moving it into a zone drove a
-    /// `/32` host route for our own address — which collides with the kernel's
-    /// `local` route for ourselves and makes the box blackhole its own IP to
-    /// every client, on every path (issue #886).
+    /// Enforcement is keyed by device IP, so a device row claiming one of the
+    /// Pi's own addresses turns every enforcement action against the Pi itself
+    /// (see the module notes on issue #886: a proxy-ARP'd claim of the LAN IP
+    /// drove a host-route removal that blackholed the box). The gateway aliases
+    /// `reconcile_isolation` installs are just as much ours as the primary
+    /// address — flushing conntrack for one kills every live flow through that
+    /// zone.
     ///
-    /// Discovery now refuses to record our own IP, but a row can survive in an
-    /// older database and reach us via startup reconcile, so the enforcement
-    /// side refuses it independently. Loud, because it always means the device
-    /// inventory is lying about a real IP conflict on the LAN.
-    fn is_own_lan_ip(&self, ip: &str, op: &str) -> bool {
-        let is_ours = ip
-            .parse::<Ipv4Addr>()
-            .is_ok_and(|parsed| parsed == self.lan_ip);
+    /// Discovery refuses to record our own IP, but a row can survive in an
+    /// older database, so enforcement refuses independently. Loud, because it
+    /// always means the device inventory is lying about a real IP conflict.
+    async fn is_own_address(&self, ip: &str, op: &str) -> bool {
+        let Ok(parsed) = ip.parse::<Ipv4Addr>() else {
+            return false;
+        };
+        let is_ours = (!self.lan_ip.is_unspecified() && parsed == self.lan_ip)
+            || self.is_zone_gateway(parsed).await;
         if is_ours {
             tracing::warn!(
                 ip,
                 op,
                 lan_ip = %self.lan_ip,
-                "zone enforcer: refusing to enforce on the daemon's own LAN IP — \
-                 a device record claims it (issue #886)"
+                "zone enforcer: refusing to enforce on {ip} during {op} — it is one of the \
+                 daemon's own addresses and a device record claims it (issue #886)",
+                ip = ip,
+                op = op,
             );
         }
         is_ours
+    }
+
+    /// True if `addr` is the gateway alias of any zone subnet — an address
+    /// `reconcile_isolation` puts on the Pi's own interface. A zones-repository
+    /// failure degrades to `false` (the primary-LAN-IP check above still holds).
+    async fn is_zone_gateway(&self, addr: Ipv4Addr) -> bool {
+        let zones = match self.zones.find_all().await {
+            Ok(zones) => zones,
+            Err(e) => {
+                tracing::warn!(error = %e, "zone enforcer: failed to load zones for own-address check");
+                return false;
+            }
+        };
+        zones
+            .iter()
+            .filter_map(|z| z.subnet.as_ref())
+            .filter_map(|s| s.cidr.parse::<Ipv4Network>().ok())
+            .any(|net| crate::subnet::gateway_for(net) == addr)
     }
 
     /// Install a device IP's zone rules. On a live change (`flush = true`) the
@@ -222,7 +244,7 @@ impl ZoneEnforcementServiceImpl {
         zone: &NetworkZone,
         flush: bool,
     ) -> Result<(), AppError> {
-        if self.is_own_lan_ip(device_ip, "apply_zone_rules") {
+        if self.is_own_address(device_ip, "apply_zone_rules").await {
             return Ok(());
         }
         let rules = Self::zone_rules(zone);
@@ -268,6 +290,26 @@ impl ZoneEnforcementServiceImpl {
             );
             return Ok(None);
         };
+        // Chokepoint for every device-keyed entry point, present and future: a
+        // row without a usable address, or one claiming an address the Pi
+        // itself owns, is not a device to enforce on (issue #886). The
+        // IP-keyed teardown paths (`remove_device`, `handle_ip_change`) carry
+        // their own guards, as do `apply_one`/`manage_host_route` for the
+        // IP-keyed reconcile loop.
+        if device.last_ip.parse::<Ipv4Addr>().is_err() {
+            tracing::debug!(
+                device_id = %device_id,
+                last_ip = %device.last_ip,
+                "zone enforcer: device has no usable IP, skipping"
+            );
+            return Ok(None);
+        }
+        if self
+            .is_own_address(&device.last_ip, "load_device_and_zone")
+            .await
+        {
+            return Ok(None);
+        }
         Ok(Some((device, zone)))
     }
 
@@ -469,7 +511,10 @@ impl ZoneEnforcementServiceImpl {
         // Never install *or* remove a host route for our own address: the
         // removal path is what deleted the kernel's local route and locked the
         // box out of itself (#886).
-        if self.is_own_lan_ip(&device.last_ip, "manage_host_route") {
+        if self
+            .is_own_address(&device.last_ip, "manage_host_route")
+            .await
+        {
             return;
         }
         let want = dhcp_enabled && zone.member_isolation && zone.subnet.is_some();
@@ -746,6 +791,16 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         let mut applied = 0u32;
         let mut live_ips: HashSet<String> = HashSet::with_capacity(devices.len());
         for device in &devices {
+            // A repaired own-IP row (issue #886) has an empty `last_ip` until
+            // its next observation — nothing to enforce and nothing to key
+            // rules on.
+            if device.last_ip.parse::<Ipv4Addr>().is_err() {
+                tracing::debug!(
+                    device_id = %device.id,
+                    "zone enforcer: device has no usable IP during reconcile, skipping"
+                );
+                continue;
+            }
             live_ips.insert(device.last_ip.clone());
             let Some(zone) = zone_by_id.get(&device.zone_id) else {
                 tracing::warn!(
@@ -870,7 +925,7 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         // with it: we never enforced on that IP, so there is nothing to tear
         // down, and tearing down anyway deletes the kernel's local route (#886).
         // The `new_ip` side is guarded inside apply_one/manage_host_route.
-        if !self.is_own_lan_ip(old_ip, "handle_ip_change/old_ip") {
+        if !self.is_own_address(old_ip, "handle_ip_change/old_ip").await {
             // Drop the stale-IP rules first so they never outlive the device's move.
             self.firewall
                 .remove_zone_rules(old_ip)
@@ -909,7 +964,7 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         // Nothing was ever enforced on our own address, so there is nothing to
         // remove — and removing anyway takes the kernel's local route with it
         // (#886). Still recompute isolation: the device is gone either way.
-        if !self.is_own_lan_ip(last_ip, "remove_device") {
+        if !self.is_own_address(last_ip, "remove_device").await {
             self.firewall
                 .remove_zone_rules(last_ip)
                 .await
@@ -938,13 +993,10 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
     async fn handle_zone_change(&self, device_id: Uuid) -> Result<(), AppError> {
         auth_context::require_admin()?;
         tracing::debug!(device_id = %device_id, "zone enforcer: handle_zone_change");
-        if let Some((device, zone)) = self.load_device_and_zone(device_id).await?
-            // A device row claiming our own IP is a lie about the LAN, not a
-            // device to enforce on. Skip the whole per-device sequence — the
-            // conntrack flush would tear down our own live admin sessions and
-            // the host-route path would blackhole us outright (#886).
-            && !self.is_own_lan_ip(&device.last_ip, "handle_zone_change")
-        {
+        // A row claiming one of the Pi's own addresses is filtered inside
+        // `load_device_and_zone` (#886) — the conntrack flush below would
+        // otherwise tear down our own live admin sessions.
+        if let Some((device, zone)) = self.load_device_and_zone(device_id).await? {
             // Force the device to re-IP into its new zone's subnet: release its
             // DHCP lease and flush its conntrack. There is a brief connectivity
             // blip until the device renews (typically seconds for a cooperating

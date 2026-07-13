@@ -12,13 +12,15 @@ use rtnetlink::packet_route::route::{
     RouteAddress, RouteAttribute, RouteHeader, RouteMessage, RouteScope, RouteType,
 };
 
-use crate::policy_router_netlink::{RT_TABLE_MAIN, is_removable_host_route};
+use crate::policy_router_netlink::is_removable_host_route;
 
-/// The kernel-owned `local` table (`RT_TABLE_LOCAL`), which holds the `scope
-/// host` route delivering each of the box's own addresses to itself. Production
-/// code never names it — it may only ever write to `main` — so it lives here,
-/// where we assert we keep our hands off it (issue #886).
-const RT_TABLE_LOCAL: u8 = 255;
+/// `main` (254) is where `add_host_route` files our routes; `local` (255) is
+/// the kernel-owned table holding the `scope host` route that delivers each of
+/// the box's own addresses to itself — production code must never touch it
+/// (issue #886). netlink-packet-route exports no `RT_TABLE_LOCAL`, so libc is
+/// the canonical source for that one.
+const RT_TABLE_MAIN: u8 = RouteHeader::RT_TABLE_MAIN;
+const RT_TABLE_LOCAL: u8 = libc::RT_TABLE_LOCAL;
 
 const OIF: u32 = 2;
 const LAN_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 100, 2);

@@ -1122,3 +1122,56 @@ async fn handle_ip_change_never_touches_the_daemons_own_ip() {
          or the new address (#886), but it did: {touched:?}"
     );
 }
+
+/// Code-review follow-up on #886: the per-zone gateway aliases are the Pi's own
+/// addresses too. A device row claiming one must be refused exactly like a row
+/// claiming the primary LAN IP — flushing conntrack for a zone gateway kills
+/// every live flow through that zone.
+#[tokio::test]
+async fn handle_zone_change_never_touches_a_zone_gateway_alias() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "ZoneA", "10.44.1.0/24", false).await;
+    // 10.44.1.1 is ZoneA's gateway alias — an address the Pi itself holds.
+    let dev = insert_device(&h.devices, "10.44.1.1", ZONE_A).await;
+
+    as_admin(h.svc.handle_zone_change(dev)).await.unwrap();
+
+    let touched = calls_mentioning(&h, "10.44.1.1").await;
+    // The isolation rebuild legitimately names the gateway as an alias to
+    // install; only per-device enforcement calls are forbidden.
+    let forbidden: Vec<&String> = touched
+        .iter()
+        .filter(|c| {
+            c.starts_with("apply:")
+                || c.starts_with("remove:")
+                || c.starts_with("flush_conntrack:")
+                || c.contains("host_route")
+        })
+        .collect();
+    assert!(
+        forbidden.is_empty(),
+        "per-device enforcement must never touch a zone gateway alias (#886): {forbidden:?}"
+    );
+}
+
+/// Code-review follow-up on #886: a repaired own-IP row has an empty `last_ip`
+/// until re-observed. Reconcile must skip it cleanly — no rules keyed on an
+/// empty string, no error.
+#[tokio::test]
+async fn reconcile_skips_devices_without_a_usable_ip() {
+    let h = build().await;
+    let _dev = insert_device(&h.devices, "", GUEST).await;
+
+    as_admin(h.svc.reconcile()).await.unwrap();
+
+    let bogus: Vec<String> = calls(&h)
+        .await
+        .into_iter()
+        .filter(|c| c.starts_with("apply::"))
+        .collect();
+    assert!(
+        bogus.is_empty(),
+        "reconcile must not apply rules keyed on an empty IP (#886): {bogus:?}"
+    );
+}
