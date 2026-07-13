@@ -36,7 +36,7 @@ pub struct DdnsClient {
 
 impl DdnsClient {
     /// Build a client sharing the pooled `http` and pointed at the region's
-    /// gateway `base_url` (e.g. `https://api.use1.wardnet.network`).
+    /// gateway `base_url` (e.g. `https://api.euc.wardnet.network`).
     #[must_use]
     pub fn new(http: reqwest::Client, base_url: String) -> Self {
         Self { http, base_url }
