@@ -23,7 +23,7 @@
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
     "@wardnet/brand": "^0.1.0",
     "@wardnet/styles": "^0.1.0",
-    "lucide-react": "1.23.0",
+    "lucide-react": "1.24.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-markdown": "10.1.0",
