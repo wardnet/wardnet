@@ -27736,6 +27736,21 @@
           "rollback_available"
         ],
         "properties": {
+          "applied_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When `applied_version` was observed running. Clients dedupe their\n\"updated to vX\" notification on this timestamp."
+          },
+          "applied_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Version the daemon most recently *finished* applying across a restart.\n\nSet by the startup reconcile when `pending_version` matched the running\nbinary. The UI polls status and has no event channel, so this (paired\nwith `applied_at`) is how a browser learns an update landed."
+          },
           "auto_update_enabled": {
             "type": "boolean",
             "description": "Whether auto-update is enabled."
@@ -27780,7 +27795,7 @@
               "string",
               "null"
             ],
-            "description": "Version the in-flight install is targeting (if any)."
+            "description": "Version the in-flight install is targeting (if any).\n\nCleared by the startup reconcile once the daemon comes back up on the\nnew binary — a pending version that outlives the restart would other-\nwise be reported forever."
           },
           "rollback_available": {
             "type": "boolean",
