@@ -61,7 +61,7 @@ jobs:
           components: clippy, rustfmt
 
       - name: Install clippy SARIF tooling
-        uses: taiki-e/install-action@16b05812d776ae1dfaabc8277e421fb6d2506419 # v2
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145 # v2
         with:
           tool: clippy-sarif,sarif-fmt
 
