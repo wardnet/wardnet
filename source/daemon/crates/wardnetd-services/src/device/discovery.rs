@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -29,6 +29,30 @@ struct DeviceMemoryState {
     last_ip: String,
     last_seen: Instant,
     gone: bool,
+}
+
+/// How far back the IP-flap detector looks.
+const FLAP_WINDOW: std::time::Duration = std::time::Duration::from_mins(1);
+
+/// How many distinct IPs a single MAC may claim within [`FLAP_WINDOW`] before
+/// its observations stop being trusted.
+///
+/// A real device changes address rarely, and one at a time — a DHCP move is a
+/// single transition. The MAC behind issue #886 claimed four addresses inside
+/// one second: a powerline bridge answering ARP for hosts across its segment.
+/// Three is comfortably above honest churn and well below that.
+const FLAP_MAX_DISTINCT_IPS: usize = 3;
+
+/// Recent distinct IPs claimed by one MAC, for the flap detector (issue #886).
+#[derive(Default)]
+struct IpFlapHistory {
+    /// Distinct IPs seen inside the window, each with the time it was last
+    /// observed. Entries age out, so a MAC that settles becomes trusted again
+    /// on its own.
+    ips: VecDeque<(String, Instant)>,
+    /// Whether the current flapping episode has already been warned about, so a
+    /// storm of observations doesn't become a storm of log lines.
+    warned: bool,
 }
 
 /// Result of processing a device observation.
@@ -169,6 +193,11 @@ pub struct DeviceDiscoveryServiceImpl {
     /// Filters out return traffic from the internet (remote IPs arriving with
     /// the router's MAC on the Ethernet frame).
     lan_subnet: ipnetwork::Ipv4Network,
+    /// Wardnet's own LAN IP. Never a device, whatever ARP says (issue #886).
+    lan_ip: std::net::Ipv4Addr,
+    /// Per-MAC recent distinct-IP history, keyed by MAC. Feeds the flap detector
+    /// that stops trusting a MAC claiming many addresses at once (issue #886).
+    ip_history: Arc<RwLock<HashMap<String, IpFlapHistory>>>,
     state: Arc<RwLock<HashMap<String, DeviceMemoryState>>>,
     /// Per-mac locks serializing the full observe-then-persist sequence for a
     /// single device across the LAN and `WireGuard` observation paths, so their DB
@@ -180,6 +209,7 @@ pub struct DeviceDiscoveryServiceImpl {
 
 impl DeviceDiscoveryServiceImpl {
     /// Create a new discovery service with the given dependencies.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         devices: Arc<dyn DeviceRepository>,
         zones: Arc<dyn NetworkZoneRepository>,
@@ -188,6 +218,7 @@ impl DeviceDiscoveryServiceImpl {
         events: Arc<dyn EventPublisher>,
         resolver: Arc<dyn HostnameResolver>,
         lan_subnet: ipnetwork::Ipv4Network,
+        lan_ip: std::net::Ipv4Addr,
     ) -> Self {
         Self {
             devices,
@@ -197,9 +228,54 @@ impl DeviceDiscoveryServiceImpl {
             events,
             resolver,
             lan_subnet,
+            lan_ip,
             state: Arc::new(RwLock::new(HashMap::new())),
+            ip_history: Arc::new(RwLock::new(HashMap::new())),
             device_locks: tokio::sync::Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Record `ip` against `mac` and report whether that MAC is currently
+    /// flapping — claiming more than [`FLAP_MAX_DISTINCT_IPS`] distinct
+    /// addresses inside [`FLAP_WINDOW`].
+    ///
+    /// A device changes address rarely and one at a time. A MAC cycling through
+    /// several addresses in seconds is not a device moving — it is something
+    /// answering ARP on behalf of other hosts (the powerline bridge in issue
+    /// #886, which claimed four addresses in one second, one of them the Pi's
+    /// own) or spoofing outright. Either way it is not telling the truth about
+    /// any of those addresses, so we stop believing it until it settles.
+    ///
+    /// Entries age out of the window, so a MAC recovers on its own without any
+    /// operator action.
+    async fn is_flapping(&self, mac: &str, ip: &str) -> bool {
+        let mut history = self.ip_history.write().await;
+        let entry = history.entry(mac.to_owned()).or_default();
+
+        let now = Instant::now();
+        entry.ips.retain(|(_, seen)| now - *seen < FLAP_WINDOW);
+        if let Some((_, seen)) = entry.ips.iter_mut().find(|(known, _)| known == ip) {
+            *seen = now;
+        } else {
+            entry.ips.push_back((ip.to_owned(), now));
+        }
+
+        let flapping = entry.ips.len() > FLAP_MAX_DISTINCT_IPS;
+        if flapping && !entry.warned {
+            entry.warned = true;
+            let claimed: Vec<&str> = entry.ips.iter().map(|(ip, _)| ip.as_str()).collect();
+            tracing::warn!(
+                mac,
+                claimed = ?claimed,
+                window_secs = FLAP_WINDOW.as_secs(),
+                "device discovery: MAC is claiming several IPs at once — ignoring its \
+                 observations until it settles. Something is answering ARP for addresses \
+                 it does not own (issue #886)"
+            );
+        } else if !flapping {
+            entry.warned = false;
+        }
+        flapping
     }
 
     /// Fetch (or lazily create) the per-mac serialization lock. The returned
@@ -502,12 +578,36 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             return Ok(ObservationResult::Ignored);
         }
 
+        // Our own address is never a device, whatever answers ARP for it. A row
+        // claiming it makes zone enforcement act on the Pi itself — installing a
+        // /32 host route for our own IP that collides with the kernel's local
+        // route and blackholes the box to its entire network (issue #886).
+        if obs
+            .ip
+            .parse::<std::net::Ipv4Addr>()
+            .is_ok_and(|ip| ip == self.lan_ip)
+        {
+            tracing::warn!(
+                mac = %obs.mac,
+                ip = %obs.ip,
+                "device discovery: a device is claiming Wardnet's own LAN IP — refusing to \
+                 record it. This is an address conflict on the LAN (issue #886)"
+            );
+            return Ok(ObservationResult::Ignored);
+        }
+
         // Serialize the full observe-then-persist sequence for this mac against
         // the WireGuard-peer path, so their DB writes can't land out of order
         // relative to their in-memory state transitions (per-mac only — unrelated
         // devices proceed concurrently).
         let mac_lock = self.lock_for_mac(&obs.mac).await;
         let _guard = mac_lock.lock_owned().await;
+
+        // A MAC claiming many addresses at once is not a device moving; believe
+        // none of them until it settles (issue #886).
+        if self.is_flapping(&obs.mac, &obs.ip).await {
+            return Ok(ObservationResult::Ignored);
+        }
 
         // Phase 1: classify the observation via the shared state machine. The
         // LAN path passes `None` for an untracked mac (defer to the DB — it may

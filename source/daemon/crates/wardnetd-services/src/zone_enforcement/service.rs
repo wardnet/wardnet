@@ -181,6 +181,37 @@ impl ZoneEnforcementServiceImpl {
         }
     }
 
+    /// True if `ip` is the daemon's own LAN address — in which case the caller
+    /// must do nothing at all with it.
+    ///
+    /// Enforcement is keyed by device IP, so a device row claiming the Pi's own
+    /// address turns every enforcement action against the Pi itself. That is not
+    /// hypothetical: a powerline bridge proxy-ARP'd for the Pi's IP, discovery
+    /// recorded it as that device's `last_ip`, and moving it into a zone drove a
+    /// `/32` host route for our own address — which collides with the kernel's
+    /// `local` route for ourselves and makes the box blackhole its own IP to
+    /// every client, on every path (issue #886).
+    ///
+    /// Discovery now refuses to record our own IP, but a row can survive in an
+    /// older database and reach us via startup reconcile, so the enforcement
+    /// side refuses it independently. Loud, because it always means the device
+    /// inventory is lying about a real IP conflict on the LAN.
+    fn is_own_lan_ip(&self, ip: &str, op: &str) -> bool {
+        let is_ours = ip
+            .parse::<Ipv4Addr>()
+            .is_ok_and(|parsed| parsed == self.lan_ip);
+        if is_ours {
+            tracing::warn!(
+                ip,
+                op,
+                lan_ip = %self.lan_ip,
+                "zone enforcer: refusing to enforce on the daemon's own LAN IP — \
+                 a device record claims it (issue #886)"
+            );
+        }
+        is_ours
+    }
+
     /// Install a device IP's zone rules. On a live change (`flush = true`) the
     /// device's conntrack is flushed so already-open flows re-evaluate at once;
     /// on bulk reconcile (`flush = false`) it is skipped — the table was just
@@ -191,6 +222,9 @@ impl ZoneEnforcementServiceImpl {
         zone: &NetworkZone,
         flush: bool,
     ) -> Result<(), AppError> {
+        if self.is_own_lan_ip(device_ip, "apply_zone_rules") {
+            return Ok(());
+        }
         let rules = Self::zone_rules(zone);
         self.firewall
             .apply_zone_rules(device_ip, rules, &self.lan_interface)
@@ -432,6 +466,12 @@ impl ZoneEnforcementServiceImpl {
     /// proxy-ARP'd peer traffic can be forwarded/filtered; otherwise the route
     /// is removed. Errors are warn-logged, never fatal.
     async fn manage_host_route(&self, device: &Device, zone: &NetworkZone, dhcp_enabled: bool) {
+        // Never install *or* remove a host route for our own address: the
+        // removal path is what deleted the kernel's local route and locked the
+        // box out of itself (#886).
+        if self.is_own_lan_ip(&device.last_ip, "manage_host_route") {
+            return;
+        }
         let want = dhcp_enabled && zone.member_isolation && zone.subnet.is_some();
         let res = if want {
             self.policy_router
@@ -826,19 +866,25 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
     ) -> Result<(), AppError> {
         auth_context::require_admin()?;
         tracing::debug!(device_id = %device_id, old_ip, new_ip, "zone enforcer: handle_ip_change");
-        // Drop the stale-IP rules first so they never outlive the device's move.
-        self.firewall
-            .remove_zone_rules(old_ip)
-            .await
-            .map_err(AppError::Internal)?;
-        // The old IP's `/32` host route is no longer valid — drop it before the
-        // new one is (conditionally) installed below.
-        if let Err(e) = self
-            .policy_router
-            .remove_host_route(old_ip, &self.lan_interface)
-            .await
-        {
-            tracing::warn!(error = %e, old_ip, "zone enforcer: failed to remove old-IP host route");
+        // A device flapping off our own address must not drag our own state down
+        // with it: we never enforced on that IP, so there is nothing to tear
+        // down, and tearing down anyway deletes the kernel's local route (#886).
+        // The `new_ip` side is guarded inside apply_one/manage_host_route.
+        if !self.is_own_lan_ip(old_ip, "handle_ip_change/old_ip") {
+            // Drop the stale-IP rules first so they never outlive the device's move.
+            self.firewall
+                .remove_zone_rules(old_ip)
+                .await
+                .map_err(AppError::Internal)?;
+            // The old IP's `/32` host route is no longer valid — drop it before
+            // the new one is (conditionally) installed below.
+            if let Err(e) = self
+                .policy_router
+                .remove_host_route(old_ip, &self.lan_interface)
+                .await
+            {
+                tracing::warn!(error = %e, old_ip, "zone enforcer: failed to remove old-IP host route");
+            }
         }
         if let Some((device, zone)) = self.load_device_and_zone(device_id).await? {
             // Key on the event's new IP rather than the row's `last_ip`, which
@@ -860,16 +906,21 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
     async fn remove_device(&self, device_id: Uuid, last_ip: &str) -> Result<(), AppError> {
         auth_context::require_admin()?;
         tracing::debug!(device_id = %device_id, last_ip, "zone enforcer: remove_device");
-        self.firewall
-            .remove_zone_rules(last_ip)
-            .await
-            .map_err(AppError::Internal)?;
-        if let Err(e) = self
-            .policy_router
-            .remove_host_route(last_ip, &self.lan_interface)
-            .await
-        {
-            tracing::warn!(error = %e, last_ip, "zone enforcer: failed to remove host route");
+        // Nothing was ever enforced on our own address, so there is nothing to
+        // remove — and removing anyway takes the kernel's local route with it
+        // (#886). Still recompute isolation: the device is gone either way.
+        if !self.is_own_lan_ip(last_ip, "remove_device") {
+            self.firewall
+                .remove_zone_rules(last_ip)
+                .await
+                .map_err(AppError::Internal)?;
+            if let Err(e) = self
+                .policy_router
+                .remove_host_route(last_ip, &self.lan_interface)
+                .await
+            {
+                tracing::warn!(error = %e, last_ip, "zone enforcer: failed to remove host route");
+            }
         }
         self.reconcile_isolation().await?;
         Ok(())
@@ -887,7 +938,13 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
     async fn handle_zone_change(&self, device_id: Uuid) -> Result<(), AppError> {
         auth_context::require_admin()?;
         tracing::debug!(device_id = %device_id, "zone enforcer: handle_zone_change");
-        if let Some((device, zone)) = self.load_device_and_zone(device_id).await? {
+        if let Some((device, zone)) = self.load_device_and_zone(device_id).await?
+            // A device row claiming our own IP is a lie about the LAN, not a
+            // device to enforce on. Skip the whole per-device sequence — the
+            // conntrack flush would tear down our own live admin sessions and
+            // the host-route path would blackhole us outright (#886).
+            && !self.is_own_lan_ip(&device.last_ip, "handle_zone_change")
+        {
             // Force the device to re-IP into its new zone's subnet: release its
             // DHCP lease and flush its conntrack. There is a brief connectivity
             // blip until the device renews (typically seconds for a cooperating

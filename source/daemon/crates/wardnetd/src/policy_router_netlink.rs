@@ -9,8 +9,19 @@ use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute, RouteScope};
 use rtnetlink::packet_route::rule::{RuleAction, RuleAttribute, RuleMessage};
 use rtnetlink::{Handle, RouteMessageBuilder};
 
+use rtnetlink::packet_route::route::RouteMessage;
+
 use wardnetd_services::command::{CommandExecutor, CommandOutput};
 use wardnetd_services::routing::policy_router::PolicyRouter;
+
+/// The `main` routing table (`RT_TABLE_MAIN`). `add_host_route` sets no table,
+/// so the kernel files the routes it adds here — and it is therefore the only
+/// table `remove_host_route` may delete from.
+///
+/// The table the kernel owns, and which Wardnet must never touch, is `local`
+/// (255): for every address configured on the box it holds a `scope host` `/32`
+/// route that makes packets to that address deliver locally (issue #886).
+pub(crate) const RT_TABLE_MAIN: u8 = 254;
 
 /// Production [`PolicyRouter`] backed by Linux netlink sockets.
 ///
@@ -523,17 +534,7 @@ impl PolicyRouter for NetlinkPolicyRouter {
 
         let mut routes = self.handle.route().get(Self::ipv4_route_filter()).execute();
         while let Some(route) = routes.try_next().await? {
-            if route.header.destination_prefix_length != 32 {
-                continue;
-            }
-            let dest_matches = route.attributes.iter().any(
-                |a| matches!(a, RouteAttribute::Destination(RouteAddress::Inet(d)) if *d == addr),
-            );
-            let oif_matches = route
-                .attributes
-                .iter()
-                .any(|a| matches!(a, RouteAttribute::Oif(o) if *o == index));
-            if dest_matches && oif_matches {
+            if is_removable_host_route(&route, addr, index) {
                 if let Err(e) = self.handle.route().del(route).execute().await {
                     anyhow::bail!("failed to remove host route {ip}/32 dev {interface}: {e}");
                 }
@@ -543,4 +544,49 @@ impl PolicyRouter for NetlinkPolicyRouter {
         tracing::debug!(ip, interface, "host route not present, nothing to remove");
         Ok(())
     }
+}
+
+/// True if `route` is a host route that [`PolicyRouter::add_host_route`] itself
+/// could have installed for `addr` out of link index `oif` — i.e. one
+/// [`PolicyRouter::remove_host_route`] is allowed to delete.
+///
+/// The table and scope checks are load-bearing, not cosmetic. For every address
+/// configured on this box the kernel keeps a route in the `local` table that is
+/// ALSO a `/32` with the same destination and output interface — it is what
+/// makes packets addressed to us deliver to us. Matching on destination + oif
+/// alone therefore matches the kernel's local route, and deleting it makes the
+/// box blackhole its own address: it keeps answering ARP, but every packet to
+/// it is forwarded rather than delivered, and it replies `ICMP destination host
+/// unreachable` from its own IP. Restricting removal to what we add (table
+/// `main`, `scope link`) is what keeps a device row that claims our own IP from
+/// locking the admin out of the box entirely (issue #886).
+pub(crate) fn is_removable_host_route(route: &RouteMessage, addr: Ipv4Addr, oif: u32) -> bool {
+    if route.header.destination_prefix_length != 32 {
+        return false;
+    }
+    if route.header.scope != RouteScope::Link {
+        return false;
+    }
+    // For tables > 255 the number lives in an attribute; otherwise in the
+    // header. Read the attribute first so a wide table can't alias onto `main`.
+    let table = route
+        .attributes
+        .iter()
+        .find_map(|a| match a {
+            RouteAttribute::Table(t) => Some(*t),
+            _ => None,
+        })
+        .unwrap_or_else(|| u32::from(route.header.table));
+    if table != u32::from(RT_TABLE_MAIN) {
+        return false;
+    }
+    let dest_matches = route
+        .attributes
+        .iter()
+        .any(|a| matches!(a, RouteAttribute::Destination(RouteAddress::Inet(d)) if *d == addr));
+    let oif_matches = route
+        .attributes
+        .iter()
+        .any(|a| matches!(a, RouteAttribute::Oif(o) if *o == oif));
+    dest_matches && oif_matches
 }

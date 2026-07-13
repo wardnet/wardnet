@@ -9,6 +9,7 @@ mod mdns_advertiser;
 mod metrics_collector;
 mod packet_capture;
 mod pidfile;
+mod policy_router_netlink;
 mod profiling;
 mod routing_listener;
 pub mod stubs;

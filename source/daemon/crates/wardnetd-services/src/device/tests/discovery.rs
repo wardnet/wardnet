@@ -570,6 +570,7 @@ fn build_harness_with_devices(devices: Vec<Device>) -> TestHarness {
         events.clone(),
         resolver,
         "192.168.1.0/24".parse().unwrap(),
+        std::net::Ipv4Addr::new(192, 168, 1, 1),
     );
 
     TestHarness {
@@ -604,6 +605,7 @@ fn build_harness_with_resolver_and_dhcp(
         events.clone(),
         resolver,
         "192.168.1.0/24".parse().unwrap(),
+        std::net::Ipv4Addr::new(192, 168, 1, 1),
     );
 
     TestHarness {
@@ -1536,5 +1538,128 @@ async fn mark_peer_gone_untracked_is_noop() {
     assert!(
         h.events.published_events().is_empty(),
         "no event when the device was not tracked as present"
+    );
+}
+
+// -- Untrustworthy observations (issue #886) ---------------------------------
+
+/// The daemon's own LAN IP, as configured in the test harness.
+const OWN_LAN_IP: &str = "192.168.1.1";
+
+/// Regression test for #886.
+///
+/// A powerline bridge proxy-ARP'd for the Pi's own address, so discovery
+/// recorded `last_ip = <the Pi's IP>` against that MAC. Zone enforcement then
+/// keyed on that address and blackholed the box to its own network. Discovery
+/// is the first of the two guards: our own address is never a device.
+#[tokio::test]
+async fn observation_claiming_our_own_lan_ip_is_ignored() {
+    let h = build_harness();
+    let obs = sample_observation("aa:bb:cc:dd:ee:02", OWN_LAN_IP);
+
+    let result = h.svc.process_observation(&obs).await.unwrap();
+
+    assert!(
+        matches!(result, ObservationResult::Ignored),
+        "an observation claiming the daemon's own LAN IP must be ignored (#886), \
+         got {result:?}"
+    );
+    assert!(
+        h.repo.inserted.lock().unwrap().is_empty(),
+        "no device row may be created for the daemon's own IP (#886)"
+    );
+    assert!(
+        h.events.published_events().is_empty(),
+        "no discovery event may be published for the daemon's own IP (#886)"
+    );
+}
+
+/// A device that already exists must not be *moved* onto our own address either
+/// — the incident's device flapped onto the Pi's IP from a legitimate one.
+#[tokio::test]
+async fn known_device_flapping_onto_our_own_lan_ip_is_ignored() {
+    let h = build_harness();
+    let mac = "aa:bb:cc:dd:ee:03";
+    h.svc
+        .process_observation(&sample_observation(mac, "192.168.1.40"))
+        .await
+        .unwrap();
+
+    let result = h
+        .svc
+        .process_observation(&sample_observation(mac, OWN_LAN_IP))
+        .await
+        .unwrap();
+
+    assert!(
+        matches!(result, ObservationResult::Ignored),
+        "a known device claiming the daemon's own IP must be ignored (#886), got {result:?}"
+    );
+    let updates = h.repo.last_seen_updates.lock().unwrap();
+    assert!(
+        updates.iter().all(|(_, ip, _, _)| ip != OWN_LAN_IP),
+        "last_ip must never be written as the daemon's own IP (#886): {updates:?}"
+    );
+}
+
+/// Regression test for #886.
+///
+/// The MAC behind the incident claimed four different addresses within a single
+/// second (`.4`, `.22`, `.2`, `.59`) — a powerline bridge answering ARP for
+/// hosts across its segment, not a device changing address. A MAC cycling
+/// through addresses that fast is not telling the truth about any of them, so
+/// its observations stop being trusted until it settles.
+#[tokio::test]
+async fn mac_flapping_across_many_ips_stops_being_trusted() {
+    let h = build_harness();
+    let mac = "aa:bb:cc:dd:ee:04";
+
+    // Establish the device, then flap it across distinct addresses.
+    for ip in ["192.168.1.4", "192.168.1.22", "192.168.1.59"] {
+        h.svc
+            .process_observation(&sample_observation(mac, ip))
+            .await
+            .unwrap();
+    }
+
+    // One address too many, inside the window: the MAC is now untrustworthy.
+    let result = h
+        .svc
+        .process_observation(&sample_observation(mac, "192.168.1.77"))
+        .await
+        .unwrap();
+
+    assert!(
+        matches!(result, ObservationResult::Ignored),
+        "a MAC claiming more distinct IPs than the flap threshold inside the \
+         window must stop being trusted (#886), got {result:?}"
+    );
+    let updates = h.repo.last_seen_updates.lock().unwrap();
+    assert!(
+        updates.iter().all(|(_, ip, _, _)| ip != "192.168.1.77"),
+        "an untrusted flapping MAC must not rewrite last_ip (#886): {updates:?}"
+    );
+}
+
+/// The guard must not punish a device that simply changed address once (a
+/// normal DHCP move) — only one cycling through many.
+#[tokio::test]
+async fn a_device_changing_ip_normally_is_still_trusted() {
+    let h = build_harness();
+    let mac = "aa:bb:cc:dd:ee:05";
+    h.svc
+        .process_observation(&sample_observation(mac, "192.168.1.50"))
+        .await
+        .unwrap();
+
+    let result = h
+        .svc
+        .process_observation(&sample_observation(mac, "192.168.1.51"))
+        .await
+        .unwrap();
+
+    assert!(
+        matches!(result, ObservationResult::IpChanged { .. }),
+        "a single, ordinary IP change must still be honoured, got {result:?}"
     );
 }

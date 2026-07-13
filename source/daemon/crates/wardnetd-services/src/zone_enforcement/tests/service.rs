@@ -1022,3 +1022,103 @@ async fn handle_zone_change_releases_lease_and_flushes_conntrack() {
         "isolation recomputed on zone change"
     );
 }
+
+// -- The daemon's own LAN IP is untouchable (issue #886) ----------------------
+
+/// The Pi's own LAN address, as a device would (wrongly) claim it.
+const OWN_IP: &str = "192.168.1.1";
+
+/// Every kernel-touching call the enforcer made that names `ip`.
+async fn calls_mentioning(h: &Harness, ip: &str) -> Vec<String> {
+    calls(h)
+        .await
+        .into_iter()
+        .chain(policy_calls(h).await)
+        .filter(|c| c.contains(ip))
+        .collect()
+}
+
+/// Regression test for #886.
+///
+/// A discovery bug let a device row claim the Pi's own LAN IP. Moving it into a
+/// zone drove the enforcer to act on that address — culminating in a
+/// `remove_host_route` that deleted the kernel's local route for the Pi's own
+/// address and blackholed the box to every client on every path. The enforcer
+/// must refuse to touch its own address, whatever the database says.
+#[tokio::test]
+async fn handle_zone_change_never_touches_the_daemons_own_ip() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Network Devices", "10.100.1.0/24", true).await;
+    let dev = insert_device(&h.devices, OWN_IP, ZONE_A).await;
+
+    as_admin(h.svc.handle_zone_change(dev)).await.unwrap();
+
+    let touched = calls_mentioning(&h, OWN_IP).await;
+    assert!(
+        touched.is_empty(),
+        "the enforcer must never apply rules, host routes or conntrack flushes \
+         to the daemon's own LAN IP (#886), but it did: {touched:?}"
+    );
+}
+
+/// The startup path must not faithfully re-apply the bad state either: a
+/// surviving device row holding our own IP is inert, not re-enforced.
+#[tokio::test]
+async fn reconcile_never_applies_rules_to_the_daemons_own_ip() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Network Devices", "10.100.1.0/24", true).await;
+    let _dev = insert_device(&h.devices, OWN_IP, ZONE_A).await;
+
+    as_admin(h.svc.reconcile()).await.unwrap();
+
+    let touched = calls_mentioning(&h, OWN_IP).await;
+    assert!(
+        touched.is_empty(),
+        "startup reconcile must not re-apply enforcement to the daemon's own IP \
+         (#886), but it did: {touched:?}"
+    );
+}
+
+/// Teardown is as dangerous as setup: `remove_device` would delete the host
+/// route for the given IP, which for our own address means the local route.
+#[tokio::test]
+async fn remove_device_never_touches_the_daemons_own_ip() {
+    let h = build().await;
+    let dev = insert_device(&h.devices, OWN_IP, GUEST).await;
+
+    as_admin(h.svc.remove_device(dev, OWN_IP)).await.unwrap();
+
+    let touched = calls_mentioning(&h, OWN_IP).await;
+    assert!(
+        touched.is_empty(),
+        "remove_device must not tear down state for the daemon's own IP (#886), \
+         but it did: {touched:?}"
+    );
+}
+
+/// An IP change *into* or *out of* our own address must be inert on both sides:
+/// the old IP is torn down, the new IP is set up, and neither may be ours.
+#[tokio::test]
+async fn handle_ip_change_never_touches_the_daemons_own_ip() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    let dev = insert_device(&h.devices, OWN_IP, GUEST).await;
+
+    // A device flapping onto our address...
+    as_admin(h.svc.handle_ip_change(dev, "192.168.1.77", OWN_IP))
+        .await
+        .unwrap();
+    // ...and back off it.
+    as_admin(h.svc.handle_ip_change(dev, OWN_IP, "192.168.1.77"))
+        .await
+        .unwrap();
+
+    let touched = calls_mentioning(&h, OWN_IP).await;
+    assert!(
+        touched.is_empty(),
+        "handle_ip_change must not act on the daemon's own IP as either the old \
+         or the new address (#886), but it did: {touched:?}"
+    );
+}
