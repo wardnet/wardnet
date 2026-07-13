@@ -1189,10 +1189,84 @@ async fn register_network_stores_the_networks_region_not_the_selected_one() {
             "display_name": "nairobi",
             "region": "euc",
             "provisioning_state": "active",
+            "adopted": true,
             "created_at": "2026-06-29T00:00:00Z",
             "updated_at": "2026-06-29T00:00:00Z"
         })))
         .expect(1)
+        .mount(&tenants)
+        .await;
+
+    let ddns = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/readyz"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&ddns)
+        .await;
+
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_enrolled(&secrets).await;
+    // euc is in the catalog (so the response region resolves) but unhealthy —
+    // select_best still picks use1, which is what the request carries.
+    let mut catalog = region_catalog("use1", &ddns);
+    catalog.push(RegionEndpoint {
+        slug: "euc".to_owned(),
+        gateway_base_url: "http://127.0.0.1:9".to_owned(),
+        health_url: "http://127.0.0.1:9/readyz".to_owned(),
+    });
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        settings(catalog, tenants.uri(), vec![]),
+    );
+
+    let registration = auth_context::with_context(
+        admin_ctx(),
+        svc.register_network("nairobi".to_owned(), None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        registration.region, "euc",
+        "the adopted network's region is authoritative"
+    );
+    assert!(
+        registration.adopted,
+        "the response's adopted flag must ride through to the API"
+    );
+    assert_eq!(
+        config.get(KEY_REGION).await.unwrap().as_deref(),
+        Some("euc"),
+        "the daemon must persist the NETWORK's region, not its own selection — \
+         gateway routing for IP reports and ACME keys off this value"
+    );
+}
+
+/// Code-review follow-up: the response's region is server-controlled, and every
+/// later gateway resolution goes strictly through the local catalog. A region
+/// this build cannot resolve must fail the registration LOUDLY, before any
+/// config is persisted — not 200 the wizard and then brick every background
+/// tick ("unknown DDNS region slug") until someone reads the logs.
+#[tokio::test]
+async fn register_network_rejects_a_region_missing_from_the_catalog() {
+    let tenants = MockServer::start().await;
+    mount_token(&tenants).await;
+    Mock::given(method("POST"))
+        .and(path("/v1/networks"))
+        .and(header_exists("authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "n-10",
+            "tenant_id": "t-1",
+            "slug": "nairobi",
+            "display_name": "nairobi",
+            "region": "mars",
+            "provisioning_state": "active",
+            "adopted": true,
+            "created_at": "2026-06-29T00:00:00Z",
+            "updated_at": "2026-06-29T00:00:00Z"
+        })))
         .mount(&tenants)
         .await;
 
@@ -1212,21 +1286,21 @@ async fn register_network_stores_the_networks_region_not_the_selected_one() {
         settings(region_catalog("use1", &ddns), tenants.uri(), vec![]),
     );
 
-    let registration = auth_context::with_context(
+    let err = auth_context::with_context(
         admin_ctx(),
         svc.register_network("nairobi".to_owned(), None),
     )
     .await
-    .unwrap();
+    .unwrap_err();
 
-    assert_eq!(
-        registration.region, "euc",
-        "the adopted network's region is authoritative"
+    assert!(
+        matches!(err, AppError::UpstreamUnavailable(ref msg) if msg.contains("mars")),
+        "must fail loudly naming the unknown region, got {err:?}"
     );
     assert_eq!(
-        config.get(KEY_REGION).await.unwrap().as_deref(),
-        Some("euc"),
-        "the daemon must persist the NETWORK's region, not its own selection — \
-         gateway routing for IP reports and ACME keys off this value"
+        config.get(KEY_PROVIDER).await.unwrap(),
+        None,
+        "nothing may be persisted on a rejected region"
     );
+    assert_eq!(config.get(KEY_REGION).await.unwrap(), None);
 }

@@ -44,6 +44,12 @@ export interface DdnsRegisterResponse {
   fqdn: string;
   /** The region slug (display only); `null` for BYOD-Cloudflare. */
   region: string | null;
+  /**
+   * `true` when the daemon JOINED an already-existing network of this account
+   * (re-enrollment with a slug it already owns) instead of creating a fresh
+   * one — the network's region and name won over the request.
+   */
+  adopted: boolean;
 }
 
 /** Response for `GET /api/ddns/status`. */

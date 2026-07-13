@@ -6,6 +6,7 @@ import {
   useRegisterDdns,
   useRequestEnrollmentCode,
 } from "@wardnet/web";
+import type { DdnsRegisterResponse } from "@wardnet/js";
 import { isValidName, suggestName } from "@/lib/suggestName";
 
 /**
@@ -97,7 +98,10 @@ export interface WardnetEnrollment {
 }
 
 export function useWardnetEnrollment(opts: {
-  onProvisioned: () => void;
+  /** Called on success; `registration` is set for the wardnet-provider flow
+   *  (so callers can tell an adoption of an existing network from a fresh
+   *  create) and `null` for BYOD-Cloudflare. */
+  onProvisioned: (registration: DdnsRegisterResponse | null) => void;
   onError: (err: unknown) => void;
   clearError: () => void;
 }): WardnetEnrollment {
@@ -210,8 +214,8 @@ export function useWardnetEnrollment(opts: {
   async function registerWardnet() {
     clearError();
     try {
-      await register.mutateAsync({ slug });
-      onProvisioned();
+      const registration = await register.mutateAsync({ slug });
+      onProvisioned(registration);
     } catch (err) {
       onError(err);
     }
@@ -221,7 +225,7 @@ export function useWardnetEnrollment(opts: {
     clearError();
     try {
       await configureCf.mutateAsync({ token, domain });
-      onProvisioned();
+      onProvisioned(null);
     } catch (err) {
       onError(err);
     }

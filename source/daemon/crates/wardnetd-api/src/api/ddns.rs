@@ -193,6 +193,7 @@ pub async fn ddns_register(
     Ok(Json(DdnsRegisterResponse {
         fqdn: registration.subdomain,
         region: Some(registration.region),
+        adopted: registration.adopted,
     }))
 }
 
@@ -227,6 +228,7 @@ pub async fn ddns_cloudflare(
         fqdn: registration.subdomain,
         // BYOD has no bridge region.
         region: None,
+        adopted: false,
     }))
 }
 

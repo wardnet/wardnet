@@ -55,6 +55,7 @@ impl DdnsService for MockDdns {
         Ok(DdnsRegistration {
             subdomain: format!("{slug}.my.wardnet.services"),
             region: "use1".to_owned(),
+            adopted: false,
         })
     }
     async fn configure_cloudflare(
@@ -66,6 +67,7 @@ impl DdnsService for MockDdns {
         Ok(DdnsRegistration {
             subdomain: domain,
             region: "us".to_owned(),
+            adopted: false,
         })
     }
     // Returns `Ok` (not `unimplemented!`) so the detached provisioning task the

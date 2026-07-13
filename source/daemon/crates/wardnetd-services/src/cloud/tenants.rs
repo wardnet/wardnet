@@ -38,6 +38,10 @@ pub struct NetworkRegistration {
     pub region: String,
     /// `provisioning` | `active` | `deprovisioning` at registration time.
     pub provisioning_state: String,
+    /// `true` when the daemon JOINED an already-existing network of its tenant
+    /// (its region/state/name win over the request) rather than creating a
+    /// fresh one. Absent on older cloud versions → `false`.
+    pub adopted: bool,
 }
 
 /// A client for the tenants service at `base_url`.
@@ -204,6 +208,7 @@ impl TenantsClient {
             slug: view.slug,
             region: view.region,
             provisioning_state: view.provisioning_state,
+            adopted: view.adopted,
         })
     }
 
@@ -277,4 +282,7 @@ struct NetworkView {
     slug: String,
     region: String,
     provisioning_state: String,
+    /// Absent on older cloud versions -> `false`.
+    #[serde(default)]
+    adopted: bool,
 }

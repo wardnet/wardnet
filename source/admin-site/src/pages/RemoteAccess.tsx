@@ -73,7 +73,15 @@ export default function RemoteAccess() {
   }
 
   const enrollment = useWardnetEnrollment({
-    onProvisioned: () => setChanging(false),
+    onProvisioned: (registration) => {
+      setChanging(false);
+      if (registration?.adopted) {
+        toast.success(
+          `Joined your existing network ${registration.fqdn}` +
+            (registration.region ? ` (${registration.region})` : ""),
+        );
+      }
+    },
     onError: (err) => setFormError(describeError(err)),
     clearError: () => setFormError(null),
   });
