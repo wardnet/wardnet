@@ -73,8 +73,7 @@ use wardnetd_services::push::listener::PushNotificationListener;
 use wardnetd_services::secret_store::build_secret_store;
 use wardnetd_services::system::WatchdogOps;
 use wardnetd_services::update::{
-    EMBEDDED_PUBLIC_KEY, FsBinaryApplier, HttpsManifestSource, Sha256MinisignVerifier,
-    UpdateRunner, UpdateService,
+    EMBEDDED_PUBLIC_KEY, FsBinaryApplier, HttpsManifestSource, Sha256MinisignVerifier, UpdateRunner,
 };
 use wardnetd_services::{Backends, UpdateBackends, auth_context, init_services_with_factory};
 
