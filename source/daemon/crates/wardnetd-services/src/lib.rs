@@ -788,6 +788,7 @@ fn build_discovery_service(
         event_publisher,
         hostname_resolver,
         lan_subnet,
+        lan_ip,
     ))
 }
 

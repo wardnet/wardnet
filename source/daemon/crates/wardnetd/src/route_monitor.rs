@@ -4,7 +4,6 @@ use futures::StreamExt;
 use rtnetlink::MulticastGroup;
 use rtnetlink::packet_core::NetlinkPayload;
 use rtnetlink::packet_route::RouteNetlinkMessage;
-use rtnetlink::packet_route::route::RouteAttribute;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use wardnet_common::event::WardnetEvent;
@@ -85,19 +84,7 @@ fn handle_message(payload: RouteNetlinkMessage, events: &dyn EventPublisher) {
         return;
     };
 
-    // Extract the table number. For tables > 255 the value is in an attribute;
-    // for smaller tables it's in the header.
-    let table = route
-        .attributes
-        .iter()
-        .find_map(|a| {
-            if let RouteAttribute::Table(t) = a {
-                Some(*t)
-            } else {
-                None
-            }
-        })
-        .unwrap_or(u32::from(route.header.table));
+    let table = crate::policy_router_netlink::route_table(&route);
 
     if table < WARDNET_MIN_TABLE {
         return;

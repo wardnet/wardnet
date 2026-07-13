@@ -192,13 +192,27 @@ async fn run(
     )
     .await
     .unwrap_or(std::net::Ipv4Addr::UNSPECIFIED);
-    tracing::info!(
-        lan_ip = %lan_ip,
-        interface = %config.network.lan_interface,
-        "detected LAN IP for DHCP gateway: lan_ip={lan_ip}, interface={iface}",
-        lan_ip = lan_ip,
-        iface = config.network.lan_interface,
-    );
+    if lan_ip.is_unspecified() {
+        // Not fatal (the box may still be acquiring an address and a restart
+        // heals it), but every subsystem keyed on our own address — DHCP
+        // gateway advertisement and the #886 own-IP guards in discovery and
+        // zone enforcement — is degraded until then, so say it loudly.
+        tracing::error!(
+            interface = %config.network.lan_interface,
+            "LAN IP detection timed out on {iface}: running with 0.0.0.0 — DHCP gateway \
+             advertisement is poisoned and the own-address protections (issue #886) are \
+             inactive until the daemon restarts with an address present",
+            iface = config.network.lan_interface,
+        );
+    } else {
+        tracing::info!(
+            lan_ip = %lan_ip,
+            interface = %config.network.lan_interface,
+            "detected LAN IP for DHCP gateway: lan_ip={lan_ip}, interface={iface}",
+            lan_ip = lan_ip,
+            iface = config.network.lan_interface,
+        );
+    }
 
     // Build real network backends (Linux kernel interfaces).
     let executor = Arc::new(wardnetd::command::ShellCommandExecutor);
