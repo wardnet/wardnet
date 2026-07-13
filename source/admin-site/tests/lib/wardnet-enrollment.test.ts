@@ -23,7 +23,10 @@ vi.mock("@wardnet/web", () => ({
   useCheckDdnsSlug: () => hoisted.checkSlug,
 }));
 
-import { useWardnetEnrollment } from "@/lib/wardnet-enrollment";
+import {
+  EnrollmentValidationError,
+  useWardnetEnrollment,
+} from "@/lib/wardnet-enrollment";
 
 function setup() {
   const onProvisioned = vi.fn();
@@ -74,6 +77,55 @@ describe("useWardnetEnrollment", () => {
       slug: "happy-newton",
     });
     expect(onProvisioned).toHaveBeenCalled();
+  });
+
+  // Regression: the Send code button used to be disabled while the email was
+  // empty/malformed, so clicking it did nothing at all — no request, no error,
+  // no feedback. `sendCode` must now reject the input itself and say why.
+  it.each([
+    ["empty", ""],
+    ["missing an @", "not-an-email"],
+    ["whitespace only", "   "],
+  ])("reports an invalid email (%s) instead of silently doing nothing", async (
+    _label,
+    value,
+  ) => {
+    const { view, onError } = setup();
+
+    await act(async () => {
+      view.result.current.setEmail(value);
+    });
+    await act(async () => {
+      await view.result.current.sendCode();
+    });
+
+    // No request left the browser...
+    expect(hoisted.requestCode.mutateAsync).not.toHaveBeenCalled();
+    // ...and the user was told why, rather than nothing happening.
+    expect(onError).toHaveBeenCalledWith(
+      expect.any(EnrollmentValidationError),
+    );
+    expect(onError.mock.calls[0][0]).toHaveProperty(
+      "message",
+      "Enter the email address for your Wardnet account.",
+    );
+    // Still on the email step — we never advanced.
+    expect(view.result.current.wardnetStep).toBe("email");
+  });
+
+  it("trims the email before sending it", async () => {
+    const { view } = setup();
+
+    await act(async () => {
+      view.result.current.setEmail("  me@example.com  ");
+    });
+    await act(async () => {
+      await view.result.current.sendCode();
+    });
+
+    expect(hoisted.requestCode.mutateAsync).toHaveBeenCalledWith({
+      email: "me@example.com",
+    });
   });
 
   it("reports errors from each action via onError", async () => {

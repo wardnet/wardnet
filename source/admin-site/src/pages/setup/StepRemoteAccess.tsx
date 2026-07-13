@@ -10,6 +10,7 @@ import {
   WardnetFields,
 } from "@/components/features/wardnet-enrollment";
 import {
+  EnrollmentValidationError,
   useWardnetEnrollment,
   type WardnetStep,
 } from "@/lib/wardnet-enrollment";
@@ -43,6 +44,7 @@ export default function StepRemoteAccess() {
   const [upstreamDown, setUpstreamDown] = useState(false);
 
   function describeError(err: unknown): string {
+    if (err instanceof EnrollmentValidationError) return err.message;
     if (err instanceof WardnetApiError) return err.body.error;
     return "Couldn't reach the daemon. You can skip and set this up later from Settings.";
   }
@@ -275,7 +277,6 @@ export default function StepRemoteAccess() {
             sending={pending.sendCode}
             verifying={pending.verify}
             registering={pending.register}
-            emailValid={email.includes("@")}
             codeValid={code.trim().length > 0}
             onSendCode={enrollment.sendCode}
             onVerifyCode={enrollment.verifyCode}
@@ -304,7 +305,6 @@ function WardnetActions({
   sending,
   verifying,
   registering,
-  emailValid,
   codeValid,
   onSendCode,
   onVerifyCode,
@@ -315,19 +315,17 @@ function WardnetActions({
   sending: boolean;
   verifying: boolean;
   registering: boolean;
-  emailValid: boolean;
   codeValid: boolean;
   onSendCode: () => void;
   onVerifyCode: () => void;
   onRegister: () => void;
 }) {
   if (step === "email") {
+    // Not gated on email validity: `sendCode` validates and reports the
+    // problem, so an empty address gets an explanation rather than a dead
+    // button.
     return (
-      <Button
-        onClick={onSendCode}
-        disabled={sending || !emailValid}
-        className="w-full"
-      >
+      <Button onClick={onSendCode} disabled={sending} className="w-full">
         {sending ? "Sending…" : "Send code"}
       </Button>
     );

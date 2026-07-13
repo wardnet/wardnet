@@ -16,7 +16,16 @@ vi.mock("@wardnet/web", async (importOriginal) => {
 const { useWardnetEnrollment } = vi.hoisted(() => ({
   useWardnetEnrollment: vi.fn(),
 }));
-vi.mock("@/lib/wardnet-enrollment", () => ({ useWardnetEnrollment }));
+// `EnrollmentValidationError` must be the real class — `describeError` does an
+// `instanceof` against it and would throw on an undefined mock export.
+vi.mock("@/lib/wardnet-enrollment", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/wardnet-enrollment")>();
+  return {
+    EnrollmentValidationError: actual.EnrollmentValidationError,
+    useWardnetEnrollment,
+  };
+});
 
 vi.mock("@/components/features/RemoteAccessProgress", () => ({
   RemoteAccessProgress: ({ status }: { status: { phase?: string } }) => (
