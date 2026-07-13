@@ -5468,7 +5468,7 @@ __metadata:
     "@wardnet/ui": "npm:^0.3.0"
     "@wardnet/web": "workspace:*"
     jsdom: "npm:29.1.1"
-    lucide-react: "npm:1.23.0"
+    lucide-react: "npm:1.24.0"
     prettier: "npm:3.9.4"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
@@ -5520,7 +5520,7 @@ __metadata:
     eslint-plugin-security: "npm:4.0.1"
     globals: "npm:17.7.0"
     jsdom: "npm:29.1.1"
-    lucide-react: "npm:1.23.0"
+    lucide-react: "npm:1.24.0"
     next-themes: "npm:0.4.6"
     prettier: "npm:3.9.4"
     react: "npm:19.2.7"
@@ -5591,7 +5591,7 @@ __metadata:
     "@wardnet/brand": "npm:^0.1.0"
     "@wardnet/styles": "npm:^0.1.0"
     jsdom: "npm:29.1.1"
-    lucide-react: "npm:1.23.0"
+    lucide-react: "npm:1.24.0"
     prettier: "npm:3.9.4"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
@@ -5661,7 +5661,7 @@ __metadata:
     fake-indexeddb: "npm:^6.2.5"
     jsdom: "npm:29.1.1"
     leaflet: "npm:^1.9.4"
-    lucide-react: "npm:1.23.0"
+    lucide-react: "npm:1.24.0"
     prettier: "npm:3.9.4"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
@@ -8671,12 +8671,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"lucide-react@npm:1.23.0":
-  version: 1.23.0
-  resolution: "lucide-react@npm:1.23.0"
+"lucide-react@npm:1.24.0":
+  version: 1.24.0
+  resolution: "lucide-react@npm:1.24.0"
   peerDependencies:
     react: ^16.5.1 || ^17.0.0 || ^18.0.0 || ^19.0.0
-  checksum: 10c0/1cb2108d81c9713e20dd1beb7b6ac5bfc17307d5f38388f84921cf6a124efb4b933c73929bede42f00bd08aa2df340b0904acdf4fb90206ccd52971e943e775b
+  checksum: 10c0/8bc2a7c6cfa33bfc6df5533cec12454197f9182b98da0dcb79c6f167ca99710d9360e68b4ba7959953b4c501a48a100713e1b047a18c326c955920f72b9207ee
   languageName: node
   linkType: hard
 
