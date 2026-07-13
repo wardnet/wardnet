@@ -6,7 +6,7 @@
     "license": {
       "name": "GPL-3.0-or-later"
     },
-    "version": "2026.07.00-beta.1"
+    "version": "2026.07.00-beta.2"
   },
   "paths": {
     "/api/auth/login": {
