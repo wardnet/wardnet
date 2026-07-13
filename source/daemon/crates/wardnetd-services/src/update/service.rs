@@ -67,10 +67,20 @@ pub trait UpdateService: Send + Sync {
     /// actually came back up. Called once at daemon startup, before the HTTP
     /// server accepts requests.
     ///
-    /// System startup path, not a user-facing call: it runs before any request
-    /// context exists and therefore carries no `auth_context` guard, in the
-    /// same manner as the routing and zone-enforcement startup reconcilers.
+    /// Admin-guarded like every other service method (`.agents/auth.md`): the
+    /// startup caller supplies an admin context explicitly rather than the
+    /// method opting out of the check.
     async fn reconcile_pending_install(&self) -> Result<(), AppError>;
+}
+
+/// How long after a restart the daemon still advertises "we just updated".
+///
+/// Generous enough that an admin who kicked off an update and watched the box
+/// go down will still be told it landed when they come back, but short enough
+/// that a browser opening the UI for the first time weeks later is not told
+/// about an ancient update as though it were news.
+fn applied_announce_window() -> chrono::Duration {
+    chrono::Duration::minutes(15)
 }
 
 /// Track the in-flight install so concurrent callers see the same handle.
@@ -211,14 +221,19 @@ impl UpdateServiceImpl {
     }
 
     async fn build_status(&self) -> Result<UpdateStatus, AppError> {
-        let channel = self.get_channel().await?;
-        let auto = self.get_auto_update_enabled().await?;
-        let last_check_at = self.get_last_check_at().await?;
-        let last_install_at = self.get_last_install_at().await?;
-        let latest = self.get_last_known_version().await?;
-        let pending = self.get_pending_version().await?;
-        let applied_version = self.get_applied_version().await?;
-        let applied_at = self.get_applied_at().await?;
+        // Independent reads: issue them concurrently rather than paying seven
+        // sequential round-trips on a path every open admin tab polls at 15 s.
+        let (channel, auto, last_check_at, last_install_at, latest, pending) = tokio::try_join!(
+            self.get_channel(),
+            self.get_auto_update_enabled(),
+            self.get_last_check_at(),
+            self.get_last_install_at(),
+            self.get_last_known_version(),
+            self.get_pending_version(),
+        )?;
+        let (applied_version, applied_at) =
+            tokio::try_join!(self.get_applied_version(), self.get_applied_at())?;
+
         let update_available = match latest.as_deref() {
             Some(v) if !v.is_empty() => is_newer(v, &self.current_version),
             _ => false,
@@ -226,6 +241,27 @@ impl UpdateServiceImpl {
         let inflight = self.inflight.lock().await;
         let install_phase = inflight.phase.clone();
         drop(inflight);
+
+        // `update_applied_*` is a durable record, but "we just updated" is not a
+        // durable fact. Clients dedupe the announcement in local storage, so a
+        // browser that has never seen this box (new device, incognito, cleared
+        // storage) would otherwise be told about an update from weeks ago as if
+        // it had just landed. Only advertise it while it is genuinely fresh.
+        let applied_is_fresh = applied_at
+            .is_some_and(|at| Utc::now().signed_duration_since(at) < applied_announce_window());
+        let (applied_version, applied_at) = if applied_is_fresh {
+            (applied_version, applied_at)
+        } else {
+            (None, None)
+        };
+
+        // `Applied` is a momentary phase, not a resting state — nothing else
+        // ever returns it to `Idle`, so without this the card would show the
+        // "Applied" chip forever after a successful update.
+        let install_phase = match install_phase {
+            InstallPhase::Applied if !applied_is_fresh => InstallPhase::Idle,
+            other => other,
+        };
 
         Ok(UpdateStatus {
             current_version: self.current_version.clone(),
@@ -248,9 +284,12 @@ impl UpdateServiceImpl {
             return Ok(());
         };
 
-        // Whatever we conclude, the claim has now been adjudicated.
-        self.set_cfg("update_pending_version", "").await?;
-
+        // Record the outcome BEFORE clearing the marker. The marker is the only
+        // record that an install was staged, so clearing it first would mean a
+        // failed write (or a kill) here loses the event entirely: the next boot
+        // sees nothing pending, no-ops, and the update is never announced and a
+        // reverted swap never recorded. Clearing last makes the reconcile
+        // idempotent and safely retryable — a crash mid-way just replays it.
         if pending == self.current_version {
             // The swap took: we are running the version we staged.
             let now = Utc::now();
@@ -261,6 +300,8 @@ impl UpdateServiceImpl {
             let mut inflight = self.inflight.lock().await;
             inflight.phase = InstallPhase::Applied;
             drop(inflight);
+
+            self.set_cfg("update_pending_version", "").await?;
 
             tracing::info!(
                 version = %pending,
@@ -304,6 +345,8 @@ impl UpdateServiceImpl {
             )
             .await
             .map_err(AppError::Internal)?;
+
+        self.set_cfg("update_pending_version", "").await?;
 
         self.events.publish(WardnetEvent::UpdateFailed {
             target_version: pending.clone(),
@@ -606,6 +649,7 @@ impl UpdateService for UpdateServiceImpl {
     /// it (record the swap as reverted). Either way the marker does not
     /// survive.
     async fn reconcile_pending_install(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         self.do_reconcile_pending_install().await
     }
 
@@ -780,6 +824,12 @@ impl UpdateService for UpdateServiceImpl {
 
         self.set_cfg("update_pending_version", "").await?;
         self.set_cfg("update_previous_binary_path", "").await?;
+        // Retract the "applied" announcement too. We are deliberately leaving
+        // this version, so continuing to advertise it as freshly applied would
+        // toast "Wardnet updated to vX" at any browser that has not already
+        // seen it — immediately after the operator rolled away from vX.
+        self.set_cfg("update_applied_version", "").await?;
+        self.set_cfg("update_applied_at", "").await?;
         self.history
             .insert(&UpdateHistoryRow {
                 from_version: self.current_version.clone(),

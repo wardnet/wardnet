@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use uuid::Uuid;
 use wardnet_common::api::{InstallUpdateRequest, UpdateConfigRequest};
 use wardnet_common::auth::AuthContext;
@@ -504,7 +505,9 @@ async fn reconcile_clears_pending_and_records_applied_when_new_binary_is_running
     config.set("update_pending_version", "0.2.0").await.unwrap();
     let (svc, _history) = build_service_at_version("0.2.0", config);
 
-    svc.reconcile_pending_install().await.expect("reconcile ok");
+    auth_context::with_context(test_admin_ctx(), svc.reconcile_pending_install())
+        .await
+        .expect("reconcile ok");
 
     let status =
         auth_context::with_context(test_admin_ctx(), (svc as Arc<dyn UpdateService>).status())
@@ -531,7 +534,9 @@ async fn reconcile_marks_failed_when_restart_came_back_on_the_old_binary() {
     config.set("update_pending_version", "0.2.0").await.unwrap();
     let (svc, history) = build_service_at_version("0.1.0", config);
 
-    svc.reconcile_pending_install().await.expect("reconcile ok");
+    auth_context::with_context(test_admin_ctx(), svc.reconcile_pending_install())
+        .await
+        .expect("reconcile ok");
 
     let status =
         auth_context::with_context(test_admin_ctx(), (svc as Arc<dyn UpdateService>).status())
@@ -572,7 +577,9 @@ async fn reconcile_is_a_noop_when_nothing_was_pending() {
     let config = Arc::new(MemoryConfig::default());
     let (svc, history) = build_service_at_version("0.1.0", config);
 
-    svc.reconcile_pending_install().await.expect("reconcile ok");
+    auth_context::with_context(test_admin_ctx(), svc.reconcile_pending_install())
+        .await
+        .expect("reconcile ok");
 
     let status =
         auth_context::with_context(test_admin_ctx(), (svc as Arc<dyn UpdateService>).status())
@@ -587,4 +594,144 @@ async fn reconcile_is_a_noop_when_nothing_was_pending() {
         history.list(10).await.unwrap().is_empty(),
         "a clean boot must not write history rows"
     );
+}
+
+// --- review follow-ups: the applied marker must not outlive its news ---
+
+#[tokio::test]
+async fn reconcile_requires_admin() {
+    let (svc, _history) = build_service_at_version("0.2.0", Arc::new(MemoryConfig::default()));
+    // No auth context: the guard must reject, like every other service method.
+    let result = (svc as Arc<dyn UpdateService>)
+        .reconcile_pending_install()
+        .await;
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+/// A browser opening the UI weeks later must not be told about an ancient
+/// update as if it just landed: clients dedupe in local storage, so a marker
+/// the daemon advertises forever becomes "news" to every new browser.
+#[tokio::test]
+async fn a_stale_applied_marker_is_not_advertised() {
+    let config = Arc::new(MemoryConfig::default());
+    config.set("update_applied_version", "0.2.0").await.unwrap();
+    config
+        .set(
+            "update_applied_at",
+            &(Utc::now() - chrono::Duration::days(21)).to_rfc3339(),
+        )
+        .await
+        .unwrap();
+    let (svc, _) = build_service_at_version("0.2.0", config);
+
+    let status =
+        auth_context::with_context(test_admin_ctx(), (svc as Arc<dyn UpdateService>).status())
+            .await
+            .unwrap()
+            .status;
+
+    assert_eq!(
+        status.applied_version, None,
+        "a three-week-old update is not news"
+    );
+    assert_eq!(status.applied_at, None);
+}
+
+/// ...but the update the operator just watched land IS news.
+#[tokio::test]
+async fn a_fresh_applied_marker_is_advertised() {
+    let config = Arc::new(MemoryConfig::default());
+    config.set("update_pending_version", "0.2.0").await.unwrap();
+    let (svc, _) = build_service_at_version("0.2.0", config);
+    let svc: Arc<dyn UpdateService> = svc;
+
+    auth_context::with_context(test_admin_ctx(), svc.reconcile_pending_install())
+        .await
+        .expect("reconcile ok");
+    let status = auth_context::with_context(test_admin_ctx(), svc.status())
+        .await
+        .unwrap()
+        .status;
+
+    assert_eq!(status.applied_version.as_deref(), Some("0.2.0"));
+    assert_eq!(status.install_phase, InstallPhase::Applied);
+}
+
+/// `Applied` is a momentary phase. Nothing else returns it to `Idle`, so once
+/// the announcement window closes the card must stop showing an install phase.
+#[tokio::test]
+async fn the_applied_phase_decays_to_idle_once_stale() {
+    let config = Arc::new(MemoryConfig::default());
+    config.set("update_pending_version", "0.2.0").await.unwrap();
+    let (svc, _) = build_service_at_version("0.2.0", config.clone());
+    let svc: Arc<dyn UpdateService> = svc;
+
+    auth_context::with_context(test_admin_ctx(), svc.reconcile_pending_install())
+        .await
+        .expect("reconcile ok");
+
+    // Rewind the stamp past the announcement window.
+    config
+        .set(
+            "update_applied_at",
+            &(Utc::now() - chrono::Duration::hours(2)).to_rfc3339(),
+        )
+        .await
+        .unwrap();
+
+    let status = auth_context::with_context(test_admin_ctx(), svc.status())
+        .await
+        .unwrap()
+        .status;
+
+    assert_eq!(
+        status.install_phase,
+        InstallPhase::Idle,
+        "the Applied chip must not linger forever"
+    );
+}
+
+/// Rolling back retracts the announcement. Otherwise a browser that had not yet
+/// seen it would toast "updated to v0.2.0" right after the operator abandoned
+/// v0.2.0.
+#[tokio::test]
+async fn rollback_retracts_the_applied_announcement() {
+    let config = Arc::new(MemoryConfig::default());
+    config.set("update_pending_version", "0.2.0").await.unwrap();
+    let applier = Arc::new(RecordingApplier::default());
+    // Give the applier something to roll back to.
+    applier
+        .apply(&[], &[])
+        .await
+        .expect("stage a previous binary");
+
+    let svc: Arc<dyn UpdateService> = Arc::new(UpdateServiceImpl::new(
+        config.clone(),
+        Arc::new(MemoryHistory::default()),
+        Arc::new(StubReleaseSource(None)),
+        Arc::new(AlwaysOkVerifier),
+        applier,
+        Arc::new(BroadcastEventBus::new(32)),
+        false,
+        "0.2.0",
+        tokio_util::sync::CancellationToken::new(),
+    ));
+
+    auth_context::with_context(test_admin_ctx(), svc.reconcile_pending_install())
+        .await
+        .expect("reconcile ok");
+    auth_context::with_context(test_admin_ctx(), svc.rollback())
+        .await
+        .expect("rollback ok");
+
+    let status = auth_context::with_context(test_admin_ctx(), svc.status())
+        .await
+        .unwrap()
+        .status;
+
+    assert_eq!(
+        status.applied_version, None,
+        "must not keep advertising the version we just rolled away from"
+    );
+    assert_eq!(status.applied_at, None);
 }

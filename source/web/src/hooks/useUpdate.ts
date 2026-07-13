@@ -60,6 +60,16 @@ function writeAppliedSeen(value: string): void {
 }
 
 /**
+ * Announced in this page's lifetime. `useUpdateStatus` has several concurrent
+ * consumers (the sidebar banner and the settings card, at least), all sharing
+ * one query cache, so they all run the announce effect on the same commit.
+ * Relying on the localStorage read-then-write to serialize would be relying on
+ * React's effect ordering; this claims the timestamp synchronously instead, so
+ * exactly one consumer announces regardless of how the effects interleave.
+ */
+const announcedThisSession = new Set<string>();
+
+/**
  * Poll the update status at ~15 s so banners reflect new releases quickly.
  *
  * Also announces a completed update. The daemon has no event channel to the
@@ -81,7 +91,10 @@ export function useUpdateStatus() {
 
   useEffect(() => {
     if (!appliedAt || !appliedVersion) return;
+    // Claim it synchronously before any await/render can interleave.
+    if (announcedThisSession.has(appliedAt)) return;
     if (readAppliedSeen() === appliedAt) return;
+    announcedThisSession.add(appliedAt);
     writeAppliedSeen(appliedAt);
     toast.success(`Wardnet updated to v${appliedVersion}`, {
       id: TOAST_APPLIED,

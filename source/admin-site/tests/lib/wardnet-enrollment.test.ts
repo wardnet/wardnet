@@ -113,6 +113,28 @@ describe("useWardnetEnrollment", () => {
     },
   );
 
+  // The client guard must not be STRICTER than the daemon (non-empty + "@"),
+  // or it recreates the bug it was added to fix: silently refusing an address
+  // the server would have accepted.
+  it.each([["no dot in the domain", "admin@localhost"]])(
+    "accepts an address the daemon would accept (%s)",
+    async (_label, value) => {
+      const { view, onError } = setup();
+
+      await act(async () => {
+        view.result.current.setEmail(value);
+      });
+      await act(async () => {
+        await view.result.current.sendCode();
+      });
+
+      expect(onError).not.toHaveBeenCalled();
+      expect(hoisted.requestCode.mutateAsync).toHaveBeenCalledWith({
+        email: value,
+      });
+    },
+  );
+
   it("trims the email before sending it", async () => {
     const { view } = setup();
 

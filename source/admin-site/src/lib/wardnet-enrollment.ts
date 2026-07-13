@@ -22,12 +22,16 @@ export class EnrollmentValidationError extends Error {
 }
 
 /**
- * Deliberately permissive — the tenants service is authoritative on what a
- * deliverable address is. This only catches the obviously-unsendable so the
- * user gets an instant answer instead of a round trip.
+ * Deliberately permissive, and deliberately identical to the daemon's own check
+ * (`DdnsService::request_enrollment_code`): non-empty, and contains an `@`. The
+ * tenants service is authoritative on what is actually deliverable.
+ *
+ * Being *stricter* than the server here would recreate the bug this guard was
+ * added to fix — the client silently deciding an address is unusable when the
+ * server would have accepted it (`user@localhost` has no dot in the domain).
  */
 function isValidEmail(value: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+  return value.length > 0 && value.includes("@");
 }
 
 export type Provider = "wardnet" | "cloudflare";
