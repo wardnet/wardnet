@@ -1166,3 +1166,67 @@ async fn resolution_check_reports_pending_on_nxdomain() {
         .unwrap();
     assert_eq!(result.verdict, DdnsResolutionVerdict::Pending);
 }
+
+/// When the cloud ADOPTS an existing network (same tenant re-registering its
+/// own slug), the response's network is authoritative — including its region,
+/// which may differ from the wizard's latency-based pick. The daemon must
+/// persist the NETWORK's region, or every subsequent IP report and ACME call
+/// would go to the wrong regional gateway.
+#[tokio::test]
+async fn register_network_stores_the_networks_region_not_the_selected_one() {
+    let tenants = MockServer::start().await;
+    mount_token(&tenants).await;
+    // Wizard selects use1 (the only healthy catalog region), but the tenant's
+    // existing network lives in euc — the server adopts and echoes euc.
+    Mock::given(method("POST"))
+        .and(path("/v1/networks"))
+        .and(body_json(json!({ "slug": "nairobi", "region": "use1" })))
+        .and(header_exists("authorization"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": "n-9",
+            "tenant_id": "t-1",
+            "slug": "nairobi",
+            "display_name": "nairobi",
+            "region": "euc",
+            "provisioning_state": "active",
+            "created_at": "2026-06-29T00:00:00Z",
+            "updated_at": "2026-06-29T00:00:00Z"
+        })))
+        .expect(1)
+        .mount(&tenants)
+        .await;
+
+    let ddns = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/readyz"))
+        .respond_with(ResponseTemplate::new(200))
+        .mount(&ddns)
+        .await;
+
+    let config = Arc::new(MockSystemConfig::default());
+    let secrets = Arc::new(MockSecretStore::default());
+    seed_enrolled(&secrets).await;
+    let svc = DdnsServiceImpl::with_settings(
+        config.clone(),
+        secrets.clone(),
+        settings(region_catalog("use1", &ddns), tenants.uri(), vec![]),
+    );
+
+    let registration = auth_context::with_context(
+        admin_ctx(),
+        svc.register_network("nairobi".to_owned(), None),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        registration.region, "euc",
+        "the adopted network's region is authoritative"
+    );
+    assert_eq!(
+        config.get(KEY_REGION).await.unwrap().as_deref(),
+        Some("euc"),
+        "the daemon must persist the NETWORK's region, not its own selection — \
+         gateway routing for IP reports and ACME keys off this value"
+    );
+}

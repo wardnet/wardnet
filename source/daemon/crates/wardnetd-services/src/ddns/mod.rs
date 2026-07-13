@@ -706,15 +706,21 @@ impl DdnsService for DdnsServiceImpl {
         self.set_cfg(KEY_NETWORK_ID, &network.network_id).await?;
         self.set_cfg(KEY_SLUG, &network.slug).await?;
         self.set_cfg(KEY_SUBDOMAIN, &subdomain).await?;
-        self.set_cfg(KEY_REGION, &region.slug).await?;
+        // The RESPONSE's region, not our latency-based pick: when the cloud
+        // adopts an existing network (same tenant re-registering its own slug),
+        // that network's region is authoritative — IP reports and ACME calls
+        // key their regional gateway off this value.
+        self.set_cfg(KEY_REGION, &network.region).await?;
         self.set_cfg(KEY_PROVIDER, PROVIDER_WARDNET).await?;
         self.entitlement.set_premium(true);
 
         tracing::info!(
             %subdomain,
-            region = %region.slug,
+            region = %network.region,
             provisioning_state = %network.provisioning_state,
-            "registered DDNS network"
+            "registered DDNS network: subdomain={subdomain}, region={region}, state={state}",
+            region = network.region,
+            state = network.provisioning_state,
         );
 
         self.teardown_superseded(
