@@ -5111,12 +5111,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/qrcode@npm:1.5.5":
-  version: 1.5.5
-  resolution: "@types/qrcode@npm:1.5.5"
+"@types/qrcode@npm:1.5.6":
+  version: 1.5.6
+  resolution: "@types/qrcode@npm:1.5.6"
   dependencies:
     "@types/node": "npm:*"
-  checksum: 10c0/b8e6709905d1edb32dda414408acab18ac4aefcbe7bf96d9e32ba94218f45b99c8938ba7a09863ce82a67b226195099fd0f48881d16ee844899087b7f249955f
+  checksum: 10c0/84844ca63e5f32bc47d44dda0f8a6f7cdcc7ce44e7b24f10f19d50796f31d12c058f702a8f7d352c9e82a023a9abc36fa1ad01ddf0a209dd8ed4562ea76481fc
   languageName: node
   linkType: hard
 
@@ -5696,7 +5696,7 @@ __metadata:
     "@testing-library/jest-dom": "npm:6.9.1"
     "@testing-library/react": "npm:16.3.2"
     "@testing-library/user-event": "npm:14.6.1"
-    "@types/qrcode": "npm:1.5.5"
+    "@types/qrcode": "npm:1.5.6"
     "@vitejs/plugin-react": "npm:6.0.3"
     "@vitest/coverage-v8": "npm:4.1.9"
     "@wardnet/js": "workspace:*"
