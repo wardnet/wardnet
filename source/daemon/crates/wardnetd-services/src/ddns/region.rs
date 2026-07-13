@@ -21,8 +21,8 @@
 //! The global gateway (`tenants`) is scope-wide, so it is a single constant
 //! rather than a per-region catalog entry.
 //!
-//! Today only `use1` exists, but the probe-and-pick mechanism is built in from
-//! the start so adding a region is a one-line catalog change.
+//! Today only `euc` (eu-central) is deployed, but the probe-and-pick mechanism
+//! is built in from the start so adding a region is a one-line catalog change.
 
 use std::time::{Duration, Instant};
 
@@ -30,15 +30,15 @@ use std::time::{Duration, Instant};
 /// `tenants` service (enroll / token / availability / networks under prefix-free
 /// `/v1/…`, cloud ADR-0015). One deployment, region-independent.
 ///
-/// FIXME(infra): confirm the daemon-facing gateway FQDN once the gateway
-/// manifest lands in wardnet-infrastructure; ADR-0032's shape is
-/// `api.<slug>.<base>` with the global scope dropping the slug.
+/// Confirmed against wardnet-infrastructure `resources/prd/`: the global scope
+/// drops the region label (ADR-0032's `api.<slug>.<base>` shape), so billing /
+/// identity / tenants all answer here.
 pub const GLOBAL_GATEWAY_URL: &str = "https://api.wardnet.network";
 
 /// One entry in the built-in region catalog.
 #[derive(Debug, Clone)]
 pub struct RegionEndpoint {
-    /// Short region slug, e.g. `use1`. Selects the region and is passed to
+    /// Short region slug, e.g. `euc`. Selects the region and is passed to
     /// `POST /v1/networks` as `region`.
     pub slug: String,
     /// The region's **gateway** base URL (`https://api.<region-slug>…`) — fronts
@@ -62,15 +62,19 @@ impl RegionEndpoint {
 
 /// The built-in catalog. Extend this to add regions.
 ///
-/// FIXME(infra): confirm the regional gateway FQDN against the gateway manifest
-/// once it lands in wardnet-infrastructure (ADR-0032 shape `api.<slug>.<base>`,
-/// region slug `use1`). Kept as data here so confirming it is a one-line change.
+/// The slug is the **wire value**: it is sent verbatim as `region` on
+/// `POST /v1/networks`, where the global `tenants` service checks it against its
+/// `KNOWN_REGIONS` set and 400s on a miss. It is also the gateway's hostname
+/// label (ADR-0032's `api.<slug>.<base>`). Both come from
+/// wardnet-infrastructure `resources/prd/regions.yaml`, which is the single
+/// authority: region `eu-central` carries `slug: euc`, and the deployed
+/// `KNOWN_REGIONS` is `euc`. `eu-central` is the human name — never the slug.
 #[must_use]
 pub fn default_catalog() -> Vec<RegionEndpoint> {
     vec![RegionEndpoint::new(
-        "use1",
-        "https://api.use1.wardnet.network",
-        "http://api.use1.wardnet.network:81/readyz",
+        "euc",
+        "https://api.euc.wardnet.network",
+        "http://api.euc.wardnet.network:81/readyz",
     )]
 }
 

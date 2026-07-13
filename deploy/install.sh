@@ -567,6 +567,9 @@ else
         echo "=== Upgrade complete ==="
     else
         echo "=== Install complete ==="
-        echo "Web UI: http://${IP:-<host>}:7411"
+        # The admin site (and with it the first-run setup wizard) is mounted at
+        # /admin/ — `/` serves the user PWA, which is not where the operator
+        # needs to land on a fresh install.
+        echo "Setup wizard: http://${IP:-<host>}:7411/admin/"
     fi
 fi

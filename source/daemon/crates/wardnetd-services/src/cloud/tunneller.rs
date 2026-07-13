@@ -146,7 +146,7 @@ pub struct TunnelerClient {
 
 impl TunnelerClient {
     /// Build a client pointed at the region's gateway `base_url` (e.g.
-    /// `https://api.use1.wardnet.network`). The scheme is rewritten to `ws(s)://`
+    /// `https://api.euc.wardnet.network`). The scheme is rewritten to `ws(s)://`
     /// and [`TUNNEL_PATH`] appended at dial time.
     #[must_use]
     pub fn new(base_url: String) -> Self {
