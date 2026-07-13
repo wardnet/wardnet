@@ -697,3 +697,44 @@ async fn teardown_clears_cert_state_and_deactivates() {
     assert_eq!(secrets.get(SECRET_CERT_CHAIN).await.unwrap(), None);
     assert_eq!(secrets.get(SECRET_CERT_KEY).await.unwrap(), None);
 }
+
+// ── Renewal retry backoff ─────────────────────────────────────────────────────
+//
+// A failed issuance used to wait for the next 12h tick. The failure that
+// prompted this is transient by nature: a network registered seconds ago has no
+// published DNS record yet, so the cloud rejects the ACME challenge with
+// "network is not yet active" — and the daemon then sat certificate-less for
+// half a day over a condition that clears in seconds.
+
+#[test]
+fn first_retry_after_a_failure_is_soon_not_a_full_cycle() {
+    let first = super::runner::next_retry(None);
+    assert_eq!(first, std::time::Duration::from_secs(30));
+    assert!(
+        first < std::time::Duration::from_hours(12),
+        "a failure must not wait for the next renewal cycle"
+    );
+}
+
+#[test]
+fn retry_backoff_doubles_and_is_capped() {
+    let mut d = super::runner::next_retry(None);
+    let mut seen = vec![d];
+    for _ in 0..10 {
+        d = super::runner::next_retry(Some(d));
+        seen.push(d);
+    }
+
+    // Doubles from 30s...
+    assert_eq!(seen[0], std::time::Duration::from_secs(30));
+    assert_eq!(seen[1], std::time::Duration::from_mins(1));
+    assert_eq!(seen[2], std::time::Duration::from_mins(2));
+
+    // ...and never exceeds the ceiling, however long the outage lasts.
+    let cap = std::time::Duration::from_mins(15);
+    assert!(
+        seen.iter().all(|d| *d <= cap),
+        "backoff must stay capped at 15m, got {seen:?}"
+    );
+    assert_eq!(*seen.last().unwrap(), cap, "should settle at the ceiling");
+}

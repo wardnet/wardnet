@@ -8,6 +8,32 @@ import {
 } from "@wardnet/web";
 import { isValidName, suggestName } from "@/lib/suggestName";
 
+/**
+ * A client-side input problem, as opposed to a transport or server failure.
+ * Callers' `describeError` surfaces `message` verbatim; anything else it does
+ * not recognise is reported as "couldn't reach the daemon", which would be a
+ * lie here — we never left the browser.
+ */
+export class EnrollmentValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "EnrollmentValidationError";
+  }
+}
+
+/**
+ * Deliberately permissive, and deliberately identical to the daemon's own check
+ * (`DdnsService::request_enrollment_code`): non-empty, and contains an `@`. The
+ * tenants service is authoritative on what is actually deliverable.
+ *
+ * Being *stricter* than the server here would recreate the bug this guard was
+ * added to fix — the client silently deciding an address is unusable when the
+ * server would have accepted it (`user@localhost` has no dot in the domain).
+ */
+function isValidEmail(value: string): boolean {
+  return value.length > 0 && value.includes("@");
+}
+
 export type Provider = "wardnet" | "cloudflare";
 
 /**
@@ -151,8 +177,20 @@ export function useWardnetEnrollment(opts: {
 
   async function sendCode() {
     clearError();
+    // Validate here rather than by disabling the button: a disabled button
+    // gives a user with an empty or malformed email no feedback at all — the
+    // click is simply swallowed. Report the problem instead.
+    const trimmed = email.trim();
+    if (!isValidEmail(trimmed)) {
+      onError(
+        new EnrollmentValidationError(
+          "Enter the email address for your Wardnet account.",
+        ),
+      );
+      return;
+    }
     try {
-      await requestCode.mutateAsync({ email });
+      await requestCode.mutateAsync({ email: trimmed });
       setWardnetStep("code");
     } catch (err) {
       onError(err);

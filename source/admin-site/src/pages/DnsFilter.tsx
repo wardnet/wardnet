@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/compound/PageHeader";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { DnsFilterSettingsCard } from "@/components/features/DnsFilterSettingsCard";
 import {
+  DnsFilterNotReadyNotice,
   useAllowlist,
   useBlocklists,
   useDnsFilterConfig,
@@ -183,6 +184,8 @@ export default function DnsFilter() {
           ) : undefined
         }
       />
+
+      <DnsFilterNotReadyNotice />
 
       <DnsFilterSettingsCard />
 

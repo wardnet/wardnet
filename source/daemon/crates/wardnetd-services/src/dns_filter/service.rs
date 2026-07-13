@@ -20,7 +20,9 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use chrono::Utc;
 use hickory_proto::rr::RecordType;
-use tokio::sync::RwLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+use tokio::sync::{RwLock, Semaphore};
 use uuid::Uuid;
 
 use wardnet_common::api::{
@@ -57,6 +59,10 @@ use crate::jobs::{JobService, JobServiceExt};
 /// IDs of the three builtin profiles seeded by the migration.
 const BUILTIN_AD_BLOCKING: &str = "00000000-0000-0000-0000-000000000100";
 
+/// Progress reported by a refresh job while it waits for the import permit, so
+/// a queued job is visibly queued rather than frozen at zero.
+const QUEUED_PROGRESS: u8 = 1;
+
 /// Outcome of a hot-path filter check.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CheckOutcome {
@@ -76,7 +82,10 @@ pub trait DnsFilterService: Send + Sync {
     async fn check(&self, domain: &str, qtype: RecordType, client: IpAddr) -> CheckOutcome;
 
     /// Bootstrap the in-memory cache from persisted state. Called once on
-    /// daemon startup before the DNS server is allowed to serve traffic.
+    /// daemon startup, from the DNS filter runner's own task — the DNS server
+    /// binds and starts answering *before* this completes, so queries during
+    /// the window resolve through an empty filter set (fail-open). Callers can
+    /// observe that window via `filters_ready` on the config response.
     async fn rebuild_all(&self) -> Result<(), AppError>;
 
     // ── Profiles ────────────────────────────────────────────────────────
@@ -202,6 +211,19 @@ pub struct DnsFilterServiceImpl {
     jobs: Arc<dyn JobService>,
     fetcher: Arc<dyn BlocklistFetcher>,
 
+    /// Serialises blocklist imports. Enabling a profile dispatches one refresh
+    /// job per blocklist at once, and a threat-intel feed is millions of
+    /// domains — running them concurrently means holding several multi-million
+    /// entry `Vec<String>` in memory and interleaving their write batches for
+    /// no gain, since `SQLite` admits one writer anyway.
+    refresh_lock: Arc<Semaphore>,
+
+    /// Set once `rebuild_all` has compiled the filter cache. The DNS server
+    /// binds and answers queries before this happens (the runner bootstraps in
+    /// its own task), so until it flips, queries resolve through an empty
+    /// filter set — fail-open. Surfaced to the admin rather than hidden.
+    bootstrapped: Arc<AtomicBool>,
+
     /// Per-source compiled filters keyed by blocklist id (allowlist sources
     /// and custom-rules sources are inlined into one synthetic filter per
     /// profile keyed under a synthesised profile-scoped uuid; see
@@ -234,6 +256,8 @@ impl DnsFilterServiceImpl {
             events,
             jobs,
             fetcher,
+            refresh_lock: Arc::new(Semaphore::new(1)),
+            bootstrapped: Arc::new(AtomicBool::new(false)),
             blocklist_filters: Arc::new(RwLock::new(HashMap::new())),
             profile_aux_filters: Arc::new(RwLock::new(HashMap::new())),
             profiles: Arc::new(RwLock::new(HashMap::new())),
@@ -359,6 +383,31 @@ impl DnsFilterServiceImpl {
         Ok(rule)
     }
 
+    /// Wrap a config in the response, stamping the fail-open state alongside it.
+    ///
+    /// Filtering is only actually in force once the cache has been compiled
+    /// (`bootstrapped`) *and* every enabled blocklist has been imported at
+    /// least once. A list that has never been downloaded is an empty list: it
+    /// is "enabled" but blocks nothing, which is precisely the state the admin
+    /// must not have to guess at.
+    async fn config_response(
+        &self,
+        config: DnsFilterConfig,
+    ) -> Result<DnsFilterConfigResponse, AppError> {
+        let pending = self
+            .repo
+            .count_unimported_blocklists()
+            .await
+            .map_err(AppError::Internal)?;
+        let bootstrapped = self.bootstrapped.load(Ordering::Acquire);
+
+        Ok(DnsFilterConfigResponse {
+            config,
+            filters_ready: bootstrapped && pending == 0,
+            pending_blocklists: u32::try_from(pending).unwrap_or(u32::MAX),
+        })
+    }
+
     /// Rebuild the per-blocklist filter from the repo. The aggregated
     /// per-profile filter does NOT need rebuilding — it indirectly
     /// references the same `Arc<ArcSwap<DnsFilter>>` we just swapped.
@@ -433,6 +482,9 @@ impl DnsFilterServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
+        // Blocked domains stay out of the aux filter: this profile's blocklists
+        // are each compiled separately and composed in by reference below, so
+        // folding their domains in here would double-store millions of entries.
         let aux_inputs = DnsFilterInputs {
             blocked_domains: Vec::new(),
             allowlist: inputs.allowlist,
@@ -688,6 +740,10 @@ impl DnsFilterService for DnsFilterServiceImpl {
         }
 
         self.rebuild_default_context_inner().await?;
+
+        // The compiled cache is now live. Anything the DNS server answered
+        // before this point went through an empty filter set.
+        self.bootstrapped.store(true, Ordering::Release);
         Ok(())
     }
 
@@ -920,10 +976,19 @@ impl DnsFilterService for DnsFilterServiceImpl {
         let repo = self.repo.clone();
         let fetcher = self.fetcher.clone();
         let events = self.events.clone();
+        let refresh_lock = self.refresh_lock.clone();
 
         let job_id = self
             .jobs
             .dispatch(JobKind::BlocklistRefresh, move |reporter| async move {
+                // Enabling a profile dispatches one job per blocklist, so all
+                // but the first wait here — for minutes, if a multi-million
+                // domain feed is ahead of them. Publish progress *before*
+                // blocking: otherwise a queued job sits at a flat 0% for the
+                // whole wait, which reads to the user as the same frozen bar
+                // this whole change exists to eliminate.
+                reporter.set_progress(QUEUED_PROGRESS).await;
+                let _permit = refresh_lock.acquire().await?;
                 blocklist_downloader::refresh_blocklist(
                     &bl,
                     repo.as_ref(),
@@ -1192,7 +1257,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
             .get_dns_filter_config()
             .await
             .map_err(AppError::Internal)?;
-        Ok(DnsFilterConfigResponse { config })
+        self.config_response(config).await
     }
 
     async fn update_filter_config(
@@ -1239,7 +1304,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
         if changed_global {
             self.publish(DnsFilterChange::GlobalToggle);
         }
-        Ok(DnsFilterConfigResponse { config: current })
+        self.config_response(current).await
     }
 
     async fn rebuild_blocklist_filter(&self, blocklist_id: Uuid) -> Result<(), AppError> {

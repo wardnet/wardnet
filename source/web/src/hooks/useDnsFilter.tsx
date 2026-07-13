@@ -26,6 +26,14 @@ import type {
 } from "@wardnet/js";
 import { isJobTerminal } from "@wardnet/js";
 
+/** HTTP status carried by a `WardnetApiError`, if the rejection has one. */
+function httpStatus(err: unknown): number | undefined {
+  return (err as { status?: number } | null)?.status;
+}
+
+/** Poll attempts tolerated before giving up on a job whose status we can't read. */
+const TRANSIENT_POLL_RETRIES = 4;
+
 // ---------------------------------------------------------------------------
 // Profiles
 // ---------------------------------------------------------------------------
@@ -80,7 +88,7 @@ export function useDeleteDnsFilterProfile() {
       qc.invalidateQueries({ queryKey: ["dns-filter"] });
     },
     onError: (err: unknown) => {
-      const status = (err as { status?: number } | null)?.status;
+      const status = httpStatus(err);
       if (status === 409) {
         toast.error("Builtin profiles cannot be deleted");
       } else {
@@ -183,15 +191,50 @@ export function useRefreshBlocklist(profileId: string | undefined) {
     queryKey: ["job", active?.jobId],
     queryFn: () => jobsService.get(active!.jobId),
     enabled: !!active,
+    // A 404 is final — the job is genuinely gone, retrying cannot conjure it
+    // back. Anything else (a blip, a 5xx while the daemon is busy importing)
+    // is worth riding out: the import is probably still running.
+    retry: (failureCount, err) =>
+      httpStatus(err) !== 404 && failureCount < TRANSIENT_POLL_RETRIES,
     refetchInterval: (q) => {
+      if (q.state.status === "error") return false;
       const s = q.state.data?.status;
       return s && isJobTerminal(s) ? false : 1000;
     },
   });
 
   useEffect(() => {
+    if (!active) return;
+
+    // The job registry lives in the daemon's memory, so a restart takes every
+    // in-flight job id with it and the poll starts 404ing. Treat that as a
+    // terminal failure — otherwise the toast sits at its last percentage
+    // forever and the row is stuck on "Updating…".
+    //
+    // A non-404 failure means we lost contact, not that the job died: the
+    // import may well still be running. Say that, rather than reporting a
+    // failure that would push the user into re-triggering a duplicate import.
+    if (jobQuery.isError) {
+      const gone = httpStatus(jobQuery.error) === 404;
+      toast.error(
+        gone ? "Blocklist refresh failed" : "Lost track of the refresh",
+        {
+          id: active.jobId,
+          description: gone
+            ? "The daemon restarted while the list was importing. Check the blocklist's status before retrying."
+            : "Couldn't reach the daemon to follow the import — it may still be running. Check the blocklist's status before retrying.",
+        },
+      );
+      qc.invalidateQueries({
+        queryKey: ["dns-filter", "profile", profileId, "blocklists"],
+      });
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setActive(null);
+      return;
+    }
+
     const job = jobQuery.data;
-    if (!job || !active) return;
+    if (!job) return;
 
     if (job.status === "RUNNING" || job.status === "PENDING") {
       toast.loading("Refreshing blocklist…", {
@@ -208,7 +251,6 @@ export function useRefreshBlocklist(profileId: string | undefined) {
       qc.invalidateQueries({
         queryKey: ["dns-filter", "profile", profileId, "blocklists"],
       });
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setActive(null);
     } else if (job.status === "TERMINATED_WITH_ERRORS") {
       toast.error(job.error || "Blocklist refresh failed", {
@@ -220,7 +262,7 @@ export function useRefreshBlocklist(profileId: string | undefined) {
       });
       setActive(null);
     }
-  }, [jobQuery.data, active, qc, profileId]);
+  }, [jobQuery.data, jobQuery.isError, jobQuery.error, active, qc, profileId]);
 
   return {
     mutate: dispatch.mutate,
@@ -381,6 +423,12 @@ export function useDnsFilterConfig() {
   return useQuery<DnsFilterConfigResponse>({
     queryKey: ["dns-filter", "config"],
     queryFn: () => dnsFilterService.getConfig(),
+    // While filtering is not yet enforced (cache still compiling, or blocklists
+    // still downloading after the cache reset) keep polling, so the fail-open
+    // warning clears itself when the lists land instead of stranding the admin
+    // on a stale banner until they reload the page. Idle once ready.
+    refetchInterval: (q) =>
+      q.state.data?.filters_ready === false ? 5000 : false,
   });
 }
 

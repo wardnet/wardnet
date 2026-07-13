@@ -39,9 +39,17 @@ vi.mock("@wardnet/ui", async (importOriginal) => {
   return { ...actual, toast };
 });
 
-vi.mock("@/lib/wardnet-enrollment", () => ({
-  useWardnetEnrollment,
-}));
+// `EnrollmentValidationError` is a real class, not a stub: the page's
+// `describeError` does an `instanceof` against it, which throws if the mock
+// leaves it undefined.
+vi.mock("@/lib/wardnet-enrollment", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/wardnet-enrollment")>();
+  return {
+    EnrollmentValidationError: actual.EnrollmentValidationError,
+    useWardnetEnrollment,
+  };
+});
 
 vi.mock("@/components/compound/PageHeader", () => ({
   PageHeader: ({ title }: any) => <h1>{title}</h1>,

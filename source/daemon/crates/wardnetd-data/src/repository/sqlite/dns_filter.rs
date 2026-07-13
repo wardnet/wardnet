@@ -38,6 +38,97 @@ pub struct SqliteDnsFilterRepository {
     pools: DbPools,
 }
 
+/// Rows written per `INSERT` statement. Bounded by `SQLite`'s bind-variable
+/// limit (3 binds per row here).
+const INSERT_CHUNK_ROWS: usize = 500;
+
+/// Rows per import transaction. The sole write connection is held for one
+/// batch and then released, so this is the granularity at which every other
+/// writer in the daemon gets a turn — it bounds how long DHCP, stats or a
+/// health probe can be stuck behind an import. A Pi sustains ~145k rows/sec
+/// on SD, so 2k rows is a hold of tens of milliseconds; the ~950 extra
+/// commits a 1.9M-domain feed costs are cheap under WAL + synchronous=NORMAL
+/// (no fsync per commit).
+const IMPORT_BATCH_ROWS: usize = 2_000;
+
+/// Rows per cleanup transaction when reclaiming a superseded generation.
+const DELETE_BATCH_ROWS: i64 = 2_000;
+
+/// How many times `delete_profile` re-reads and drains its blocklists before
+/// giving up and letting the cascade handle the remainder.
+const DRAIN_MAX_PASSES: u32 = 5;
+
+/// Which of a blocklist's domain rows [`delete_domains_in_batches`] should
+/// remove.
+#[derive(Clone, Copy)]
+enum DomainScope {
+    /// Every row, whatever its generation — used before dropping the blocklist.
+    All,
+    /// One specific generation — clears debris left at the generation we are
+    /// about to write.
+    Generation(i64),
+    /// Everything the given generation supersedes. Note this is "all except",
+    /// not "the previous one": a daemon killed between the flip and the cleanup
+    /// leaves an orphaned generation that nothing else would ever reclaim.
+    AllExcept(i64),
+}
+
+impl DomainScope {
+    /// SQL predicate appended to the `WHERE blocklist_id = ?` filter, plus the
+    /// generation it binds (if any). Kept together so the clause and its bind
+    /// can never drift apart.
+    fn predicate(self) -> (&'static str, Option<i64>) {
+        match self {
+            Self::All => ("", None),
+            Self::Generation(g) => ("AND generation = ?", Some(g)),
+            Self::AllExcept(g) => ("AND generation <> ?", Some(g)),
+        }
+    }
+}
+
+/// Delete a blocklist's domains a bounded chunk per transaction, so the sole
+/// write connection is never held for long.
+///
+/// Draining is what makes deletion safe: `blocklist_id` is `ON DELETE CASCADE`,
+/// so dropping a blocklist row with millions of domains still attached would
+/// make `SQLite` delete them all inside one implicit transaction — the same
+/// writer monopolisation the batched import exists to avoid.
+///
+/// Returns the number of rows removed.
+async fn delete_domains_in_batches(
+    pool: &SqlitePool,
+    blocklist_id: &str,
+    scope: DomainScope,
+) -> anyhow::Result<u64> {
+    let (predicate, generation) = scope.predicate();
+    let sql = format!(
+        "DELETE FROM dns_filter_blocked_domains \
+         WHERE rowid IN ( \
+             SELECT rowid FROM dns_filter_blocked_domains \
+             WHERE blocklist_id = ? {predicate} LIMIT ? \
+         )"
+    );
+
+    let mut removed = 0_u64;
+    loop {
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.clone())).bind(blocklist_id);
+        if let Some(g) = generation {
+            q = q.bind(g);
+        }
+        let affected = q
+            .bind(DELETE_BATCH_ROWS)
+            .execute(pool)
+            .await?
+            .rows_affected();
+
+        removed += affected;
+        if affected == 0 {
+            return Ok(removed);
+        }
+        tokio::task::yield_now().await;
+    }
+}
+
 impl SqliteDnsFilterRepository {
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
@@ -250,6 +341,51 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
 
     async fn delete_profile(&self, id: Uuid) -> anyhow::Result<bool> {
         let id_str = id.to_string();
+
+        // Deleting a profile cascades into its blocklists, which cascade into
+        // their domains. Drain those in batches first, for the same reason
+        // `delete_blocklist` does — but only for a profile we can actually
+        // delete, so a rejected builtin isn't stripped of its domains.
+        let deletable: Option<String> =
+            sqlx::query_scalar("SELECT id FROM dns_filter_profiles WHERE id = ? AND builtin = 0")
+                .bind(&id_str)
+                .fetch_optional(&self.pools.read)
+                .await?;
+        if deletable.is_none() {
+            return Ok(false);
+        }
+
+        // Re-read the blocklist set each pass: one taken up-front would miss a
+        // blocklist created (or freshly imported into) while we drain, and its
+        // domains would then cascade away in one implicit transaction — the
+        // starvation we are here to avoid. Converges once a pass removes
+        // nothing; bounded so a caller hammering this profile cannot spin us
+        // forever.
+        for pass in 0..DRAIN_MAX_PASSES {
+            let blocklist_ids: Vec<String> =
+                sqlx::query_scalar("SELECT id FROM dns_filter_blocklists WHERE profile_id = ?")
+                    .bind(&id_str)
+                    .fetch_all(&self.pools.read)
+                    .await?;
+
+            let mut removed = 0_u64;
+            for bl in &blocklist_ids {
+                removed +=
+                    delete_domains_in_batches(&self.pools.write, bl, DomainScope::All).await?;
+            }
+            if removed == 0 {
+                break;
+            }
+            if pass + 1 == DRAIN_MAX_PASSES {
+                tracing::warn!(
+                    profile_id = %id,
+                    passes = DRAIN_MAX_PASSES,
+                    "profile still gaining blocklist domains while draining; deleting anyway — \
+                     the cascade may briefly hold the write connection"
+                );
+            }
+        }
+
         let result = sqlx::query("DELETE FROM dns_filter_profiles WHERE id = ? AND builtin = 0")
             .bind(&id_str)
             .execute(&self.pools.write)
@@ -355,6 +491,12 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
 
     async fn delete_blocklist(&self, id: Uuid) -> anyhow::Result<bool> {
         let id_str = id.to_string();
+
+        // Drain the domains first. Left attached, the ON DELETE CASCADE would
+        // drop millions of rows in one implicit transaction and monopolise the
+        // sole writer — see `delete_domains_in_batches`.
+        delete_domains_in_batches(&self.pools.write, &id_str, DomainScope::All).await?;
+
         let result = sqlx::query("DELETE FROM dns_filter_blocklists WHERE id = ?")
             .bind(&id_str)
             .execute(&self.pools.write)
@@ -365,41 +507,105 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
     async fn replace_blocklist_domains(&self, id: Uuid, domains: &[String]) -> anyhow::Result<u64> {
         let id_str = id.to_string();
         let now = now_iso();
+
+        // Dedupe defensively. `(domain, blocklist_id, generation)` is the
+        // primary key, so a repeated domain in the caller's slice would abort
+        // the whole import — and `entry_count` must reflect rows actually
+        // stored, not the caller's slice length.
+        let domains: Vec<&String> = {
+            let mut seen = std::collections::HashSet::with_capacity(domains.len());
+            domains.iter().filter(|d| seen.insert(*d)).collect()
+        };
         let count = domains.len() as u64;
 
-        let mut tx = self.pools.write.begin().await?;
+        // Read the generation readers are currently pinned to; we build the
+        // next one alongside it.
+        let active: i64 =
+            sqlx::query_scalar("SELECT active_generation FROM dns_filter_blocklists WHERE id = ?")
+                .bind(&id_str)
+                .fetch_optional(&self.pools.read)
+                .await?
+                .ok_or_else(|| anyhow::anyhow!("blocklist {id} not found"))?;
+        let next = active.wrapping_add(1);
 
-        sqlx::query("DELETE FROM dns_filter_blocked_domains WHERE blocklist_id = ?")
-            .bind(&id_str)
-            .execute(&mut *tx)
+        // Clear any debris a previously-interrupted import left behind at this
+        // generation (the daemon can be killed mid-import).
+        delete_domains_in_batches(&self.pools.write, &id_str, DomainScope::Generation(next))
             .await?;
 
-        for chunk in domains.chunks(500) {
-            let placeholders: Vec<&str> = chunk.iter().map(|_| "(?, ?)").collect();
-            let sql = format!(
-                "INSERT INTO dns_filter_blocked_domains (domain, blocklist_id) VALUES {}",
-                placeholders.join(", ")
-            );
-            let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
-            for d in chunk {
-                q = q.bind(d).bind(&id_str);
+        // Write the new generation in independently-committed batches. Each
+        // batch takes the sole write connection, holds it for a few hundred
+        // rows, then hands it back — so DHCP, stats, the query log and the
+        // health probes all keep making progress while a 1.9M-domain feed
+        // imports. Readers still see `active`, so a partial generation is
+        // invisible to them.
+        for batch in domains.chunks(IMPORT_BATCH_ROWS) {
+            let mut tx = self.pools.write.begin().await?;
+            for chunk in batch.chunks(INSERT_CHUNK_ROWS) {
+                let placeholders: Vec<&str> = chunk.iter().map(|_| "(?, ?, ?)").collect();
+                let sql = format!(
+                    "INSERT INTO dns_filter_blocked_domains (domain, blocklist_id, generation) \
+                     VALUES {}",
+                    placeholders.join(", ")
+                );
+                let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+                for d in chunk {
+                    q = q.bind(d).bind(&id_str).bind(next);
+                }
+                q.execute(&mut *tx).await?;
             }
-            q.execute(&mut *tx).await?;
+            tx.commit().await?;
+
+            // Give any writer queued behind us a turn before we re-acquire.
+            tokio::task::yield_now().await;
         }
 
+        // The swap itself: one tiny transaction. Readers move from the old
+        // generation to the new one atomically.
         sqlx::query(
-            "UPDATE dns_filter_blocklists SET entry_count = ?, last_updated = ?, \
-             last_error = NULL, last_error_at = NULL, updated_at = ? WHERE id = ?",
+            "UPDATE dns_filter_blocklists SET active_generation = ?, entry_count = ?, \
+             last_updated = ?, last_error = NULL, last_error_at = NULL, updated_at = ? \
+             WHERE id = ?",
         )
+        .bind(next)
         .bind(count.cast_signed())
         .bind(&now)
         .bind(&now)
         .bind(&id_str)
-        .execute(&mut *tx)
+        .execute(&self.pools.write)
         .await?;
 
-        tx.commit().await?;
+        // Reclaim every superseded row. Batched for the same reason as the
+        // insert: a 1.9M-row DELETE would hold the writer just as long as the
+        // import used to. `AllExcept` rather than the single previous
+        // generation, so a generation orphaned by a crash between an earlier
+        // flip and its cleanup is reclaimed here instead of leaking forever.
+        // Best-effort — the rows are already invisible to readers, and the next
+        // import sweeps whatever is left.
+        if let Err(e) =
+            delete_domains_in_batches(&self.pools.write, &id_str, DomainScope::AllExcept(next))
+                .await
+        {
+            tracing::warn!(
+                blocklist_id = %id,
+                active_generation = next,
+                error = %e,
+                "failed to reclaim superseded blocklist generations; rows are invisible to \
+                 readers and will be cleaned up by the next import"
+            );
+        }
+
         Ok(count)
+    }
+
+    async fn count_unimported_blocklists(&self) -> anyhow::Result<u64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM dns_filter_blocklists \
+             WHERE enabled = 1 AND last_updated IS NULL",
+        )
+        .fetch_one(&self.pools.read)
+        .await?;
+        Ok(count.cast_unsigned())
     }
 
     async fn set_blocklist_error(&self, id: Uuid, error: Option<&str>) -> anyhow::Result<()> {
@@ -572,16 +778,9 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
     ) -> anyhow::Result<ProfileFilterInputs> {
         let pid = profile_id.to_string();
 
-        let blocked: Vec<String> = sqlx::query_scalar(
-            "SELECT DISTINCT bd.domain \
-             FROM dns_filter_blocked_domains bd \
-             JOIN dns_filter_blocklists bl ON bd.blocklist_id = bl.id \
-             WHERE bl.profile_id = ? AND bl.enabled = 1",
-        )
-        .bind(&pid)
-        .fetch_all(&self.pools.read)
-        .await?;
-
+        // No blocked-domain query here on purpose: the runtime profile
+        // references each blocklist's compiled filter directly. See
+        // `ProfileFilterInputs`.
         let allow: Vec<String> =
             sqlx::query_scalar("SELECT domain FROM dns_filter_allowlist WHERE profile_id = ?")
                 .bind(&pid)
@@ -597,7 +796,6 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         .await?;
 
         Ok(ProfileFilterInputs {
-            blocked_domains: blocked,
             allowlist: allow,
             custom_rules: rules,
         })
@@ -606,7 +804,11 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
     async fn load_blocklist_domains(&self, blocklist_id: Uuid) -> anyhow::Result<Vec<String>> {
         let id = blocklist_id.to_string();
         let domains: Vec<String> = sqlx::query_scalar(
-            "SELECT domain FROM dns_filter_blocked_domains WHERE blocklist_id = ?",
+            "SELECT bd.domain \
+             FROM dns_filter_blocked_domains bd \
+             JOIN dns_filter_blocklists bl \
+               ON bd.blocklist_id = bl.id AND bd.generation = bl.active_generation \
+             WHERE bl.id = ?",
         )
         .bind(&id)
         .fetch_all(&self.pools.read)

@@ -24287,11 +24287,23 @@
         "type": "object",
         "description": "Response for GET /api/dns/filter/config.",
         "required": [
-          "config"
+          "config",
+          "filters_ready",
+          "pending_blocklists"
         ],
         "properties": {
           "config": {
             "$ref": "#/components/schemas/DnsFilterConfig"
+          },
+          "filters_ready": {
+            "type": "boolean",
+            "description": "Whether the filters are actually being enforced right now.\n\nThe DNS server answers queries as soon as it binds, but the compiled\nfilters are built in the background — and after an upgrade that resets\nthe blocklist cache, the lists have to be re-downloaded before they can\nblock anything. During either window DNS resolves normally and\nblocklists are **not** enforced, which is a fail-open the admin has to\nbe able to see. `false` means exactly that."
+          },
+          "pending_blocklists": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many enabled blocklists have never been imported, i.e. are empty and\nenforcing nothing until their first download completes.",
+            "minimum": 0
           }
         }
       },
@@ -27736,6 +27748,21 @@
           "rollback_available"
         ],
         "properties": {
+          "applied_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When `applied_version` was observed running. Clients dedupe their\n\"updated to vX\" notification on this timestamp."
+          },
+          "applied_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Version the daemon most recently *finished* applying across a restart.\n\nSet by the startup reconcile when `pending_version` matched the running\nbinary. The UI polls status and has no event channel, so this (paired\nwith `applied_at`) is how a browser learns an update landed."
+          },
           "auto_update_enabled": {
             "type": "boolean",
             "description": "Whether auto-update is enabled."
@@ -27780,7 +27807,7 @@
               "string",
               "null"
             ],
-            "description": "Version the in-flight install is targeting (if any)."
+            "description": "Version the in-flight install is targeting (if any).\n\nCleared by the startup reconcile once the daemon comes back up on the\nnew binary — a pending version that outlives the restart would other-\nwise be reported forever."
           },
           "rollback_available": {
             "type": "boolean",

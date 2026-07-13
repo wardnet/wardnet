@@ -7,6 +7,15 @@
 //! the service returns [`TlsStatus::NotConfigured`] before any ACME call, so the
 //! runner is fully inert until a provider is registered.
 //!
+//! ## Retry
+//!
+//! A *failed* attempt does not wait for the next 12h tick: it retries on a short
+//! exponential backoff ([`RETRY_MIN`] → [`RETRY_MAX`]), resetting on success.
+//! Issuance failures are usually transient — most sharply, a freshly registered
+//! network whose DNS record the cloud has not published yet will reject the ACME
+//! challenge for a few seconds. Under a bare 12h cadence, losing that race cost
+//! half a day without a certificate.
+//!
 //! ## Suspended state
 //!
 //! While the box is [suspended](Entitlement::is_suspended) the runner is fully
@@ -32,6 +41,28 @@ use super::{TlsService, TlsStatus};
 /// cert is missing or within the renewal window, so a 12h cadence is cheap and
 /// leaves ample slack ahead of the 30-day renewal threshold.
 const RENEWAL_INTERVAL: Duration = Duration::from_hours(12);
+
+/// First retry delay after a failed issuance.
+const RETRY_MIN: Duration = Duration::from_secs(30);
+
+/// Ceiling for the retry backoff. Past this we are no longer chasing a transient
+/// condition, and the 12h cadence takes back over on the next success.
+const RETRY_MAX: Duration = Duration::from_mins(15);
+
+/// Delay before re-attempting issuance after `previous` failed.
+///
+/// Issuance failures are dominated by *transient* conditions: the cloud is
+/// mid-deploy, the WAN is still coming up, or — the case that prompted this —
+/// the network was registered seconds ago and its DNS record has not been
+/// published yet, so the ACME challenge is rejected until it is. Waiting the
+/// full [`RENEWAL_INTERVAL`] to find out costs half a day of no certificate for
+/// a condition that typically clears in seconds.
+pub(super) fn next_retry(previous: Option<Duration>) -> Duration {
+    match previous {
+        None => RETRY_MIN,
+        Some(prev) => prev.saturating_mul(2).min(RETRY_MAX),
+    }
+}
 
 /// Background TLS renewal runner. See [module docs](self).
 pub struct TlsRenewalRunner {
@@ -69,11 +100,12 @@ async fn runner_loop(
         admin_id: Uuid::nil(),
     };
 
-    let mut interval = tokio::time::interval(RENEWAL_INTERVAL);
-    // First `tick()` resolves immediately → check once at startup. `Delay`
-    // spaces the next tick a full interval after the work finishes rather than
-    // bursting to catch up.
-    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    // `None` while healthy: the next attempt is a full `RENEWAL_INTERVAL` away.
+    // `Some(d)` after a failure: retry in `d`, doubling up to `RETRY_MAX`, so a
+    // transient failure costs seconds rather than the full 12h cadence.
+    let mut retry_in: Option<Duration> = None;
+    // First pass runs immediately → check once at startup.
+    let mut delay = Duration::ZERO;
 
     loop {
         tokio::select! {
@@ -81,15 +113,31 @@ async fn runner_loop(
                 tracing::info!("TLS renewal runner cancellation received");
                 break;
             }
-            _ = interval.tick() => {
+            () = tokio::time::sleep(delay) => {
                 // Fully inert while suspended — renewing a cert for a box with
                 // its premium surfaces disabled is pointless, and the ACME
                 // challenge would publish through the suspended wardnet provider.
                 // The DDNS runner's re-probe is what restores entitlement.
                 if entitlement.is_suspended() {
                     tracing::debug!("TLS renewal: suspended, skipping");
+                    // Suspension is not a failure: don't build up a retry backoff
+                    // for it. The re-probe restores us on the normal cadence.
+                    delay = RENEWAL_INTERVAL;
+                    continue;
+                }
+
+                if ensure(tls.as_ref(), &admin_ctx).await {
+                    retry_in = None;
+                    delay = RENEWAL_INTERVAL;
                 } else {
-                    ensure(tls.as_ref(), &admin_ctx).await;
+                    let next = next_retry(retry_in);
+                    retry_in = Some(next);
+                    tracing::info!(
+                        retry_in_secs = next.as_secs(),
+                        "TLS renewal: retrying in {}s rather than waiting for the next cycle",
+                        next.as_secs(),
+                    );
+                    delay = next;
                 }
             }
         }
@@ -98,7 +146,10 @@ async fn runner_loop(
 
 /// Run one `ensure_certificate` under the admin context, logging the outcome.
 /// Never fatal — a failed ACME call must not take the daemon down.
-async fn ensure(tls: &dyn TlsService, admin_ctx: &AuthContext) {
+///
+/// Returns `false` when the attempt failed and is worth retrying sooner than the
+/// next renewal cycle.
+async fn ensure(tls: &dyn TlsService, admin_ctx: &AuthContext) -> bool {
     match auth_context::with_context(admin_ctx.clone(), tls.ensure_certificate()).await {
         Ok(TlsStatus::NotConfigured) => {
             tracing::debug!("TLS renewal: DDNS unconfigured, nothing to do");
@@ -129,6 +180,10 @@ async fn ensure(tls: &dyn TlsService, admin_ctx: &AuthContext) {
                 "TLS certificate issued/renewed for {domain} (not_after={not_after})"
             );
         }
-        Err(error) => tracing::warn!(%error, "TLS renewal failed: {error}"),
+        Err(error) => {
+            tracing::warn!(%error, "TLS renewal failed: {error}");
+            return false;
+        }
     }
+    true
 }

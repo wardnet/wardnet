@@ -62,6 +62,25 @@ pub trait UpdateService: Send + Sync {
     /// Returns `Ok(None)` when no action was taken (disabled, already
     /// up-to-date, or an install is already in flight).
     async fn auto_install_if_due(&self) -> Result<Option<InstallHandle>, AppError>;
+
+    /// Settle the `update_pending_version` marker against the binary that
+    /// actually came back up. Called once at daemon startup, before the HTTP
+    /// server accepts requests.
+    ///
+    /// Admin-guarded like every other service method (`.agents/auth.md`): the
+    /// startup caller supplies an admin context explicitly rather than the
+    /// method opting out of the check.
+    async fn reconcile_pending_install(&self) -> Result<(), AppError>;
+}
+
+/// How long after a restart the daemon still advertises "we just updated".
+///
+/// Generous enough that an admin who kicked off an update and watched the box
+/// go down will still be told it landed when they come back, but short enough
+/// that a browser opening the UI for the first time weeks later is not told
+/// about an ancient update as though it were news.
+fn applied_announce_window() -> chrono::Duration {
+    chrono::Duration::minutes(15)
 }
 
 /// Track the in-flight install so concurrent callers see the same handle.
@@ -175,6 +194,25 @@ impl UpdateServiceImpl {
             .filter(|s| !s.is_empty()))
     }
 
+    async fn get_applied_version(&self) -> Result<Option<String>, AppError> {
+        Ok(self
+            .system_config
+            .get("update_applied_version")
+            .await
+            .map_err(AppError::Internal)?
+            .filter(|s| !s.is_empty()))
+    }
+
+    async fn get_applied_at(&self) -> Result<Option<DateTime<Utc>>, AppError> {
+        Ok(self
+            .system_config
+            .get("update_applied_at")
+            .await
+            .map_err(AppError::Internal)?
+            .filter(|s| !s.is_empty())
+            .and_then(|s| s.parse().ok()))
+    }
+
     async fn set_cfg(&self, key: &str, value: &str) -> Result<(), AppError> {
         self.system_config
             .set(key, value)
@@ -183,12 +221,19 @@ impl UpdateServiceImpl {
     }
 
     async fn build_status(&self) -> Result<UpdateStatus, AppError> {
-        let channel = self.get_channel().await?;
-        let auto = self.get_auto_update_enabled().await?;
-        let last_check_at = self.get_last_check_at().await?;
-        let last_install_at = self.get_last_install_at().await?;
-        let latest = self.get_last_known_version().await?;
-        let pending = self.get_pending_version().await?;
+        // Independent reads: issue them concurrently rather than paying seven
+        // sequential round-trips on a path every open admin tab polls at 15 s.
+        let (channel, auto, last_check_at, last_install_at, latest, pending) = tokio::try_join!(
+            self.get_channel(),
+            self.get_auto_update_enabled(),
+            self.get_last_check_at(),
+            self.get_last_install_at(),
+            self.get_last_known_version(),
+            self.get_pending_version(),
+        )?;
+        let (applied_version, applied_at) =
+            tokio::try_join!(self.get_applied_version(), self.get_applied_at())?;
+
         let update_available = match latest.as_deref() {
             Some(v) if !v.is_empty() => is_newer(v, &self.current_version),
             _ => false,
@@ -196,6 +241,27 @@ impl UpdateServiceImpl {
         let inflight = self.inflight.lock().await;
         let install_phase = inflight.phase.clone();
         drop(inflight);
+
+        // `update_applied_*` is a durable record, but "we just updated" is not a
+        // durable fact. Clients dedupe the announcement in local storage, so a
+        // browser that has never seen this box (new device, incognito, cleared
+        // storage) would otherwise be told about an update from weeks ago as if
+        // it had just landed. Only advertise it while it is genuinely fresh.
+        let applied_is_fresh = applied_at
+            .is_some_and(|at| Utc::now().signed_duration_since(at) < applied_announce_window());
+        let (applied_version, applied_at) = if applied_is_fresh {
+            (applied_version, applied_at)
+        } else {
+            (None, None)
+        };
+
+        // `Applied` is a momentary phase, not a resting state — nothing else
+        // ever returns it to `Idle`, so without this the card would show the
+        // "Applied" chip forever after a successful update.
+        let install_phase = match install_phase {
+            InstallPhase::Applied if !applied_is_fresh => InstallPhase::Idle,
+            other => other,
+        };
 
         Ok(UpdateStatus {
             current_version: self.current_version.clone(),
@@ -207,8 +273,96 @@ impl UpdateServiceImpl {
             last_install_at,
             install_phase,
             pending_version: pending,
+            applied_version,
+            applied_at,
             rollback_available: self.applier.rollback_available().await,
         })
+    }
+
+    async fn do_reconcile_pending_install(&self) -> Result<(), AppError> {
+        let Some(pending) = self.get_pending_version().await? else {
+            return Ok(());
+        };
+
+        // Record the outcome BEFORE clearing the marker. The marker is the only
+        // record that an install was staged, so clearing it first would mean a
+        // failed write (or a kill) here loses the event entirely: the next boot
+        // sees nothing pending, no-ops, and the update is never announced and a
+        // reverted swap never recorded. Clearing last makes the reconcile
+        // idempotent and safely retryable — a crash mid-way just replays it.
+        if pending == self.current_version {
+            // The swap took: we are running the version we staged.
+            let now = Utc::now();
+            self.set_cfg("update_applied_version", &self.current_version)
+                .await?;
+            self.set_cfg("update_applied_at", &now.to_rfc3339()).await?;
+
+            let mut inflight = self.inflight.lock().await;
+            inflight.phase = InstallPhase::Applied;
+            drop(inflight);
+
+            self.set_cfg("update_pending_version", "").await?;
+
+            tracing::info!(
+                version = %pending,
+                "update applied across restart: now running {version}",
+                version = pending,
+            );
+            return Ok(());
+        }
+
+        // We staged `pending` but came back up as something else — the binary
+        // swap silently reverted (or systemd started an older unit). Surface
+        // it rather than letting the version quietly stay behind.
+        let reason = format!(
+            "update to {pending} did not take effect; running {current}",
+            current = self.current_version,
+        );
+
+        let mut inflight = self.inflight.lock().await;
+        inflight.phase = InstallPhase::Failed {
+            reason: reason.clone(),
+        };
+        drop(inflight);
+
+        let history_id = self
+            .history
+            .insert(&UpdateHistoryRow {
+                from_version: self.current_version.clone(),
+                to_version: pending.clone(),
+                phase: "restart_pending".to_owned(),
+                status: UpdateHistoryStatus::Started,
+                error: None,
+            })
+            .await
+            .map_err(AppError::Internal)?;
+        self.history
+            .finalize(
+                history_id,
+                UpdateHistoryStatus::Failed,
+                "restart_pending",
+                Some(reason.as_str()),
+            )
+            .await
+            .map_err(AppError::Internal)?;
+
+        self.set_cfg("update_pending_version", "").await?;
+
+        self.events.publish(WardnetEvent::UpdateFailed {
+            target_version: pending.clone(),
+            phase: InstallPhase::RestartPending,
+            error: reason.clone(),
+            timestamp: Utc::now(),
+        });
+
+        tracing::error!(
+            target = %pending,
+            current = %self.current_version,
+            "binary swap reverted: {reason}",
+            reason = reason,
+        );
+
+        Ok(())
     }
 
     async fn publish_progress(&self, target: &str, phase: InstallPhase) {
@@ -484,6 +638,21 @@ fn phase_name(p: &InstallPhase) -> &'static str {
 
 #[async_trait]
 impl UpdateService for UpdateServiceImpl {
+    /// `run_install` writes `update_pending_version` and then cancels the
+    /// shutdown token so systemd restarts us on the new binary. Nothing else
+    /// clears that marker, so without this the UI reports a version as
+    /// "pending" forever after it has already been applied.
+    ///
+    /// The marker is an unverified *claim* that a restart onto the target is
+    /// coming. Boot is the only place that claim can be checked against
+    /// reality, so we either confirm it (record it as applied) or contradict
+    /// it (record the swap as reverted). Either way the marker does not
+    /// survive.
+    async fn reconcile_pending_install(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.do_reconcile_pending_install().await
+    }
+
     async fn status(&self) -> Result<UpdateStatusResponse, AppError> {
         auth_context::require_admin()?;
         Ok(UpdateStatusResponse {
@@ -655,6 +824,12 @@ impl UpdateService for UpdateServiceImpl {
 
         self.set_cfg("update_pending_version", "").await?;
         self.set_cfg("update_previous_binary_path", "").await?;
+        // Retract the "applied" announcement too. We are deliberately leaving
+        // this version, so continuing to advertise it as freshly applied would
+        // toast "Wardnet updated to vX" at any browser that has not already
+        // seen it — immediately after the operator rolled away from vX.
+        self.set_cfg("update_applied_version", "").await?;
+        self.set_cfg("update_applied_at", "").await?;
         self.history
             .insert(&UpdateHistoryRow {
                 from_version: self.current_version.clone(),

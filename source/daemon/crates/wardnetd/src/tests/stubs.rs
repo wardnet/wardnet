@@ -1105,6 +1105,10 @@ pub struct StubUpdateService;
 
 #[async_trait]
 impl wardnetd_services::UpdateService for StubUpdateService {
+    async fn reconcile_pending_install(&self) -> Result<(), AppError> {
+        unimplemented!("startup-only path; these tests never boot the runner")
+    }
+
     async fn status(&self) -> Result<wardnet_common::api::UpdateStatusResponse, AppError> {
         unimplemented!()
     }

@@ -32,7 +32,11 @@ import {
   ProviderOption,
   WardnetFields,
 } from "@/components/features/wardnet-enrollment";
-import { useWardnetEnrollment, type Provider } from "@/lib/wardnet-enrollment";
+import {
+  EnrollmentValidationError,
+  useWardnetEnrollment,
+  type Provider,
+} from "@/lib/wardnet-enrollment";
 import { suggestName } from "@/lib/suggestName";
 
 /**
@@ -63,6 +67,7 @@ export default function RemoteAccess() {
   const [removeOpen, setRemoveOpen] = useState(false);
 
   function describeError(err: unknown): string {
+    if (err instanceof EnrollmentValidationError) return err.message;
     if (err instanceof WardnetApiError) return err.body.error;
     return "Couldn't reach the daemon. Please try again.";
   }
@@ -210,10 +215,7 @@ export default function RemoteAccess() {
       )}
       {provider === "wardnet" ? (
         wardnetStep === "email" ? (
-          <Button
-            onClick={enrollment.sendCode}
-            disabled={pending.sendCode || !email.includes("@")}
-          >
+          <Button onClick={enrollment.sendCode} disabled={pending.sendCode}>
             {pending.sendCode ? "Sending…" : "Send code"}
           </Button>
         ) : wardnetStep === "code" ? (

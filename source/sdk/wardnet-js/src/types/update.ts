@@ -51,7 +51,12 @@ export interface UpdateStatus {
   last_check_at: string | null;
   last_install_at: string | null;
   install_phase: InstallPhase;
+  /** Version an install is staging. Cleared once the daemon restarts onto it. */
   pending_version: string | null;
+  /** Version the daemon finished applying across a restart, if any. */
+  applied_version: string | null;
+  /** When `applied_version` was observed running; dedupe key for the toast. */
+  applied_at: string | null;
   rollback_available: boolean;
 }
 

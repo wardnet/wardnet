@@ -15,11 +15,17 @@ use uuid::Uuid;
 use wardnet_common::dns::{AllowlistEntry, Blocklist, CustomFilterRule};
 use wardnet_common::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 
-/// Inputs needed to compile a single profile's `DnsFilter`.
+/// Inputs needed to compile a profile's *auxiliary* `DnsFilter` — the one
+/// holding its allowlist and custom rules.
+///
+/// Blocked domains are deliberately absent. A profile's blocklists are each
+/// compiled into their own `DnsFilter`, and the runtime profile composes
+/// `Arc<ArcSwap<DnsFilter>>` handles to them, so the domains are never copied
+/// per profile. Loading them here would mean selecting millions of rows (a
+/// threat-intel feed is ~1.9M domains) only to drop them on the floor — which
+/// is exactly what this struct used to do.
 #[derive(Debug, Clone, Default)]
 pub struct ProfileFilterInputs {
-    /// Deduplicated, lowercased domains from this profile's enabled blocklists.
-    pub blocked_domains: Vec<String>,
     /// Allowlist domains for this profile.
     pub allowlist: Vec<String>,
     /// Raw rule text from this profile's enabled custom rules.
@@ -122,6 +128,10 @@ pub trait DnsFilterRepository: Send + Sync {
     async fn delete_blocklist(&self, id: Uuid) -> anyhow::Result<bool>;
     async fn replace_blocklist_domains(&self, id: Uuid, domains: &[String]) -> anyhow::Result<u64>;
     async fn set_blocklist_error(&self, id: Uuid, error: Option<&str>) -> anyhow::Result<()>;
+    /// Enabled blocklists that have never completed an import (`last_updated IS
+    /// NULL`) — they are empty, so they enforce nothing. Non-zero means DNS
+    /// filtering is currently failing open for those lists.
+    async fn count_unimported_blocklists(&self) -> anyhow::Result<u64>;
 
     // ── Profile-scoped allowlist ────────────────────────────────────────
 
