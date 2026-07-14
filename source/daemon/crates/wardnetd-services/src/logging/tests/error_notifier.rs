@@ -339,3 +339,85 @@ async fn stopped_service_after_start_drops_events() {
     assert_eq!(entries.len(), 1);
     assert!(entries[0].message.contains("before stop"));
 }
+
+// ---------------------------------------------------------------------------
+// Target suppression (admin-UI noise control)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn layer_skips_suppressed_targets() {
+    let svc = Arc::new(
+        ErrorNotifierService::new(15)
+            .with_suppressed_targets(vec!["hickory_resolver::recursor".to_owned()]),
+    );
+    svc.start();
+    let subscriber = tracing_subscriber::registry().with(svc.tracing_layer());
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    tracing::warn!(target: "hickory_resolver::recursor::handle", "lookup error");
+
+    assert!(
+        svc.get_recent_errors().is_empty(),
+        "suppressed target must not enter the recent-errors buffer"
+    );
+}
+
+#[tokio::test]
+async fn layer_keeps_unsuppressed_targets() {
+    let svc = Arc::new(
+        ErrorNotifierService::new(15)
+            .with_suppressed_targets(vec!["hickory_resolver::recursor".to_owned()]),
+    );
+    svc.start();
+    let subscriber = tracing_subscriber::registry().with(svc.tracing_layer());
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    tracing::error!(target: "wardnetd::dns", "real failure");
+
+    let entries = svc.get_recent_errors();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].target, "wardnetd::dns");
+}
+
+#[tokio::test]
+async fn suppressed_noise_does_not_evict_real_errors() {
+    // The buffer is a small ring: a dependency warning once per DNS query
+    // would otherwise push every actionable error out of it.
+    let svc = Arc::new(
+        ErrorNotifierService::new(2)
+            .with_suppressed_targets(vec!["hickory_resolver::recursor".to_owned()]),
+    );
+    svc.start();
+    let subscriber = tracing_subscriber::registry().with(svc.tracing_layer());
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    tracing::error!(target: "wardnetd::dns", "real failure");
+    for _ in 0..10 {
+        tracing::warn!(target: "hickory_resolver::recursor::handle", "lookup error");
+    }
+
+    let entries = svc.get_recent_errors();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].target, "wardnetd::dns");
+}
+
+#[tokio::test]
+async fn suppressed_target_still_reports_errors() {
+    // Suppression is a noise filter, not a mute button: a genuine ERROR from a
+    // suppressed dependency must still reach the admin.
+    let svc = Arc::new(
+        ErrorNotifierService::new(15)
+            .with_suppressed_targets(vec!["hickory_resolver::recursor".to_owned()]),
+    );
+    svc.start();
+    let subscriber = tracing_subscriber::registry().with(svc.tracing_layer());
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    tracing::warn!(target: "hickory_resolver::recursor::handle", "lookup error");
+    tracing::error!(target: "hickory_resolver::recursor::handle", "recursor is broken");
+
+    let entries = svc.get_recent_errors();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0].level, "ERROR");
+    assert!(entries[0].message.contains("recursor is broken"));
+}

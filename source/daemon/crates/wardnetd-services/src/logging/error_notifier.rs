@@ -7,6 +7,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use super::component::{BoxedLayer, LogComponent};
+use super::suppress::TargetSuppressor;
 
 /// A captured error or warning entry.
 #[derive(Debug, Clone, Serialize)]
@@ -33,6 +34,7 @@ pub struct ErrorNotifierService {
     entries: Arc<Mutex<VecDeque<ErrorEntry>>>,
     max_entries: usize,
     active: Arc<AtomicBool>,
+    suppressor: TargetSuppressor,
 }
 
 impl ErrorNotifierService {
@@ -46,7 +48,19 @@ impl ErrorNotifierService {
             entries: Arc::new(Mutex::new(VecDeque::with_capacity(max_entries))),
             max_entries,
             active: Arc::new(AtomicBool::new(false)),
+            suppressor: TargetSuppressor::default(),
         }
+    }
+
+    /// Keep the given tracing targets out of the recent-errors buffer.
+    ///
+    /// This matters more here than on the log stream: the buffer is a small
+    /// ring, so a dependency that warns once per DNS query would evict every
+    /// real error before an admin ever sees it. See [`TargetSuppressor`].
+    #[must_use]
+    pub fn with_suppressed_targets(mut self, targets: Vec<String>) -> Self {
+        self.suppressor = TargetSuppressor::new(targets);
+        self
     }
 }
 
@@ -63,6 +77,7 @@ impl LogComponent for ErrorNotifierService {
             entries: self.entries.clone(),
             max_entries: self.max_entries,
             active: self.active.clone(),
+            suppressor: self.suppressor.clone(),
         })
     }
 
@@ -88,6 +103,7 @@ struct ErrorNotifierLayer {
     entries: Arc<Mutex<VecDeque<ErrorEntry>>>,
     max_entries: usize,
     active: Arc<AtomicBool>,
+    suppressor: TargetSuppressor,
 }
 
 /// Visitor that extracts the message field from a tracing event.
@@ -125,6 +141,13 @@ where
 
         // Only capture WARN and ERROR.
         if level > tracing::Level::WARN {
+            return;
+        }
+
+        // Noise the admin cannot act on stays out of the buffer — otherwise it
+        // evicts the errors they can act on. Still written to the log file.
+        // ERROR is never suppressed, so this only drops WARN chatter.
+        if self.suppressor.is_suppressed(metadata.target(), &level) {
             return;
         }
 

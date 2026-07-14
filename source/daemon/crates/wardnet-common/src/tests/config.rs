@@ -24,6 +24,10 @@ fn defaults_when_file_missing() {
     assert_eq!(config.logging.max_log_files, 7);
     assert!(config.logging.filters.is_empty());
     assert_eq!(
+        config.logging.ui_suppressed_targets,
+        vec!["hickory_resolver::recursor".to_owned()]
+    );
+    assert_eq!(
         config.logging.to_filter_string(),
         "warn,wardnetd=info,wardnet_common=info,netlink_packet_route::link::buffer_tool=error"
     );
