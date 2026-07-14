@@ -25,8 +25,7 @@ use serde::Deserialize;
 /// different paths — Cloudflare answers JSON on `/dns-query` (per its `accept`
 /// header), while Google serves JSON **only** on `/resolve` (`/dns-query` is
 /// RFC 8484 wire format and rejects a JSON request with HTTP 400).
-pub(crate) const DOH_RESOLVERS: &[&str] =
-    &["https://1.1.1.1/dns-query", "https://8.8.8.8/resolve"];
+pub(crate) const DOH_RESOLVERS: &[&str] = &["https://1.1.1.1/dns-query", "https://8.8.8.8/resolve"];
 
 /// DNS `A` record type number, used to pick A answers out of a CNAME chain.
 const DNS_TYPE_A: u16 = 1;
