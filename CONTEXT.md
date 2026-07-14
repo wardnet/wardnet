@@ -146,6 +146,34 @@ See [0022-inbound-wireguard-and-published-access.md](docs/adr/0022-inbound-wireg
 
 **Edge SNI demux** — The cloud edge routing inbound connections to the right regional service by the client's TLS **SNI** (server name), at L4 — so multiple logical services (the regional **DDNS service**, the **Tunneler** PoP) can share one ingress without path-based coupling, and the tenant's own traffic passes through still-encrypted to terminate on the Pi. The daemon's only obligation is to address each service by its correct FQDN (from the **region catalog**); the edge does the rest. See [0017-per-service-cloud-clients.md](docs/adr/0017-per-service-cloud-clients.md).
 
+## Release channels
+
+**Release channel** — Which stream of daemon builds a box follows. The daemon
+stores its choice in `system_config`; the update runner fetches
+`<manifest_base_url>/<channel>.json` and installs only what that manifest
+names. Three channels exist, in ascending order of risk: **stable**, **beta**,
+**edge**. A channel is a *promise about vetting*, not about recency.
+
+**Stable channel** — Reviewed, released builds with no pre-release suffix. The
+default for every install.
+
+**Beta channel** — Released builds carrying a `-beta.N` suffix. Cut through the
+full release ceremony (release-notes doc, version bump, PR, signed tag), so a
+beta build is *vetted*; it is simply newer.
+
+**Edge channel** — Builds published straight from a branch by an on-demand
+workflow, with **no review, no release notes, no version bump, and no test
+gates** — deliberately, because the point is to put a candidate on real
+hardware in minutes rather than an hour. Edge builds are signed with the same
+production key, so the *channel* is still authentic; what's absent is any
+promise that the code is good. Versioned `<base-calver>-edge.<run-number>`,
+which sorts above every `-beta.N` of the same base and below the final release.
+Gated by the deploy-time `[update] allow_edge_channel` flag: a box cannot be
+put on edge without root on that box, and a box already on edge falls back to
+beta at startup if the flag is removed. Never a destination for a real user —
+an operator's testing loop. See
+[0023-edge-release-channel.md](docs/adr/0023-edge-release-channel.md).
+
 ## Reliability and watchdog (issue #214)
 
 **HealthMonitor** — The daemon-side aggregator (in `wardnetd-services/src/health/`) that holds the registered **HealthCheck**s, re-runs them all on a fixed tick, debounces failures, and publishes an immutable **HealthSnapshot** through an `ArcSwap` for lock-free reads. It only *reports* status; recovery policy lives in the watchdog layers. Checks run concurrently with a per-check `tokio::time::timeout`, so one hung probe can't stall the cycle.
