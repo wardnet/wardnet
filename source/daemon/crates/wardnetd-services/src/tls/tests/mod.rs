@@ -872,3 +872,96 @@ async fn a_rate_limited_failure_backs_off_for_the_full_window() {
 
     runner.shutdown().await;
 }
+
+/// Review follow-up: a nudge must never SHORTEN an in-force backoff. The
+/// transient ladder caps at 15m, so feeding a 1h rate-limit backoff through
+/// `next_retry` would shrink it — re-attempting inside the CA's window with
+/// the exact burst the long backoff exists to prevent.
+#[tokio::test(start_paused = true)]
+async fn a_nudge_does_not_shorten_a_rate_limit_backoff() {
+    let tls = Arc::new(ScriptedTls {
+        calls: std::sync::atomic::AtomicUsize::new(0),
+        script: vec![Err(
+            "too many failed authorizations (urn:ietf:params:acme:error:rateLimited)".into(),
+        )],
+    });
+    let nudge = super::runner::TlsRetryNudge::default();
+    let runner = super::runner::TlsRenewalRunner::start(
+        tls.clone(),
+        crate::entitlement::Entitlement::shared(),
+        nudge.clone(),
+        &tracing::Span::none(),
+    );
+
+    // Startup tick fails rate-limited → 1h backoff in force.
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    assert_eq!(calls(&tls), 1);
+
+    // A register-time failure nudges. The retry must still respect the hour.
+    nudge.nudge();
+    tokio::time::sleep(std::time::Duration::from_mins(20)).await;
+    assert_eq!(
+        calls(&tls),
+        1,
+        "nudge must not shorten the rate-limit window"
+    );
+    tokio::time::sleep(std::time::Duration::from_mins(45)).await;
+    assert_eq!(calls(&tls), 2, "retry lands after the window as scheduled");
+
+    runner.shutdown().await;
+}
+
+/// Review follow-up: only the CA's rate-limit answer is a rate limit — a
+/// broad "too many" substring caught unrelated transients ("too many open
+/// files", "too many redirects") and cost an hour where 30s was right.
+#[test]
+fn unrelated_too_many_errors_stay_transient() {
+    use super::runner::{FailureClass, classify_failure};
+    assert_eq!(
+        classify_failure("error sending request: too many redirects"),
+        FailureClass::Transient
+    );
+    assert_eq!(
+        classify_failure("Too many open files (os error 24)"),
+        FailureClass::Transient
+    );
+    assert_eq!(
+        classify_failure("too many failed authorizations for \"x\" in the last 1h0m0s"),
+        FailureClass::RateLimited
+    );
+}
+
+/// Review follow-up: a nudge is "make sure a retry is scheduled soon", not
+/// "push the retry out". Repeated nudges (an admin re-running the wizard while
+/// DNS misbehaves) must not keep resetting the countdown.
+#[tokio::test(start_paused = true)]
+async fn repeated_nudges_do_not_push_the_retry_out() {
+    let tls = Arc::new(ScriptedTls {
+        calls: std::sync::atomic::AtomicUsize::new(0),
+        script: vec![],
+    });
+    let nudge = super::runner::TlsRetryNudge::default();
+    let runner = super::runner::TlsRenewalRunner::start(
+        tls.clone(),
+        crate::entitlement::Entitlement::shared(),
+        nudge.clone(),
+        &tracing::Span::none(),
+    );
+
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    assert_eq!(calls(&tls), 1); // startup success → 12h cadence
+
+    // First nudge schedules a retry 30s out; a second nudge 20s later must
+    // NOT restart the countdown.
+    nudge.nudge();
+    tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+    nudge.nudge();
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await; // t = +35s
+    assert_eq!(
+        calls(&tls),
+        2,
+        "the retry must land ~30s after the FIRST nudge, not the last"
+    );
+
+    runner.shutdown().await;
+}

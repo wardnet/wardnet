@@ -146,10 +146,14 @@ async fn run_order(
         // validates within ~1-2s of `set_ready`, so skipping this wait loses
         // the race deterministically — every issuance failed against a record
         // that was there but not yet visible. A fixed sleep (what certbot's
-        // DNS plugins do) rather than a resolver poll, deliberately: the zone's
-        // SOA advertises a 1800s negative-cache TTL, so any resolver we asked
-        // too early would cache the miss and keep answering "no such record"
-        // long after the authoritative servers turned truthful.
+        // DNS plugins do), and deliberately not a resolver poll: a RECURSIVE
+        // resolver asked too early caches the miss for the zone's 1800s
+        // negative TTL, and even polling the authoritative servers directly
+        // proves only that ONE anycast PoP is serving the record — not the
+        // PoPs the CA's multi-vantage validators will hit — so a fixed margin
+        // is needed regardless. If 15s ever proves too short in the field, the
+        // upgrade path is an authoritative-direct poll used as an accelerator
+        // with this sleep kept as the floor.
         tokio::time::sleep(CHALLENGE_PROPAGATION_WAIT).await;
     }
 
@@ -175,13 +179,26 @@ async fn run_order(
         // identical in the logs.
         let mut authorizations = order.authorizations();
         while let Some(authz) = authorizations.next().await {
-            let Ok(authz) = authz else { break };
+            let authz = match authz {
+                Ok(authz) => authz,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "could not re-fetch an authorization for failure diagnostics: {e}"
+                    );
+                    break;
+                }
+            };
             for challenge in &authz.challenges {
                 if let Some(problem) = &challenge.error {
                     tracing::warn!(
                         challenge_type = ?challenge.r#type,
                         status = ?challenge.status,
-                        "ACME challenge rejected by the CA: {problem}",
+                        error = %problem,
+                        "ACME challenge {challenge_type:?} rejected by the CA \
+                         (status {status:?}): {problem}",
+                        challenge_type = challenge.r#type,
+                        status = challenge.status,
                     );
                 }
             }

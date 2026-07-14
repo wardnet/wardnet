@@ -245,6 +245,14 @@ pub struct TlsServiceImpl {
     dns_local: Arc<dyn DnsLocalService>,
     /// The Pi's LAN-interface IPv4 — the value of the split-horizon record.
     lan_ip: Ipv4Addr,
+    /// Single-flight guard for issuance: the renewal runner and the
+    /// register-time provisioning task can both call
+    /// [`TlsService::ensure_certificate`] concurrently, and two interleaved
+    /// ACME orders share the `_acme-challenge.<domain>` name — the first to
+    /// finish clears the TXT records out from under the other's still-pending
+    /// validation. Serialising is safe because the call is idempotent: the
+    /// second caller finds the fresh certificate and no-ops.
+    issuance: tokio::sync::Mutex<()>,
 }
 
 impl TlsServiceImpl {
@@ -267,6 +275,7 @@ impl TlsServiceImpl {
             activator,
             dns_local,
             lan_ip,
+            issuance: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -494,6 +503,10 @@ impl TlsServiceImpl {
 impl TlsService for TlsServiceImpl {
     async fn ensure_certificate(&self) -> Result<TlsStatus, AppError> {
         auth_context::require_admin()?;
+        // Single-flight: see the `issuance` field. Waiting (rather than
+        // try-locking away) is correct — the loser proceeds after the winner
+        // and no-ops against the now-fresh certificate.
+        let _issuance = self.issuance.lock().await;
 
         // Inert when DDNS (and therefore the public FQDN) is unconfigured —
         // mirrors DdnsUpdateRunner's inert-until-config behaviour.

@@ -60,6 +60,11 @@ const RATE_LIMIT_BACKOFF: Duration = Duration::from_hours(1);
 /// the register-time provisioning task attempts issuance itself, and before
 /// this handle existed its failure was invisible to the runner: the next
 /// attempt was a full [`RENEWAL_INTERVAL`] (12h) away.
+///
+/// Deliberately a bare [`tokio::sync::Notify`] rather than a
+/// `WardnetEvent` on the broadcast bus: the permit semantics (one stored
+/// wake-up, coalescing bursts, nothing to lag or filter) are exactly the
+/// contract, and the runner needs no payload — only "retry sooner".
 #[derive(Clone, Default)]
 pub struct TlsRetryNudge(Arc<tokio::sync::Notify>);
 
@@ -87,7 +92,11 @@ pub(super) enum FailureClass {
 /// `AppError` boundary preserves.
 pub(super) fn classify_failure(message: &str) -> FailureClass {
     let lower = message.to_lowercase();
-    if lower.contains("ratelimited") || lower.contains("too many") {
+    // Only the CA's own rate-limit answer counts: the ACME problem URN, or
+    // Let's Encrypt's canonical phrase. A bare "too many" also matches
+    // unrelated transients ("too many redirects", "too many open files")
+    // that deserve the 30s ladder, not an hour.
+    if lower.contains("ratelimited") || lower.contains("too many failed authorizations") {
         FailureClass::RateLimited
     } else {
         FailureClass::Transient
@@ -149,11 +158,15 @@ async fn runner_loop(
     };
 
     // `None` while healthy: the next attempt is a full `RENEWAL_INTERVAL` away.
-    // `Some(d)` after a failure: retry in `d`, doubling up to `RETRY_MAX`, so a
-    // transient failure costs seconds rather than the full 12h cadence.
+    // `Some(d)` after a failure: retry in `d`, doubling up to `RETRY_MAX` (or
+    // pinned to `RATE_LIMIT_BACKOFF`), so a transient failure costs seconds
+    // rather than the full 12h cadence.
     let mut retry_in: Option<Duration> = None;
+    // Absolute next-attempt time. A deadline (not a duration) so that a nudge
+    // arriving mid-countdown can only ever move the attempt EARLIER — restarting
+    // a relative sleep would push it out instead.
     // First pass runs immediately → check once at startup.
-    let mut delay = Duration::ZERO;
+    let mut deadline = tokio::time::Instant::now();
 
     loop {
         tokio::select! {
@@ -162,21 +175,27 @@ async fn runner_loop(
                 break;
             }
             // An out-of-band issuance failed (the register-time provisioning
-            // task): schedule a retry at the backoff floor instead of sleeping
-            // out the remainder of a 12h tick. Deliberately NOT an immediate
-            // attempt — the caller's failure is seconds old, and an instant
-            // replay would lose the same race while spending CA rate limit.
+            // task): make sure a retry is scheduled soon. Deliberately NOT an
+            // immediate attempt (an instant replay would lose the same race
+            // the caller just lost, burning CA rate limit), never later than
+            // an already-pending retry (repeated nudges must not push the
+            // attempt out), and never earlier than an in-force backoff (the
+            // transient ladder caps below RATE_LIMIT_BACKOFF, so feeding the
+            // rate-limit hour through it would shrink the wait).
             () = nudge.0.notified() => {
-                let next = next_retry(retry_in);
-                retry_in = Some(next);
-                tracing::info!(
-                    retry_in_secs = next.as_secs(),
-                    "TLS renewal: nudged after an out-of-band failure, retrying in {}s",
-                    next.as_secs(),
-                );
-                delay = next;
+                let floor = retry_in.unwrap_or(RETRY_MIN);
+                let candidate = tokio::time::Instant::now() + floor;
+                if candidate < deadline {
+                    retry_in = Some(floor);
+                    tracing::info!(
+                        retry_in_secs = floor.as_secs(),
+                        "TLS renewal: nudged after an out-of-band failure, retrying in {}s",
+                        floor.as_secs(),
+                    );
+                    deadline = candidate;
+                }
             }
-            () = tokio::time::sleep(delay) => {
+            () = tokio::time::sleep_until(deadline) => {
                 // Fully inert while suspended — renewing a cert for a box with
                 // its premium surfaces disabled is pointless, and the ACME
                 // challenge would publish through the suspended wardnet provider.
@@ -185,14 +204,14 @@ async fn runner_loop(
                     tracing::debug!("TLS renewal: suspended, skipping");
                     // Suspension is not a failure: don't build up a retry backoff
                     // for it. The re-probe restores us on the normal cadence.
-                    delay = RENEWAL_INTERVAL;
+                    deadline = tokio::time::Instant::now() + RENEWAL_INTERVAL;
                     continue;
                 }
 
                 match ensure(tls.as_ref(), &admin_ctx).await {
                     None => {
                         retry_in = None;
-                        delay = RENEWAL_INTERVAL;
+                        deadline = tokio::time::Instant::now() + RENEWAL_INTERVAL;
                     }
                     Some(FailureClass::RateLimited) => {
                         // The CA is refusing work from us; hammering it on the
@@ -204,7 +223,7 @@ async fn runner_loop(
                             "TLS renewal: CA rate limit hit, backing off {}s",
                             RATE_LIMIT_BACKOFF.as_secs(),
                         );
-                        delay = RATE_LIMIT_BACKOFF;
+                        deadline = tokio::time::Instant::now() + RATE_LIMIT_BACKOFF;
                     }
                     Some(FailureClass::Transient) => {
                         let next = next_retry(retry_in);
@@ -214,7 +233,7 @@ async fn runner_loop(
                             "TLS renewal: retrying in {}s rather than waiting for the next cycle",
                             next.as_secs(),
                         );
-                        delay = next;
+                        deadline = tokio::time::Instant::now() + next;
                     }
                 }
             }
@@ -225,8 +244,9 @@ async fn runner_loop(
 /// Run one `ensure_certificate` under the admin context, logging the outcome.
 /// Never fatal — a failed ACME call must not take the daemon down.
 ///
-/// Returns `false` when the attempt failed and is worth retrying sooner than the
-/// next renewal cycle.
+/// Returns `None` on success (or a benign no-op), `Some(class)` when the
+/// attempt failed — the class picks the backoff (transient ladder vs the CA's
+/// rate-limit window).
 async fn ensure(tls: &dyn TlsService, admin_ctx: &AuthContext) -> Option<FailureClass> {
     match auth_context::with_context(admin_ctx.clone(), tls.ensure_certificate()).await {
         Ok(TlsStatus::NotConfigured) => {
