@@ -37,6 +37,33 @@ fn case_insensitive() {
 }
 
 #[test]
+fn trailing_dot_normalized_across_insert_get_and_invalidate() {
+    // The DNS server inserts under the wire-format FQDN ("foo.com.") while
+    // eviction callers pass the bare name ("foo.com"); both forms must hit
+    // the same entry or per-domain invalidation silently removes nothing.
+    let mut cache = DnsCache::new(100);
+    cache.insert(
+        DEFAULT,
+        "example.com.",
+        RecordType::A,
+        make_response(),
+        300,
+        0,
+        86400,
+    );
+    assert!(
+        cache.get(DEFAULT, "example.com", RecordType::A).is_some(),
+        "bare-name lookup must hit the FQDN-inserted entry"
+    );
+    assert_eq!(
+        cache.invalidate_domain("example.com"),
+        1,
+        "bare-name invalidation must evict the FQDN-inserted entry"
+    );
+    assert!(cache.is_empty());
+}
+
+#[test]
 fn zero_ttl_not_cached() {
     let mut cache = DnsCache::new(100);
     cache.insert(

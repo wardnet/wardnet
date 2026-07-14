@@ -209,6 +209,13 @@ fn emit_fake_dns_queries(
                 CDN[(seed >> 17) as usize % CDN.len()].to_owned(),
                 "forwarded",
             )
+        } else if bucket == 8 {
+            // Negative answers (NXDOMAIN / NODATA) — e.g. AAAA queries for
+            // IPv4-only names.
+            (
+                POPULAR[(seed >> 15) as usize % POPULAR.len()].to_owned(),
+                "negative",
+            )
         } else {
             (
                 POPULAR[(seed >> 19) as usize % POPULAR.len()].to_owned(),
@@ -221,7 +228,7 @@ fn emit_fake_dns_queries(
             "blocked" => 0.2 + ((seed >> 23) as f64 % 3.0) / 10.0,
             _ => 12.0 + ((seed >> 23) as f64 % 50.0),
         };
-        let upstream = if result == "forwarded" {
+        let upstream = if result == "forwarded" || result == "negative" {
             Some(UPSTREAMS[(seed >> 29) as usize % UPSTREAMS.len()].to_owned())
         } else {
             None

@@ -54,7 +54,7 @@ impl DnsCache {
         domain: &str,
         rtype: RecordType,
     ) -> Option<&Message> {
-        let key = (upstream, domain.to_lowercase(), rtype);
+        let key = (upstream, canonical_domain(domain), rtype);
 
         // Check if entry exists and is not expired.
         let expired = self.entries.get(&key).is_none_or(CachedEntry::is_expired);
@@ -100,7 +100,7 @@ impl DnsCache {
             self.evict_oldest();
         }
 
-        let key = (upstream, domain.to_lowercase(), rtype);
+        let key = (upstream, canonical_domain(domain), rtype);
         self.entries.insert(
             key,
             CachedEntry {
@@ -114,7 +114,7 @@ impl DnsCache {
     /// Remove all cache entries for `domain` across all upstream pools and
     /// record types. Returns the number of entries removed.
     pub fn invalidate_domain(&mut self, domain: &str) -> u64 {
-        let d = domain.trim_end_matches('.').to_ascii_lowercase();
+        let d = canonical_domain(domain);
         let before = self.entries.len() as u64;
         self.entries
             .retain(|(_, cached_domain, _), _| cached_domain != &d);
@@ -180,4 +180,11 @@ impl DnsCache {
             self.entries.remove(&oldest_key);
         }
     }
+}
+
+/// Canonical cache-key form of a domain: lowercase, no trailing dot. The
+/// server inserts wire-format FQDNs ("foo.com.") while eviction callers pass
+/// bare names ("foo.com"); both must map to the same key.
+fn canonical_domain(domain: &str) -> String {
+    domain.trim_end_matches('.').to_ascii_lowercase()
 }

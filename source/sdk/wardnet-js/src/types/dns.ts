@@ -131,6 +131,7 @@ export type DnsQueryResult =
   | "rewritten"
   | "recursive"
   | "upstream_error"
+  | "negative"
   | "authoritative"
   | "error";
 

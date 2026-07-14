@@ -347,6 +347,10 @@ pub enum DnsQueryResult {
     Recursive,
     /// Upstream resolver returned an error — resolver string `"upstream_error"`.
     UpstreamError,
+    /// Resolved successfully with a negative answer: the name (NXDOMAIN) or
+    /// the requested record type (NODATA) does not exist — resolver string
+    /// `"negative"`.
+    Negative,
     /// Answered directly from a local authoritative record — resolver string `"authoritative"`.
     Authoritative,
     /// Resolution failed (parse fallback for unrecognised strings).
@@ -366,6 +370,7 @@ impl DnsQueryResult {
             Self::Rewritten => "rewritten",
             Self::Recursive => "recursive",
             Self::UpstreamError => "upstream_error",
+            Self::Negative => "negative",
             Self::Authoritative => "authoritative",
             Self::Error => "error",
         }
@@ -386,6 +391,7 @@ impl DnsQueryResult {
             "rewritten" => Self::Rewritten,
             "recursive" => Self::Recursive,
             "upstream_error" => Self::UpstreamError,
+            "negative" => Self::Negative,
             "authoritative" => Self::Authoritative,
             other => {
                 tracing::warn!(

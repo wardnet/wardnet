@@ -659,6 +659,13 @@ fn generate_dns_query_log(client_ips: &[String], now: chrono::DateTime<Utc>) -> 
                     cdn[(seed >> 17) as usize % cdn.len()].to_owned(),
                     "forwarded",
                 )
+            } else if bucket_pick == 8 {
+                // 10 % negative answers (AAAA/HTTPS for names lacking the
+                // record type, or nonexistent hosts) — NXDOMAIN/NODATA.
+                (
+                    popular[(seed >> 15) as usize % popular.len()].to_owned(),
+                    "negative",
+                )
             } else {
                 // remainder — forwarded popular domains
                 (
@@ -674,7 +681,7 @@ fn generate_dns_query_log(client_ips: &[String], now: chrono::DateTime<Utc>) -> 
                 "blocked" => 0.2 + ((seed >> 23) as f64 % 3.0) / 10.0,
                 _ => 12.0 + ((seed >> 23) as f64 % 50.0),
             };
-            let upstream = if result == "forwarded" {
+            let upstream = if result == "forwarded" || result == "negative" {
                 Some(upstreams[(seed >> 29) as usize % upstreams.len()].to_owned())
             } else {
                 None

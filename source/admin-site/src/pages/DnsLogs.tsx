@@ -42,6 +42,9 @@ const RESULT_BADGE: Record<string, "ok" | "warn" | "down" | "info" | "ghost"> =
     // signals "would-have-blocked" without the alarming red.
     blocked_skipped: "ghost",
     upstream_error: "down",
+    // Successful resolution whose answer is "no such name / record type"
+    // (NXDOMAIN / NODATA) — informational, not an error.
+    negative: "info",
     forwarded: "ghost",
     cache_hit: "ghost",
     rewritten: "info",
@@ -51,6 +54,7 @@ const RESULT_BADGE: Record<string, "ok" | "warn" | "down" | "info" | "ghost"> =
 
 const RESULT_LABEL: Record<string, string> = {
   blocked_skipped: "blocked (skipped)",
+  negative: "negative (no record)",
 };
 
 function fmtTime(ts: string): string {
@@ -240,6 +244,7 @@ export default function DnsLogs() {
           <SelectItem value="blocked_skipped">Blocked (skipped)</SelectItem>
           <SelectItem value="cache_hit">Cache hit</SelectItem>
           <SelectItem value="rewritten">Rewritten</SelectItem>
+          <SelectItem value="negative">Negative (no record)</SelectItem>
           <SelectItem value="upstream_error">Upstream error</SelectItem>
         </SelectContent>
       </Select>

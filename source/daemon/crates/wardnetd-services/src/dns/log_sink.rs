@@ -235,6 +235,7 @@ fn normalize_outcome(result: &str) -> &'static str {
     match result {
         "blocked" | "blocked_skipped" => "blocked",
         "forwarded" => "forwarded",
+        "negative" => "negative",
         "cache_hit" | "cached" => "cached",
         "recursive" => "recursive",
         "rewritten" | "local" => "local",
