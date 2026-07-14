@@ -135,7 +135,13 @@ describe("ApiReference", () => {
     script.onerror?.(new Event("error"));
 
     expect(
-      await screen.findByText(/failed to load\. please refresh to try again/i),
+      // Default 1s findByText timeout flakes on loaded CI runners (the
+      // rejection → catch → setState → re-render chain lands just past it).
+      await screen.findByText(
+        /failed to load\. please refresh to try again/i,
+        undefined,
+        { timeout: 5_000 },
+      ),
     ).toBeInTheDocument();
   });
 
