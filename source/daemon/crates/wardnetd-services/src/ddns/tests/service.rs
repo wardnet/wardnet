@@ -1093,9 +1093,19 @@ fn resolution_settings(doh: &MockServer) -> DdnsSettings {
 /// Seed a configured wardnet identity with a known FQDN + last-published IP, for
 /// the resolution-check tests (which only read `status()` + query `DoH`).
 async fn seed_for_resolution(config: &MockSystemConfig, last_ip: &str) {
-    config.set(KEY_PROVIDER, PROVIDER_WARDNET).await.unwrap();
+    seed_for_resolution_with(config, last_ip, PROVIDER_WARDNET).await;
+}
+
+async fn seed_for_resolution_with(config: &MockSystemConfig, last_ip: &str, provider: &str) {
+    config.set(KEY_PROVIDER, provider).await.unwrap();
+    // Each provider reads its own fqdn key (see active_fqdn).
+    let fqdn_key = if provider == PROVIDER_CLOUDFLARE {
+        KEY_DOMAIN
+    } else {
+        KEY_SUBDOMAIN
+    };
     config
-        .set(KEY_SUBDOMAIN, "happy.my.wardnet.services")
+        .set(fqdn_key, "happy.my.wardnet.services")
         .await
         .unwrap();
     config.set(KEY_LAST_IP, last_ip).await.unwrap();
@@ -1134,10 +1144,37 @@ async fn resolution_check_reports_match() {
 }
 
 #[tokio::test]
-async fn resolution_check_reports_mismatch() {
-    let doh = doh_server(0, &["1.2.3.4"]).await;
+async fn wardnet_provider_resolving_to_the_ingress_is_a_match() {
+    // The tenant record is a CNAME at the region's Tunneller ingress
+    // (cloud ADR-0016): public DNS is EXPECTED to resolve to an address that
+    // is not this box's WAN IP. Comparing against last_public_ip reported
+    // Mismatch forever on a perfectly healthy setup.
+    let doh = doh_server(0, &["1.2.3.4"]).await; // ingress IP ≠ WAN 9.9.9.9
     let config = Arc::new(MockSystemConfig::default());
     seed_for_resolution(&config, "9.9.9.9").await;
+    let svc = DdnsServiceImpl::with_settings(
+        config,
+        Arc::new(MockSecretStore::default()),
+        resolution_settings(&doh),
+    );
+
+    let result = auth_context::with_context(admin_ctx(), svc.resolution_check())
+        .await
+        .unwrap();
+    assert_eq!(result.verdict, DdnsResolutionVerdict::Match);
+    assert_eq!(
+        result.expected_ip, None,
+        "there is no WAN-IP expectation to display for the wardnet provider"
+    );
+}
+
+#[tokio::test]
+async fn byod_cloudflare_still_compares_against_the_wan_ip() {
+    // BYOD keeps the old contract: the customer's own domain really is an A
+    // record of their WAN IP, so a divergent answer is a real mismatch.
+    let doh = doh_server(0, &["1.2.3.4"]).await;
+    let config = Arc::new(MockSystemConfig::default());
+    seed_for_resolution_with(&config, "9.9.9.9", PROVIDER_CLOUDFLARE).await;
     let svc = DdnsServiceImpl::with_settings(
         config,
         Arc::new(MockSecretStore::default()),

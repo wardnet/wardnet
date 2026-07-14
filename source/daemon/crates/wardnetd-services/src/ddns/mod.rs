@@ -975,6 +975,28 @@ impl DdnsService for DdnsServiceImpl {
             ))
         })?;
 
+        // The wardnet provider's tenant record is a CNAME at the region's
+        // Tunneller ingress (cloud ADR-0016): public DNS is EXPECTED to
+        // resolve to the ingress, never this box's WAN address, so comparing
+        // against `last_public_ip` would report `Mismatch` forever on a
+        // healthy setup. Resolving AT ALL is the health signal — it proves
+        // the tenant CNAME and the region's ingress record both exist. BYOD
+        // keeps the WAN-IP comparison: the customer's own domain really is an
+        // A record of their address.
+        if status.provider.as_deref() == Some(PROVIDER_WARDNET) {
+            let verdict = if resolved_ips.is_empty() {
+                DdnsResolutionVerdict::Pending
+            } else {
+                DdnsResolutionVerdict::Match
+            };
+            return Ok(DdnsResolutionCheckResponse {
+                verdict,
+                fqdn: Some(fqdn),
+                expected_ip: None,
+                resolved_ips: resolved_ips.iter().map(ToString::to_string).collect(),
+            });
+        }
+
         let expected = status
             .last_public_ip
             .as_deref()
