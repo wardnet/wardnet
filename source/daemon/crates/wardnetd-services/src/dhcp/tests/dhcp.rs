@@ -278,6 +278,15 @@ struct MockSystemConfigRepository {
 }
 
 impl MockSystemConfigRepository {
+    /// Seed a key before the service is built (the `SystemConfigRepository::set`
+    /// impl is async; harnesses are not).
+    fn preset(&self, key: &str, value: &str) {
+        self.data
+            .lock()
+            .unwrap()
+            .insert(key.to_owned(), value.to_owned());
+    }
+
     fn new() -> Self {
         let mut data = HashMap::new();
         data.insert("dhcp_enabled".to_owned(), "false".to_owned());
@@ -290,6 +299,9 @@ impl MockSystemConfigRepository {
         );
         data.insert("dhcp_lease_duration_secs".to_owned(), "86400".to_owned());
         data.insert("dhcp_router_ip".to_owned(), String::new());
+        // `dns_enabled` is deliberately absent: it decides what DHCP advertises
+        // as option 6, so any test whose assertions depend on it sets it at the
+        // call site rather than inheriting it invisibly from here.
         Self {
             data: Mutex::new(data),
         }
@@ -1027,6 +1039,10 @@ fn build_service_with_zone_deps() -> (
 ) {
     let dhcp = Arc::new(MockDhcpRepository::new());
     let system_config = Arc::new(MockSystemConfigRepository::new());
+    // A real Wardnet box runs its own DNS server, which is what makes DHCP
+    // advertise the Pi (the zone tests below assert exactly that). Stated here
+    // rather than buried in the mock's defaults.
+    system_config.preset("dns_enabled", "true");
     let events = Arc::new(MockEventPublisher::new());
     let devices = Arc::new(MockDeviceRepository::new());
     let zones = Arc::new(MockNetworkZoneRepository::new());
@@ -2466,4 +2482,103 @@ async fn preview_config_rejects_inverted_range() {
     )
     .await;
     assert!(matches!(result, Err(AppError::BadRequest(_))));
+}
+
+// -- Advertised DNS (option 6) ---------------------------------------------
+
+/// Build a service whose `dns_enabled` flag is set, leaving `dhcp_upstream_dns`
+/// at its seeded `["1.1.1.1","8.8.8.8"]`.
+fn build_service_with_wardnet_dns(enabled: bool) -> DhcpServiceImpl {
+    let system_config = Arc::new(MockSystemConfigRepository::new());
+    system_config.preset("dns_enabled", if enabled { "true" } else { "false" });
+    DhcpServiceImpl::new(
+        Arc::new(MockDhcpRepository::new()),
+        system_config,
+        Arc::new(MockEventPublisher::new()),
+        Arc::new(MockDeviceRepository::new()),
+        Arc::new(MockNetworkZoneRepository::new()),
+        "10.0.0.1".parse().unwrap(),
+    )
+}
+
+/// Regression guard: with the Wardnet DNS server on, DHCP must hand clients the
+/// Pi as their resolver — never the stored upstream list.
+///
+/// `dhcp_upstream_dns` is seeded `["1.1.1.1","8.8.8.8"]` by the initial
+/// migration and is what the *Pi's own* resolver forwards to. It was being
+/// advertised verbatim as option 6, so every DHCP client resolved via Cloudflare
+/// or Google and never asked the Pi at all — silently bypassing DNS filtering
+/// (ads, malware, parental controls) on a box whose entire job is to filter DNS.
+/// The admin UI meanwhile displayed "Wardnet DNS", because it documents exactly
+/// the behaviour this test pins: the daemon advertises its own IP "regardless of
+/// what's saved here". Only the daemon never did.
+#[tokio::test]
+async fn base_scope_advertises_the_pi_when_wardnet_dns_is_enabled() {
+    let svc = build_service_with_wardnet_dns(true);
+
+    let scope = auth_context::with_context(admin_ctx(), svc.scope_for_mac("aa:bb:cc:dd:ee:ff"))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        scope.dns,
+        vec![Ipv4Addr::new(10, 0, 0, 1)],
+        "DHCP must advertise the Pi as the client's DNS server while Wardnet DNS \
+         is enabled; advertising the upstream forwarders bypasses all filtering"
+    );
+}
+
+/// The stored upstream list is not dead config: with the Wardnet DNS server off,
+/// there is nothing on the Pi to resolve against, so clients must fall back to
+/// it or lose DNS entirely.
+#[tokio::test]
+async fn base_scope_falls_back_to_upstream_when_wardnet_dns_is_disabled() {
+    let svc = build_service_with_wardnet_dns(false);
+
+    let scope = auth_context::with_context(admin_ctx(), svc.scope_for_mac("aa:bb:cc:dd:ee:ff"))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        scope.dns,
+        vec![Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)],
+        "with Wardnet DNS off the client must still get a working resolver"
+    );
+}
+
+/// With Wardnet DNS off and the upstream list cleared, clients must still get a
+/// working resolver — never the Pi.
+///
+/// An empty `scope.dns` makes `build_response` fall back to advertising the Pi,
+/// but with the DNS server off nothing is listening on :53 there, so the whole
+/// LAN would lose name resolution. The config card only lets the admin edit
+/// (and clear) the upstream field while Wardnet DNS is off, which is precisely
+/// the state where clearing it would be fatal.
+#[tokio::test]
+async fn empty_upstream_with_wardnet_dns_off_never_advertises_the_pi() {
+    let system_config = Arc::new(MockSystemConfigRepository::new());
+    system_config.preset("dns_enabled", "false");
+    system_config.preset("dhcp_upstream_dns", "[]");
+    let svc = DhcpServiceImpl::new(
+        Arc::new(MockDhcpRepository::new()),
+        system_config,
+        Arc::new(MockEventPublisher::new()),
+        Arc::new(MockDeviceRepository::new()),
+        Arc::new(MockNetworkZoneRepository::new()),
+        "10.0.0.1".parse().unwrap(),
+    );
+
+    let scope = auth_context::with_context(admin_ctx(), svc.scope_for_mac("aa:bb:cc:dd:ee:ff"))
+        .await
+        .unwrap();
+
+    assert!(
+        !scope.dns.is_empty(),
+        "an empty DNS list makes the DHCP server advertise the Pi, which has no \
+         resolver running while Wardnet DNS is off — the LAN would lose DNS entirely"
+    );
+    assert!(
+        !scope.dns.contains(&Ipv4Addr::new(10, 0, 0, 1)),
+        "must not advertise the Pi as a resolver while its DNS server is off"
+    );
 }

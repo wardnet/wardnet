@@ -200,6 +200,7 @@ export {
   useToggleDns,
   useUpdateDnsConfig,
   useFlushDnsCache,
+  LEASE_RENEWAL_NOTE,
 } from "./hooks/useDns";
 
 export {

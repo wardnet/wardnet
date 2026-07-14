@@ -468,6 +468,58 @@ fn build_response_includes_router_and_dns() {
     assert!(has_server_id, "ServerIdentifier option missing");
 }
 
+/// Decode option 6 from an encoded response — helper for the wire-level
+/// DNS-advertisement guards below.
+fn decoded_dns_servers(response: &Message) -> Vec<Ipv4Addr> {
+    let mut buf = Vec::new();
+    let mut encoder = Encoder::new(&mut buf);
+    response.encode(&mut encoder).unwrap();
+    let decoded = Message::decode(&mut Decoder::new(&buf)).unwrap();
+    for (_code, opt) in decoded.opts().iter() {
+        if let DhcpOption::DomainNameServer(servers) = opt {
+            return servers.clone();
+        }
+    }
+    panic!("DomainNameServer option missing");
+}
+
+/// Wire-level guard for the scope→option-6 contract: whatever DNS list the
+/// resolved scope carries is exactly what clients receive. The
+/// advertise-wardnet-dns bug shipped because nothing asserted the rendered
+/// option, only the intermediate scope value.
+#[test]
+fn option6_carries_exactly_the_scope_dns_list() {
+    let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    let lease = test_lease();
+    let mut scope = test_scope();
+    scope.dns = vec![Ipv4Addr::new(192, 168, 1, 1)];
+
+    let response = crate::dhcp::server::build_response(&request, MessageType::Ack, &lease, &scope);
+    assert_eq!(
+        decoded_dns_servers(&response),
+        vec![Ipv4Addr::new(192, 168, 1, 1)],
+        "clients must receive exactly the scope's DNS list in option 6"
+    );
+}
+
+/// The empty-scope fallback advertises the Pi itself (the scope gateway) —
+/// pinned at the wire level so a regression can't hide behind the
+/// service-layer tests.
+#[test]
+fn option6_empty_scope_dns_falls_back_to_the_pi() {
+    let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    let lease = test_lease();
+    let mut scope = test_scope();
+    scope.dns = vec![];
+
+    let response = crate::dhcp::server::build_response(&request, MessageType::Ack, &lease, &scope);
+    assert_eq!(
+        decoded_dns_servers(&response),
+        vec![scope.gateway_ip],
+        "an empty scope DNS list must advertise the Pi, never nothing"
+    );
+}
+
 #[test]
 fn build_response_siaddr_is_wardnet_gateway_ip() {
     let request = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);

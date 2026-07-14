@@ -37,6 +37,12 @@ pub const QUERY_LOG_DEFAULT_LIMIT: u32 = 50;
 pub const QUERY_LOG_RETENTION_MIN_DAYS: u32 = 1;
 pub const QUERY_LOG_RETENTION_MAX_DAYS: u32 = 30;
 
+/// `system_config` key for the DNS server enable flag ("true"/"false",
+/// absent means off). Shared with the DHCP service, which advertises the Pi
+/// as the clients' resolver only while this is set — the two readers must
+/// never drift.
+pub(crate) const DNS_ENABLED_KEY: &str = "dns_enabled";
+
 #[async_trait]
 pub trait DnsService: Send + Sync {
     async fn get_config(&self) -> Result<DnsConfigResponse, AppError>;
@@ -96,7 +102,7 @@ impl DnsServiceImpl {
             async move { sc.get(&key).await.map_err(AppError::Internal) }
         };
 
-        let enabled = get("dns_enabled")
+        let enabled = get(DNS_ENABLED_KEY)
             .await?
             .unwrap_or_else(|| "false".to_owned())
             == "true";
@@ -411,7 +417,7 @@ impl DnsService for DnsServiceImpl {
     async fn toggle(&self, req: ToggleDnsRequest) -> Result<DnsConfigResponse, AppError> {
         auth_context::require_admin()?;
         self.system_config
-            .set("dns_enabled", if req.enabled { "true" } else { "false" })
+            .set(DNS_ENABLED_KEY, if req.enabled { "true" } else { "false" })
             .await
             .map_err(AppError::Internal)?;
         self.publish_config_changed();

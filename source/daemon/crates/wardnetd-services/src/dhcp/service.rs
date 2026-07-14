@@ -14,14 +14,23 @@ use wardnet_common::api::{
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus, DhcpScope};
 
 use crate::auth_context;
+use crate::dns::service::DNS_ENABLED_KEY;
 use crate::error::AppError;
 use crate::event::EventPublisher;
 use wardnet_common::event::WardnetEvent;
+
 use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_data::repository::{
     DeviceRepository, DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow,
     NetworkZoneRepository,
 };
+
+/// Public resolvers used when the Wardnet DNS server is off and the admin has
+/// configured no upstream of their own. These are what the Pi's own resolver
+/// forwards to; they are only ever handed to *clients* when there is no Wardnet
+/// resolver for them to use. Never advertise the Pi in that state — nothing is
+/// listening on :53 and the LAN would lose name resolution entirely.
+const DEFAULT_UPSTREAM_DNS: [Ipv4Addr; 2] = [Ipv4Addr::new(1, 1, 1, 1), Ipv4Addr::new(8, 8, 8, 8)];
 
 /// DHCP lease and reservation management.
 ///
@@ -200,7 +209,13 @@ impl DhcpServiceImpl {
             .get("dhcp_upstream_dns")
             .await
             .map_err(AppError::Internal)?
-            .unwrap_or_else(|| r#"["1.1.1.1","8.8.8.8"]"#.to_owned());
+            .unwrap_or_else(|| {
+                // Key absent (pre-seed install): same default the migration
+                // seeds and `advertised_dns` falls back to — one source of
+                // truth for the default resolver set.
+                serde_json::to_string(&DEFAULT_UPSTREAM_DNS.map(|ip| ip.to_string()))
+                    .expect("serialize default upstream DNS")
+            });
         let upstream_dns: Vec<Ipv4Addr> = serde_json::from_str::<Vec<String>>(&upstream_dns_json)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid upstream_dns: {e}")))?
             .iter()
@@ -281,6 +296,66 @@ impl DhcpServiceImpl {
         }
     }
 
+    /// Is the Wardnet DNS server switched on? Read straight from `system_config`
+    /// rather than plumbed through `DnsService`, to avoid a service-to-service
+    /// dependency on the DHCP lease path. Uses the shared [`DNS_ENABLED_KEY`]
+    /// so this reader cannot drift from `DnsService::load_config`/`toggle`.
+    /// Defaults to off when the key is absent, matching `DnsService`.
+    async fn wardnet_dns_enabled(&self) -> Result<bool, AppError> {
+        Ok(self
+            .system_config
+            .get(DNS_ENABLED_KEY)
+            .await
+            .map_err(AppError::Internal)?
+            .unwrap_or_else(|| "false".to_owned())
+            == "true")
+    }
+
+    /// The DNS servers advertised to clients in DHCP option 6.
+    ///
+    /// While the Wardnet DNS server is running, that is **always** the Pi — its
+    /// address in whatever scope the client is leasing from. `dhcp_upstream_dns`
+    /// is what the Pi's *own* resolver forwards to (seeded `1.1.1.1`/`8.8.8.8`);
+    /// handing it to clients tells them to resolve via Cloudflare or Google
+    /// directly, so they never ask the Pi and every blocklist, allowlist and
+    /// parental control is silently bypassed. The DHCP config card already
+    /// documents this contract to the admin — "the daemon will advertise
+    /// Wardnet's own IP to clients regardless of what's saved here" — and shows
+    /// "Wardnet DNS" in the read view; the daemon simply never honoured it.
+    ///
+    /// The stored list is not dead config: with the DNS server switched off
+    /// there is nothing on the Pi to answer queries, so clients need a real
+    /// resolver or they lose DNS entirely.
+    ///
+    /// Never returns an empty list. An empty `scope.dns` makes the DHCP server
+    /// fall back to advertising the Pi — which, with the DNS server off, is a
+    /// host with nothing listening on :53, so the whole LAN would lose name
+    /// resolution. The stored list *can* be empty: the config card only exposes
+    /// the field for editing while Wardnet DNS is off, which is exactly the
+    /// state in which clearing it would be fatal.
+    fn advertised_dns(
+        wardnet_dns_enabled: bool,
+        scope_gateway: Ipv4Addr,
+        upstream: &[Ipv4Addr],
+    ) -> Vec<Ipv4Addr> {
+        if wardnet_dns_enabled {
+            return vec![scope_gateway];
+        }
+        if upstream.is_empty() {
+            // resolve_scope runs on every DHCP message; warn once, not once
+            // per packet, or a lease storm floods the log with duplicates.
+            static EMPTY_UPSTREAM_WARN: std::sync::Once = std::sync::Once::new();
+            EMPTY_UPSTREAM_WARN.call_once(|| {
+                tracing::warn!(
+                    "Wardnet DNS is disabled and no upstream DNS is configured; advertising \
+                     {DEFAULT_UPSTREAM_DNS:?} to DHCP clients so they keep working name resolution"
+                );
+            });
+            return DEFAULT_UPSTREAM_DNS.to_vec();
+        }
+        upstream.to_vec()
+    }
+
     /// Resolve the effective DHCP scope for a MAC (issue #737).
     ///
     /// The scope determines which subnet a device leases from and which options
@@ -292,13 +367,15 @@ impl DhcpServiceImpl {
     /// Zone lookup never fails a lease: any repository error, missing zone, or
     /// unparseable/too-small subnet degrades to the base scope with a log line.
     async fn resolve_scope(&self, mac: &str) -> Result<DhcpScope, AppError> {
-        let base = self.load_config().await?;
+        // Independent reads — overlap them rather than paying a second serial
+        // round-trip to `system_config` on every lease.
+        let (base, wardnet_dns) = tokio::try_join!(self.load_config(), self.wardnet_dns_enabled())?;
         let base_scope = DhcpScope {
             gateway_ip: base.gateway_ip,
             pool_start: base.pool_start,
             pool_end: base.pool_end,
             subnet_mask: base.subnet_mask,
-            dns: base.upstream_dns.clone(),
+            dns: Self::advertised_dns(wardnet_dns, base.gateway_ip, &base.upstream_dns),
             lease_duration_secs: base.lease_duration_secs,
             router_ip: base.router_ip,
             member_isolation: false,
@@ -343,8 +420,15 @@ impl DhcpServiceImpl {
             pool_end,
             subnet_mask,
             // The Pi's alias in this subnet, so per-zone DNS filtering still
-            // reaches the Pi.
-            dns: vec![gateway],
+            // reaches the Pi. With the DNS server off there is nothing there to
+            // answer, so fall back to the upstream list like the base scope.
+            //
+            // Known limit: a WAN-forbidden zone's egress gate drops direct
+            // client→public-resolver :53 traffic (only DNS *to the Pi* is
+            // exempted), so with Wardnet DNS off such zones still have no
+            // working resolver — same as before this change, when they were
+            // handed the dead Pi alias. Tracked in #898.
+            dns: Self::advertised_dns(wardnet_dns, gateway, &base.upstream_dns),
             lease_duration_secs: base.lease_duration_secs,
             // The gateway alias is the only router for a zone subnet.
             router_ip: None,

@@ -11,6 +11,7 @@ import { FormActions } from "@wardnet/web";
 import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Text } from "@wardnet/web";
+import { LEASE_RENEWAL_NOTE } from "@wardnet/web";
 import { Ipv4Input } from "@wardnet/web";
 import { isPrivateIpv4 } from "@wardnet/web";
 import { isCompleteIpv4, ipv4ToInt } from "@wardnet/js";
@@ -53,7 +54,11 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
   const updateConfig = useUpdateDhcpConfig();
   const previewConfig = usePreviewDhcpConfig();
   const { data: dnsConfigData } = useDnsConfig();
-  const dnsEnabled = dnsConfigData?.config.enabled ?? false;
+  // Tri-state on purpose: `undefined` means the DNS query hasn't resolved
+  // (loading or errored). Falling back to `false` here would show the raw
+  // upstream list as the effective client DNS while the daemon is actually
+  // advertising the Pi — the exact misread this card exists to prevent.
+  const dnsEnabled: boolean | undefined = dnsConfigData?.config.enabled;
 
   const [editing, setEditing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -250,7 +255,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
               </Field>
             </div>
 
-            {!dnsEnabled && (
+            {dnsEnabled === false && (
               <Field
                 label="Upstream DNS (comma-separated)"
                 htmlFor="dhcp-dns"
@@ -356,10 +361,26 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
             <div>
               <dt className="text-ink-3">Upstream DNS</dt>
               <dd className={dnsEnabled ? "font-medium" : "font-mono text-xs"}>
-                {dnsEnabled
-                  ? "Wardnet DNS"
-                  : config.upstream_dns.join(", ") || "-"}
+                {dnsEnabled === undefined
+                  ? "…"
+                  : dnsEnabled
+                    ? "Wardnet DNS"
+                    : config.upstream_dns.join(", ") || "-"}
               </dd>
+              {/* "Wardnet DNS" is what NEW leases get. DHCP cannot push it to a
+                  device that already holds a lease, and a device resolving via
+                  its old server is silently unfiltered — so don't let this read
+                  as "every device is using Wardnet DNS right now". */}
+              {dnsEnabled && (
+                <Text
+                  as="p"
+                  size="xs"
+                  className="mt-1 text-ink-3"
+                  data-testid="dhcp-dns-lease-note"
+                >
+                  {LEASE_RENEWAL_NOTE}
+                </Text>
+              )}
             </div>
           </dl>
         </CardContent>
