@@ -20,6 +20,9 @@ import { expect, test } from "@playwright/test";
  */
 test.describe("admin-site visual", { tag: "@visual" }, () => {
   test("dashboard", async ({ page }) => {
+    // The settle-wait below can outlast the suite-wide 60s test timeout now
+    // that an issuance attempt sleeps through DNS propagation (see below).
+    test.setTimeout(180_000);
     await page.goto("./");
     await expect(page.getByTestId("page-title")).toHaveText("Dashboard");
     // Gate on the last-loading tiles so the grid is fully populated before
@@ -41,11 +44,17 @@ test.describe("admin-site visual", { tag: "@visual" }, () => {
     // Scoped to the banner itself — the same "certificate issuance failed"
     // text also streams into the recent-errors card and the live log widget
     // below, which a page-wide getByText would also match.
+    //
+    // Generous timeout: every issuance attempt now sleeps through a fixed
+    // 15s DNS-propagation window before polling the CA (tls/acme.rs
+    // CHALLENGE_PROPAGATION_WAIT), so the first failure lands tens of
+    // seconds in, not instantly. Once it does, the retry backoff keeps the
+    // banner in "failed" for ≥30s — plenty for the shot right below.
     await expect(
       page
         .getByTestId("dashboard-remote-access-banner")
         .getByText("Certificate issuance failed"),
-    ).toBeVisible();
+    ).toBeVisible({ timeout: 120_000 });
 
     await expect(page).toHaveScreenshot("dashboard.png", {
       // Live / time-varying values. stat-devices and stat-tunnels are
