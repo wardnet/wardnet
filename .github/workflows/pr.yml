@@ -154,8 +154,13 @@ jobs:
     # PR doesn't spin up the 30-min daemon coverage (and vice versa).
     with:
       run-daemon: ${{ needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true' }}
-      run-site: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true' }}
-      run-frontend: ${{ needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
+      # site + frontend LCOVs merge into ONE "typescript" pool in bulwark's
+      # coverage gate, and the baseline is recorded from full main runs. If
+      # only one of the two jobs runs on a PR, the partial pool is compared
+      # against the full-pool baseline and fails as a phantom regression —
+      # so any TypeScript-area change must run BOTH coverage jobs.
+      run-site: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
+      run-frontend: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
     secrets: inherit
 
   tests-e2e:
