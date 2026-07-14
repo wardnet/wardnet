@@ -38,6 +38,10 @@ test.describe("manifest + installability", () => {
     // standalone display, and the 192/512 icons Chrome requires to offer
     // installation.
     expect(manifest.name).toBeTruthy();
+    // Explicit app identity: without `id`, identity falls back to start_url
+    // and the browser treats any same-origin PWA inside this root scope
+    // (the admin-app at /admin-app/) as THIS app, blocking its install.
+    expect(manifest.id).toBe("/");
     expect(manifest.start_url).toBe("/");
     expect(manifest.scope).toBe("/");
     expect(manifest.display).toBe("standalone");
