@@ -131,6 +131,7 @@ fn dns_query_result_round_trip() {
         DnsQueryResult::Rewritten,
         DnsQueryResult::Recursive,
         DnsQueryResult::UpstreamError,
+        DnsQueryResult::Negative,
         DnsQueryResult::Error,
     ] {
         let json = serde_json::to_string(&result).unwrap();

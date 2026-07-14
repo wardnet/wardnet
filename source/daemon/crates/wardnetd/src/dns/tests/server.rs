@@ -34,8 +34,8 @@ use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 use crate::dns::server::{
     LATENCY_PROBE_INTERVAL, TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver,
     duration_to_ms, effective_upstreams, fold_probe_outcomes, forwarder_ordering,
-    get_or_build_tunnel_forwarder, probe_upstreams, resolve_via_recursor, spawn_cache_invalidator,
-    spawn_upstream_latency_prober, upstream_label,
+    get_or_build_tunnel_forwarder, handle_recursor_outcome, probe_upstreams, resolve_via_recursor,
+    spawn_cache_invalidator, spawn_upstream_latency_prober, upstream_label,
 };
 use crate::tests::stubs::StubDnsFilterService;
 
@@ -2158,18 +2158,23 @@ impl DnsSocket for RecordingSocket {
     }
 }
 
-/// Parse the foo.com A request (id=0xCAFE) used by the recursor tests from the
-/// same wire bytes as `query_foo_com`, so the request carries exactly one
-/// question.
-fn foo_com_request() -> hickory_proto::op::Message {
+/// Build the foo.com request (id=0xCAFE, exactly one question) for the given
+/// record type, from the same wire template as `query_foo_com`.
+fn foo_com_request_of(rtype: RecordType) -> hickory_proto::op::Message {
     use hickory_proto::op::Message;
     use hickory_proto::serialize::binary::BinDecodable;
 
-    let query: &[u8] = &[
+    let mut query = [
         0xCA, 0xFE, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, b'f', b'o',
         b'o', 0x03, b'c', b'o', b'm', 0x00, 0x00, 0x01, 0x00, 0x01,
     ];
-    Message::from_bytes(query).expect("parse foo.com request")
+    query[21..23].copy_from_slice(&u16::from(rtype).to_be_bytes());
+    Message::from_bytes(&query).expect("parse foo.com request")
+}
+
+/// The foo.com A request used by the recursor tests.
+fn foo_com_request() -> hickory_proto::op::Message {
+    foo_com_request_of(RecordType::A)
 }
 
 #[test]
@@ -2294,6 +2299,219 @@ async fn recursor_unavailable_servfails_when_no_upstreams() {
         "pure recursive with no upstreams must SERVFAIL, never forward to a default"
     );
     assert!(response.answers.is_empty(), "SERVFAIL carries no answers");
+}
+
+/// Build a `RecursorError::Negative` like the recursor returns for negative
+/// answers (NODATA / NXDOMAIN), carrying the zone's SOA. The SOA record TTL
+/// is fixed at 300 while MINIMUM is caller-chosen, so tests can assert the
+/// RFC 2308 negative TTL — min(TTL, MINIMUM) — is stamped on the relayed SOA.
+fn negative_recursor_error(
+    nx_domain: bool,
+    soa_minimum: u32,
+) -> hickory_resolver::recursor::RecursorError {
+    use hickory_proto::op::Query;
+    use hickory_proto::rr::rdata::SOA;
+    use hickory_proto::rr::{Name, Record};
+    use hickory_resolver::recursor::{AuthorityData, RecursorError};
+
+    let name = Name::from_str_relaxed("foo.com.").expect("query name");
+    let query = Box::new(Query::query(name, RecordType::A));
+    let soa = Record::from_rdata(
+        Name::from_str_relaxed("com.").expect("soa name"),
+        300,
+        SOA::new(
+            Name::from_str_relaxed("ns.com.").expect("mname"),
+            Name::from_str_relaxed("hostmaster.com.").expect("rname"),
+            1,
+            3600,
+            600,
+            86400,
+            soa_minimum,
+        ),
+    );
+    RecursorError::Negative(AuthorityData::new(
+        query,
+        Some(Box::new(soa)),
+        true,
+        nx_domain,
+        None,
+    ))
+}
+
+/// Shared driver for the negative-answer tests: run `handle_recursor_outcome`
+/// with the given recursor outcome and request against a stub upstream that
+/// WOULD answer the foo.com A query, so any wrongful fallback shows up as
+/// answers. Returns the parsed response plus the cache so tests can assert
+/// negative caching. An outcome of `None` exercises the recursor-unavailable
+/// fallback-to-forwarder branch.
+async fn run_recursor_outcome(
+    outcome: Option<Result<hickory_proto::op::Message, hickory_resolver::recursor::RecursorError>>,
+    request: hickory_proto::op::Message,
+    rtype: RecordType,
+    config_tweak: fn(&mut DnsConfig),
+) -> (hickory_proto::op::Message, Arc<RwLock<DnsCache>>) {
+    use hickory_proto::op::Message;
+    use hickory_proto::serialize::binary::BinDecodable;
+
+    let upstream_addr = spawn_stub_upstream().await;
+    let upstreams = vec![udp_upstream(upstream_addr)];
+    let resolver = Arc::new(RwLock::new(build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    )));
+    let mut cfg = DnsConfig {
+        resolution_mode: DnsResolutionMode::Recursive,
+        upstream_servers: upstreams,
+        ..DnsConfig::default()
+    };
+    config_tweak(&mut cfg);
+    let config = Arc::new(RwLock::new(cfg));
+    let cache = Arc::new(RwLock::new(DnsCache::new(1000)));
+    let sent = Arc::new(StdMutex::new(Vec::new()));
+    let socket: Arc<dyn DnsSocket> = Arc::new(RecordingSocket { sent: sent.clone() });
+    let src: SocketAddr = SocketAddr::from(([127, 0, 0, 1], 5353));
+
+    handle_recursor_outcome(
+        outcome,
+        &resolver,
+        &socket,
+        &config,
+        &cache,
+        None,
+        request,
+        0xCAFE,
+        src,
+        "foo.com",
+        rtype,
+        std::time::Instant::now(),
+        "forwarded",
+        UpstreamId::Default,
+    )
+    .await
+    .expect("handle_recursor_outcome");
+
+    let frames = sent.lock().unwrap().clone();
+    assert_eq!(frames.len(), 1, "exactly one response sent");
+    let response = Message::from_bytes(&frames[0]).expect("parse response");
+    (response, cache)
+}
+
+/// Negative recursor outcome (SOA MINIMUM 60) against the foo.com A query.
+async fn run_negative_outcome(
+    nx_domain: bool,
+) -> (hickory_proto::op::Message, Arc<RwLock<DnsCache>>) {
+    run_recursor_outcome(
+        Some(Err(negative_recursor_error(nx_domain, 60))),
+        foo_com_request(),
+        RecordType::A,
+        |_| {},
+    )
+    .await
+}
+
+#[tokio::test]
+async fn recursor_nodata_relays_noerror_not_servfail() {
+    use hickory_proto::op::ResponseCode;
+
+    // A NODATA outcome from the recursor is a valid answer ("name exists,
+    // no records of this type") — e.g. AAAA for an IPv4-only domain or an
+    // HTTPS record most domains lack. The client must see NOERROR with zero
+    // answers, not SERVFAIL, and the server must NOT fall back to the
+    // forwarder (the stub upstream would answer the A query with a record).
+    let (response, cache) = run_negative_outcome(false).await;
+    assert_eq!(
+        response.metadata.response_code,
+        ResponseCode::NoError,
+        "NODATA must relay NOERROR, not SERVFAIL or a fallback answer"
+    );
+    assert!(response.answers.is_empty(), "NODATA carries no answers");
+    assert!(
+        !response.authorities.is_empty(),
+        "negative response must carry the SOA for negative caching"
+    );
+    assert_eq!(
+        response.authorities[0].ttl, 60,
+        "relayed SOA must carry the RFC 2308 negative TTL: min(SOA TTL 300, MINIMUM 60)"
+    );
+    assert!(
+        cache
+            .write()
+            .await
+            .get(UpstreamId::Default, "foo.com", RecordType::A)
+            .is_some(),
+        "negative response must be cached so repeats don't re-resolve"
+    );
+}
+
+#[tokio::test]
+async fn recursor_nxdomain_relays_nxdomain_not_servfail() {
+    use hickory_proto::op::ResponseCode;
+
+    let (response, _cache) = run_negative_outcome(true).await;
+    assert_eq!(
+        response.metadata.response_code,
+        ResponseCode::NXDomain,
+        "NXDOMAIN must relay NXDOMAIN, not SERVFAIL or a fallback answer"
+    );
+    assert!(response.answers.is_empty(), "NXDOMAIN carries no answers");
+    assert!(
+        !response.authorities.is_empty(),
+        "NXDOMAIN must carry the SOA for negative caching too"
+    );
+}
+
+#[tokio::test]
+async fn recursor_negative_with_zero_minimum_is_not_cached_or_raised() {
+    use hickory_proto::op::ResponseCode;
+
+    // SOA MINIMUM = 0 means the zone forbids negative caching (e.g. ACME
+    // DNS-01 zones that publish records seconds after the first query).
+    // Even with an admin cache floor configured, the negative must NOT be
+    // raised to the floor, cached, or relayed with a non-zero SOA TTL.
+    let (response, cache) = run_recursor_outcome(
+        Some(Err(negative_recursor_error(false, 0))),
+        foo_com_request(),
+        RecordType::A,
+        |cfg| cfg.cache_ttl_min_secs = 300,
+    )
+    .await;
+    assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+    assert_eq!(
+        response.authorities[0].ttl, 0,
+        "a zone-forbidden negative TTL must not be raised to the cache floor"
+    );
+    assert!(
+        cache
+            .write()
+            .await
+            .get(UpstreamId::Default, "foo.com", RecordType::A)
+            .is_none(),
+        "a zone-forbidden negative must not be cached"
+    );
+}
+
+#[tokio::test]
+async fn fallback_forwarder_nodata_relays_noerror_not_servfail() {
+    use hickory_proto::op::ResponseCode;
+
+    // Recursor unavailable (outcome None) → fallback forwards to the stub
+    // upstream, which returns NOERROR with zero answers for AAAA queries.
+    // That negative answer must reach the client as NOERROR/NODATA, not
+    // SERVFAIL.
+    let (response, _cache) = run_recursor_outcome(
+        None,
+        foo_com_request_of(RecordType::AAAA),
+        RecordType::AAAA,
+        |_| {},
+    )
+    .await;
+    assert_eq!(
+        response.metadata.response_code,
+        ResponseCode::NoError,
+        "forwarder NODATA must relay NOERROR, not SERVFAIL"
+    );
+    assert!(response.answers.is_empty(), "NODATA carries no answers");
 }
 
 #[tokio::test]

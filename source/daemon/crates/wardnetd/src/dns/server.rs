@@ -15,7 +15,9 @@ use hickory_resolver::config::{
 };
 use hickory_resolver::lookup::Lookup;
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
-use hickory_resolver::recursor::{DnssecConfig, DnssecPolicy, Recursor, RecursorOptions};
+use hickory_resolver::recursor::{
+    DnssecConfig, DnssecPolicy, Recursor, RecursorError, RecursorOptions,
+};
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, RwLock, broadcast};
 use tokio::task::JoinHandle;
@@ -24,8 +26,8 @@ use tokio_util::task::TaskTracker;
 use tracing::Instrument;
 use uuid::Uuid;
 use wardnet_common::dns::{
-    DnsConfig, DnsProtocol, DnsRecordType, DnsResolutionMode, FilterAction, ForwarderSelectionMode,
-    UpstreamDns, UpstreamId, UpstreamLatency,
+    DnsConfig, DnsProtocol, DnsQueryResult, DnsRecordType, DnsResolutionMode, FilterAction,
+    ForwarderSelectionMode, UpstreamDns, UpstreamId, UpstreamLatency,
 };
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::QueryLogRow;
@@ -878,9 +880,9 @@ async fn handle_query(
 
     // 3. Forward to upstream — conditional forwarding overrides upstream_id.
     let pass_result = if outcome.would_have_blocked {
-        "blocked_skipped"
+        DnsQueryResult::BlockedSkipped.as_str()
     } else {
-        "forwarded"
+        DnsQueryResult::Forwarded.as_str()
     };
 
     if let Some(cond_upstream) = conditional_upstream {
@@ -1070,6 +1072,31 @@ async fn forward_via_default_resolver(
             )
             .await?;
         }
+        // The upstream answered "no such record / no such name" — a valid
+        // negative resolution, not an upstream failure. Relay it as
+        // NODATA/NXDOMAIN rather than SERVFAIL.
+        Err(e) if e.is_no_records_found() || e.is_nx_domain() => {
+            let nx_domain = e.is_nx_domain();
+            relay_negative(
+                socket,
+                cache,
+                log_sink,
+                &request,
+                id,
+                src,
+                domain,
+                rtype,
+                start,
+                pass_result,
+                upstream_id,
+                upstream,
+                nx_domain,
+                e.into_soa(),
+                cfg.cache_ttl_min_secs,
+                cfg.cache_ttl_max_secs,
+            )
+            .await?;
+        }
         Err(e) => {
             send_servfail(socket, src, id, &request).await?;
             let elapsed = start.elapsed();
@@ -1126,12 +1153,7 @@ async fn send_resolved(
     {
         // Empty NOERROR (NODATA), not NXDOMAIN: the name exists, we just
         // refuse the private answer.
-        let mut response = Message::response(id, OpCode::Query);
-        response.metadata.recursion_desired = true;
-        response.metadata.recursion_available = true;
-        response.add_queries(request.queries.clone());
-        let bytes = response.to_bytes()?;
-        socket.send_to(&bytes, src).await?;
+        send_negative(socket, src, id, request, false, None).await?;
         record_query(
             log_sink,
             domain,
@@ -1213,16 +1235,7 @@ pub(crate) async fn resolve_via_recursor(
         return Ok(());
     };
 
-    let (dnssec_ok, has_upstreams, rebinding, ttl_min, ttl_max) = {
-        let cfg = config.read().await;
-        (
-            cfg.dnssec_enabled,
-            !cfg.upstream_servers.is_empty(),
-            cfg.rebinding_protection,
-            cfg.cache_ttl_min_secs,
-            cfg.cache_ttl_max_secs,
-        )
-    };
+    let dnssec_ok = config.read().await.dnssec_enabled;
 
     let recursor_result = {
         let guard = recursor.read().await;
@@ -1233,6 +1246,56 @@ pub(crate) async fn resolve_via_recursor(
             ),
             None => None,
         }
+    };
+
+    handle_recursor_outcome(
+        recursor_result,
+        resolver,
+        socket,
+        config,
+        cache,
+        log_sink,
+        request,
+        id,
+        src,
+        domain,
+        rtype,
+        start,
+        pass_result,
+        upstream_id,
+    )
+    .await
+}
+
+/// React to the recursor's outcome: relay a resolved answer, fall back to
+/// forwarding on genuine failure, or SERVFAIL when neither is possible.
+/// Split from `resolve_via_recursor` so tests can inject outcomes (the
+/// recursor itself always walks from the real root servers).
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_recursor_outcome(
+    recursor_result: Option<Result<Message, RecursorError>>,
+    resolver: &Arc<RwLock<TokioResolver>>,
+    socket: &Arc<dyn DnsSocket>,
+    config: &Arc<RwLock<DnsConfig>>,
+    cache: &Arc<RwLock<DnsCache>>,
+    log_sink: Option<&DnsLogSink>,
+    request: Message,
+    id: u16,
+    src: SocketAddr,
+    domain: &str,
+    rtype: hickory_proto::rr::RecordType,
+    start: std::time::Instant,
+    pass_result: &str,
+    upstream_id: UpstreamId,
+) -> anyhow::Result<()> {
+    let (has_upstreams, rebinding, ttl_min, ttl_max) = {
+        let cfg = config.read().await;
+        (
+            !cfg.upstream_servers.is_empty(),
+            cfg.rebinding_protection,
+            cfg.cache_ttl_min_secs,
+            cfg.cache_ttl_max_secs,
+        )
     };
 
     match recursor_result {
@@ -1254,6 +1317,32 @@ pub(crate) async fn resolve_via_recursor(
                 ttl_min,
                 ttl_max,
                 &msg.answers,
+            )
+            .await?;
+        }
+        // A negative answer (NODATA / NXDOMAIN) is a valid resolution, not a
+        // failure: relay it instead of falling back to the forwarder, which
+        // would re-ask a question the authority already answered — and, when
+        // the forwarder agreed the record doesn't exist, SERVFAIL the client.
+        Some(Err(e)) if e.is_no_records_found() || e.is_nx_domain() => {
+            let nx_domain = e.is_nx_domain();
+            relay_negative(
+                socket,
+                cache,
+                log_sink,
+                &request,
+                id,
+                src,
+                domain,
+                rtype,
+                start,
+                pass_result,
+                upstream_id,
+                Some("recursive".to_owned()),
+                nx_domain,
+                e.into_soa(),
+                ttl_min,
+                ttl_max,
             )
             .await?;
         }
@@ -1345,12 +1434,11 @@ async fn forward_via_tunnel(
     // raw bytes through and skip caching.
     socket.send_to(&buf, src).await?;
 
+    let mut result = pass_result;
     if let Ok(parsed) = Message::from_bytes(&buf) {
-        let mut min_ttl = u32::MAX;
-        for record in &parsed.answers {
-            min_ttl = min_ttl.min(record.ttl);
-        }
-        if min_ttl < u32::MAX && min_ttl > 0 {
+        let (is_negative, raw_ttl) = classify_response(&parsed);
+        result = relayed_result(is_negative, pass_result);
+        if raw_ttl > 0 {
             let cfg = config.read().await;
             let mut cache_guard = cache.write().await;
             cache_guard.insert(
@@ -1358,7 +1446,7 @@ async fn forward_via_tunnel(
                 domain,
                 rtype,
                 parsed,
-                min_ttl,
+                raw_ttl,
                 cfg.cache_ttl_min_secs,
                 cfg.cache_ttl_max_secs,
             );
@@ -1380,9 +1468,156 @@ async fn forward_via_tunnel(
         domain,
         rtype,
         src,
-        pass_result,
+        result,
         Some(forwarder.upstream.ip().to_string()),
         elapsed,
+    );
+    Ok(())
+}
+
+/// Classify a parsed upstream response for caching: positive answers use the
+/// answers' minimum TTL; negative answers (NXDOMAIN, or NOERROR with zero
+/// answers) use the RFC 2308 negative TTL — min(SOA record TTL, SOA MINIMUM)
+/// from the authority section, or 0 (uncacheable) when the zone forbids
+/// negative caching or carries no SOA. Returns `(is_negative, raw_ttl)`.
+fn classify_response(parsed: &Message) -> (bool, u32) {
+    use hickory_proto::rr::RData;
+
+    let negative = parsed.metadata.response_code == ResponseCode::NXDomain
+        || (parsed.metadata.response_code == ResponseCode::NoError && parsed.answers.is_empty());
+    if negative {
+        let ttl = parsed
+            .authorities
+            .iter()
+            .find_map(|r| match &r.data {
+                RData::SOA(soa) => Some(r.ttl.min(soa.minimum)),
+                _ => None,
+            })
+            .unwrap_or(0);
+        return (true, ttl);
+    }
+    let min_ttl = parsed.answers.iter().map(|r| r.ttl).min().unwrap_or(0);
+    (false, min_ttl)
+}
+
+/// The query-log result for a relayed upstream response: negative answers
+/// log as `"negative"`, except that the filter dry-run marker
+/// (`blocked_skipped`) outranks it for blocklist evaluation.
+fn relayed_result(is_negative: bool, pass_result: &str) -> &str {
+    if is_negative && pass_result != DnsQueryResult::BlockedSkipped.as_str() {
+        DnsQueryResult::Negative.as_str()
+    } else {
+        pass_result
+    }
+}
+
+/// Send a negative response — NODATA (empty NOERROR) or NXDOMAIN — with an
+/// optional pre-stamped authority record (the zone's SOA) so clients can
+/// negatively cache (RFC 2308). A negative answer is a *successful*
+/// resolution: "the name (or record type) does not exist" must never surface
+/// as SERVFAIL. Returns the response so callers can cache it.
+async fn send_negative(
+    socket: &Arc<dyn DnsSocket>,
+    src: SocketAddr,
+    id: u16,
+    request: &Message,
+    nx_domain: bool,
+    authority: Option<hickory_proto::rr::Record>,
+) -> anyhow::Result<Message> {
+    let mut response = Message::response(id, OpCode::Query);
+    response.metadata.recursion_desired = true;
+    response.metadata.recursion_available = true;
+    response.metadata.response_code = if nx_domain {
+        ResponseCode::NXDomain
+    } else {
+        ResponseCode::NoError
+    };
+    response.add_queries(request.queries.clone());
+    if let Some(authority) = authority {
+        response.add_authority(authority);
+    }
+    let bytes = response.to_bytes()?;
+    socket.send_to(&bytes, src).await?;
+    Ok(response)
+}
+
+/// Shared negative-answer responder for the recursive and forwarding paths:
+/// stamps the RFC 2308 negative TTL (min(SOA record TTL, SOA MINIMUM),
+/// clamped to the admin's cache bounds) on the relayed SOA, sends the
+/// response, caches it so repeated negative queries are served locally, and
+/// records the query as `"negative"` — unless the filter dry-run marker
+/// (`blocked_skipped`) applies, which outranks it for blocklist evaluation.
+#[allow(clippy::too_many_arguments)]
+async fn relay_negative(
+    socket: &Arc<dyn DnsSocket>,
+    cache: &Arc<RwLock<DnsCache>>,
+    log_sink: Option<&DnsLogSink>,
+    request: &Message,
+    id: u16,
+    src: SocketAddr,
+    domain: &str,
+    rtype: hickory_proto::rr::RecordType,
+    start: std::time::Instant,
+    pass_result: &str,
+    upstream_id: UpstreamId,
+    upstream_label: Option<String>,
+    nx_domain: bool,
+    soa: Option<Box<hickory_proto::rr::Record<hickory_proto::rr::rdata::SOA>>>,
+    cache_ttl_min_secs: u32,
+    cache_ttl_max_secs: u32,
+) -> anyhow::Result<()> {
+    tracing::debug!(
+        %domain,
+        ?rtype,
+        nx_domain,
+        "negative answer for {domain} ({rtype:?}): nx_domain={nx_domain}"
+    );
+
+    // RFC 2308 §5: the negative TTL is min(SOA record TTL, SOA MINIMUM). A
+    // raw value of 0 means the zone forbids negative caching — honour it
+    // (like the positive path's raw-TTL gate) rather than raising it to the
+    // admin's cache floor. Non-zero values get the same `.max(min).min(max)`
+    // clamp DnsCache::insert applies, so the TTL stamped on the wire and the
+    // daemon's own cache lifetime always agree.
+    let (authority, negative_ttl) = if let Some(soa) = soa {
+        let soa = *soa;
+        let raw_ttl = soa.ttl.min(soa.data.minimum);
+        let ttl = if raw_ttl == 0 {
+            0
+        } else {
+            raw_ttl.max(cache_ttl_min_secs).min(cache_ttl_max_secs)
+        };
+        let mut record = soa.into_record_of_rdata();
+        record.ttl = ttl;
+        (Some(record), ttl)
+    } else {
+        (None, 0)
+    };
+
+    let response = send_negative(socket, src, id, request, nx_domain, authority).await?;
+
+    if negative_ttl > 0 {
+        let mut cache_guard = cache.write().await;
+        cache_guard.insert(
+            upstream_id,
+            domain,
+            rtype,
+            response,
+            negative_ttl,
+            cache_ttl_min_secs,
+            cache_ttl_max_secs,
+        );
+    }
+
+    let result = relayed_result(true, pass_result);
+    record_query(
+        log_sink,
+        domain,
+        rtype,
+        src,
+        result,
+        upstream_label,
+        start.elapsed(),
     );
     Ok(())
 }
@@ -1720,6 +1955,7 @@ async fn forward_via_conditional(
     // Validate the response before forwarding: txid and question must match the
     // outbound query. A pooled socket could in theory receive a late response to a
     // prior query; txid validation ensures stale datagrams are never served or cached.
+    let mut result = pass_result;
     if let Ok(parsed) = Message::from_bytes(&buf) {
         if parsed.metadata.id != id {
             return_socket_to_pool(pool, bound).await;
@@ -1740,11 +1976,9 @@ async fn forward_via_conditional(
         socket.send_to(&buf, src).await?;
         return_socket_to_pool(pool, bound).await;
 
-        let mut min_ttl = u32::MAX;
-        for record in &parsed.answers {
-            min_ttl = min_ttl.min(record.ttl);
-        }
-        if min_ttl < u32::MAX && min_ttl > 0 {
+        let (is_negative, raw_ttl) = classify_response(&parsed);
+        result = relayed_result(is_negative, pass_result);
+        if raw_ttl > 0 {
             let cfg = config.read().await;
             let mut cache_guard = cache.write().await;
             cache_guard.insert(
@@ -1752,7 +1986,7 @@ async fn forward_via_conditional(
                 domain,
                 rtype,
                 parsed,
-                min_ttl,
+                raw_ttl,
                 cfg.cache_ttl_min_secs,
                 cfg.cache_ttl_max_secs,
             );
@@ -1770,7 +2004,7 @@ async fn forward_via_conditional(
         domain,
         rtype,
         src,
-        pass_result,
+        result,
         Some(upstream.ip().to_string()),
         elapsed,
     );
