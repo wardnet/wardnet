@@ -88,6 +88,34 @@ describe("DhcpConfigCard", () => {
     expect(screen.getByText("Wardnet DNS")).toBeInTheDocument();
   });
 
+  // "Wardnet DNS" is what NEW leases get. DHCP cannot push it to a device
+  // already holding a lease, and such a device resolves unfiltered without any
+  // sign of it — so the read view must not imply the whole network is covered.
+  it("warns that already-leased devices keep their old DNS until they reconnect", () => {
+    mockDns.mockReturnValue({ data: { config: { enabled: true } } } as never);
+    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    expect(screen.getByTestId("dhcp-dns-lease-note")).toHaveTextContent(
+      /reconnect a device/i,
+    );
+  });
+
+  it("omits the lease note when the DNS server is off", () => {
+    mockDns.mockReturnValue({ data: { config: { enabled: false } } } as never);
+    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    expect(screen.queryByTestId("dhcp-dns-lease-note")).not.toBeInTheDocument();
+  });
+
+  it("shows a placeholder, not the upstream list, while the DNS query is unresolved", () => {
+    // While the ["dns"] query is loading (or errored) the effective client
+    // DNS is unknown — rendering the raw upstream list would claim clients
+    // bypass the Pi when the daemon may actually be advertising it.
+    mockDns.mockReturnValue({ data: undefined } as never);
+    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    expect(screen.getByText("…")).toBeInTheDocument();
+    expect(screen.queryByText(/1\.1\.1\.1/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Wardnet DNS")).not.toBeInTheDocument();
+  });
+
   it("enters edit mode and hides the upstream DNS field when DNS is enabled", async () => {
     const user = userEvent.setup();
     mockDns.mockReturnValue({ data: { config: { enabled: true } } } as never);

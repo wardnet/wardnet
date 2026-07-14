@@ -52,13 +52,25 @@ describe("useDns hooks", () => {
       await result.current.mutateAsync(true);
     });
     expect(dnsService.toggle).toHaveBeenCalledWith({ enabled: true });
-    expect(toast.success).toHaveBeenCalledWith("DNS server enabled");
+    // The toast must carry the lease-renewal caveat: DHCP is pull-based, so
+    // flipping this does not reach already-leased devices until they renew.
+    // Without it the admin believes filtering went network-wide instantly, and
+    // silently-unfiltered devices look like a broken filter.
+    expect(toast.success).toHaveBeenCalledWith(
+      "DNS server enabled",
+      expect.objectContaining({
+        description: expect.stringContaining("Reconnect a device"),
+      }),
+    );
 
     dnsService.toggle.mockResolvedValueOnce({ config: { enabled: false } });
     await act(async () => {
       await result.current.mutateAsync(false);
     });
-    expect(toast.success).toHaveBeenCalledWith("DNS server disabled");
+    expect(toast.success).toHaveBeenCalledWith(
+      "DNS server disabled",
+      expect.objectContaining({ description: expect.any(String) }),
+    );
   });
 
   it("updates config", async () => {
