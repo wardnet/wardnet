@@ -777,9 +777,11 @@ async fn run(
     // TLS renewal runner — issues the cert once DDNS is configured and renews it
     // before expiry, hot-swapping the live `:443` cert. Inert (no ACME calls)
     // while there is no active FQDN, and also fully inert while suspended.
+    let tls_nudge = wardnetd_services::tls::runner::TlsRetryNudge::default();
     let tls_renewal_runner = TlsRenewalRunner::start(
         services.tls.clone(),
         services.entitlement.clone(),
+        tls_nudge.clone(),
         &root_span,
     );
 
@@ -875,7 +877,10 @@ async fn run(
     // Inject the live entitlement handle (the same one the DDNS cloud clients
     // flip) so the serving layer can gate the premium app surfaces while
     // suspended. Must precede any clone/share of `state`.
-    .with_entitlement(services.entitlement.clone());
+    .with_entitlement(services.entitlement.clone())
+    // The TLS runner's retry nudge: a failed register-time issuance schedules
+    // a backoff retry instead of waiting out the 12h renewal tick.
+    .with_tls_nudge(tls_nudge);
 
     let app = wardnetd_api::api::router(state);
 

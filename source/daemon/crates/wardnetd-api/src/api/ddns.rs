@@ -59,6 +59,7 @@ pub struct CheckQuery {
 fn spawn_provisioning(state: &AppState, admin_id: Uuid) {
     let ddns = state.ddns_service_arc();
     let tls = state.tls_service_arc();
+    let nudge = state.tls_nudge();
     let ctx = AuthContext::Admin { admin_id };
     // Spawned tasks do not inherit the request's span, so attach our own child
     // span (rooted at the current request span) — see `.agents/observability.md`.
@@ -75,6 +76,10 @@ fn spawn_provisioning(state: &AppState, admin_id: Uuid) {
                     }
                     Err(e) => {
                         tracing::warn!(error = %e, "remote-access provisioning: certificate issuance failed: {e}");
+                        // Hand the retry to the renewal runner's backoff —
+                        // without this, the next attempt was the runner's 12h
+                        // tick away (issue #886 follow-up).
+                        nudge.nudge();
                     }
                 }
             })

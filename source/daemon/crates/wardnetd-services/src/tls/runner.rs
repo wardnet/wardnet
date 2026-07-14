@@ -49,6 +49,51 @@ const RETRY_MIN: Duration = Duration::from_secs(30);
 /// condition, and the 12h cadence takes back over on the next success.
 const RETRY_MAX: Duration = Duration::from_mins(15);
 
+/// Backoff after the CA rate-limits us (`urn:ietf:params:acme:error:rateLimited`,
+/// e.g. "too many failed authorizations"). Let's Encrypt's failed-validation
+/// limit is 5 per account/hostname/hour — retrying every [`RETRY_MAX`] keeps
+/// tripping it and each rejected attempt is pure waste. One hour clears the
+/// window.
+const RATE_LIMIT_BACKOFF: Duration = Duration::from_hours(1);
+
+/// Wakes the renewal runner into its retry backoff from OUTSIDE the runner —
+/// the register-time provisioning task attempts issuance itself, and before
+/// this handle existed its failure was invisible to the runner: the next
+/// attempt was a full [`RENEWAL_INTERVAL`] (12h) away.
+#[derive(Clone, Default)]
+pub struct TlsRetryNudge(Arc<tokio::sync::Notify>);
+
+impl TlsRetryNudge {
+    /// Ask the runner to re-attempt issuance after [`RETRY_MIN`] (not
+    /// immediately — an instant retry would lose the same race the caller
+    /// just lost, and burn CA rate limit doing it).
+    pub fn nudge(&self) {
+        self.0.notify_one();
+    }
+}
+
+/// Classification of a failed `ensure_certificate` for backoff purposes.
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum FailureClass {
+    /// Ordinary transient failure — exponential backoff.
+    Transient,
+    /// The CA told us to go away (`rateLimited`) — long fixed backoff.
+    RateLimited,
+}
+
+/// Classify an issuance error by its message. The ACME problem type rides in
+/// the error string (`urn:ietf:params:acme:error:rateLimited`, and Let's
+/// Encrypt's human text says "too many ..."), which is all the surface the
+/// `AppError` boundary preserves.
+pub(super) fn classify_failure(message: &str) -> FailureClass {
+    let lower = message.to_lowercase();
+    if lower.contains("ratelimited") || lower.contains("too many") {
+        FailureClass::RateLimited
+    } else {
+        FailureClass::Transient
+    }
+}
+
 /// Delay before re-attempting issuance after `previous` failed.
 ///
 /// Issuance failures are dominated by *transient* conditions: the cloud is
@@ -75,11 +120,13 @@ impl TlsRenewalRunner {
     pub fn start(
         tls: Arc<dyn TlsService>,
         entitlement: Arc<Entitlement>,
+        nudge: TlsRetryNudge,
         parent: &tracing::Span,
     ) -> Self {
         let cancel = CancellationToken::new();
         let span = tracing::info_span!(parent: parent, "tls_renewal_runner");
-        let handle = tokio::spawn(runner_loop(tls, entitlement, cancel.clone()).instrument(span));
+        let handle =
+            tokio::spawn(runner_loop(tls, entitlement, nudge, cancel.clone()).instrument(span));
         Self { cancel, handle }
     }
 
@@ -94,6 +141,7 @@ impl TlsRenewalRunner {
 async fn runner_loop(
     tls: Arc<dyn TlsService>,
     entitlement: Arc<Entitlement>,
+    nudge: TlsRetryNudge,
     cancel: CancellationToken,
 ) {
     let admin_ctx = AuthContext::Admin {
@@ -113,6 +161,21 @@ async fn runner_loop(
                 tracing::info!("TLS renewal runner cancellation received");
                 break;
             }
+            // An out-of-band issuance failed (the register-time provisioning
+            // task): schedule a retry at the backoff floor instead of sleeping
+            // out the remainder of a 12h tick. Deliberately NOT an immediate
+            // attempt — the caller's failure is seconds old, and an instant
+            // replay would lose the same race while spending CA rate limit.
+            () = nudge.0.notified() => {
+                let next = next_retry(retry_in);
+                retry_in = Some(next);
+                tracing::info!(
+                    retry_in_secs = next.as_secs(),
+                    "TLS renewal: nudged after an out-of-band failure, retrying in {}s",
+                    next.as_secs(),
+                );
+                delay = next;
+            }
             () = tokio::time::sleep(delay) => {
                 // Fully inert while suspended — renewing a cert for a box with
                 // its premium surfaces disabled is pointless, and the ACME
@@ -126,18 +189,33 @@ async fn runner_loop(
                     continue;
                 }
 
-                if ensure(tls.as_ref(), &admin_ctx).await {
-                    retry_in = None;
-                    delay = RENEWAL_INTERVAL;
-                } else {
-                    let next = next_retry(retry_in);
-                    retry_in = Some(next);
-                    tracing::info!(
-                        retry_in_secs = next.as_secs(),
-                        "TLS renewal: retrying in {}s rather than waiting for the next cycle",
-                        next.as_secs(),
-                    );
-                    delay = next;
+                match ensure(tls.as_ref(), &admin_ctx).await {
+                    None => {
+                        retry_in = None;
+                        delay = RENEWAL_INTERVAL;
+                    }
+                    Some(FailureClass::RateLimited) => {
+                        // The CA is refusing work from us; hammering it on the
+                        // exponential ladder is what GOT us rate-limited. Sit
+                        // out the window.
+                        retry_in = Some(RATE_LIMIT_BACKOFF);
+                        tracing::warn!(
+                            retry_in_secs = RATE_LIMIT_BACKOFF.as_secs(),
+                            "TLS renewal: CA rate limit hit, backing off {}s",
+                            RATE_LIMIT_BACKOFF.as_secs(),
+                        );
+                        delay = RATE_LIMIT_BACKOFF;
+                    }
+                    Some(FailureClass::Transient) => {
+                        let next = next_retry(retry_in);
+                        retry_in = Some(next);
+                        tracing::info!(
+                            retry_in_secs = next.as_secs(),
+                            "TLS renewal: retrying in {}s rather than waiting for the next cycle",
+                            next.as_secs(),
+                        );
+                        delay = next;
+                    }
                 }
             }
         }
@@ -149,7 +227,7 @@ async fn runner_loop(
 ///
 /// Returns `false` when the attempt failed and is worth retrying sooner than the
 /// next renewal cycle.
-async fn ensure(tls: &dyn TlsService, admin_ctx: &AuthContext) -> bool {
+async fn ensure(tls: &dyn TlsService, admin_ctx: &AuthContext) -> Option<FailureClass> {
     match auth_context::with_context(admin_ctx.clone(), tls.ensure_certificate()).await {
         Ok(TlsStatus::NotConfigured) => {
             tracing::debug!("TLS renewal: DDNS unconfigured, nothing to do");
@@ -182,8 +260,8 @@ async fn ensure(tls: &dyn TlsService, admin_ctx: &AuthContext) -> bool {
         }
         Err(error) => {
             tracing::warn!(%error, "TLS renewal failed: {error}");
-            return false;
+            return Some(classify_failure(&error.to_string()));
         }
     }
-    true
+    None
 }

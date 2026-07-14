@@ -34,6 +34,13 @@ use crate::secret_store::SecretStore;
 
 use super::SECRET_ACME_ACCOUNT;
 
+/// How long to wait between publishing the DNS-01 TXT records and telling the
+/// CA to validate. Cloudflare's authoritative edge starts serving a new record
+/// ~4s after the create API returns (measured against the live zone); Let's
+/// Encrypt validates within ~1-2s of `set_ready`. 15s covers the gap with
+/// margin while staying well inside the CA's order lifetime.
+const CHALLENGE_PROPAGATION_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
 /// A freshly issued certificate: the full chain PEM plus the locally generated
 /// leaf private key PEM.
 pub struct IssuedCert {
@@ -132,6 +139,18 @@ async fn run_order(
         ddns.set_acme_challenge(&values)
             .await
             .map_err(|e| anyhow::anyhow!("publish ACME challenge: {e}"))?;
+
+        // Wait for the records to actually SERVE before inviting validation.
+        // The DNS provider's create API returns before its authoritative edge
+        // answers for the new name (measured ~4s on Cloudflare); the CA
+        // validates within ~1-2s of `set_ready`, so skipping this wait loses
+        // the race deterministically — every issuance failed against a record
+        // that was there but not yet visible. A fixed sleep (what certbot's
+        // DNS plugins do) rather than a resolver poll, deliberately: the zone's
+        // SOA advertises a 1800s negative-cache TTL, so any resolver we asked
+        // too early would cache the miss and keep answering "no such record"
+        // long after the authoritative servers turned truthful.
+        tokio::time::sleep(CHALLENGE_PROPAGATION_WAIT).await;
     }
 
     // Pass 2: now that both values are live, mark each pending challenge ready.
@@ -149,7 +168,26 @@ async fn run_order(
         }
     }
 
-    order.poll_ready(&RetryPolicy::default()).await?;
+    if let Err(poll_err) = order.poll_ready(&RetryPolicy::default()).await {
+        // Surface WHY validation failed, not just that the order went invalid —
+        // the CA attaches the concrete problem (NXDOMAIN, wrong TXT value, CAA)
+        // to the challenge it rejected, and losing it made every failure look
+        // identical in the logs.
+        let mut authorizations = order.authorizations();
+        while let Some(authz) = authorizations.next().await {
+            let Ok(authz) = authz else { break };
+            for challenge in &authz.challenges {
+                if let Some(problem) = &challenge.error {
+                    tracing::warn!(
+                        challenge_type = ?challenge.r#type,
+                        status = ?challenge.status,
+                        "ACME challenge rejected by the CA: {problem}",
+                    );
+                }
+            }
+        }
+        return Err(poll_err.into());
+    }
 
     // CSR + leaf key generated on the Pi. The CSR carries BOTH SANs so the issued
     // cert covers the apex and every per-service host under the wildcard.

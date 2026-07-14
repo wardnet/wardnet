@@ -4,6 +4,7 @@ use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::entitlement::Entitlement;
 use wardnetd_services::event::EventPublisher;
+use wardnetd_services::tls::runner::TlsRetryNudge;
 use wardnetd_services::{
     AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
     DnsFilterService, DnsLocalService, DnsService, HealthMonitor, InboundWgService, JobService,
@@ -55,6 +56,11 @@ struct Inner {
     /// production and the mock inject the live one (the same handle the DDNS
     /// cloud clients flip) via [`Self::with_entitlement`].
     entitlement: Arc<Entitlement>,
+    /// Wakes the TLS renewal runner into its retry backoff when a
+    /// register-time issuance attempt fails (issue #886 follow-up). Defaults
+    /// to a handle nobody listens on; production injects the runner's via
+    /// [`Self::with_tls_nudge`].
+    tls_nudge: TlsRetryNudge,
 }
 
 impl AppState {
@@ -128,6 +134,7 @@ impl AppState {
                 // Defaults to active (never suspended). Production and the mock
                 // inject the live handle via `with_entitlement`.
                 entitlement: Entitlement::shared(),
+                tls_nudge: TlsRetryNudge::default(),
             }),
         }
     }
@@ -179,6 +186,17 @@ impl AppState {
         Arc::get_mut(&mut self.inner)
             .expect("with_entitlement must be called before AppState is cloned")
             .entitlement = entitlement;
+        self
+    }
+
+    /// Inject the TLS renewal runner's retry nudge, so a failed register-time
+    /// issuance schedules a backoff retry instead of waiting out the 12h tick.
+    /// Returns `self` for chaining off [`Self::new`].
+    #[must_use]
+    pub fn with_tls_nudge(mut self, nudge: TlsRetryNudge) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_tls_nudge must be called before AppState is cloned")
+            .tls_nudge = nudge;
         self
     }
 
@@ -395,6 +413,12 @@ impl AppState {
     #[must_use]
     pub fn entitlement(&self) -> Arc<Entitlement> {
         self.inner.entitlement.clone()
+    }
+
+    /// The TLS renewal runner's retry nudge (see [`Self::with_tls_nudge`]).
+    #[must_use]
+    pub fn tls_nudge(&self) -> TlsRetryNudge {
+        self.inner.tls_nudge.clone()
     }
 }
 
