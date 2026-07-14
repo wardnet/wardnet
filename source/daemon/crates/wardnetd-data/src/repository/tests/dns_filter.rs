@@ -679,7 +679,12 @@ async fn on_disk_pools(acquire_timeout: std::time::Duration) -> (crate::db::DbPo
 async fn bulk_import_does_not_starve_concurrent_writers() {
     // A probe that cannot acquire the writer within this budget means the import
     // held it continuously for that long — the starvation the daemon died of.
-    const MAX_HOLD: std::time::Duration = std::time::Duration::from_secs(1);
+    // CI-tolerant budget: the regression this guards held the writer for
+    // MINUTES (a whole 1.9M-domain import/delete in one transaction), so 5s
+    // keeps the signal decisive while a loaded shared runner — which has
+    // twice failed a 1s budget by single-digit milliseconds, costing a
+    // release run and a PR run — gets real headroom.
+    const MAX_HOLD: std::time::Duration = std::time::Duration::from_secs(5);
 
     let (pools, path) = on_disk_pools(MAX_HOLD).await;
     let repo = std::sync::Arc::new(SqliteDnsFilterRepository::new_pools(pools.clone()));
@@ -798,7 +803,12 @@ async fn bulk_import_is_atomic_for_readers() {
 /// blocklists into the same place.
 #[tokio::test]
 async fn deleting_a_blocklist_does_not_starve_concurrent_writers() {
-    const MAX_HOLD: std::time::Duration = std::time::Duration::from_secs(1);
+    // CI-tolerant budget: the regression this guards held the writer for
+    // MINUTES (a whole 1.9M-domain import/delete in one transaction), so 5s
+    // keeps the signal decisive while a loaded shared runner — which has
+    // twice failed a 1s budget by single-digit milliseconds, costing a
+    // release run and a PR run — gets real headroom.
+    const MAX_HOLD: std::time::Duration = std::time::Duration::from_secs(5);
 
     let (pools, path) = on_disk_pools(MAX_HOLD).await;
     let repo = std::sync::Arc::new(SqliteDnsFilterRepository::new_pools(pools.clone()));
