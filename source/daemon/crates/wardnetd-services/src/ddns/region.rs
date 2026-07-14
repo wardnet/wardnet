@@ -15,8 +15,12 @@
 //! Two endpoints per region matter:
 //! * **control** (`https://api.<region-slug>…:443`) — the regional gateway; TLS
 //!   is a normal public cert, requests route to the service by `X-Mesh-Target`.
-//! * **health** (`http://api.<region-slug>…:81/readyz`) — the gateway host exposes
-//!   the readiness probe on plain-HTTP `:81` (cloud ADR-0027).
+//! * **health** (`http://ddns.svc.prd.<region-slug>…:81/readyz`) — the region's
+//!   `ddns` service readiness probe on the plain-HTTP `:81` health listener
+//!   (cloud ADR-0027). The `:81` listener serves **per-service** vhosts
+//!   (`<service>.svc.prd.<region>…`) only — the gateway host answers 404 there,
+//!   and `ddns` is the service registration is about to talk to, so its
+//!   readiness IS the "region reachable" signal.
 //!
 //! The global gateway (`tenants`) is scope-wide, so it is a single constant
 //! rather than a per-region catalog entry.
@@ -45,8 +49,10 @@ pub struct RegionEndpoint {
     /// the regional `ddns` and `tunneller` services (routing on `X-Mesh-Target`,
     /// cloud ADR-0015).
     pub gateway_base_url: String,
-    /// Health-probe URL for region selection — the cloud health tier's readiness
-    /// probe (`http://api.<region-slug>…:81/readyz`, plain HTTP; cloud ADR-0027).
+    /// Health-probe URL for region selection — the region's `ddns` service
+    /// readiness probe (`http://ddns.svc.prd.<region-slug>…:81/readyz`, plain
+    /// HTTP; cloud ADR-0027). The `:81` health listener routes by per-service
+    /// vhost, not by the gateway host.
     pub health_url: String,
 }
 
@@ -74,7 +80,7 @@ pub fn default_catalog() -> Vec<RegionEndpoint> {
     vec![RegionEndpoint::new(
         "euc",
         "https://api.euc.wardnet.network",
-        "http://api.euc.wardnet.network:81/readyz",
+        "http://ddns.svc.prd.euc.wardnet.network:81/readyz",
     )]
 }
 
