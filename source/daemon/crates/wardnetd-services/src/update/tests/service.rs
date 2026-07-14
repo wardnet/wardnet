@@ -205,6 +205,7 @@ fn build_service_full(
         applier.clone(),
         events.clone(),
         require_signature,
+        false,
         "0.1.0",
         tokio_util::sync::CancellationToken::new(),
     ));
@@ -228,10 +229,29 @@ fn build_service_at_version(
         Arc::new(RecordingApplier::default()),
         Arc::new(BroadcastEventBus::new(32)),
         false,
+        false,
         current_version,
         tokio_util::sync::CancellationToken::new(),
     ));
     (svc, history)
+}
+
+/// Build a service whose deploy-time `[update] allow_edge_channel` flag is
+/// `allow_edge`, over a caller-supplied config so tests can seed a stored
+/// channel and assert on what the startup gate wrote back.
+fn build_service_gated(config: Arc<MemoryConfig>, allow_edge: bool) -> Arc<UpdateServiceImpl> {
+    Arc::new(UpdateServiceImpl::new(
+        config,
+        Arc::new(MemoryHistory::default()),
+        Arc::new(StubReleaseSource(None)),
+        Arc::new(AlwaysOkVerifier),
+        Arc::new(RecordingApplier::default()),
+        Arc::new(BroadcastEventBus::new(32)),
+        false,
+        allow_edge,
+        "0.1.0",
+        tokio_util::sync::CancellationToken::new(),
+    ))
 }
 
 fn test_release_with_minisig() -> Release {
@@ -336,6 +356,119 @@ async fn update_config_persists_channel_and_auto_update() {
     .unwrap();
     assert!(resp.status.auto_update_enabled);
     assert_eq!(resp.status.channel, UpdateChannel::Beta);
+}
+
+#[tokio::test]
+async fn update_config_rejects_edge_when_flag_absent() {
+    // Edge requires root on the box (a TOML flag), not merely an admin
+    // session — so an authenticated admin must still be turned away.
+    let config = Arc::new(MemoryConfig::default());
+    let svc: Arc<dyn UpdateService> = build_service_gated(config.clone(), false);
+    let result = auth_context::with_context(
+        test_admin_ctx(),
+        svc.update_config(UpdateConfigRequest {
+            auto_update_enabled: None,
+            channel: Some(UpdateChannel::Edge),
+        }),
+    )
+    .await;
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+    // Rejected, not partially applied.
+    assert_eq!(config.get("update_channel").await.unwrap(), None);
+}
+
+#[tokio::test]
+async fn update_config_accepts_edge_when_flag_set() {
+    let config = Arc::new(MemoryConfig::default());
+    let svc: Arc<dyn UpdateService> = build_service_gated(config.clone(), true);
+    let resp = auth_context::with_context(
+        test_admin_ctx(),
+        svc.update_config(UpdateConfigRequest {
+            auto_update_enabled: None,
+            channel: Some(UpdateChannel::Edge),
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(resp.status.channel, UpdateChannel::Edge);
+    assert_eq!(
+        config.get("update_channel").await.unwrap().as_deref(),
+        Some("edge")
+    );
+}
+
+#[tokio::test]
+async fn status_advertises_whether_edge_is_available() {
+    let gated: Arc<dyn UpdateService> =
+        build_service_gated(Arc::new(MemoryConfig::default()), false);
+    let resp = auth_context::with_context(test_admin_ctx(), gated.status())
+        .await
+        .unwrap();
+    assert!(
+        !resp.status.edge_available,
+        "edge must not be advertised without the TOML flag"
+    );
+
+    let open: Arc<dyn UpdateService> = build_service_gated(Arc::new(MemoryConfig::default()), true);
+    let resp = auth_context::with_context(test_admin_ctx(), open.status())
+        .await
+        .unwrap();
+    assert!(resp.status.edge_available);
+}
+
+#[tokio::test]
+async fn startup_gate_falls_back_to_beta_when_edge_flag_removed() {
+    // A box left on edge, then redeployed without the flag: it must not keep
+    // following edge, and the stored state must not contradict the config.
+    let config = Arc::new(MemoryConfig::default());
+    config.set("update_channel", "edge").await.unwrap();
+
+    let svc: Arc<dyn UpdateService> = build_service_gated(config.clone(), false);
+    auth_context::with_context(test_admin_ctx(), svc.reconcile_channel_gate())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        config.get("update_channel").await.unwrap().as_deref(),
+        Some("beta"),
+        "fallback must be written back, not just computed at read time"
+    );
+    let resp = auth_context::with_context(test_admin_ctx(), svc.status())
+        .await
+        .unwrap();
+    assert_eq!(resp.status.channel, UpdateChannel::Beta);
+}
+
+#[tokio::test]
+async fn startup_gate_leaves_edge_alone_when_flag_present() {
+    let config = Arc::new(MemoryConfig::default());
+    config.set("update_channel", "edge").await.unwrap();
+
+    let svc: Arc<dyn UpdateService> = build_service_gated(config.clone(), true);
+    auth_context::with_context(test_admin_ctx(), svc.reconcile_channel_gate())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        config.get("update_channel").await.unwrap().as_deref(),
+        Some("edge")
+    );
+}
+
+#[tokio::test]
+async fn startup_gate_leaves_non_edge_channels_untouched() {
+    let config = Arc::new(MemoryConfig::default());
+    config.set("update_channel", "stable").await.unwrap();
+
+    let svc: Arc<dyn UpdateService> = build_service_gated(config.clone(), false);
+    auth_context::with_context(test_admin_ctx(), svc.reconcile_channel_gate())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        config.get("update_channel").await.unwrap().as_deref(),
+        Some("stable")
+    );
 }
 
 #[tokio::test]
@@ -712,6 +845,7 @@ async fn rollback_retracts_the_applied_announcement() {
         Arc::new(AlwaysOkVerifier),
         applier,
         Arc::new(BroadcastEventBus::new(32)),
+        false,
         false,
         "0.2.0",
         tokio_util::sync::CancellationToken::new(),

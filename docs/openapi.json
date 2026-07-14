@@ -27116,10 +27116,11 @@
       },
       "UpdateChannel": {
         "type": "string",
-        "description": "Update release channel.\n\n`Stable` tracks only full semver releases (e.g. `0.1.2`). `Beta` also\nconsiders pre-release builds. `Beta` is v2 scope; the v1 daemon still\naccepts the value but the runner only checks `Stable`.",
+        "description": "Update release channel, in ascending order of risk.\n\n`Stable` tracks only full releases (e.g. `2026.07.00`). `Beta` also\nconsiders `-beta.N` pre-releases, which are still cut through the full\nrelease ceremony. `Edge` follows `-edge.N` builds published straight from\na branch with no review and no test gates — an operator's testing loop,\nnever a destination for a real user. Edge is gated by the deploy-time\n`[update] allow_edge_channel` flag; the service layer rejects it unless\nthat flag is set. See `docs/adr/0023-edge-release-channel.md`.",
         "enum": [
           "stable",
-          "beta"
+          "beta",
+          "edge"
         ]
       },
       "UpdateCheckResponse": {
@@ -27750,7 +27751,8 @@
           "auto_update_enabled",
           "channel",
           "install_phase",
-          "rollback_available"
+          "rollback_available",
+          "edge_available"
         ],
         "properties": {
           "applied_at": {
@@ -27779,6 +27781,10 @@
           "current_version": {
             "type": "string",
             "description": "Currently running daemon version."
+          },
+          "edge_available": {
+            "type": "boolean",
+            "description": "Whether this box may follow the `edge` channel — i.e. whether\n`[update] allow_edge_channel` is set in `/etc/wardnet/wardnet.toml`.\n\nSetting it requires root *on the box*, so the UI cannot enable edge\nitself; it only renders the option when the daemon says it exists."
           },
           "install_phase": {
             "$ref": "#/components/schemas/InstallPhase",

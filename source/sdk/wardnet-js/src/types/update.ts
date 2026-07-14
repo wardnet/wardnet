@@ -1,7 +1,13 @@
 // Auto-update subsystem types. Mirror the Rust definitions in
 // `source/daemon/crates/wardnet-common/src/update.rs` and `.../api.rs`.
 
-export type UpdateChannel = "stable" | "beta";
+/**
+ * Release channels, in ascending order of risk. `edge` follows unreviewed,
+ * ungated builds published straight from a branch; it is only selectable on a
+ * box whose `[update] allow_edge_channel` flag is set — see
+ * `UpdateStatus.edge_available`.
+ */
+export type UpdateChannel = "stable" | "beta" | "edge";
 
 export type UpdateHistoryStatus = "started" | "succeeded" | "failed" | "rolled_back";
 
@@ -58,6 +64,12 @@ export interface UpdateStatus {
   /** When `applied_version` was observed running; dedupe key for the toast. */
   applied_at: string | null;
   rollback_available: boolean;
+  /**
+   * Whether this box may follow the `edge` channel — i.e. whether
+   * `[update] allow_edge_channel` is set in its TOML. Enabling it needs root
+   * on the box, so the UI can only *offer* edge, never turn it on.
+   */
+  edge_available: boolean;
 }
 
 export interface UpdateStatusResponse {

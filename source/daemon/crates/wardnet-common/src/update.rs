@@ -7,17 +7,22 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// Update release channel.
+/// Update release channel, in ascending order of risk.
 ///
-/// `Stable` tracks only full semver releases (e.g. `0.1.2`). `Beta` also
-/// considers pre-release builds. `Beta` is v2 scope; the v1 daemon still
-/// accepts the value but the runner only checks `Stable`.
+/// `Stable` tracks only full releases (e.g. `2026.07.00`). `Beta` also
+/// considers `-beta.N` pre-releases, which are still cut through the full
+/// release ceremony. `Edge` follows `-edge.N` builds published straight from
+/// a branch with no review and no test gates — an operator's testing loop,
+/// never a destination for a real user. Edge is gated by the deploy-time
+/// `[update] allow_edge_channel` flag; the service layer rejects it unless
+/// that flag is set. See `docs/adr/0023-edge-release-channel.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum UpdateChannel {
     #[default]
     Stable,
     Beta,
+    Edge,
 }
 
 impl UpdateChannel {
@@ -26,6 +31,7 @@ impl UpdateChannel {
         match self {
             Self::Stable => "stable",
             Self::Beta => "beta",
+            Self::Edge => "edge",
         }
     }
 
@@ -36,6 +42,7 @@ impl UpdateChannel {
         match value {
             "stable" => Some(Self::Stable),
             "beta" => Some(Self::Beta),
+            "edge" => Some(Self::Edge),
             _ => None,
         }
     }
@@ -141,6 +148,10 @@ pub struct InstallHandle {
 
 /// Snapshot of the update subsystem's current state.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+// Independent wire-level flags a client renders side by side, not a state
+// machine: a box can have an update available, auto-update on, a rollback
+// staged, and edge permitted, in any combination.
+#[allow(clippy::struct_excessive_bools)]
 pub struct UpdateStatus {
     /// Currently running daemon version.
     pub current_version: String,
@@ -175,4 +186,10 @@ pub struct UpdateStatus {
     pub applied_at: Option<DateTime<Utc>>,
     /// Whether a `.old` binary is present that could be rolled back to.
     pub rollback_available: bool,
+    /// Whether this box may follow the `edge` channel — i.e. whether
+    /// `[update] allow_edge_channel` is set in `/etc/wardnet/wardnet.toml`.
+    ///
+    /// Setting it requires root *on the box*, so the UI cannot enable edge
+    /// itself; it only renders the option when the daemon says it exists.
+    pub edge_available: bool,
 }

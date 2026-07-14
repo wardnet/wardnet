@@ -71,6 +71,12 @@ pub trait UpdateService: Send + Sync {
     /// startup caller supplies an admin context explicitly rather than the
     /// method opting out of the check.
     async fn reconcile_pending_install(&self) -> Result<(), AppError>;
+
+    /// Settle the stored update channel against the deploy-time edge gate:
+    /// a box on `edge` whose `[update] allow_edge_channel` flag has been
+    /// removed falls back to `beta`. Called once at daemon startup, before
+    /// the update runner's first check.
+    async fn reconcile_channel_gate(&self) -> Result<(), AppError>;
 }
 
 /// How long after a restart the daemon still advertises "we just updated".
@@ -99,6 +105,9 @@ pub struct UpdateServiceImpl {
     applier: Arc<dyn BinaryApplier>,
     events: Arc<dyn EventPublisher>,
     require_signature: bool,
+    /// Deploy-time `[update] allow_edge_channel`. Gates the `edge` channel;
+    /// see `reconcile_channel_gate` and `update_config`.
+    allow_edge_channel: bool,
     current_version: String,
     inflight: Arc<Mutex<InflightState>>,
     /// Cancelled after a successful install so systemd's `Restart=always`
@@ -119,6 +128,7 @@ impl UpdateServiceImpl {
         applier: Arc<dyn BinaryApplier>,
         events: Arc<dyn EventPublisher>,
         require_signature: bool,
+        allow_edge_channel: bool,
         current_version: impl Into<String>,
         shutdown_token: CancellationToken,
     ) -> Self {
@@ -130,6 +140,7 @@ impl UpdateServiceImpl {
             applier,
             events,
             require_signature,
+            allow_edge_channel,
             current_version: current_version.into(),
             inflight: Arc::new(Mutex::new(InflightState::default())),
             shutdown_token,
@@ -276,7 +287,37 @@ impl UpdateServiceImpl {
             applied_version,
             applied_at,
             rollback_available: self.applier.rollback_available().await,
+            edge_available: self.allow_edge_channel,
         })
+    }
+
+    /// Settle the stored channel against the deploy-time edge gate.
+    ///
+    /// A box can be left on `edge` and then redeployed without
+    /// `allow_edge_channel` — a config the daemon must not silently keep
+    /// following. Fall back to `beta` (the nearest channel that is still
+    /// pre-release, so the box does not appear to *downgrade* its intent) and
+    /// write the fallback back, so the stored state never contradicts the
+    /// config. Read-time coercion alone would leave a latent `edge` in
+    /// `system_config` that springs back to life the moment the flag returns.
+    async fn do_reconcile_channel_gate(&self) -> Result<(), AppError> {
+        if self.allow_edge_channel {
+            return Ok(());
+        }
+        if self.get_channel().await? != UpdateChannel::Edge {
+            return Ok(());
+        }
+        self.set_cfg("update_channel", UpdateChannel::Beta.as_str())
+            .await?;
+        // The last-known version was resolved against edge.json; it is not a
+        // beta version and must not be offered as one.
+        self.set_cfg("update_last_known_version", "").await?;
+        tracing::warn!(
+            "box was following the edge channel but [update] allow_edge_channel is not set - \
+             falling back to beta. Note the updater never downgrades, so this box stays on its \
+             current edge build until a newer base version ships on beta."
+        );
+        Ok(())
     }
 
     async fn do_reconcile_pending_install(&self) -> Result<(), AppError> {
@@ -653,6 +694,11 @@ impl UpdateService for UpdateServiceImpl {
         self.do_reconcile_pending_install().await
     }
 
+    async fn reconcile_channel_gate(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.do_reconcile_channel_gate().await
+    }
+
     async fn status(&self) -> Result<UpdateStatusResponse, AppError> {
         auth_context::require_admin()?;
         Ok(UpdateStatusResponse {
@@ -853,6 +899,19 @@ impl UpdateService for UpdateServiceImpl {
         req: UpdateConfigRequest,
     ) -> Result<UpdateConfigResponse, AppError> {
         auth_context::require_admin()?;
+
+        // Validate before writing anything: a rejected request must not leave
+        // `auto_update_enabled` half-applied from the same body. Edge is
+        // deploy-time gated — an admin session is not enough, the operator
+        // must have had root on the box to set the TOML flag.
+        if req.channel == Some(UpdateChannel::Edge) && !self.allow_edge_channel {
+            return Err(AppError::Forbidden(
+                "the edge channel is not enabled on this box: set [update] \
+                 allow_edge_channel = true in /etc/wardnet/wardnet.toml and restart"
+                    .to_owned(),
+            ));
+        }
+
         if let Some(enabled) = req.auto_update_enabled {
             self.set_cfg(
                 "update_auto_update_enabled",
@@ -924,6 +983,7 @@ impl UpdateServiceImpl {
             applier: self.applier.clone(),
             events: self.events.clone(),
             require_signature: self.require_signature,
+            allow_edge_channel: self.allow_edge_channel,
             current_version: self.current_version.clone(),
             inflight: self.inflight.clone(),
             shutdown_token: self.shutdown_token.clone(),
@@ -983,6 +1043,23 @@ mod is_newer_tests {
         assert!(!is_newer("2026.06.00-beta.1", "2026.06.00-beta.1"));
         // Label without numeric suffix (edge-case tolerance).
         assert!(is_newer("2026.06.00-rc", "2026.06.00-beta"));
+    }
+
+    #[test]
+    fn edge_ordering_is_a_one_way_ratchet() {
+        // `"edge" > "beta"` lexicographically, so an edge build outranks any
+        // beta of the same base — that's how an edge box keeps up with edge.
+        assert!(is_newer("2026.07.00-edge.147", "2026.07.00-beta.5"));
+        assert!(is_newer("2026.07.00-edge.148", "2026.07.00-edge.147"));
+        // ...and the ratchet: flipping a box back to beta does NOT walk it
+        // back down to a beta of the same base. This is intentional (ADR-0023)
+        // — the escape hatches are `install.sh CHANNEL=beta` (no version
+        // comparison) or dropping the TOML flag and waiting for the next base.
+        assert!(!is_newer("2026.07.00-beta.6", "2026.07.00-edge.147"));
+        // The next base CalVer clears it, by either channel.
+        assert!(is_newer("2026.08.00-beta.1", "2026.07.00-edge.147"));
+        // A final release still outranks an edge build of the same base.
+        assert!(is_newer("2026.07.00", "2026.07.00-edge.147"));
     }
 
     #[test]

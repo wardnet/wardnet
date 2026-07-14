@@ -23,6 +23,24 @@ on:
         description: Mark as pre-release on GitHub.
         type: boolean
         required: true
+      notes-body:
+        description: >
+          Literal release body. When empty (default), notes come from
+          docs/releases/v<version>.md, falling back to GitHub's auto-generated
+          notes. Edge builds pass a fixed one-liner: they carry no notes doc,
+          and auto-generated "changes since the last tag" is meaningless for a
+          build cut off an arbitrary branch.
+        type: string
+        default: ""
+      attach-openapi:
+        description: >
+          Attach docs/openapi.json + its sha256 to the release. Edge builds
+          pass `false`: they do not regenerate the spec (ADR-0023), so the
+          committed one may not describe the binary being published, and
+          publishing it anyway would feed a wrong spec into the docs site's
+          version picker, which dedupes historical specs by hash.
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -172,6 +190,7 @@ jobs:
         # download the spec for a specific daemon version without
         # running the daemon. The site's manifest generator dedupes
         # across historical releases using the .sha256.
+        if: inputs.attach-openapi
         run: |
           set -euo pipefail
           cp docs/openapi.json release-staging/openapi.json
@@ -185,11 +204,19 @@ jobs:
         # `gh attestation verify`. Complements the minisign signature:
         # minisign anchors authenticity even without GitHub; provenance
         # proves build integrity even if the minisign key is rotated.
+        #
+        # Edge builds are attested too: they are unreviewed, but they are
+        # not unauthentic — provenance is exactly what proves an edge
+        # tarball came from this workflow and not from someone's laptop.
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:
-          subject-path: |
-            release-staging/*.tar.gz
-            release-staging/openapi.json
+          subject-path: release-staging/*.tar.gz
+
+      - name: Attest SLSA build provenance (OpenAPI spec)
+        if: inputs.attach-openapi
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: release-staging/openapi.json
 
       - name: Create GitHub Release
         env:
@@ -197,28 +224,42 @@ jobs:
           TAG: ${{ inputs.tag }}
           VERSION: ${{ inputs.version }}
           PRERELEASE: ${{ inputs.prerelease }}
+          NOTES_BODY: ${{ inputs.notes-body }}
+          ATTACH_OPENAPI: ${{ inputs.attach-openapi }}
         run: |
           set -euo pipefail
           ARGS=(--verify-tag --title "Wardnet ${VERSION}")
 
-          # Prefer hand-written release notes at docs/releases/vX.Y.Z.md.
-          # Fall back to GitHub's auto-generated notes (diff since last tag).
-          NOTES_FILE="docs/releases/v${VERSION}.md"
-          if [[ -f "${NOTES_FILE}" ]]; then
-            echo "Using release notes from ${NOTES_FILE}"
-            ARGS+=(--notes-file "${NOTES_FILE}")
+          if [[ -n "${NOTES_BODY}" ]]; then
+            # Caller supplied the body verbatim (edge builds).
+            ARGS+=(--notes "${NOTES_BODY}")
           else
-            echo "No ${NOTES_FILE} found — falling back to auto-generated notes"
-            ARGS+=(--generate-notes)
+            # Prefer hand-written release notes at docs/releases/vX.Y.Z.md.
+            # Fall back to GitHub's auto-generated notes (diff since last tag).
+            NOTES_FILE="docs/releases/v${VERSION}.md"
+            if [[ -f "${NOTES_FILE}" ]]; then
+              echo "Using release notes from ${NOTES_FILE}"
+              ARGS+=(--notes-file "${NOTES_FILE}")
+            else
+              echo "No ${NOTES_FILE} found — falling back to auto-generated notes"
+              ARGS+=(--generate-notes)
+            fi
           fi
 
           if [[ "${PRERELEASE}" == "true" ]]; then
             ARGS+=(--prerelease)
           fi
 
-          gh release create "${TAG}" "${ARGS[@]}" \
-            release-staging/*.tar.gz \
-            release-staging/*.tar.gz.sha256 \
-            release-staging/*.tar.gz.minisig \
-            release-staging/openapi.json \
-            release-staging/openapi.json.sha256
+          ASSETS=(
+            release-staging/*.tar.gz
+            release-staging/*.tar.gz.sha256
+            release-staging/*.tar.gz.minisig
+          )
+          if [[ "${ATTACH_OPENAPI}" == "true" ]]; then
+            ASSETS+=(
+              release-staging/openapi.json
+              release-staging/openapi.json.sha256
+            )
+          fi
+
+          gh release create "${TAG}" "${ARGS[@]}" "${ASSETS[@]}"

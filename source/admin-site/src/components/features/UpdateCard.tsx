@@ -149,6 +149,15 @@ export function UpdateCard({
             <SelectContent>
               <SelectItem value="stable">Stable channel</SelectItem>
               <SelectItem value="beta">Beta channel</SelectItem>
+              {/* Edge is deploy-time gated: the daemon only reports
+                  `edge_available` when the box's TOML enables it, and the
+                  service rejects the channel otherwise — so offering the
+                  option unconditionally would just be a button that 403s.
+                  The `channel === "edge"` arm keeps the Select from showing
+                  an empty value in the window where a box is still on edge. */}
+              {(status?.edge_available || status?.channel === "edge") && (
+                <SelectItem value="edge">Edge channel</SelectItem>
+              )}
             </SelectContent>
           </Select>
           <Button

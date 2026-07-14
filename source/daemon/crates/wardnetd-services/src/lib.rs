@@ -868,6 +868,7 @@ fn build_update_service(
         update_backends.applier,
         event_publisher,
         config.update.require_signature,
+        config.update.allow_edge_channel,
         version::VERSION,
         shutdown_token,
     ))
