@@ -207,6 +207,17 @@ test.describe("dns", () => {
     await confirmDialog();
     await expect(dnsToggle).toHaveAttribute("aria-checked", "true");
 
+    // The DNS toggle toast now carries the lease-renewal note (10s duration)
+    // and overlays the lower controls on the mobile viewport. Sonner pauses
+    // its auto-dismiss timer while hovered, and Playwright's click retries
+    // park the pointer on the intercepting toast — a deadlock until the test
+    // timeout. Move the pointer away and let the toasts expire first. (A real
+    // user's finger isn't resting on the toast, so this is harness-only.)
+    await page.mouse.move(0, 0);
+    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, {
+      timeout: 15_000,
+    });
+
     // Filtering toggle — flip and flip back to the original state.
     const filterToggle = page.getByTestId("dns-filter-toggle");
     const initial = await filterToggle.getAttribute("aria-checked");
