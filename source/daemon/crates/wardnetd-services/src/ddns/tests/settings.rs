@@ -97,3 +97,16 @@ fn default_catalog_probes_the_ddns_service_health_vhost() {
         "http://ddns.svc.prd.euc.wardnet.network:81/readyz"
     );
 }
+
+/// The pinned public resolvers must use each provider's **DoH-JSON** endpoint.
+/// Google serves JSON only at `/resolve` — `8.8.8.8/dns-query` speaks RFC 8484
+/// wire format and answers HTTP 400 to a JSON request, so pointing the fallback
+/// there made it permanently dead (single point of failure on 1.1.1.1).
+#[test]
+fn doh_fallback_uses_googles_json_endpoint() {
+    use crate::ddns::doh::DOH_RESOLVERS;
+    assert_eq!(
+        DOH_RESOLVERS,
+        &["https://1.1.1.1/dns-query", "https://8.8.8.8/resolve"]
+    );
+}
