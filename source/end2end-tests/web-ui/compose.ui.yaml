@@ -98,6 +98,18 @@ services:
           printf '\n[ddns_wardnet]\ngateway_url = "http://10.92.0.53:8080"\nregion_gateway_url = "http://10.92.0.53:8080"\nregion_health_url = "http://10.92.0.53:8080/readyz"\n' >> /etc/wardnet/wardnet.toml
           echo "wardnetd-ui e2e fixture: pinned ddns_wardnet gateways to http://10.92.0.53:8080" >&2
         fi
+        # Point the auto-update manifest at the local cloud mock so a
+        # "Check now" settles instantly (404 → terminal error) instead of
+        # egressing to the real releases.wardnet.network. Without this, a
+        # check fired by settings.spec.ts can leave the daemon's install
+        # phase stuck at `checking` while the request crawls toward the
+        # 60s timeout — and the stateful backups spec that runs next finds
+        # the channel selector disabled for minutes (the recurring
+        # backups.spec.ts flake). Idempotent on the [update] key.
+        if ! grep -q '^\[update\]' /etc/wardnet/wardnet.toml; then
+          printf '\n[update]\nmanifest_base_url = "http://10.92.0.53:8080/releases"\nhttp_timeout_secs = 5\n' >> /etc/wardnet/wardnet.toml
+          echo "wardnetd-ui e2e fixture: pinned update manifest to the cloud mock" >&2
+        fi
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     networks:
       wardnet_mgmt:
@@ -159,6 +171,12 @@ services:
           echo "wardnetd-ui-fresh e2e fixture: pinned lan_interface=$$LAN_IFACE" >&2
         else
           echo "wardnetd-ui-fresh e2e fixture: WARNING no NIC holds 10.93.0.1; leaving lan_interface as-is" >&2
+        fi
+        # Same local update-manifest pin as wardnetd-ui above: keep any
+        # update check instant and offline-deterministic.
+        if ! grep -q '^\[update\]' /etc/wardnet/wardnet.toml; then
+          printf '\n[update]\nmanifest_base_url = "http://10.92.0.53:8080/releases"\nhttp_timeout_secs = 5\n' >> /etc/wardnet/wardnet.toml
+          echo "wardnetd-ui-fresh e2e fixture: pinned update manifest to the cloud mock" >&2
         fi
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     networks:
