@@ -79,3 +79,21 @@ fn region_overrides_only_touch_the_first_catalog_entry() {
         "http://api.second-region.wardnet.network:81/readyz"
     );
 }
+
+/// The built-in catalog must probe the per-service health vhost
+/// (`http://<service>.svc.prd.<region>.wardnet.network:81/...`) — the plain-HTTP
+/// `:81` listener only serves per-service names; the gateway host (`api.<region>`)
+/// answers 404 there, which marked every region unreachable and 502'd
+/// registration on the beta fleet (2026-07-14 infra migration).
+#[test]
+fn default_catalog_probes_the_ddns_service_health_vhost() {
+    let catalog = region::default_catalog();
+    let euc = catalog
+        .iter()
+        .find(|entry| entry.slug == "euc")
+        .expect("euc in catalog");
+    assert_eq!(
+        euc.health_url,
+        "http://ddns.svc.prd.euc.wardnet.network:81/readyz"
+    );
+}
