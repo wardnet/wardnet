@@ -11,6 +11,11 @@
 //!
 //! A *failed* attempt does not wait for the next 12h tick: it retries on a short
 //! exponential backoff ([`RETRY_MIN`] → [`RETRY_MAX`]), resetting on success.
+//! Two schedules override the ladder: a CA rate-limit answer sits out
+//! [`RATE_LIMIT_BACKOFF`] instead (retrying faster is what got us limited),
+//! and an out-of-band failure (the register-time provisioning task) can
+//! [`TlsRetryNudge`] the next attempt EARLIER — never later than what is
+//! already pending, and never inside an in-force backoff.
 //! Issuance failures are usually transient — most sharply, a freshly registered
 //! network whose DNS record the cloud has not published yet will reject the ACME
 //! challenge for a few seconds. Under a bare 12h cadence, losing that race cost
@@ -69,9 +74,11 @@ const RATE_LIMIT_BACKOFF: Duration = Duration::from_hours(1);
 pub struct TlsRetryNudge(Arc<tokio::sync::Notify>);
 
 impl TlsRetryNudge {
-    /// Ask the runner to re-attempt issuance after [`RETRY_MIN`] (not
-    /// immediately — an instant retry would lose the same race the caller
-    /// just lost, and burn CA rate limit doing it).
+    /// Ask the runner to re-attempt issuance soon — after at least
+    /// [`RETRY_MIN`], respecting any in-force backoff (a rate-limited runner
+    /// keeps its full sit-out), and never later than an already-pending
+    /// retry. Not immediate: an instant replay would lose the same race the
+    /// caller just lost, and burn CA rate limit doing it.
     pub fn nudge(&self) {
         self.0.notify_one();
     }
@@ -187,10 +194,11 @@ async fn runner_loop(
                 let candidate = tokio::time::Instant::now() + floor;
                 if candidate < deadline {
                     retry_in = Some(floor);
+                    let retry_in_secs = floor.as_secs();
                     tracing::info!(
-                        retry_in_secs = floor.as_secs(),
-                        "TLS renewal: nudged after an out-of-band failure, retrying in {}s",
-                        floor.as_secs(),
+                        retry_in_secs,
+                        "TLS renewal: nudged after an out-of-band failure, \
+                         retrying in {retry_in_secs}s",
                     );
                     deadline = candidate;
                 }
@@ -202,8 +210,10 @@ async fn runner_loop(
                 // The DDNS runner's re-probe is what restores entitlement.
                 if entitlement.is_suspended() {
                     tracing::debug!("TLS renewal: suspended, skipping");
-                    // Suspension is not a failure: don't build up a retry backoff
-                    // for it. The re-probe restores us on the normal cadence.
+                    // Suspension is not a failure: clear any backoff state so a
+                    // stale rate-limit floor can't leak into a post-resume
+                    // nudge, and let the re-probe restore the normal cadence.
+                    retry_in = None;
                     deadline = tokio::time::Instant::now() + RENEWAL_INTERVAL;
                     continue;
                 }
@@ -218,10 +228,10 @@ async fn runner_loop(
                         // exponential ladder is what GOT us rate-limited. Sit
                         // out the window.
                         retry_in = Some(RATE_LIMIT_BACKOFF);
+                        let retry_in_secs = RATE_LIMIT_BACKOFF.as_secs();
                         tracing::warn!(
-                            retry_in_secs = RATE_LIMIT_BACKOFF.as_secs(),
-                            "TLS renewal: CA rate limit hit, backing off {}s",
-                            RATE_LIMIT_BACKOFF.as_secs(),
+                            retry_in_secs,
+                            "TLS renewal: CA rate limit hit, backing off {retry_in_secs}s",
                         );
                         deadline = tokio::time::Instant::now() + RATE_LIMIT_BACKOFF;
                     }

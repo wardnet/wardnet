@@ -26,13 +26,58 @@
 use chrono::{DateTime, Utc};
 use instant_acme::{
     Account, AccountCredentials, AuthorizationStatus, ChallengeType, Identifier, NewAccount,
-    NewOrder, RetryPolicy,
+    NewOrder, OrderStatus, RetryPolicy,
 };
 
 use crate::ddns::DdnsService;
 use crate::secret_store::SecretStore;
 
 use super::SECRET_ACME_ACCOUNT;
+
+/// Surface WHY validation failed, not just that the order went invalid — the
+/// CA attaches the concrete problem (NXDOMAIN, wrong TXT value, CAA) to the
+/// challenge it rejected, and losing it made every failure look identical in
+/// the logs. Each authorization is `refresh()`ed first: the iterator serves
+/// the cached pre-validation snapshot (every challenge `Pending`, no error)
+/// unless asked to re-fetch.
+async fn log_challenge_problems(order: &mut instant_acme::Order) {
+    let mut authorizations = order.authorizations();
+    while let Some(authz) = authorizations.next().await {
+        let mut authz = match authz {
+            Ok(authz) => authz,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "could not re-fetch an authorization for failure diagnostics: {e}"
+                );
+                break;
+            }
+        };
+        let state = match authz.refresh().await {
+            Ok(state) => state,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "could not refresh an authorization for failure diagnostics: {e}"
+                );
+                continue;
+            }
+        };
+        for challenge in &state.challenges {
+            if let Some(problem) = &challenge.error {
+                tracing::warn!(
+                    challenge_type = ?challenge.r#type,
+                    status = ?challenge.status,
+                    error = %problem,
+                    "ACME challenge {challenge_type:?} rejected by the CA \
+                     (status {status:?}): {problem}",
+                    challenge_type = challenge.r#type,
+                    status = challenge.status,
+                );
+            }
+        }
+    }
+}
 
 /// How long to wait between publishing the DNS-01 TXT records and telling the
 /// CA to validate. Cloudflare's authoritative edge starts serving a new record
@@ -172,38 +217,22 @@ async fn run_order(
         }
     }
 
-    if let Err(poll_err) = order.poll_ready(&RetryPolicy::default()).await {
-        // Surface WHY validation failed, not just that the order went invalid —
-        // the CA attaches the concrete problem (NXDOMAIN, wrong TXT value, CAA)
-        // to the challenge it rejected, and losing it made every failure look
-        // identical in the logs.
-        let mut authorizations = order.authorizations();
-        while let Some(authz) = authorizations.next().await {
-            let authz = match authz {
-                Ok(authz) => authz,
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        "could not re-fetch an authorization for failure diagnostics: {e}"
-                    );
-                    break;
-                }
-            };
-            for challenge in &authz.challenges {
-                if let Some(problem) = &challenge.error {
-                    tracing::warn!(
-                        challenge_type = ?challenge.r#type,
-                        status = ?challenge.status,
-                        error = %problem,
-                        "ACME challenge {challenge_type:?} rejected by the CA \
-                         (status {status:?}): {problem}",
-                        challenge_type = challenge.r#type,
-                        status = challenge.status,
-                    );
-                }
-            }
+    // `poll_ready` yields `Ok(Invalid)` for a failed validation (it only Errs
+    // on timeout/transport, or when the ORDER carries a top-level error — which
+    // Let's Encrypt does not set for failed authorizations; the Problem lives
+    // on the rejected challenge). Falling through to finalize an invalid order
+    // reproduces the exact opaque failure this diagnostics path exists to
+    // explain, so both the Err and the non-Ready outcomes take it.
+    match order.poll_ready(&RetryPolicy::default()).await {
+        Ok(OrderStatus::Ready) => {}
+        Ok(status) => {
+            log_challenge_problems(&mut order).await;
+            anyhow::bail!("ACME order for {domain} became {status:?} during validation");
         }
-        return Err(poll_err.into());
+        Err(poll_err) => {
+            log_challenge_problems(&mut order).await;
+            return Err(poll_err.into());
+        }
     }
 
     // CSR + leaf key generated on the Pi. The CSR carries BOTH SANs so the issued

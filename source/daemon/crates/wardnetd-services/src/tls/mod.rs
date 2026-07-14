@@ -620,6 +620,14 @@ impl TlsService for TlsServiceImpl {
 
     async fn teardown(&self) -> Result<(), AppError> {
         auth_context::require_admin()?;
+        // Serialise against an in-flight issuance (same lock as
+        // `ensure_certificate`): without it, a teardown can win the race
+        // partway and the still-running order then re-persists the cert,
+        // re-activates `:443`, and re-creates the split-horizon record for a
+        // domain the box no longer owns. Waiting the order out (the 15s
+        // propagation sleep makes the window generous) and THEN tearing down
+        // leaves the intended end state.
+        let _issuance = self.issuance.lock().await;
 
         // Revert :443 to the placeholder cert (503 gate re-engages). Best-effort:
         // a failure leaves the old cert live until the next restart, which is

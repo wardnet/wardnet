@@ -78,7 +78,11 @@ fn spawn_provisioning(state: &AppState, admin_id: Uuid) {
                         tracing::warn!(error = %e, "remote-access provisioning: certificate issuance failed: {e}");
                         // Hand the retry to the renewal runner's backoff —
                         // without this, the next attempt was the runner's 12h
-                        // tick away (issue #886 follow-up).
+                        // tick away (issue #886 follow-up). The nudge carries
+                        // no failure class, so a rate-limited failure here
+                        // costs the runner one extra ~30s attempt before its
+                        // own classification imposes the 1h sit-out — accepted:
+                        // one wasted call per wizard retry, not a burst.
                         nudge.nudge();
                     }
                 }
