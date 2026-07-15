@@ -55,7 +55,12 @@ so `install.sh` and the daemon's downloader need no changes. The manifest
 generator learns to exclude `-edge.` from `stable.json` and `beta.json` (it
 currently defines beta as "highest release overall", which would otherwise
 silently point every beta box at an unvetted build) and emits `edge.json`. Edge
-releases are pruned to the newest five.
+releases are pruned to the newest five, each delete taking its `edge-v*` tag
+with it (`--cleanup-tag`) so tags never outlive their releases. A separate
+`workflow_dispatch` prune (`prune-edge.yml`) exists to go below that floor —
+wiping the channel entirely, or sweeping an orphan tag left by a build that
+tagged then failed to publish. Both paths share one composite action so the
+run-number sort and the tag sweep can't drift apart.
 
 **Gate.** A deploy-time `[update] allow_edge_channel` flag in
 `/etc/wardnet/wardnet.toml`, default `false`. The service layer rejects

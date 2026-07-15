@@ -1,0 +1,62 @@
+name: Prune Edge Releases
+
+# On-demand cleanup of edge (`edge-v*`) prereleases and their tags.
+#
+# The edge release workflow (release-edge.yml) already prunes to the newest 5
+# on every run, so this is not needed for routine housekeeping. It is the
+# manual escape hatch for going *below* that floor — wiping the channel
+# entirely after abandoning a line of work, reclaiming the Releases page, or
+# clearing an orphan tag left by a build that tagged then failed to publish.
+#
+# `keep = 0` (the default) deletes every edge release and every edge tag. A
+# real `v*` release can never be touched: the shared action only ever selects
+# tags matching `edge-v<ver>-edge.<n>`.
+
+on:
+  workflow_dispatch:
+    inputs:
+      keep:
+        description: Newest edge releases to retain (0 wipes the channel).
+        type: number
+        default: 0
+      confirm:
+        description: Type "prune" to confirm — guards against an accidental wipe.
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  prune:
+    name: Prune edge releases
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Deleting edge releases and their tags.
+      contents: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - name: Require the confirmation phrase
+        # A dispatch that wipes published releases should not be one fat-finger
+        # away. Fail before checkout if the phrase is not an exact match.
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [[ "${CONFIRM}" != "prune" ]]; then
+            echo "::error::confirmation phrase not matched — type 'prune' in the confirm field to run. Nothing was deleted."
+            exit 1
+          fi
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Prune edge releases and tags
+        uses: ./.github/actions/prune-edge-releases
+        with:
+          keep: ${{ inputs.keep }}
+          token: ${{ secrets.GITHUB_TOKEN }}
