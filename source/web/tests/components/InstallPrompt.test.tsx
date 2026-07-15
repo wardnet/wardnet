@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-import { InstallPrompt } from "../../src/features/InstallPrompt";
+import { InstallPrompt } from "../../src/components/InstallPrompt";
 import { renderWithProviders } from "../test-utils";
 
 const { useInstallPrompt, toast } = vi.hoisted(() => ({
@@ -10,10 +10,7 @@ const { useInstallPrompt, toast } = vi.hoisted(() => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, useInstallPrompt };
-});
+vi.mock("../../src/hooks/useInstallPrompt", () => ({ useInstallPrompt }));
 
 vi.mock("@wardnet/ui", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -27,19 +24,15 @@ beforeEach(() => {
   useInstallPrompt.mockReturnValue({ isInstallable: true, promptInstall });
 });
 
-afterEach(() => {
-  vi.restoreAllMocks();
-});
-
 describe("InstallPrompt", () => {
   it("renders nothing when not installable", () => {
     useInstallPrompt.mockReturnValue({ isInstallable: false, promptInstall });
-    const { container } = renderWithProviders(<InstallPrompt />);
+    const { container } = renderWithProviders(<InstallPrompt icon="i.svg" />);
     expect(container).toBeEmptyDOMElement();
   });
 
-  it("renders nothing when not on the home route", () => {
-    const { container } = renderWithProviders(<InstallPrompt />, {
+  it("renders nothing away from the home route", () => {
+    const { container } = renderWithProviders(<InstallPrompt icon="i.svg" />, {
       route: "/settings",
     });
     expect(container).toBeEmptyDOMElement();
@@ -47,7 +40,7 @@ describe("InstallPrompt", () => {
 
   it("shows a success toast and dismisses when install is accepted", async () => {
     promptInstall.mockResolvedValue({ outcome: "accepted" });
-    renderWithProviders(<InstallPrompt />);
+    renderWithProviders(<InstallPrompt icon="i.svg" />);
 
     await userEvent.click(screen.getByRole("button", { name: /Install/ }));
 
@@ -64,7 +57,7 @@ describe("InstallPrompt", () => {
 
   it("dismisses silently when install throws", async () => {
     promptInstall.mockRejectedValue(new Error("cancelled"));
-    renderWithProviders(<InstallPrompt />);
+    renderWithProviders(<InstallPrompt icon="i.svg" />);
 
     await userEvent.click(screen.getByRole("button", { name: /Install/ }));
 
@@ -77,7 +70,7 @@ describe("InstallPrompt", () => {
   });
 
   it("dismisses when the user taps Later", async () => {
-    renderWithProviders(<InstallPrompt />);
+    renderWithProviders(<InstallPrompt icon="i.svg" />);
     await userEvent.click(screen.getByRole("button", { name: "Later" }));
     expect(
       screen.queryByRole("button", { name: "Later" }),

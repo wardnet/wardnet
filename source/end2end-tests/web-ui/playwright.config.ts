@@ -20,7 +20,7 @@ const REPORT_DIR = process.env.REPORT_SUBDIR
  * `wardnetd` via rust-embed and served on one origin:
  *   - admin-site (desktop SPA) → `/admin/`
  *   - admin-app  (mobile PWA)  → `/admin-app/`
- *   - user-app   (device PWA)  → `/`
+ *   - user-app   (device PWA)  → `/app/` (the bare origin root 308s here)
  *
  * The browser reaches the daemon over a self-signed HTTPS proxy
  * (`tls_proxy`, Caddy) rather than the daemon's plain-HTTP :7411: a real
@@ -199,7 +199,7 @@ export default defineConfig({
       dependencies: ["seed-lan-device", "premium-setup"],
       use: {
         ...devices["Pixel 7"],
-        baseURL: `${UI_LAN_BASE_URL}/`,
+        baseURL: `${UI_LAN_BASE_URL}/app/`,
         launchOptions: { args: CHROMIUM_ARGS },
       },
     },

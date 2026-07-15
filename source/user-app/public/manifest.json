@@ -1,10 +1,10 @@
 {
-  "id": "/",
+  "id": "/app/",
   "name": "Wardnet",
   "short_name": "Wardnet",
   "description": "Wardnet \u2014 manage your network from anywhere",
-  "start_url": "/",
-  "scope": "/",
+  "start_url": "/app/",
+  "scope": "/app/",
   "display": "standalone",
   "background_color": "#11152b",
   "theme_color": "#11152b",

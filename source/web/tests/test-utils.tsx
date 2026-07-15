@@ -26,9 +26,14 @@ export function createQueryWrapper() {
 /**
  * Render a component inside the providers the shared components assume:
  * a fresh React Query client (retries off) plus a MemoryRouter so the
- * `<Link>`-using components (e.g. RoutingSelector) render.
+ * `<Link>`-using components (e.g. RoutingSelector) render. `route` sets the
+ * router's initial location for components that branch on it (InstallPrompt
+ * only shows on the home route).
  */
-export function renderWithProviders(ui: ReactElement): RenderResult {
+export function renderWithProviders(
+  ui: ReactElement,
+  { route = "/" }: { route?: string } = {},
+): RenderResult {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -38,7 +43,7 @@ export function renderWithProviders(ui: ReactElement): RenderResult {
   function Wrapper({ children }: { children: ReactNode }) {
     return (
       <QueryClientProvider client={queryClient}>
-        <MemoryRouter>{children}</MemoryRouter>
+        <MemoryRouter initialEntries={[route]}>{children}</MemoryRouter>
       </QueryClientProvider>
     );
   }

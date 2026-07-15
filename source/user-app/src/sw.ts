@@ -21,13 +21,12 @@ registerPushHandlers(self, {
 });
 
 // Offline shell — navigation requests fall back to the app-shell index.
-// This SW's scope is the origin root, but the daemon serves three surfaces
-// on one origin (user PWA at /, admin site at /admin/, admin PWA at
-// /admin-app/) plus API/health endpoints — denylist everything that is not
-// this app, or their navigations get hijacked with the user-app shell.
-const handler = createHandlerBoundToURL("/index.html");
+// This SW's scope is `/app/` (sibling to `/admin-app/`, so the two PWAs are
+// installable side by side); only navigations inside that scope ever reach
+// it. The `/api` denylist mirrors the admin-app SW as belt and braces.
+const handler = createHandlerBoundToURL("/app/index.html");
 const navigationRoute = new NavigationRoute(handler, {
-  denylist: [/^\/api/, /^\/admin/, /^\/health/],
+  denylist: [/^\/api/],
 });
 registerRoute(navigationRoute);
 

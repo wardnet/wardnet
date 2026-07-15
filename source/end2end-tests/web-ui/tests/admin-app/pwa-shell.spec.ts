@@ -52,10 +52,9 @@ test.describe("manifest + installability", () => {
     // Core installability fields: a name, an in-scope start URL, standalone
     // display, and the 192/512 icons Chrome requires to offer installation.
     expect(manifest.name).toBeTruthy();
-    // Explicit app identity, distinct from the user-app's root `id`: the
-    // admin-app lives INSIDE the user-app's `/` scope, so without its own
-    // `id` the browser considers it already installed once the user-app is,
-    // and refuses to install it. The launcher label must differ too.
+    // Explicit app identity, distinct from the user-app's `/app/` id — the
+    // two PWAs live in sibling scopes so they install side by side. The
+    // launcher label must differ too.
     expect(manifest.id).toBe("/admin-app/");
     expect(manifest.short_name).toBe("Wardnet Admin");
     expect(manifest.start_url).toContain("/admin-app/");

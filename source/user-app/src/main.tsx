@@ -22,7 +22,7 @@ L.Icon.Default.mergeOptions({
 
 // `immediate` auto-updates the precached shell after a daemon upgrade so clients
 // aren't stranded on a stale build (see `RegisterSWOptions.immediate`).
-registerSW({ swPath: "/sw.js", immediate: true });
+registerSW({ swPath: "/app/sw.js", immediate: true });
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -36,7 +36,7 @@ const queryClient = new QueryClient({
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter basename="/app">
         <ConnectionGate>
           <App />
           <Toaster />

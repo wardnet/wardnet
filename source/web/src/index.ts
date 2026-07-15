@@ -65,6 +65,7 @@ export { useAuthStore } from "./stores/authStore";
 export { ApiErrorAlert } from "./components/ApiErrorAlert";
 export { AppHeader } from "./components/AppHeader";
 export { ConnectionGate } from "./components/ConnectionGate";
+export { InstallPrompt } from "./components/InstallPrompt";
 export type { ConnState } from "./components/AppHeader";
 export { RuleRequestStatusPill } from "./components/RuleRequestStatusPill";
 export { DeviceIcon } from "./components/DeviceIcon";

@@ -6,7 +6,7 @@ use wardnetd_services::version::RELEASE_VERSION;
 
 use crate::state::AppState;
 
-/// User-facing PWA — served at `/` (all paths not matched by the blocks below).
+/// User-facing PWA — served at `/app/`.
 #[derive(Embed)]
 #[folder = "../../../user-app/dist"]
 struct UserAssets;
@@ -30,20 +30,34 @@ enum Surface {
     /// Desktop admin website at `/admin/`. Always reachable (even when not
     /// entitled) so the operator can (re)subscribe.
     AdminSite,
-    /// User-facing PWA at `/` (everything else). A **premium** surface —
-    /// gated unless the box is entitled.
+    /// User-facing PWA at `/app/`. A **premium** surface — gated unless the
+    /// box is entitled.
+    ///
+    /// Deliberately NOT at the origin root: a PWA whose manifest scope is `/`
+    /// encloses every other surface, and Chrome refuses to install an app
+    /// whose page sits inside an already-installed app's scope (a distinct
+    /// manifest `id` does not override the containment check, and Android
+    /// ignores `id` entirely). Sibling scopes — `/app/` next to `/admin-app/`
+    /// — are what make the two PWAs installable side by side in either order.
     UserApp,
 }
 
 impl Surface {
     /// Classify a (leading-slash-trimmed) request path into its app surface.
-    fn classify(raw_path: &str) -> Self {
+    ///
+    /// `None` means the path matches no surface — the legacy root tree the
+    /// user PWA occupied before it moved to `/app/`. Those are answered with
+    /// a permanent redirect into `/app/` (see [`legacy_root_redirect`]) so
+    /// pre-move bookmarks, deep links, and installed start URLs keep landing.
+    fn classify(raw_path: &str) -> Option<Self> {
         if raw_path.starts_with("admin-app/") || raw_path == "admin-app" {
-            Self::AdminApp
+            Some(Self::AdminApp)
         } else if raw_path.starts_with("admin/") || raw_path == "admin" {
-            Self::AdminSite
+            Some(Self::AdminSite)
+        } else if raw_path.starts_with("app/") || raw_path == "app" {
+            Some(Self::UserApp)
         } else {
-            Self::UserApp
+            None
         }
     }
 
@@ -66,9 +80,11 @@ impl Surface {
 /// Fallback handler that routes requests to one of the three embedded trees
 /// based on path prefix, then serves static files with appropriate cache headers.
 ///
+/// - Paths outside every surface (the user PWA's pre-move root tree) get a
+///   permanent redirect into `/app/`, before any other handling.
 /// - Unless the box is **entitled** (on the wardnet provider and not
-///   suspended), the two premium surfaces (user PWA `/` and admin mobile app
-///   `/admin-app/`) are short-circuited with a premium-required page; the
+///   suspended), the two premium surfaces (user PWA `/app/` and admin mobile
+///   app `/admin-app/`) are short-circuited with a premium-required page; the
 ///   admin website `/admin/` stays reachable so the operator can always
 ///   (re)subscribe. (`/api/*` never reaches this fallback.) This only gates
 ///   *fresh* requests — an already-installed PWA is served from its
@@ -89,7 +105,9 @@ pub async fn static_handler(
     let raw_path = uri.path().trim_start_matches('/');
     let etag = format!("\"{RELEASE_VERSION}\"");
 
-    let surface = Surface::classify(raw_path);
+    let Some(surface) = Surface::classify(raw_path) else {
+        return legacy_root_redirect(&uri);
+    };
 
     // Entitlement gate — checked *before* the `.info`/304 shortcuts so a cached
     // build can't slip a premium surface past the block via `If-None-Match`. The
@@ -135,13 +153,32 @@ pub async fn static_handler(
                 &etag,
             )
         }
-        Surface::UserApp => serve_spa(
-            UserAssets::get(raw_path),
-            UserAssets::get("index.html"),
-            raw_path,
-            &etag,
-        ),
+        Surface::UserApp => {
+            let asset_path = raw_path.strip_prefix("app/").unwrap_or("");
+            serve_spa(
+                UserAssets::get(asset_path),
+                UserAssets::get("index.html"),
+                asset_path,
+                &etag,
+            )
+        }
     }
+}
+
+/// Permanently redirect a legacy root-tree path into the user PWA's `/app/`
+/// scope, preserving the rest of the path and any query string — `/` lands on
+/// `/app/`, a pre-move deep link like `/dns?x=1` lands on `/app/dns?x=1`.
+fn legacy_root_redirect(uri: &Uri) -> Response {
+    let path = uri.path();
+    let target = match uri.query() {
+        Some(query) => format!("/app{path}?{query}"),
+        None => format!("/app{path}"),
+    };
+    (
+        StatusCode::PERMANENT_REDIRECT,
+        [(header::LOCATION, target.as_str())],
+    )
+        .into_response()
 }
 
 /// The page served at a premium surface when the box is not entitled — either

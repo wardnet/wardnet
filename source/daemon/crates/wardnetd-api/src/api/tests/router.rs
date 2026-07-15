@@ -198,13 +198,45 @@ async fn unknown_path_hits_fallback() {
     assert_eq!(status, StatusCode::OK);
 }
 
+/// Paths outside every app surface — the user PWA's pre-move root tree — are
+/// permanently redirected into `/app/`, preserving path and query so old
+/// bookmarks, deep links, and installed start URLs keep landing. The redirect
+/// answers even when the box is not entitled (its target is what's gated).
+#[tokio::test]
+async fn legacy_root_paths_redirect_into_app_scope() {
+    for (path, target) in [
+        ("/", "/app/"),
+        ("/dns", "/app/dns"),
+        ("/routing?device=ab", "/app/routing?device=ab"),
+    ] {
+        for router in [full_router(), full_router_entitled()] {
+            let req = Request::builder()
+                .method("GET")
+                .uri(path)
+                .body(Body::empty())
+                .expect("valid request");
+            let resp = router.oneshot(req).await.expect("router should respond");
+            assert_eq!(
+                resp.status(),
+                StatusCode::PERMANENT_REDIRECT,
+                "GET {path} should 308 into the /app/ scope"
+            );
+            let location = resp
+                .headers()
+                .get(axum::http::header::LOCATION)
+                .and_then(|v| v.to_str().ok());
+            assert_eq!(location, Some(target), "GET {path} Location header");
+        }
+    }
+}
+
 /// The `.info` sentinel embedded in each web tree (it keeps the `dist/`
 /// directory tracked for rust-embed; see `source/*/dist/.info`) must never be
 /// served. A GET to it returns 404, not the SPA shell. We use GET because the
 /// CORS layer would short-circuit OPTIONS before the static handler runs.
 #[tokio::test]
 async fn info_sentinel_is_not_served() {
-    for path in ["/.info", "/admin/.info", "/admin-app/.info"] {
+    for path in ["/app/.info", "/admin/.info", "/admin-app/.info"] {
         let req = Request::builder()
             .method("GET")
             .uri(path)

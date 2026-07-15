@@ -3,7 +3,9 @@ import { expect, test } from "@playwright/test";
 /**
  * user-app PWA shell coverage (epic #614 → C1, #626): the web-app manifest
  * + installability criteria and the service-worker offline shell, for the
- * device-keyed user PWA served at the root scope (`/`).
+ * device-keyed user PWA served at `/app/` (a sibling scope to the
+ * admin-app's `/admin-app/`, so the two PWAs install side by side; the
+ * bare origin root permanently redirects into `/app/`).
  *
  * Runs in the `user-app` project — Pixel 7 viewport, driven by the LAN-side
  * runner over the `tls_proxy_lan` HTTPS origin (a secure context is required
@@ -33,17 +35,15 @@ test.describe("manifest + installability", () => {
     );
     const manifest = await res.json();
 
-    // Core installability fields: a name, the root-scoped start URL + scope
-    // (the user-app owns the whole origin, so both are exactly "/"),
-    // standalone display, and the 192/512 icons Chrome requires to offer
-    // installation.
+    // Core installability fields: a name, the /app/-scoped start URL + scope
+    // (a SIBLING of /admin-app/ — Chrome refuses to install an app whose page
+    // sits inside an already-installed app's scope, so the user-app must not
+    // own the origin root), standalone display, and the 192/512 icons Chrome
+    // requires to offer installation.
     expect(manifest.name).toBeTruthy();
-    // Explicit app identity: without `id`, identity falls back to start_url
-    // and the browser treats any same-origin PWA inside this root scope
-    // (the admin-app at /admin-app/) as THIS app, blocking its install.
-    expect(manifest.id).toBe("/");
-    expect(manifest.start_url).toBe("/");
-    expect(manifest.scope).toBe("/");
+    expect(manifest.id).toBe("/app/");
+    expect(manifest.start_url).toBe("/app/");
+    expect(manifest.scope).toBe("/app/");
     expect(manifest.display).toBe("standalone");
     const iconSizes: string[] = (manifest.icons ?? []).map(
       (icon: { sizes: string }) => icon.sizes,

@@ -68,7 +68,7 @@ tree; changing a component or a token means a release in that repo followed by a
 
 ## PWA initiative (issues #435–#441)
 
-- **Three app surfaces** — admin site (desktop, at `/admin/`), user PWA (at `/`), admin mobile PWA (at `/admin-app/`). All served from a single origin; independently installable via distinct `manifest.json` scopes. Admin site and admin-app are both live; user-app is still planned (issue #438). See `CONTEXT.md` for the full glossary.
+- **Three app surfaces** — admin site (desktop, at `/admin/`), user PWA (at `/app/`; the bare root `/` 308-redirects there), admin mobile PWA (at `/admin-app/`). All served from a single origin; the two PWAs are installable side by side because their `manifest.json` scopes are siblings, not nested (Chrome refuses to install an app whose page sits inside an installed app's scope). See `CONTEXT.md` for the full glossary.
 - **Daemon-owned TLS** — `wardnetd` terminates TLS itself on `:443` (no Caddy, diverging from issue #436): it issues/renews its certificate natively via ACME **DNS-01** (`instant-acme` + `rcgen` + `rustls`/`axum-server`), publishing `_acme-challenge` TXT through the **DnsProvider**. `:80` redirects to HTTPS. See `docs/adr/0008-daemon-owned-tls.md`.
 - **DDNS + ACME bridge service** — wardnet-operated service assigning each install a vanity name (`<vanity>.my.wardnet.services`) and acting as ACME bridge for Let's Encrypt DNS-01 challenges. The cert private key is generated on the Pi and never leaves it. See issue #435.
 - **VAPID / Web Push** — daemon-side push notification support (VAPID key pair generated at setup, subscription records keyed to device MAC or admin session). See issue #440.
