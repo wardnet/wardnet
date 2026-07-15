@@ -272,6 +272,28 @@ fn redirect_keeps_same_host_when_already_canonical() {
 }
 
 #[test]
+fn redirect_same_host_upgrade_includes_non_default_https_port() {
+    // The same-host upgrade arm (host already the canonical FQDN) must also append
+    // a non-default HTTPS port — regression guard distinct from the rewrite arm.
+    let mut headers = HeaderMap::new();
+    headers.insert(header::HOST, "home.example.net".parse().unwrap());
+    let uri: Uri = "/x".parse().unwrap();
+
+    let resp = redirect_to_https(
+        8443,
+        7411,
+        Some(Arc::new("home.example.net".to_owned())),
+        &headers,
+        &uri,
+    );
+    assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+    assert_eq!(
+        resp.headers().get(header::LOCATION).unwrap(),
+        "https://home.example.net:8443/x"
+    );
+}
+
+#[test]
 fn redirect_missing_host_is_bad_request() {
     let headers = HeaderMap::new();
     let uri: Uri = "/".parse().unwrap();
