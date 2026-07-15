@@ -21,6 +21,30 @@ name: Build Daemon
 
 on:
   workflow_call:
+    inputs:
+      ref:
+        description: >
+          Git ref to build. Empty (default) builds the caller's ref. The edge
+          channel passes an arbitrary branch here, including unmerged ones.
+        type: string
+        default: ""
+      version:
+        description: >
+          Pin WARDNET_VERSION to this value instead of deriving it from git.
+          Empty (default) keeps the existing behaviour: tag pushes pin to the
+          tag, everything else gets `-dev.N+gHASH` from `git describe`. Edge
+          builds pass `<base-calver>-edge.<run-number>`, which no tag carries.
+        type: string
+        default: ""
+      run-checks:
+        description: >
+          Run check-daemon + check-openapi before building. Edge builds pass
+          `false` deliberately (ADR-0023): for a branch that came from a PR the
+          gates already ran, and for an experiment the whole point may be to
+          test a build the gates would reject. Every gate here re-imports the
+          latency edge exists to delete.
+        type: boolean
+        default: true
 
 # Explicit scopes (not read-all) so this leaf's workflow-level stays a
 # subset of the caller's workflow-level — GitHub's reusable-workflow
@@ -41,6 +65,7 @@ env:
 jobs:
   check-daemon:
     name: Check Daemon
+    if: inputs.run-checks
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -55,6 +80,8 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: ./.github/actions/setup-rust
         with:
@@ -92,6 +119,7 @@ jobs:
 
   check-openapi:
     name: Check OpenAPI drift
+    if: inputs.run-checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -101,6 +129,8 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: ./.github/actions/setup-rust
 
@@ -121,6 +151,8 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: ./.github/actions/setup-node-yarn
         with:
@@ -147,6 +179,15 @@ jobs:
   build:
     name: Build Daemon (${{ matrix.arch }})
     needs: [build-web, check-daemon]
+    # check-daemon is skipped when run-checks is false (edge builds). A
+    # skipped ancestor propagates as a skip under the default predicate,
+    # so pin it: build runs iff the web build succeeded and check-daemon
+    # either passed or was deliberately not run.
+    if: |
+      always() &&
+      needs.build-web.result == 'success' &&
+      (needs.check-daemon.result == 'success' ||
+       needs.check-daemon.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
@@ -169,6 +210,8 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.ref }}
 
       # rust-embed picks the web UI up from these directories at daemon
       # compile time. Downloading the shared artifact avoids re-running
@@ -196,7 +239,7 @@ jobs:
           # headers (linux/netfilter/*) via -idirafter. May need tuning in CI.
           echo "BINDGEN_EXTRA_CLANG_ARGS=--target=aarch64-linux-gnu --sysroot=/usr/aarch64-linux-gnu -idirafter /usr/include" >> "$GITHUB_ENV"
 
-      - name: Pin WARDNET_VERSION for tagged release builds
+      - name: Pin WARDNET_VERSION for release and edge builds
         # The downloaded web-ui-dist artifact lands real Vite output on top of
         # the tracked `.info` sentinels in each source/*/dist. That dirties the
         # worktree, so the `wardnetd-services`
@@ -207,14 +250,34 @@ jobs:
         # the documented WARDNET_VERSION_OVERRIDE escape hatch to the
         # tag (sans `v`). For PR / push-to-main runs the override stays
         # empty so binaries keep the `-dev.N+gHASH` commit identifier.
-        if: startsWith(github.ref, 'refs/tags/v')
+        #
+        # An explicit `version` input wins over the tag: edge builds are cut
+        # from a branch with no tag of their own, and the version they must
+        # report (`<base-calver>-edge.<run>`) exists nowhere in git — the
+        # updater compares it against what the box is running, so a binary
+        # that reported `-dev.N+gHASH` here would never look "newer".
+        if: inputs.version != '' || startsWith(github.ref, 'refs/tags/v')
         env:
           REF_NAME: ${{ github.ref_name }}
+          VERSION_INPUT: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          VERSION="${REF_NAME#v}"
+          if [[ -n "${VERSION_INPUT}" ]]; then
+            VERSION="${VERSION_INPUT}"
+          else
+            VERSION="${REF_NAME#v}"
+          fi
           echo "WARDNET_VERSION_OVERRIDE=${VERSION}" >> "${GITHUB_ENV}"
-          echo "Pinned WARDNET_VERSION_OVERRIDE=${VERSION}"
+
+          # WARDNET_RELEASE_VERSION (the public-facing CalVer) defaults to
+          # whatever CALVER says in the tree being built. For a tag build those
+          # agree. For an edge build they do NOT: CALVER still reads the last
+          # release (e.g. `2026.07.00-beta.5`), so without this the binary would
+          # report the edge version as WARDNET_VERSION while still claiming to be
+          # beta.5 everywhere WARDNET_RELEASE_VERSION is surfaced. Pin both to
+          # the same string.
+          echo "WARDNET_RELEASE_VERSION_OVERRIDE=${VERSION}" >> "${GITHUB_ENV}"
+          echo "Pinned WARDNET_VERSION_OVERRIDE=${VERSION} (and WARDNET_RELEASE_VERSION_OVERRIDE)"
 
       - name: Build wardnetd
         env:

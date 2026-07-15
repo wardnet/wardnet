@@ -189,6 +189,24 @@ jobs:
           set -euo pipefail
           cp source/marketing-site/public/releases/stable.json site/releases/stable.json
           cp source/marketing-site/public/releases/beta.json   site/releases/beta.json
+          # edge.json is regenerated here too. This run did not publish an edge
+          # build, but the generator is the only writer of all three manifests
+          # and copying two of them would leave the deployed edge.json older
+          # than its siblings — and, worse, silently revert an edge build
+          # published between this bundle's build and its deploy.
+          #
+          # Only copy it when it actually names a build: with no edge release
+          # published (or after a failed API call, which makes the generator
+          # emit empty placeholders rather than fail) the regenerated file is an
+          # empty manifest, and overwriting a live edge.json with that would
+          # strand any box on the edge channel.
+          EDGE_VERSION="$(jq -r '.version // ""' source/marketing-site/public/releases/edge.json)"
+          if [[ -n "${EDGE_VERSION}" ]]; then
+            cp source/marketing-site/public/releases/edge.json site/releases/edge.json
+            echo "Refreshed edge.json → ${EDGE_VERSION}"
+          else
+            echo "edge.json is empty — leaving the bundled copy untouched."
+          fi
           echo "Refreshed stable.json:"
           cat site/releases/stable.json
 

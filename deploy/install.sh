@@ -20,7 +20,11 @@ set -euo pipefail
 #   sudo CHANNEL=beta ./install.sh
 
 CHANNEL="${CHANNEL:-stable}"
-MANIFEST_URL="${MANIFEST_URL:-https://releases.wardnet.network/${CHANNEL}.json}"
+# Remember whether MANIFEST_URL was set explicitly; the default is derived from
+# CHANNEL *after* the arg loop, since `--channel` assigns CHANNEL there. Baking
+# the URL in here would freeze it at the env value and make `--channel` silently
+# inert — the script would announce one channel and install another.
+MANIFEST_URL_OVERRIDE="${MANIFEST_URL:-}"
 LAN_INTERFACE="${LAN_INTERFACE:-}"
 STATIC_IP="${STATIC_IP:-}"
 OFFLINE_DIR=""
@@ -45,8 +49,18 @@ Usage: sudo ./install.sh [OPTIONS]
 Options:
   --from <dir>          Install from an already-downloaded release bundle;
                         skips the network download and signature fetch.
-  --channel <name>      Release channel to install from (default: stable).
-                        Ignored when --from is given.
+  --channel <name>      Release channel to install from: stable, beta, or edge
+                        (default: stable). Ignored when --from is given.
+                        Edge builds are unreviewed and ungated; on a fresh
+                        install this also writes allow_edge_channel into the
+                        [update] section of wardnet.toml, which is what lets
+                        the box follow the channel.
+                        This picks the tarball only — it does not change the
+                        channel the daemon has stored. To move a box off edge,
+                        clear allow_edge_channel and restart first (the daemon
+                        falls back to beta), then re-run with --channel beta to
+                        drop the binary back; the auto-updater never downgrades
+                        on its own.
   --lan-interface <if>  Bind the daemon to this LAN interface. If omitted,
                         the script prompts (tty) or picks the first candidate.
   --static-ip <cidr>    Configure a static IPv4 address on the LAN interface
@@ -93,6 +107,18 @@ while [[ $# -gt 0 ]]; do
         *) echo "Unknown option: $1" >&2; print_usage >&2; exit 1 ;;
     esac
 done
+
+case "$CHANNEL" in
+    stable|beta|edge) ;;
+    *)
+        echo "Error: unknown channel '$CHANNEL' (expected stable, beta, or edge)" >&2
+        exit 1
+        ;;
+esac
+
+# Resolve the manifest URL now that --channel has been parsed. An explicit
+# MANIFEST_URL always wins (air-gapped mirrors depend on it).
+MANIFEST_URL="${MANIFEST_URL_OVERRIDE:-https://releases.wardnet.network/${CHANNEL}.json}"
 
 if [[ -n "$OFFLINE_DIR" && ! -d "$OFFLINE_DIR" ]]; then
     echo "Error: --from directory '$OFFLINE_DIR' does not exist" >&2
@@ -457,8 +483,32 @@ lan_interface = "$LAN_INTERFACE"
 provider = "file_system"
 path = "/var/lib/wardnet/secrets"
 EOF
+    # Installing *from* the edge channel implies consenting to follow it, so
+    # open the gate the daemon enforces. Without this the box would run the
+    # edge binary it just downloaded while refusing to select the edge channel
+    # in the UI — and would never be offered another edge build.
+    if [[ "$CHANNEL" == "edge" ]]; then
+        cat >> /etc/wardnet/wardnet.toml <<EOF
+
+[update]
+# Unreviewed, ungated builds published straight from a branch. Set by
+# install.sh because this box was installed with --channel edge.
+allow_edge_channel = true
+EOF
+    fi
     chown wardnet:wardnet /etc/wardnet/wardnet.toml
     chmod 640 /etc/wardnet/wardnet.toml
+elif [[ "$CHANNEL" == "edge" ]] && ! grep -q '^ *allow_edge_channel *= *true' /etc/wardnet/wardnet.toml 2>/dev/null; then
+    # Existing config is never rewritten (operator tweaks live there), so say
+    # plainly that the edge binary is installed but the channel is still shut.
+    echo ""
+    echo "Note: installed the edge build, but /etc/wardnet/wardnet.toml does not enable the"
+    echo "      edge channel, so this box will not receive further edge builds. To follow it:"
+    echo ""
+    echo "        [update]"
+    echo "        allow_edge_channel = true"
+    echo ""
+    echo "      then restart wardnetd and select the Edge channel in the admin UI."
 fi
 
 # 4. Binary. Owned by wardnet so the daemon process can read+exec it,

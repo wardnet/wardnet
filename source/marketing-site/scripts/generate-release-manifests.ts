@@ -29,103 +29,17 @@ import { fileURLToPath } from "node:url";
 
 import { Octokit } from "@octokit/rest";
 
+import {
+  classifyChannels,
+  parseVersion,
+  compareVersion,
+  rcompareVersion,
+  type ParsedVersion,
+} from "./channels";
 import { parseSha256Asset } from "./sha256";
 
 const REPO_OWNER = "wardnet";
 const REPO_NAME = "wardnet";
-
-/**
- * Parsed release version, structured for component-wise comparison.
- *
- * The npm `semver` package rejects CalVer with leading zeros
- * (`2026.05.00`), the form Wardnet uses for release tags. Using a
- * dotted-numeric parser instead lets the manifest generator handle
- * both legacy SemVer (`0.1.0`) and CalVer (`2026.05.00`, `2026.5.10`,
- * etc.) uniformly. Pre-release / build suffixes are split off into
- * their own field so they can be classified separately.
- */
-interface ParsedVersion {
-  /** Original version string with leading `v` stripped. */
-  version: string;
-  /**
-   * Numeric components (`2026.05.00` → `[2026, 5, 0]`). Leading
-   * zeros are coerced; comparison is component-wise as `u64`.
-   */
-  parts: number[];
-  /** `-beta.1`, `-rc.2`, etc. Empty array when there's no suffix. */
-  prerelease: string[];
-}
-
-/** Strip a leading `v` and split into base + pre-release components. */
-function parseVersion(tag: string): ParsedVersion | null {
-  const stripped = tag.replace(/^v/, "");
-  if (!stripped) return null;
-  // `+build` metadata isn't carried into the manifest; drop it.
-  const noBuild = stripped.split("+", 1)[0]!;
-  const dashAt = noBuild.indexOf("-");
-  const head = dashAt === -1 ? noBuild : noBuild.slice(0, dashAt);
-  const tail = dashAt === -1 ? "" : noBuild.slice(dashAt + 1);
-
-  const parts: number[] = [];
-  for (const segment of head.split(".")) {
-    if (!/^\d+$/.test(segment)) return null;
-    parts.push(parseInt(segment, 10));
-  }
-  if (parts.length === 0) return null;
-
-  return {
-    version: noBuild,
-    parts,
-    prerelease: tail ? tail.split(".") : [],
-  };
-}
-
-/**
- * Compare two parsed versions numerically. Mirrors the daemon's
- * `is_newer` comparator (wardnetd-services::update::service): split
- * on `.`, compare components as integers, then break ties on the
- * pre-release suffix (any pre-release sorts before the release of
- * the same base, lexicographic tiebreak otherwise).
- */
-function compareVersion(a: ParsedVersion, b: ParsedVersion): number {
-  const len = Math.max(a.parts.length, b.parts.length);
-  for (let i = 0; i < len; i++) {
-    // eslint-disable-next-line security/detect-object-injection -- numeric loop index into a local number[] from parseVersion; not an attacker-chosen key
-    const ai = a.parts[i] ?? 0;
-    // eslint-disable-next-line security/detect-object-injection -- numeric loop index into a local number[] from parseVersion; not an attacker-chosen key
-    const bi = b.parts[i] ?? 0;
-    if (ai !== bi) return ai - bi;
-  }
-  if (a.prerelease.length === 0 && b.prerelease.length === 0) return 0;
-  if (a.prerelease.length === 0) return 1;
-  if (b.prerelease.length === 0) return -1;
-  for (let i = 0; i < Math.max(a.prerelease.length, b.prerelease.length); i++) {
-    // eslint-disable-next-line security/detect-object-injection -- numeric loop index into a local string[] of prerelease segments; array read
-    const ai = a.prerelease[i];
-    // eslint-disable-next-line security/detect-object-injection -- numeric loop index into a local string[] of prerelease segments; array read
-    const bi = b.prerelease[i];
-    if (ai === undefined) return -1;
-    if (bi === undefined) return 1;
-    const ar = /^\d+$/.test(ai);
-    const br = /^\d+$/.test(bi);
-    // Numeric identifiers always rank lower than alphanumeric — same
-    // tiebreak rule as semver §11.4.3, kept so beta numbering still
-    // sorts predictably.
-    if (ar && !br) return -1;
-    if (!ar && br) return 1;
-    if (ar && br) {
-      const diff = parseInt(ai, 10) - parseInt(bi, 10);
-      if (diff !== 0) return diff;
-    } else if (ai !== bi) {
-      return ai < bi ? -1 : 1;
-    }
-  }
-  return 0;
-}
-
-function rcompareVersion(a: ParsedVersion, b: ParsedVersion): number {
-  return -compareVersion(a, b);
-}
 
 const ROOT = resolve(fileURLToPath(import.meta.url), "../..");
 const PUBLIC_RELEASES = resolve(ROOT, "public/releases");
@@ -242,39 +156,6 @@ function buildManifest(release: GithubRelease): Manifest | null {
     },
     notes_url: release.html_url,
   };
-}
-
-/**
- * Classify releases by channel.
- *
- * - `stable`: latest release with a non-prerelease tag AND prerelease=false.
- * - `beta`:   latest release overall (prereleases and stable both considered).
- */
-function classifyChannels(releases: GithubRelease[]): {
-  stable: GithubRelease | null;
-  beta: GithubRelease | null;
-} {
-  const nonDraft = releases.filter((r) => !r.draft);
-
-  // Pre-compute parsed versions for sorting. Drop releases whose tag is
-  // not parseable as dotted-numeric (legacy SemVer or CalVer).
-  const withVersions = nonDraft
-    .map((r) => ({ release: r, version: parseVersion(r.tag_name) }))
-    .filter(
-      (entry): entry is { release: GithubRelease; version: ParsedVersion } =>
-        entry.version !== null,
-    );
-
-  // Descending by version precedence (pre-release sorts before release of same base).
-  withVersions.sort((a, b) => rcompareVersion(a.version, b.version));
-
-  const stable =
-    withVersions.find((entry) => !entry.release.prerelease && entry.version.prerelease.length === 0)
-      ?.release ?? null;
-
-  const beta = withVersions[0]?.release ?? null;
-
-  return { stable, beta };
 }
 
 function emptyManifest(): Manifest {
@@ -507,13 +388,15 @@ async function main(): Promise<void> {
     );
   }
 
-  const { stable, beta } = classifyChannels(releases);
+  const { stable, beta, edge } = classifyChannels(releases);
 
   const stableManifest = stable ? buildManifest(stable) : null;
   const betaManifest = beta ? buildManifest(beta) : null;
+  const edgeManifest = edge ? buildManifest(edge) : null;
 
   await writeManifest(resolve(PUBLIC_RELEASES, "stable.json"), stableManifest);
   await writeManifest(resolve(PUBLIC_RELEASES, "beta.json"), betaManifest);
+  await writeManifest(resolve(PUBLIC_RELEASES, "edge.json"), edgeManifest);
 
   const openapiVersions = await buildOpenapiVersions(releases);
   // Download each distinct spec same-origin; keep only the rows that landed

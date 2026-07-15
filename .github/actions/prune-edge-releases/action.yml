@@ -1,0 +1,78 @@
+name: Prune edge releases
+description: >-
+  Delete edge (`edge-v*`) prereleases and their git tags, keeping only the
+  newest `keep` by run number. Also sweeps dangling `edge-v*` tags that have
+  no release behind them (an orphan left by a build that tagged, then failed
+  to publish). Expects the repo to already be checked out.
+
+inputs:
+  keep:
+    description: Number of newest edge releases to retain (0 deletes them all).
+    required: true
+  token:
+    description: GitHub token carrying contents write (release + tag deletion).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Delete superseded edge releases, tags, and orphan tags
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        KEEP: ${{ inputs.keep }}
+        REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+
+        # Every edge release, oldest first, keyed on the numeric run suffix so
+        # `edge.9` sorts before `edge.10` (a plain lexical or column sort keys
+        # on `00-edge`, which is 0 for every tag, and silently falls back to
+        # comparing whole lines as text). The regex also means only well-formed
+        # `edge-v<ver>-edge.<n>` tags are ever eligible — a real `v*` release
+        # can never be selected here.
+        mapfile -t RELEASES < <(
+          gh release list --limit 500 --json tagName \
+            --jq '.[] | select(.tagName | test("^edge-v.*-edge\\.[0-9]+$")) | .tagName' \
+          | awk -F'-edge.' '{ print $NF "\t" $0 }' \
+          | sort -k1,1n \
+          | cut -f2-
+        )
+
+        # The newest KEEP tags are the set we retain. Built explicitly (rather
+        # than `head -n -KEEP`) because the same set gates the orphan sweep
+        # below, and because `keep=0` must mean "retain nothing", which a
+        # negative-offset slice does not express cleanly.
+        declare -A KEEP_SET=()
+        n=${#RELEASES[@]}
+        if (( KEEP > 0 && n > 0 )); then
+          start=$(( n > KEEP ? n - KEEP : 0 ))
+          for (( i = start; i < n; i++ )); do
+            KEEP_SET["${RELEASES[$i]}"]=1
+          done
+        fi
+
+        deleted=0
+        for TAG in ${RELEASES[@]+"${RELEASES[@]}"}; do
+          [[ -n "${KEEP_SET[$TAG]:-}" ]] && continue
+          echo "Deleting release ${TAG} (and its tag)"
+          gh release delete "${TAG}" --yes --cleanup-tag
+          deleted=$(( deleted + 1 ))
+        done
+
+        # Sweep orphan edge-v* tags: a tag with no release behind it. These are
+        # invisible to `gh release list`, so enumerate refs directly. Any
+        # edge-v* tag not in the keep set is fair game — a kept release's tag is
+        # protected, everything else was either already deleted above (a no-op
+        # here) or never had a release.
+        swept=0
+        while read -r REF; do
+          TAG="${REF#refs/tags/}"
+          [[ "${TAG}" =~ ^edge-v.*-edge\.[0-9]+$ ]] || continue
+          [[ -n "${KEEP_SET[$TAG]:-}" ]] && continue
+          echo "Deleting orphan tag ${TAG}"
+          gh api -X DELETE "repos/${REPO}/git/refs/tags/${TAG}" >/dev/null 2>&1 \
+            && swept=$(( swept + 1 )) || true
+        done < <(gh api "repos/${REPO}/git/refs/tags" --paginate --jq '.[].ref' 2>/dev/null || true)
+
+        echo "Pruned ${deleted} release(s); swept ${swept} orphan tag(s); kept ${#KEEP_SET[@]}."

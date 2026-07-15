@@ -1109,6 +1109,10 @@ impl wardnetd_services::UpdateService for StubUpdateService {
         unimplemented!("startup-only path; these tests never boot the runner")
     }
 
+    async fn reconcile_channel_gate(&self) -> Result<(), AppError> {
+        unimplemented!("startup-only path; these tests never boot the runner")
+    }
+
     async fn status(&self) -> Result<wardnet_common::api::UpdateStatusResponse, AppError> {
         unimplemented!()
     }

@@ -726,6 +726,24 @@ async fn run(
         );
     }
 
+    // Settle the stored update channel against `[update] allow_edge_channel`.
+    // A box left on `edge` whose flag has since been removed falls back to
+    // `beta` here — before the update runner's first check, so it can never
+    // pull an edge build the current config no longer permits.
+    let channel_gate = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        },
+        services.update.reconcile_channel_gate(),
+    )
+    .await;
+    if let Err(err) = channel_gate {
+        tracing::warn!(
+            error = %err,
+            "failed to reconcile update channel against the edge gate at startup: {err}",
+        );
+    }
+
     // Start the auto-update poller. An initial check runs immediately; then
     // every `check_interval_secs` with ±10% jitter.
     let update_runner = UpdateRunner::start(

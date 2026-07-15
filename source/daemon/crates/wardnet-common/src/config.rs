@@ -640,6 +640,15 @@ pub struct UpdateConfig {
     pub require_signature: bool,
     /// HTTP request timeout for manifest/asset fetches, in seconds.
     pub http_timeout_secs: u64,
+    /// Allow this box to follow the `edge` channel — unreviewed, ungated
+    /// builds published straight from a branch (ADR-0023).
+    ///
+    /// Deliberately deploy-time, not an admin toggle: putting a box on edge
+    /// should require root *on that box*, so an admin session (or a stolen
+    /// one) cannot opt it into unvetted code. Default `false`. If this is
+    /// turned off on a box already following edge, the daemon logs a warning
+    /// at startup and falls back to `beta`.
+    pub allow_edge_channel: bool,
 }
 
 impl Default for UpdateConfig {
@@ -651,6 +660,7 @@ impl Default for UpdateConfig {
             staging_dir: PathBuf::from("/var/lib/wardnet/updates"),
             require_signature: true,
             http_timeout_secs: 60,
+            allow_edge_channel: false,
         }
     }
 }

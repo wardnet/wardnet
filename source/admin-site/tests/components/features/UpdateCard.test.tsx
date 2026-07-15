@@ -18,6 +18,7 @@ function makeStatus(overrides: Partial<UpdateStatus> = {}): UpdateStatus {
     auto_update_enabled: false,
     update_available: false,
     rollback_available: false,
+    edge_available: false,
     pending_version: null,
     last_check_at: "2026-01-01T00:00:00Z",
     install_phase: { phase: "idle" },
@@ -206,6 +207,42 @@ describe("UpdateCard", () => {
       await screen.findByRole("option", { name: "Beta channel" }),
     );
     expect(onChangeChannel).toHaveBeenCalledWith("beta");
+  });
+
+  it("hides the edge channel unless the daemon says the box allows it", async () => {
+    // Edge needs `[update] allow_edge_channel` in the box's TOML, which the UI
+    // cannot set. Offering the option anyway would just be a button that 403s.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(
+      <UpdateCard
+        {...baseProps()}
+        status={makeStatus({ edge_available: false })}
+      />,
+    );
+    await user.click(screen.getByTestId("update-channel-trigger"));
+    expect(
+      await screen.findByRole("option", { name: "Beta channel" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Edge channel" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("offers the edge channel when the box allows it", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    const onChangeChannel = vi.fn();
+    renderWithProviders(
+      <UpdateCard
+        {...baseProps()}
+        status={makeStatus({ edge_available: true })}
+        onChangeChannel={onChangeChannel}
+      />,
+    );
+    await user.click(screen.getByTestId("update-channel-trigger"));
+    await user.click(
+      await screen.findByRole("option", { name: "Edge channel" }),
+    );
+    expect(onChangeChannel).toHaveBeenCalledWith("edge");
   });
 
   it("shows the rollback in-progress label", () => {

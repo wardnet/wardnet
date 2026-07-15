@@ -1,0 +1,333 @@
+name: Release Edge
+
+# On-demand edge build: signed, publishable daemon from ANY branch in one
+# step. See docs/adr/0023-edge-release-channel.md.
+#
+# What this deliberately does NOT do: no check-daemon, no check-openapi, no
+# E2E, no CalVer bump, no VERSION bump, no release-notes doc, no OpenAPI
+# regeneration. For a branch that came from a PR those gates already ran; for
+# an experiment, the whole point may be to test a build the gates would
+# reject. Every gate added here re-imports the hour of latency edge exists to
+# delete. What survives is authenticity: edge tarballs are signed with the
+# production minisign key and carry SLSA provenance, exactly like a release.
+#
+# Run it from the DEFAULT BRANCH and name the branch to build in the `branch`
+# input — including an unmerged one. (Dispatching from the branch itself also
+# works, but the workflow file has to exist on it.) The marketing site that
+# gets redeployed to publish edge.json is always built from the default
+# branch, never from `branch`.
+#
+# Boxes only follow these builds if they are on the edge channel, which
+# requires `[update] allow_edge_channel = true` in their TOML — i.e. root on
+# the box. See the daemon's UpdateService gate.
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: Branch (or any ref) to build and publish. Unmerged branches are supported.
+        type: string
+        required: true
+        default: main
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+concurrency:
+  # Serialise edge builds: two concurrent runs would race on the pruning step
+  # and on the Pages deploy. Never cancel in progress — a half-published
+  # release (tag pushed, assets not yet attached) is worse than a slow queue.
+  group: release-edge
+  cancel-in-progress: false
+
+jobs:
+  resolve:
+    name: Resolve edge version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      sha: ${{ steps.version.outputs.sha }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ inputs.branch }}
+          fetch-depth: 0
+
+      - name: Derive version from CALVER + run number
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+
+          # Base CalVer with any pre-release suffix stripped: an edge build cut
+          # while CALVER reads `2026.07.00-beta.5` is still an edge build of
+          # base 2026.07.00, and `2026.07.00-beta.5-edge.9` is not a version.
+          BASE="$(tr -d '[:space:]' < CALVER)"
+          BASE="${BASE%%-*}"
+
+          # The run number is monotonic per workflow, so ordering is supplied
+          # for free and no file in the tree has to be bumped. Note the daemon
+          # compares `edge.N` numerically, so 147 > 12 > 9.
+          VERSION="${BASE}-edge.${RUN_NUMBER}"
+
+          # `edge-v*`, NOT `v*` — release.yml triggers on `v*.*.*`, and a tag
+          # that matched would kick off a full release of an unvetted branch.
+          TAG="edge-v${VERSION}"
+
+          SHA="$(git rev-parse HEAD)"
+
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "sha=${SHA}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Edge build ${VERSION} (tag=${TAG}) from ${GITHUB_REF_NAME:-${SHA}} @ ${SHA}"
+
+  tag:
+    name: Tag edge build
+    # Deliberately AFTER the build, not in parallel with it. Tags are cheap to
+    # create and impossible to take back: this repo has immutable releases, so
+    # a tag pushed before a build that then fails is burned for good, and the
+    # prune job cannot reclaim it (it enumerates *releases*, and a tag with no
+    # release behind it is invisible to `gh release list`). Pushing only once
+    # there is something to publish keeps the tag namespace free of orphans.
+    needs: [resolve, build-daemon]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # Pushing the `edge-v*` tag that release-daemon.yml's `--verify-tag`
+      # requires.
+      contents: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+
+      - name: Create and push the edge tag
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+          SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          # The run number never repeats, so this tag is new every time. That
+          # matters: this repo has immutable releases enabled, which burns a
+          # published tag name permanently — nothing here may ever rewrite or
+          # reuse one.
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::tag ${TAG} already exists. Releases are immutable — a published tag can never be reused. Re-run to get a fresh run number."
+            exit 1
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${TAG}" "${SHA}" -m "Wardnet edge build ${TAG#edge-v}"
+          git push origin "refs/tags/${TAG}"
+
+  build-daemon:
+    name: Build Daemon
+    needs: resolve
+    permissions:
+      contents: read
+      actions: read
+      # No clippy SARIF upload happens (check-daemon is skipped), but the leaf
+      # declares the scope and a reusable workflow may not exceed its caller.
+      security-events: write
+      # build-web reads @wardnet/* from GitHub Packages.
+      packages: read
+    uses: ./.github/workflows/build-daemon.yml
+    with:
+      ref: ${{ needs.resolve.outputs.sha }}
+      version: ${{ needs.resolve.outputs.version }}
+      # Deliberate. See the header and ADR-0023.
+      run-checks: false
+    secrets: inherit
+
+  release-daemon:
+    name: Release Daemon
+    needs: [resolve, tag, build-daemon]
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/release-daemon.yml
+    with:
+      version: ${{ needs.resolve.outputs.version }}
+      tag: ${{ needs.resolve.outputs.tag }}
+      # Always a prerelease. Beyond the honest labelling, this is what keeps
+      # an edge build from ever becoming the repo's "Latest release".
+      prerelease: true
+      attach-openapi: false
+      notes-body: >
+        Unvetted edge build from `${{ inputs.branch }}`
+        (${{ needs.resolve.outputs.sha }}). No review, no release notes, no
+        test gates — signed, but nothing here promises the code is good. Only
+        boxes with `[update] allow_edge_channel = true` can install it.
+    secrets: inherit
+
+  prune:
+    name: Prune old edge releases
+    needs: release-daemon
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Deleting superseded edge releases and their tags.
+      contents: write
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - name: Keep only the newest 5 edge releases
+        # Shared with the on-demand prune-edge.yml so the run-number sort and
+        # the orphan-tag sweep live in one place. Each release delete takes its
+        # git tag with it (`--cleanup-tag`), so tags never accumulate.
+        uses: ./.github/actions/prune-edge-releases
+        with:
+          keep: "5"
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  # Republish the site so /releases/edge.json names the build we just cut —
+  # without it the daemon has nothing to poll and the whole channel is inert.
+  #
+  # The site content is built from the DEFAULT BRANCH, never from `branch`:
+  # the manifests come from the GitHub Releases API, so an edge build of an
+  # unmerged branch has no business shipping that branch's marketing pages to
+  # production Pages.
+  build-site:
+    name: Build Site
+    needs: resolve
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/build-site.yml
+    with:
+      ref: ${{ github.event.repository.default_branch }}
+    secrets: inherit
+
+  refresh-manifest:
+    name: Refresh release manifest in site bundle
+    # NOT gated on `prune`. Pruning is housekeeping; publishing edge.json is
+    # the entire point of the run. Hanging the manifest off prune would mean a
+    # failure in the cleanup step (a GitHub API hiccup, a delete race) buries a
+    # release that was already published and signed — the operator would see a
+    # green tag and a red workflow, with the box never offered the build.
+    needs: [resolve, build-site, release-daemon]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Download original site bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: site-dist
+          path: site/
+
+      - uses: ./.github/actions/setup-node-yarn
+        with:
+          cache-dependency-path: source/yarn.lock
+
+      - name: Install site dependencies
+        run: cd source/marketing-site && yarn install --immutable
+
+      - name: Regenerate release manifests
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: cd source/marketing-site && yarn generate:release-manifests
+
+      - name: Patch refreshed manifests into bundle
+        env:
+          EXPECTED_EDGE: ${{ needs.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          GEN=source/marketing-site/public/releases
+
+          # The generator fails OPEN: if the GitHub Releases API call throws
+          # (rate limit, transient 5xx) it logs a warning and writes empty
+          # placeholder manifests rather than failing the build. That is the
+          # right call for a site build, and catastrophic here — we are about to
+          # copy these over the live manifests, so one bad API call would blank
+          # stable.json and strand every box on the stable channel with nothing
+          # to update to. Refuse to publish a manifest with no version in it.
+          for CHANNEL in stable beta edge; do
+            VERSION="$(jq -r '.version // ""' "${GEN}/${CHANNEL}.json")"
+            if [[ -z "${VERSION}" ]]; then
+              echo "::error::${CHANNEL}.json came back empty — the release API call almost certainly failed. Refusing to overwrite the live manifest."
+              exit 1
+            fi
+            echo "${CHANNEL}.json → ${VERSION}"
+          done
+
+          # And the edge manifest must actually name the build this run just
+          # published. If it names something else, the release and the manifest
+          # have diverged (a lost race with a concurrent run, a botched prune)
+          # and shipping it would point edge boxes at the wrong build.
+          EDGE_VERSION="$(jq -r '.version' "${GEN}/edge.json")"
+          if [[ "${EDGE_VERSION}" != "${EXPECTED_EDGE}" ]]; then
+            echo "::error::edge.json names ${EDGE_VERSION}, but this run published ${EXPECTED_EDGE}. Refusing to publish a divergent manifest."
+            exit 1
+          fi
+
+          # stable.json and beta.json are copied too, not because this run
+          # changed them, but because the generator is the only thing that
+          # writes them and a partial copy would leave the bundle's three
+          # manifests generated at different times. The generator excludes
+          # `-edge.` from both — an edge build must never become the next
+          # update for a stable or beta box.
+          cp "${GEN}/stable.json" site/releases/stable.json
+          cp "${GEN}/beta.json"   site/releases/beta.json
+          cp "${GEN}/edge.json"   site/releases/edge.json
+          echo "Refreshed edge.json:"
+          cat site/releases/edge.json
+
+      - name: Upload refreshed bundle
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: site-dist-refreshed
+          path: site/
+          retention-days: 1
+
+  deploy-site:
+    name: Deploy Site
+    needs: refresh-manifest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    uses: ./.github/workflows/deploy-site.yml
+    with:
+      bundle-artifact: site-dist-refreshed
+    secrets: inherit

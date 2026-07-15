@@ -1143,6 +1143,10 @@ impl wardnetd_services::UpdateService for StubUpdateService {
         unimplemented!("startup-only path; the API layer never calls it")
     }
 
+    async fn reconcile_channel_gate(&self) -> Result<(), AppError> {
+        unimplemented!("startup-only path; the API layer never calls it")
+    }
+
     async fn status(&self) -> Result<wardnet_common::api::UpdateStatusResponse, AppError> {
         unimplemented!()
     }

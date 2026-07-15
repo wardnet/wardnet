@@ -24,6 +24,10 @@ impl UpdateService for CountingService {
         Ok(())
     }
 
+    async fn reconcile_channel_gate(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
     async fn status(&self) -> Result<UpdateStatusResponse, AppError> {
         Ok(UpdateStatusResponse {
             status: UpdateStatus {
@@ -39,6 +43,7 @@ impl UpdateService for CountingService {
                 applied_version: None,
                 applied_at: None,
                 rollback_available: false,
+                edge_available: false,
             },
         })
     }

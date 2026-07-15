@@ -58,7 +58,13 @@ fn main() {
 /// Returns `None` if git is unavailable or the command fails.
 fn git_version() -> Option<String> {
     let output = Command::new("git")
-        .args(["describe", "--tags", "--always", "--dirty"])
+        // `--match v*` is load-bearing: release tags are `v<calver>`, but the
+        // repo also carries `edge-v*` tags (ADR-0023) that point at branch
+        // commits. Once such a branch merges, an unfiltered `--tags` describe
+        // would pick the nearer edge tag, and `parse_git_describe` — which
+        // requires a leading `v` — would fall back to a garbage
+        // `0.2.0-dev+gedge-v…` version for every dev and CI build.
+        .args(["describe", "--tags", "--always", "--dirty", "--match", "v*"])
         .output()
         .ok()?;
 

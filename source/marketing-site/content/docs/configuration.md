@@ -165,6 +165,48 @@ editing the TOML. These are the deploy-time knobs only.
 | `staging_dir` | `"/var/lib/wardnet/updates"` | Temporary directory for download + extraction. Must share a filesystem with `live_binary_path` for the swap to be atomic. |
 | `require_signature` | `true` | Refuse to install a tarball without a valid minisign signature. Never set `false` in production. |
 | `http_timeout_secs` | `60` | Per-request timeout for manifest + asset fetches. |
+| `allow_edge_channel` | `false` | Permit this box to follow the **edge** channel. See below. |
+
+### The edge channel
+
+Edge builds are published straight from a branch by an on-demand workflow,
+with no review, no release notes, and no test gates. They are signed with the
+same production key — so the channel is authentic — but nothing promises the
+code is good. Edge is an operator's testing loop, never a destination for a
+real user.
+
+Because of that, edge cannot be selected from the web UI alone. Set the flag,
+restart, and the channel selector will offer it:
+
+```toml
+[update]
+allow_edge_channel = true
+```
+
+Setting it requires root on the box, which is the point: an admin session — or
+a stolen one — is not enough to opt a box into unvetted code.
+
+### Getting a box off edge
+
+Remove the flag and restart. The daemon logs a warning, falls back to `beta`,
+and writes that back, so the stored channel can't contradict the config:
+
+```toml
+[update]
+allow_edge_channel = false   # or delete the line
+```
+
+Do this **first**. Reinstalling alone is not enough: `install.sh` only chooses
+which tarball to download, it does not change the channel the daemon has
+stored, so a box still set to `edge` with the flag still on will simply
+auto-update back to the newest edge build on its next check.
+
+The updater also never downgrades, so dropping the flag does not by itself move
+the box off the edge *binary*: `2026.07.00-edge.147` outranks
+`2026.07.00-beta.6`, and the box will sit on it until a newer base version
+ships. To go back immediately, re-run `install.sh` with `CHANNEL=beta` **after**
+clearing the flag — the installer performs no version comparison, so it
+installs whatever the manifest names, older or not.
 
 ## `[otel]`
 
