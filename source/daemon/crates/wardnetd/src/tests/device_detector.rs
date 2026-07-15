@@ -162,6 +162,10 @@ impl DeviceDiscoveryService for MockDiscovery {
         Ok(())
     }
 
+    async fn rebuild_trusted_subnets(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
     async fn process_observation(
         &self,
         _obs: &ObservedDevice,

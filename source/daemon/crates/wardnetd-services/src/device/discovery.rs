@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 use uuid::Uuid;
@@ -88,6 +89,20 @@ pub trait DeviceDiscoveryService: Send + Sync {
     /// Loads all devices and populates the in-memory map. All devices are marked
     /// as gone since we do not know if they are present until we see packets.
     async fn restore_devices(&self) -> Result<(), AppError>;
+
+    /// Rebuild the cached set of trusted subnets (the LAN `/24` plus every
+    /// configured Network-Zone subnet).
+    ///
+    /// Observations from IPs outside every trusted subnet are ignored, so this
+    /// set must be refreshed whenever a zone's subnet changes — otherwise a
+    /// device DHCP-addressed inside a zone subnet outside the base LAN `/24`
+    /// would have all its observations silently dropped, freezing its
+    /// presence and starving zone enforcement of `DeviceIpChanged` events.
+    ///
+    /// Called once at startup and on every [`WardnetEvent::NetworkZoneChanged`].
+    /// A zone whose subnet CIDR fails to parse is logged and skipped rather than
+    /// failing the whole rebuild.
+    async fn rebuild_trusted_subnets(&self) -> Result<(), AppError>;
 
     /// Process a device observation from packet capture.
     async fn process_observation(
@@ -189,10 +204,18 @@ pub struct DeviceDiscoveryServiceImpl {
     system_config: Arc<dyn SystemConfigRepository>,
     events: Arc<dyn EventPublisher>,
     resolver: Arc<dyn HostnameResolver>,
-    /// LAN subnet — only observations from IPs within this range are processed.
-    /// Filters out return traffic from the internet (remote IPs arriving with
-    /// the router's MAC on the Ethernet frame).
+    /// Base LAN subnet — the Pi's own `/24`. The immutable seed of the trusted
+    /// subnet set, re-added on every [`Self::rebuild_trusted_subnets`].
     lan_subnet: ipnetwork::Ipv4Network,
+    /// Cached set of trusted subnets: the LAN `/24` plus every configured
+    /// Network-Zone subnet. Only observations from IPs inside one of these are
+    /// processed — this filters out return traffic from the internet (remote
+    /// IPs arriving with the router's MAC on the Ethernet frame).
+    ///
+    /// Held behind an `ArcSwap` so the per-observation hot path reads a
+    /// lock-free snapshot while zone-change events rebuild it in place, rather
+    /// than issuing a DB query per observation.
+    trusted_subnets: ArcSwap<Vec<ipnetwork::Ipv4Network>>,
     /// Wardnet's own LAN IP. Never a device, whatever ARP says (issue #886).
     lan_ip: std::net::Ipv4Addr,
     /// Per-MAC recent distinct-IP history, keyed by MAC. Feeds the flap detector
@@ -228,6 +251,9 @@ impl DeviceDiscoveryServiceImpl {
             events,
             resolver,
             lan_subnet,
+            // Seeded with just the LAN subnet; zone subnets are folded in by the
+            // startup + event-driven `rebuild_trusted_subnets` calls.
+            trusted_subnets: ArcSwap::from_pointee(vec![lan_subnet]),
             lan_ip,
             state: Arc::new(RwLock::new(HashMap::new())),
             ip_history: Arc::new(RwLock::new(HashMap::new())),
@@ -563,6 +589,11 @@ enum ObsAction {
 #[async_trait]
 impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     async fn restore_devices(&self) -> Result<(), AppError> {
+        // Fold the configured zone subnets into the trusted set before we start
+        // processing observations, so a device inside a zone subnet isn't dropped
+        // in the window between startup and the first zone-change event.
+        self.rebuild_trusted_subnets().await?;
+
         let devices = self.devices.find_all().await.map_err(AppError::Internal)?;
         let count = devices.len();
 
@@ -625,18 +656,39 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         Ok(())
     }
 
+    async fn rebuild_trusted_subnets(&self) -> Result<(), AppError> {
+        let zones = self.zones.find_all().await.map_err(AppError::Internal)?;
+
+        // Start from the base LAN subnet; every valid zone subnet is folded in.
+        let mut subnets: Vec<ipnetwork::Ipv4Network> = Vec::with_capacity(zones.len() + 1);
+        subnets.push(self.lan_subnet);
+        subnets.extend(crate::subnet::parse_zone_subnets(&zones).into_iter().map(|(_, net)| net));
+
+        tracing::debug!(
+            count = subnets.len(),
+            "device discovery: rebuilt trusted subnets: count={count}",
+            count = subnets.len(),
+        );
+        self.trusted_subnets.store(Arc::new(subnets));
+        Ok(())
+    }
+
     async fn process_observation(
         &self,
         obs: &ObservedDevice,
     ) -> Result<ObservationResult, AppError> {
-        // Filter out observations from IPs outside the LAN subnet.
-        // When the Pi is the gateway, return traffic from the internet arrives
-        // with the router's MAC but remote server IPs — ignore those.
+        // Filter out observations from IPs outside every trusted subnet (the LAN
+        // `/24` plus any configured Network-Zone subnet). When the Pi is the
+        // gateway, return traffic from the internet arrives with the router's MAC
+        // but remote server IPs — ignore those. A device DHCP-addressed inside a
+        // zone subnet is trusted here, so its presence and IP changes flow through
+        // to zone enforcement.
         let parsed_ip = obs.ip.parse::<std::net::Ipv4Addr>().ok();
-        if let Some(ip) = parsed_ip
-            && !self.lan_subnet.contains(ip)
-        {
-            return Ok(ObservationResult::Ignored);
+        if let Some(ip) = parsed_ip {
+            let trusted = self.trusted_subnets.load();
+            if !trusted.iter().any(|subnet| subnet.contains(ip)) {
+                return Ok(ObservationResult::Ignored);
+            }
         }
 
         // Serialize the full observe-then-persist sequence for this mac against

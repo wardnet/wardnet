@@ -17,7 +17,7 @@ use crate::garp_learning;
 
 /// Background device detection orchestrator.
 ///
-/// Spawns six subtasks:
+/// Spawns seven subtasks:
 /// 1. Passive capture loop -- listens for ARP/IP packets, sends observations on mpsc channel
 /// 2. Observation processor -- receives from channel, calls discovery service, logs at info level
 /// 3. Batch flush loop -- every N seconds, flushes `last_seen` to DB
@@ -25,6 +25,9 @@ use crate::garp_learning;
 /// 5. Active ARP scanner -- every N seconds, broadcasts ARP requests for all IPs in subnet
 /// 6. Hostname listener -- subscribes to DHCP lease events and re-resolves
 ///    hostnames when a client supplies a new option-12 value
+/// 7. Zone-subnet listener -- subscribes to `NetworkZoneChanged` and rebuilds the
+///    discovery service's trusted-subnet filter so devices in a zone subnet are
+///    not dropped as off-LAN
 pub struct DeviceDetector {
     cancel: CancellationToken,
     handles: Vec<tokio::task::JoinHandle<()>>,
@@ -53,6 +56,7 @@ impl DeviceDetector {
         let span = tracing::info_span!(parent: parent, "device_detector");
 
         let event_rx = events.subscribe();
+        let zone_event_rx = events.subscribe();
 
         let capture_handle = tokio::spawn(
             capture_task(capture.clone(), interface.clone(), tx, cancel.clone())
@@ -94,7 +98,13 @@ impl DeviceDetector {
         );
 
         let hostname_handle = tokio::spawn(
-            hostname_listener_task(discovery, event_rx, cancel.clone()).instrument(span),
+            hostname_listener_task(discovery.clone(), event_rx, cancel.clone())
+                .instrument(span.clone()),
+        );
+
+        let zone_subnet_handle = tokio::spawn(
+            zone_subnet_listener_task(discovery, zone_event_rx, cancel.clone())
+                .instrument(span.clone()),
         );
 
         Self {
@@ -106,6 +116,7 @@ impl DeviceDetector {
                 departure_handle,
                 arp_handle,
                 hostname_handle,
+                zone_subnet_handle,
             ],
         }
     }
@@ -334,6 +345,63 @@ async fn hostname_listener_task(
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         tracing::info!("hostname listener: event bus closed");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Subscribe to Network-Zone change events and rebuild the discovery service's
+/// trusted-subnet filter whenever a zone is created, updated, or deleted.
+///
+/// A zone can carry its own subnet that DHCP assigns addresses from. Without
+/// this refresh the filter only knows the base LAN `/24`, so a device
+/// addressed inside a zone subnet outside that range would have every
+/// observation dropped as off-LAN — freezing its presence and starving zone
+/// enforcement of the `DeviceIpChanged` events it keys nftables rules on.
+async fn zone_subnet_listener_task(
+    discovery: Arc<dyn DeviceDiscoveryService>,
+    mut event_rx: broadcast::Receiver<WardnetEvent>,
+    cancel: CancellationToken,
+) {
+    loop {
+        tokio::select! {
+            () = cancel.cancelled() => break,
+            result = event_rx.recv() => {
+                match result {
+                    Ok(WardnetEvent::NetworkZoneChanged { .. }) => {
+                        if let Err(e) = discovery.rebuild_trusted_subnets().await {
+                            tracing::warn!(
+                                error = %e,
+                                "device discovery: failed to rebuild trusted subnets after zone change: {e}"
+                            );
+                        }
+                    }
+                    Ok(_) => {
+                        // Other events don't affect the trusted-subnet set.
+                    }
+                    Err(broadcast::error::RecvError::Lagged(n)) => {
+                        // A skipped event may have been the `NetworkZoneChanged`
+                        // for a zone deletion or subnet edit — without a forced
+                        // rebuild here, a removed zone's subnet would stay
+                        // trusted until some later, unrelated zone change
+                        // happened to fire one.
+                        tracing::warn!(
+                            skipped = n,
+                            "zone-subnet listener lagged behind event bus, skipped {n} events; \
+                             forcing a trusted-subnet rebuild"
+                        );
+                        if let Err(e) = discovery.rebuild_trusted_subnets().await {
+                            tracing::warn!(
+                                error = %e,
+                                "device discovery: failed to rebuild trusted subnets after lag: {e}"
+                            );
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        tracing::info!("zone-subnet listener: event bus closed");
                         break;
                     }
                 }

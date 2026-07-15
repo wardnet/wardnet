@@ -9,7 +9,9 @@ use uuid::Uuid;
 use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
 use wardnet_common::dhcp::{DhcpLease, DhcpLeaseLog, DhcpLeaseStatus, DhcpReservation};
 use wardnet_common::event::WardnetEvent;
-use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone, ZoneProvenance, ZoneStance};
+use wardnet_common::network_zone::{
+    AllowedTargetKind, NetworkZone, ZoneProvenance, ZoneStance, ZoneSubnet,
+};
 use wardnet_common::routing::RoutingRule;
 
 use wardnet_common::auth::AuthContext;
@@ -377,6 +379,72 @@ impl NetworkZoneRepository for MockNetworkZoneRepo {
     }
 }
 
+/// A zone repo whose zone list can be swapped at runtime, so tests can exercise
+/// the trusted-subnet cache picking up a newly-configured zone subnet.
+struct MockZoneRepoWithSubnets {
+    zones: Mutex<Vec<NetworkZone>>,
+}
+
+impl MockZoneRepoWithSubnets {
+    fn new(zones: Vec<NetworkZone>) -> Self {
+        Self {
+            zones: Mutex::new(zones),
+        }
+    }
+
+    fn set_zones(&self, zones: Vec<NetworkZone>) {
+        *self.zones.lock().unwrap() = zones;
+    }
+}
+
+/// Build a zone carrying a per-zone subnet CIDR (the DHCP-mode subnet devices
+/// in the zone are addressed from).
+fn zone_with_subnet(cidr: &str) -> NetworkZone {
+    NetworkZone {
+        subnet: Some(ZoneSubnet {
+            cidr: cidr.to_owned(),
+        }),
+        ..trusted_zone()
+    }
+}
+
+#[async_trait]
+impl NetworkZoneRepository for MockZoneRepoWithSubnets {
+    async fn find_all(&self) -> anyhow::Result<Vec<NetworkZone>> {
+        Ok(self.zones.lock().unwrap().clone())
+    }
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<NetworkZone>> {
+        Ok(Some(trusted_zone()))
+    }
+    async fn find_default(&self) -> anyhow::Result<NetworkZone> {
+        Ok(trusted_zone())
+    }
+    async fn find_default_for_new(&self) -> anyhow::Result<NetworkZone> {
+        Ok(trusted_zone())
+    }
+    async fn insert(&self, _zone: &NetworkZone) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn update(&self, _zone: &NetworkZone) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn delete(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn set_default(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn set_default_for_new(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn count_members(&self, _zone_id: &str) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+    async fn member_counts(&self) -> anyhow::Result<std::collections::HashMap<String, i64>> {
+        Ok(std::collections::HashMap::new())
+    }
+}
+
 struct MockDhcpRepository {
     leases_by_mac: HashMap<String, Option<String>>,
 }
@@ -616,7 +684,108 @@ fn build_harness_with_resolver_and_dhcp(
     }
 }
 
+fn build_harness_with_zone_repo(zones: Arc<dyn NetworkZoneRepository>) -> TestHarness {
+    let repo = Arc::new(MockDeviceRepo::with_devices(Vec::new()));
+    let dhcp = Arc::new(MockDhcpRepository::empty());
+    let events = Arc::new(MockEventPublisher::new());
+    let resolver = Arc::new(MockHostnameResolver::new());
+    let system_config = Arc::new(MockSystemConfig::default());
+    let svc = DeviceDiscoveryServiceImpl::new(
+        repo.clone(),
+        zones,
+        dhcp,
+        system_config.clone(),
+        events.clone(),
+        resolver,
+        "192.168.1.0/24".parse().unwrap(),
+        std::net::Ipv4Addr::new(192, 168, 1, 1),
+    );
+
+    TestHarness {
+        svc,
+        repo,
+        events,
+        system_config,
+    }
+}
+
 // -- Tests ----------------------------------------------------------------
+
+/// An observation from an IP inside a configured zone subnet (outside the base
+/// LAN `/24`) is processed once the trusted-subnet cache has been rebuilt from
+/// the zone list — not dropped as off-LAN.
+#[tokio::test]
+async fn process_observation_accepts_zone_subnet_ip() {
+    let zones = Arc::new(MockZoneRepoWithSubnets::new(vec![zone_with_subnet(
+        "10.0.100.0/24",
+    )]));
+    let h = build_harness_with_zone_repo(zones);
+
+    // Fold the zone subnet into the trusted set (as startup / a zone event does).
+    h.svc.rebuild_trusted_subnets().await.unwrap();
+
+    let obs = sample_observation("aa:bb:cc:dd:ee:10", "10.0.100.50");
+    let result = h.svc.process_observation(&obs).await.unwrap();
+
+    assert!(
+        !matches!(result, ObservationResult::Ignored),
+        "expected the zone-subnet observation to be processed, got {result:?}"
+    );
+    assert!(
+        matches!(result, ObservationResult::NewDevice { .. }),
+        "expected a new device to be registered, got {result:?}"
+    );
+}
+
+/// An observation from a WAN-like IP outside the LAN and every zone subnet is
+/// still ignored (return traffic arriving with the router's MAC).
+#[tokio::test]
+async fn process_observation_ignores_wan_ip_outside_all_subnets() {
+    let zones = Arc::new(MockZoneRepoWithSubnets::new(vec![zone_with_subnet(
+        "10.0.100.0/24",
+    )]));
+    let h = build_harness_with_zone_repo(zones);
+    h.svc.rebuild_trusted_subnets().await.unwrap();
+
+    let obs = sample_observation("aa:bb:cc:dd:ee:11", "8.8.8.8");
+    let result = h.svc.process_observation(&obs).await.unwrap();
+
+    assert!(
+        matches!(result, ObservationResult::Ignored),
+        "expected a WAN IP to be ignored, got {result:?}"
+    );
+    assert!(
+        h.repo.inserted.lock().unwrap().is_empty(),
+        "no device should have been inserted for a WAN observation"
+    );
+}
+
+/// Rebuilding the trusted-subnet cache picks up a zone subnet added after the
+/// service was constructed: the same observation flips from Ignored to processed.
+#[tokio::test]
+async fn rebuild_trusted_subnets_picks_up_new_zone_subnet() {
+    // Start with a zone that has no subnet, so only the base LAN /24 is trusted.
+    let zones = Arc::new(MockZoneRepoWithSubnets::new(vec![trusted_zone()]));
+    let h = build_harness_with_zone_repo(zones.clone());
+    h.svc.rebuild_trusted_subnets().await.unwrap();
+
+    let obs = sample_observation("aa:bb:cc:dd:ee:12", "10.0.100.50");
+    let before = h.svc.process_observation(&obs).await.unwrap();
+    assert!(
+        matches!(before, ObservationResult::Ignored),
+        "expected the zone-subnet IP to be ignored before the subnet is configured, got {before:?}"
+    );
+
+    // Configure the zone subnet and rebuild — the same IP is now trusted.
+    zones.set_zones(vec![zone_with_subnet("10.0.100.0/24")]);
+    h.svc.rebuild_trusted_subnets().await.unwrap();
+
+    let after = h.svc.process_observation(&obs).await.unwrap();
+    assert!(
+        !matches!(after, ObservationResult::Ignored),
+        "expected the observation to be processed after the zone subnet is added, got {after:?}"
+    );
+}
 
 #[tokio::test]
 async fn process_observation_new_device() {

@@ -248,6 +248,9 @@ impl DeviceDiscoveryService for StubDiscoveryService {
     async fn restore_devices(&self) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn rebuild_trusted_subnets(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn process_observation(
         &self,
         _obs: &ObservedDevice,
