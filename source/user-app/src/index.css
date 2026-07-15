@@ -97,22 +97,8 @@
   }
 }
 
-@keyframes slide-down {
-  from {
-    transform: translateY(-20px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
 @layer utilities {
   .animate-pulse-dot {
     animation: pulse-dot 2.4s infinite;
-  }
-  .animate-slide-down {
-    animation: slide-down 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
   }
 }

@@ -43,22 +43,45 @@ enum Surface {
 }
 
 impl Surface {
-    /// Classify a (leading-slash-trimmed) request path into its app surface.
+    /// The path prefix (no slashes) each surface owns. Single source of
+    /// truth: [`Self::classify`] matches on it and the serving arm strips it,
+    /// so a surface path can never drift between the two.
+    const fn prefix(self) -> &'static str {
+        match self {
+            Self::AdminApp => "admin-app",
+            Self::AdminSite => "admin",
+            Self::UserApp => "app",
+        }
+    }
+
+    /// Classify a (leading-slash-trimmed) request path into its app surface
+    /// plus the tree-relative asset path.
+    ///
+    /// The empty asset path is returned both for the canonical scope root
+    /// (`app/`) and for the slashless form (`app`); the handler redirects the
+    /// slashless form to the trailing-slash URL, because a document served at
+    /// `/app` sits *outside* the PWA scope `/app/` (scope matching is string
+    /// prefix), where the service worker never controls it and the install
+    /// prompt can be withheld.
     ///
     /// `None` means the path matches no surface — the legacy root tree the
     /// user PWA occupied before it moved to `/app/`. Those are answered with
     /// a permanent redirect into `/app/` (see [`legacy_root_redirect`]) so
     /// pre-move bookmarks, deep links, and installed start URLs keep landing.
-    fn classify(raw_path: &str) -> Option<Self> {
-        if raw_path.starts_with("admin-app/") || raw_path == "admin-app" {
-            Some(Self::AdminApp)
-        } else if raw_path.starts_with("admin/") || raw_path == "admin" {
-            Some(Self::AdminSite)
-        } else if raw_path.starts_with("app/") || raw_path == "app" {
-            Some(Self::UserApp)
-        } else {
-            None
+    fn classify(raw_path: &str) -> Option<(Self, &str)> {
+        for surface in [Self::AdminApp, Self::AdminSite, Self::UserApp] {
+            // Boundary-checked prefix match: "admin-app/x" must not match the
+            // "admin" prefix, so the remainder has to be empty or start "/".
+            if let Some(rest) = raw_path.strip_prefix(surface.prefix()) {
+                if rest.is_empty() {
+                    return Some((surface, ""));
+                }
+                if let Some(asset_path) = rest.strip_prefix('/') {
+                    return Some((surface, asset_path));
+                }
+            }
         }
+        None
     }
 
     /// Whether this surface is a premium app, blocked unless the box is
@@ -81,7 +104,9 @@ impl Surface {
 /// based on path prefix, then serves static files with appropriate cache headers.
 ///
 /// - Paths outside every surface (the user PWA's pre-move root tree) get a
-///   permanent redirect into `/app/`, before any other handling.
+///   permanent redirect into `/app/`, before any other handling; a slashless
+///   scope root (`/app`) is canonicalized to its trailing-slash URL so the
+///   document always sits inside its PWA scope.
 /// - Unless the box is **entitled** (on the wardnet provider and not
 ///   suspended), the two premium surfaces (user PWA `/app/` and admin mobile
 ///   app `/admin-app/`) are short-circuited with a premium-required page; the
@@ -105,9 +130,20 @@ pub async fn static_handler(
     let raw_path = uri.path().trim_start_matches('/');
     let etag = format!("\"{RELEASE_VERSION}\"");
 
-    let Some(surface) = Surface::classify(raw_path) else {
+    let Some((surface, asset_path)) = Surface::classify(raw_path) else {
         return legacy_root_redirect(&uri);
     };
+
+    // Slashless scope root (`/app`, `/admin-app`, `/admin`): canonicalize to
+    // the trailing-slash URL instead of serving the shell in place, so every
+    // document URL is inside its PWA scope (see `Surface::classify`).
+    if raw_path.len() == surface.prefix().len() {
+        let target = match uri.query() {
+            Some(query) => format!("/{}/?{query}", surface.prefix()),
+            None => format!("/{}/", surface.prefix()),
+        };
+        return permanent_redirect(&target);
+    }
 
     // Entitlement gate — checked *before* the `.info`/304 shortcuts so a cached
     // build can't slip a premium surface past the block via `If-None-Match`. The
@@ -134,51 +170,44 @@ pub async fn static_handler(
         return (StatusCode::NOT_MODIFIED, [(header::ETAG, etag.as_str())]).into_response();
     }
 
-    match surface {
-        Surface::AdminApp => {
-            let asset_path = raw_path.strip_prefix("admin-app/").unwrap_or("");
-            serve_spa(
-                AdminAppAssets::get(asset_path),
-                AdminAppAssets::get("index.html"),
-                asset_path,
-                &etag,
-            )
-        }
-        Surface::AdminSite => {
-            let asset_path = raw_path.strip_prefix("admin/").unwrap_or("");
-            serve_spa(
-                AdminSiteAssets::get(asset_path),
-                AdminSiteAssets::get("index.html"),
-                asset_path,
-                &etag,
-            )
-        }
-        Surface::UserApp => {
-            let asset_path = raw_path.strip_prefix("app/").unwrap_or("");
-            serve_spa(
-                UserAssets::get(asset_path),
-                UserAssets::get("index.html"),
-                asset_path,
-                &etag,
-            )
-        }
-    }
+    let (file, fallback) = match surface {
+        Surface::AdminApp => (
+            AdminAppAssets::get(asset_path),
+            AdminAppAssets::get("index.html"),
+        ),
+        Surface::AdminSite => (
+            AdminSiteAssets::get(asset_path),
+            AdminSiteAssets::get("index.html"),
+        ),
+        Surface::UserApp => (UserAssets::get(asset_path), UserAssets::get("index.html")),
+    };
+    serve_spa(file, fallback, asset_path, &etag)
+}
+
+/// A 308 with an explicit, bounded cache lifetime. Hand-rolled (rather than
+/// `axum::response::Redirect::permanent`) because the Cache-Control header
+/// matters: browsers cache header-less permanent redirects until eviction, so
+/// an unbounded 308 would keep bouncing clients even after a future release
+/// claims the redirected path for something real (a new surface,
+/// `/.well-known/*`). One day keeps the permanent "update your bookmark"
+/// semantics while capping how long a stale redirect can mask a new resource.
+fn permanent_redirect(target: &str) -> Response {
+    (
+        StatusCode::PERMANENT_REDIRECT,
+        [
+            (header::LOCATION, target),
+            (header::CACHE_CONTROL, "max-age=86400"),
+        ],
+    )
+        .into_response()
 }
 
 /// Permanently redirect a legacy root-tree path into the user PWA's `/app/`
 /// scope, preserving the rest of the path and any query string — `/` lands on
 /// `/app/`, a pre-move deep link like `/dns?x=1` lands on `/app/dns?x=1`.
 fn legacy_root_redirect(uri: &Uri) -> Response {
-    let path = uri.path();
-    let target = match uri.query() {
-        Some(query) => format!("/app{path}?{query}"),
-        None => format!("/app{path}"),
-    };
-    (
-        StatusCode::PERMANENT_REDIRECT,
-        [(header::LOCATION, target.as_str())],
-    )
-        .into_response()
+    let path_and_query = uri.path_and_query().map_or(uri.path(), |pq| pq.as_str());
+    permanent_redirect(&format!("/app{path_and_query}"))
 }
 
 /// The page served at a premium surface when the box is not entitled — either

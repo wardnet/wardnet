@@ -43,7 +43,21 @@ export function InstallPrompt({ icon }: InstallPromptProps) {
   }
 
   return (
-    <div className="mx-3 mt-3 flex animate-slide-down items-center gap-3 rounded-lg border border-line bg-card p-3.5 shadow-pop">
+    <div
+      className="mx-3 mt-3 flex items-center gap-3 rounded-lg border border-line bg-card p-3.5 shadow-pop"
+      style={{
+        animation: "wn-install-slide-down 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)",
+      }}
+    >
+      {/* Self-contained keyframes (same pattern as admin-site's
+          DiscoveryPlaceholder) so consumers don't each have to duplicate an
+          animation utility in their own stylesheet. */}
+      <style>{`
+        @keyframes wn-install-slide-down {
+          from { transform: translateY(-20px); opacity: 0; }
+          to { transform: translateY(0); opacity: 1; }
+        }
+      `}</style>
       <img src={icon} alt="" className="h-9 w-9 shrink-0 rounded-[10px]" />
       <div className="min-w-0 flex-1">
         <Text

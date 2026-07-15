@@ -22,13 +22,11 @@ registerPushHandlers(self, {
 
 // Offline shell — navigation requests fall back to the app-shell index.
 // This SW's scope is `/app/` (sibling to `/admin-app/`, so the two PWAs are
-// installable side by side); only navigations inside that scope ever reach
-// it. The `/api` denylist mirrors the admin-app SW as belt and braces.
+// installable side by side); navigations are dispatched to the SW whose
+// scope contains the destination URL, so only `/app/…` ones ever reach this
+// route — no denylist needed for the other surfaces or `/api`.
 const handler = createHandlerBoundToURL("/app/index.html");
-const navigationRoute = new NavigationRoute(handler, {
-  denylist: [/^\/api/],
-});
-registerRoute(navigationRoute);
+registerRoute(new NavigationRoute(handler));
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") {
