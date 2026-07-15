@@ -173,6 +173,12 @@ pub struct UdpDnsServer {
 /// Maximum number of pre-bound UDP sockets kept in the conditional-forwarding pool.
 const CONDITIONAL_SOCKET_POOL_SIZE: usize = 8;
 
+/// The daemon-owned local DNS zone. Single-label queries that miss the
+/// authoritative view are retried under this suffix (the local search-domain
+/// hop), so `wardnet` resolves like `wardnet.lan`. Kept in sync with the seeded
+/// `.lan` zone (`main.rs`, `dhcp_lan_runner`, `20260414000000_dns.sql`).
+const LOCAL_ZONE_SUFFIX: &str = "lan";
+
 impl Drop for UdpDnsServer {
     fn drop(&mut self) {
         // Signal the cache-invalidation subscriber to exit. The task
@@ -659,13 +665,35 @@ async fn handle_query(
     let is_any = rtype == hickory_proto::rr::RecordType::ANY;
     let our_rtype = rtype_from_hickory(rtype);
 
-    let auth_lookup = if is_any {
-        view.lookup_all(&domain_lower)
-    } else if let Some(rt) = our_rtype {
-        view.lookup(&domain_lower, rt)
-    } else {
-        None
+    let lookup = |name: &str| {
+        if is_any {
+            view.lookup_all(name)
+        } else if let Some(rt) = our_rtype {
+            view.lookup(name, rt)
+        } else {
+            None
+        }
     };
+
+    let mut auth_lookup = lookup(&domain_lower);
+
+    // Local search-domain hop: a single-label query (`wardnet`, `laptop`) that
+    // misses the authoritative view is retried under the local `.lan` zone, so
+    // bare LAN names resolve to their `<label>.lan` record without the client
+    // needing a search domain configured — we control the resolver, so we do the
+    // hop ourselves. Only a positive hit is adopted; the answer keeps the queried
+    // bare name (a direct A/AAAA answer), and a miss falls through to normal
+    // forwarding — we never synthesize NXDOMAIN/NODATA for the bare label.
+    if auth_lookup.is_none_or(<[_]>::is_empty)
+        && !domain_lower.is_empty()
+        && !domain_lower.contains('.')
+    {
+        let local = format!("{domain_lower}.{LOCAL_ZONE_SUFFIX}");
+        let local_lookup = lookup(&local);
+        if local_lookup.is_some_and(|r| !r.is_empty()) {
+            auth_lookup = local_lookup;
+        }
+    }
 
     if let Some(auth_records) = auth_lookup {
         let name = Name::from_str_relaxed(&domain)?;

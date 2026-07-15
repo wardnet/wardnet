@@ -447,9 +447,11 @@ async fn run(
     }
 
     // Seed the convenience `wardnet.lan -> <lan_ip>` system record so LAN clients
-    // can reach the Pi by a friendly name (and `http://wardnet` works via the
-    // search-domain hop + `:80` redirect). Cert-independent, so seeded at boot;
-    // idempotent (`source = system` upsert) and non-fatal.
+    // can reach the Pi by a friendly name. Bare `wardnet` resolves to the same
+    // record via the resolver's local search-domain hop (see `LOCAL_ZONE_SUFFIX`
+    // in `dns/server.rs`), so no separate single-label record is needed.
+    // Cert-independent, so seeded at boot; idempotent (`source = system` upsert)
+    // and non-fatal.
     {
         use wardnet_common::api::UpsertRecordRequest;
         use wardnet_common::dns::{DnsRecordSource, DnsRecordType};
@@ -1010,6 +1012,7 @@ async fn run(
         Ok(redirect_listener) => Some(tls_server::spawn_http_redirect_listener(
             redirect_listener,
             config.server.https_port,
+            config.server.port,
             serving,
             &shutdown_token,
             &root_span,

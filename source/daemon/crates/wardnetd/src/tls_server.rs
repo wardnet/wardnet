@@ -260,13 +260,15 @@ pub fn spawn_https_listener(
     )
 }
 
-/// Spawn the `:80` listener that 308-redirects every request to HTTPS. When a
-/// canonical FQDN is provisioned, short-name requests are rewritten to it;
-/// otherwise the redirect is a same-host upgrade. A bind failure is logged, not
-/// fatal.
+/// Spawn the `:80` listener that redirects every request onward. When a canonical
+/// FQDN is provisioned, requests are sent to HTTPS on the FQDN (short/LAN names
+/// rewritten to it); when nothing is provisioned there is no valid cert for any
+/// name, so requests are downgraded to the plain-HTTP admin port instead. A bind
+/// failure is logged, not fatal.
 pub fn spawn_http_redirect_listener(
     listener: tokio::net::TcpListener,
     https_port: u16,
+    admin_port: u16,
     serving: Arc<dyn ServingIdentity>,
     shutdown: &CancellationToken,
     parent: &tracing::Span,
@@ -274,7 +276,7 @@ pub fn spawn_http_redirect_listener(
     let addr = listener
         .local_addr()
         .unwrap_or_else(|_| SocketAddr::from(([0, 0, 0, 0], 0)));
-    let app = redirect_router(https_port, serving);
+    let app = redirect_router(https_port, admin_port, serving);
     let shutdown = shutdown.clone();
     let span = tracing::info_span!(parent: parent, "http_redirect_server");
     tokio::spawn(
@@ -292,16 +294,29 @@ pub fn spawn_http_redirect_listener(
     )
 }
 
-/// A router whose every path 308-redirects to HTTPS. When the serving identity
-/// has a canonical FQDN and the request arrived under a different host (a short
-/// or LAN name like `wardnet`, `wardnet.lan`, or the bare LAN IP), the redirect
-/// rewrites the host to the canonical FQDN so the client lands on the name with a
-/// valid cert. Otherwise it is a same-host upgrade.
-pub(crate) fn redirect_router(https_port: u16, serving: Arc<dyn ServingIdentity>) -> Router {
+/// A router whose every path is redirected by [`redirect_to_https`]. With a
+/// provisioned FQDN, a short/LAN name (`wardnet`, `wardnet.lan`, bare LAN IP) is
+/// rewritten to the canonical FQDN over HTTPS so the client lands on the name with
+/// a valid cert; a request already on the FQDN is a same-host HTTPS upgrade. With
+/// nothing provisioned, requests are downgraded to the plain-HTTP admin port
+/// (`admin_port`) — no cert exists yet — with the root landing on the admin site.
+pub(crate) fn redirect_router(
+    https_port: u16,
+    admin_port: u16,
+    serving: Arc<dyn ServingIdentity>,
+) -> Router {
     Router::new()
         .fallback(move |headers: HeaderMap, uri: Uri| {
             let serving = serving.clone();
-            async move { redirect_to_https(https_port, serving.canonical_fqdn(), &headers, &uri) }
+            async move {
+                redirect_to_https(
+                    https_port,
+                    admin_port,
+                    serving.canonical_fqdn(),
+                    &headers,
+                    &uri,
+                )
+            }
         })
         // Panic isolation, same as the main API router: a panic in the redirect
         // path must surface as a logged 500, never unwind the `:80` listener.
@@ -310,6 +325,7 @@ pub(crate) fn redirect_router(https_port: u16, serving: Arc<dyn ServingIdentity>
 
 pub(crate) fn redirect_to_https(
     https_port: u16,
+    admin_port: u16,
     canonical_fqdn: Option<Arc<String>>,
     headers: &HeaderMap,
     uri: &Uri,
@@ -330,24 +346,65 @@ pub(crate) fn redirect_to_https(
     if host_no_port.is_empty() {
         return (StatusCode::BAD_REQUEST, "missing Host header\n").into_response();
     }
-    // Rewrite short/LAN names to the canonical FQDN (the name with a valid cert);
-    // fall back to a same-host upgrade when no FQDN is provisioned or the request
-    // already targets it. The same-host upgrade is genuinely permanent (308), but
-    // a rewrite points at a *mutable* target (the canonical FQDN can change when
-    // the DDNS provider/domain changes), so it must be a 307 the browser won't
-    // cache permanently.
-    let (target_host, status) = match canonical_fqdn {
-        Some(fqdn) if fqdn.as_str() != host_no_port => {
-            (fqdn.as_str().to_owned(), StatusCode::TEMPORARY_REDIRECT)
-        }
-        _ => (host_no_port.to_owned(), StatusCode::PERMANENT_REDIRECT),
-    };
-    let authority = if https_port == 443 {
-        target_host
-    } else {
-        format!("{target_host}:{https_port}")
-    };
     let path = uri.path_and_query().map_or("/", |p| p.as_str());
-    let location = format!("https://{authority}{path}");
+
+    let (scheme, authority, target_path, status) = match canonical_fqdn {
+        // Provisioned: a real cert is live for the FQDN, so send the client to the
+        // name that cert covers. A short/LAN name (`wardnet`, `wardnet.lan`, bare
+        // LAN IP) is rewritten to the FQDN (307 — the FQDN is a *mutable* DDNS
+        // target, so the browser must not cache it permanently); a request already
+        // on the FQDN is a same-host upgrade (308, genuinely permanent). The path
+        // is preserved — the FQDN's app router maps `/` → the user app `/app/`,
+        // `/admin` → the admin site, `/admin-app` → the admin app.
+        Some(fqdn) if fqdn.as_str() != host_no_port => (
+            "https",
+            authority_for(fqdn.as_str(), https_port, 443),
+            path.to_owned(),
+            StatusCode::TEMPORARY_REDIRECT,
+        ),
+        Some(_) => (
+            "https",
+            authority_for(host_no_port, https_port, 443),
+            path.to_owned(),
+            StatusCode::PERMANENT_REDIRECT,
+        ),
+        // Not provisioned: no cert exists for any name, so HTTPS on the LAN name
+        // would trip the browser's cert check. Downgrade to the always-plain admin
+        // port instead, and land the friendly-name root (`/`) on the admin site —
+        // the only surface reachable before a subscription. An explicit `/app/` or
+        // `/admin-app/` path is preserved so the app router can still answer with
+        // the premium-required page. 307 because provisioning state is mutable (a
+        // cert can appear at any time).
+        None => (
+            "http",
+            authority_for(host_no_port, admin_port, 80),
+            not_provisioned_path(uri),
+            StatusCode::TEMPORARY_REDIRECT,
+        ),
+    };
+    let location = format!("{scheme}://{authority}{target_path}");
     (status, [(header::LOCATION, location)]).into_response()
+}
+
+/// `host` with `:port` appended, unless `port` is the scheme default (`omit`),
+/// in which case the bare host is returned so URLs stay clean.
+fn authority_for(host: &str, port: u16, omit: u16) -> String {
+    if port == omit {
+        host.to_owned()
+    } else {
+        format!("{host}:{port}")
+    }
+}
+
+/// Target path for the not-provisioned downgrade: the friendly-name root lands on
+/// the admin site (`/admin/`, query preserved); every other path is passed through
+/// untouched so the plain-HTTP app router can serve or gate it.
+fn not_provisioned_path(uri: &Uri) -> String {
+    if uri.path() == "/" {
+        return match uri.query() {
+            Some(query) => format!("/admin/?{query}"),
+            None => "/admin/".to_owned(),
+        };
+    }
+    uri.path_and_query().map_or("/", |p| p.as_str()).to_owned()
 }
