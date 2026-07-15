@@ -421,11 +421,11 @@ function ZoneForm({
 
           <Field
             label="Admin UI reachable"
-            help="May devices in this zone reach the Pi's admin surfaces?"
+            help="May devices in this zone reach the wardnet admin surfaces?"
           >
             <div className="flex h-9 items-center justify-between">
               <Text size="sm" className="text-ink-3">
-                Reach the Pi's admin pages
+                Reach the wardnet admin site/app
               </Text>
               <Toggle
                 aria-label="Admin UI reachable"

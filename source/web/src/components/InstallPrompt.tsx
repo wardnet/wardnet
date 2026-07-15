@@ -33,7 +33,7 @@ export function InstallPrompt({ icon }: InstallPromptProps) {
     try {
       const result = await promptInstall();
       if (result?.outcome === "accepted") {
-        toast.success("Added to home screen");
+        toast.success("Added to home screen", { position: "top-center" });
       }
     } catch {
       // Browser cancelled or the prompt is no longer available — dismiss silently.
