@@ -26,8 +26,8 @@ use tokio_util::task::TaskTracker;
 use tracing::Instrument;
 use uuid::Uuid;
 use wardnet_common::dns::{
-    DnsConfig, DnsProtocol, DnsQueryResult, DnsRecordType, DnsResolutionMode, FilterAction,
-    ForwarderSelectionMode, UpstreamDns, UpstreamId, UpstreamLatency,
+    DnsConfig, DnsProtocol, DnsQueryResult, DnsRecordSource, DnsRecordType, DnsResolutionMode,
+    FilterAction, ForwarderSelectionMode, UpstreamDns, UpstreamId, UpstreamLatency,
 };
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::QueryLogRow;
@@ -175,8 +175,10 @@ const CONDITIONAL_SOCKET_POOL_SIZE: usize = 8;
 
 /// The daemon-owned local DNS zone. Single-label queries that miss the
 /// authoritative view are retried under this suffix (the local search-domain
-/// hop), so `wardnet` resolves like `wardnet.lan`. Kept in sync with the seeded
-/// `.lan` zone (`main.rs`, `dhcp_lan_runner`, `20260414000000_dns.sql`).
+/// hop) — but only `System`-sourced records are adopted, so `wardnet` resolves
+/// like `wardnet.lan` while device-chosen DHCP names stay bare-unreachable. Kept
+/// in sync with the seeded `.lan` zone (`main.rs`, `dhcp_lan_runner`,
+/// `20260414000000_dns.sql`).
 const LOCAL_ZONE_SUFFIX: &str = "lan";
 
 impl Drop for UdpDnsServer {
@@ -677,21 +679,29 @@ async fn handle_query(
 
     let mut auth_lookup = lookup(&domain_lower);
 
-    // Local search-domain hop: a single-label query (`wardnet`, `laptop`) that
-    // misses the authoritative view is retried under the local `.lan` zone, so
-    // bare LAN names resolve to their `<label>.lan` record without the client
-    // needing a search domain configured — we control the resolver, so we do the
-    // hop ourselves. Only a positive hit is adopted; the answer keeps the queried
-    // bare name (a direct A/AAAA answer), and a miss falls through to normal
-    // forwarding — we never synthesize NXDOMAIN/NODATA for the bare label.
+    // Local search-domain hop: a single-label query (`wardnet`) that misses the
+    // authoritative view is retried under the local `.lan` zone, so the bare name
+    // resolves to its `<label>.lan` record without the client needing a search
+    // domain configured — we control the resolver, so we do the hop ourselves. The
+    // answer keeps the queried bare name (a direct A/AAAA answer), and a miss falls
+    // through to normal forwarding — we never synthesize NXDOMAIN/NODATA for it.
+    //
+    // Restricted to `System`-sourced records (the daemon-seeded self-name). DHCP
+    // `.lan` records carry a device-chosen hostname (option 12), so adopting them
+    // here would let a device make itself resolvable at a bare single label the
+    // client never had a search domain for — e.g. a device claiming hostname
+    // `wpad` would answer a bare `wpad` lookup that previously forwarded upstream.
+    // Those names stay reachable at their explicit `<name>.lan`, just not bare.
     if auth_lookup.is_none_or(<[_]>::is_empty)
         && !domain_lower.is_empty()
         && !domain_lower.contains('.')
     {
         let local = format!("{domain_lower}.{LOCAL_ZONE_SUFFIX}");
-        let local_lookup = lookup(&local);
-        if local_lookup.is_some_and(|r| !r.is_empty()) {
-            auth_lookup = local_lookup;
+        if let Some(recs) = lookup(&local)
+            && !recs.is_empty()
+            && recs.iter().all(|r| r.source == DnsRecordSource::System)
+        {
+            auth_lookup = Some(recs);
         }
     }
 
