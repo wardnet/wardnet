@@ -110,8 +110,14 @@ async fn main() -> anyhow::Result<()> {
 
     // Build the log service BEFORE init_tracing so its tracing layers can
     // be attached to the subscriber.
-    let log_stream = Arc::new(LogStreamService::new(config.logging.broadcast_capacity));
-    let error_notifier = Arc::new(ErrorNotifierService::new(config.logging.max_recent_errors));
+    let log_stream = Arc::new(
+        LogStreamService::new(config.logging.broadcast_capacity)
+            .with_suppressed_targets(config.logging.ui_suppressed_targets.clone()),
+    );
+    let error_notifier = Arc::new(
+        ErrorNotifierService::new(config.logging.max_recent_errors)
+            .with_suppressed_targets(config.logging.ui_suppressed_targets.clone()),
+    );
     let log_service: Arc<dyn LogService> = Arc::new(LogServiceImpl::new(
         log_stream,
         error_notifier,

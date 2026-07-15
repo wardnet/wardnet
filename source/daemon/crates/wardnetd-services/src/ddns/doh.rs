@@ -21,9 +21,11 @@ use std::net::Ipv4Addr;
 use serde::Deserialize;
 
 /// Public DoH-JSON resolvers, queried **by IP** in order until one answers.
-/// Cloudflare + Google for redundancy; both serve `application/dns-json`.
-pub(crate) const DOH_RESOLVERS: &[&str] =
-    &["https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"];
+/// Cloudflare + Google for redundancy; both serve the same JSON schema but at
+/// different paths — Cloudflare answers JSON on `/dns-query` (per its `accept`
+/// header), while Google serves JSON **only** on `/resolve` (`/dns-query` is
+/// RFC 8484 wire format and rejects a JSON request with HTTP 400).
+pub(crate) const DOH_RESOLVERS: &[&str] = &["https://1.1.1.1/dns-query", "https://8.8.8.8/resolve"];
 
 /// DNS `A` record type number, used to pick A answers out of a CNAME chain.
 const DNS_TYPE_A: u16 = 1;

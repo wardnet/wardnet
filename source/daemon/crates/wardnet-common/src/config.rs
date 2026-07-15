@@ -231,6 +231,16 @@ pub struct LoggingConfig {
     pub max_recent_errors: usize,
     /// Channel capacity for the WebSocket log broadcast.
     pub broadcast_capacity: usize,
+    /// Tracing targets hidden from the admin-facing log surfaces (the
+    /// WebSocket log stream and the recent-errors buffer).
+    ///
+    /// Matched as a prefix against the event target, so
+    /// `hickory_resolver::recursor` also covers
+    /// `hickory_resolver::recursor::handle`. Entries here are **not** filtered
+    /// out of the log file or the `OTel` exporters — the full detail stays on
+    /// disk for debugging; this only keeps the admin UI free of events an
+    /// admin cannot act on.
+    pub ui_suppressed_targets: Vec<String>,
 }
 
 impl Default for LoggingConfig {
@@ -244,6 +254,14 @@ impl Default for LoggingConfig {
             max_log_files: 7,
             max_recent_errors: 15,
             broadcast_capacity: 256,
+            // Warns once per failed recursive lookup ("lookup error: no records
+            // found ..."). On a busy resolver that is one warning per client
+            // query for an ordinary negative DNS answer — it would drown the
+            // live log view and evict real errors from the recent-errors
+            // buffer. Unlike the netlink noise silenced in `to_filter_string`,
+            // this is worth keeping on disk: it names the query that failed, so
+            // it is genuinely useful when debugging resolution.
+            ui_suppressed_targets: vec!["hickory_resolver::recursor".to_owned()],
         }
     }
 }
@@ -254,11 +272,18 @@ impl LoggingConfig {
     pub fn to_filter_string(&self) -> String {
         use std::fmt::Write;
 
-        // `netlink_packet_route::link::buffer_tool` warns whenever the kernel
-        // returns more bytes for an attribute than the crate version knows
-        // about (e.g. `IFLA_INET6_STATS`: expecting 288, got 304). Newer
-        // kernels trip it constantly and it isn't actionable, so silence the
-        // module by default. A user-supplied `[logging.filters]` entry can
+        // Two mechanisms, deliberately: an `EnvFilter` directive here gates the
+        // *whole* subscriber (file and `OTel` included), while
+        // `ui_suppressed_targets` hides a target from the admin UI only.
+        //
+        // Use this one when the events are worthless to everybody, and
+        // `ui_suppressed_targets` when they are worth keeping on disk but would
+        // drown the admin. `netlink_packet_route::link::buffer_tool` is the
+        // former: it warns whenever the kernel returns more bytes for an
+        // attribute than the crate version knows about (e.g. `IFLA_INET6_STATS`:
+        // expecting 288, got 304), which newer kernels trip on every link poll.
+        // Nobody — admin or developer — can act on it, and letting it reach the
+        // file would churn the rotation window. A `[logging.filters]` entry can
         // still raise it again because it is appended after this directive.
         let mut directives = format!(
             "warn,wardnetd={level},wardnet_common={level},netlink_packet_route::link::buffer_tool=error",

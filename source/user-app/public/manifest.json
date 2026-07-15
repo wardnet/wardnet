@@ -1,7 +1,8 @@
 {
+  "id": "/",
   "name": "Wardnet",
   "short_name": "Wardnet",
-  "description": "Wardnet — manage your network from anywhere",
+  "description": "Wardnet \u2014 manage your network from anywhere",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

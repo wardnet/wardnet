@@ -231,15 +231,42 @@ fn record_dns_stats(inst: &DnsStatInstruments, row: &QueryLogRow) {
 }
 
 /// Normalise a raw DNS result string into the canonical outcome label value.
+///
+/// Matches on the parsed enum rather than the raw string so that the match is
+/// exhaustive: a new [`DnsQueryResult`] variant fails to compile here instead
+/// of silently landing in the `"error"` catch-all. That catch-all is exactly
+/// how `authoritative` — a *successful* local answer — came to be counted as
+/// an error in `dns.queries`, inflating the error rate on every dashboard
+/// reading these labels.
 fn normalize_outcome(result: &str) -> &'static str {
-    match result {
-        "blocked" | "blocked_skipped" => "blocked",
-        "forwarded" => "forwarded",
-        "negative" => "negative",
-        "cache_hit" | "cached" => "cached",
-        "recursive" => "recursive",
-        "rewritten" | "local" => "local",
-        _ => "error",
+    let Some(parsed) = DnsQueryResult::from_db_str(result) else {
+        return "error";
+    };
+
+    match parsed {
+        DnsQueryResult::Blocked | DnsQueryResult::BlockedSkipped => "blocked",
+        // NOT "blocked". `dns.queries.by_domain` is only recorded for the
+        // `blocked` outcome, and the web layer derives the blocked count, the
+        // block rate and "top blocked domains" from it. A rebinding refusal is
+        // a safety net firing on a domain that is on no blocklist, so counting
+        // it as a block would inflate the block rate and park legitimate
+        // domains in the top-blocked list.
+        DnsQueryResult::RebindingBlocked => "rebinding_blocked",
+        DnsQueryResult::Forwarded => "forwarded",
+        // Negative answers, whether they came from upstream or from a local
+        // authoritative zone. They are successful resolutions, not errors.
+        DnsQueryResult::Negative
+        | DnsQueryResult::AuthoritativeNodata
+        | DnsQueryResult::AuthoritativeNxdomain => "negative",
+        DnsQueryResult::CacheHit => "cached",
+        DnsQueryResult::Recursive => "recursive",
+        // Both are answered locally: `Rewritten` from a custom record,
+        // `Authoritative` from a local authoritative zone.
+        DnsQueryResult::Rewritten | DnsQueryResult::Authoritative => "local",
+        DnsQueryResult::RateLimited => "rate_limited",
+        DnsQueryResult::UpstreamError | DnsQueryResult::RecursorFailed | DnsQueryResult::Error => {
+            "error"
+        }
     }
 }
 

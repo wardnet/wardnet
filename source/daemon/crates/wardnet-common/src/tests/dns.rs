@@ -123,20 +123,26 @@ fn dns_record_type_screaming_snake_rename() {
 
 #[test]
 fn dns_query_result_round_trip() {
-    for result in [
-        DnsQueryResult::Forwarded,
-        DnsQueryResult::CacheHit,
-        DnsQueryResult::Blocked,
-        DnsQueryResult::BlockedSkipped,
-        DnsQueryResult::Rewritten,
-        DnsQueryResult::Recursive,
-        DnsQueryResult::UpstreamError,
-        DnsQueryResult::Negative,
-        DnsQueryResult::Error,
-    ] {
+    // Iterate `ALL` rather than a hand-written list: a list that has to be
+    // updated by hand silently stops covering new variants (this one had
+    // already drifted — it was missing `Authoritative`).
+    for result in DnsQueryResult::ALL {
         let json = serde_json::to_string(&result).unwrap();
         let back: DnsQueryResult = serde_json::from_str(&json).unwrap();
         assert_eq!(result, back);
+    }
+}
+
+/// The `serde` rename and the DB string must agree: the API serialises the
+/// enum with `rename_all = "snake_case"`, while the resolver writes
+/// [`DnsQueryResult::as_str`] into `dns_query_log.result`. If the two ever
+/// diverge, a row written by the resolver would deserialise into a different
+/// variant over the wire than it parses to in the daemon.
+#[test]
+fn serde_repr_matches_db_string() {
+    for result in DnsQueryResult::ALL {
+        let json = serde_json::to_string(&result).unwrap();
+        assert_eq!(json, format!("\"{}\"", result.as_str()));
     }
 }
 

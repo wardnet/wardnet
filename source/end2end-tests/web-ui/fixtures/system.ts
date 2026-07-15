@@ -16,7 +16,15 @@ import { loginViaUi } from "./ui";
  * once the mutation settles — the caller asserts that.
  */
 export async function setChannel(page: Page, label: string): Promise<void> {
-  await page.getByTestId("update-channel-trigger").click();
+  const trigger = page.getByTestId("update-channel-trigger");
+  // The select is disabled while an update phase is active (e.g. a check
+  // kicked off by an earlier spec still settling server-side). Wait for it
+  // explicitly so a stuck phase fails loudly here rather than as an opaque
+  // full-test-timeout on the click below.
+  await expect(trigger, "update phase must settle first").toBeEnabled({
+    timeout: 30_000,
+  });
+  await trigger.click();
   await page.getByRole("option", { name: label }).click();
 }
 

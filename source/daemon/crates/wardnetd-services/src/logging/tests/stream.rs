@@ -443,3 +443,62 @@ async fn layer_inactive_does_not_publish() {
     // Use try_recv to confirm no value was enqueued.
     assert!(rx.try_recv().is_err());
 }
+
+// ---------------------------------------------------------------------------
+// Target suppression (admin-UI noise control)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn layer_does_not_broadcast_suppressed_targets() {
+    let svc = Arc::new(
+        LogStreamService::new(16)
+            .with_suppressed_targets(vec!["hickory_resolver::recursor".to_owned()]),
+    );
+    svc.start();
+    let mut rx = svc.subscribe();
+    let subscriber = tracing_subscriber::registry().with(svc.tracing_layer());
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    tracing::warn!(target: "hickory_resolver::recursor::handle", "lookup error");
+
+    assert!(
+        rx.try_recv().is_err(),
+        "suppressed target must not reach the log stream"
+    );
+}
+
+#[tokio::test]
+async fn layer_broadcasts_unsuppressed_targets() {
+    let svc = Arc::new(
+        LogStreamService::new(16)
+            .with_suppressed_targets(vec!["hickory_resolver::recursor".to_owned()]),
+    );
+    svc.start();
+    let mut rx = svc.subscribe();
+    let subscriber = tracing_subscriber::registry().with(svc.tracing_layer());
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    tracing::warn!(target: "wardnetd::dns", "real failure");
+
+    let entry = rx.try_recv().expect("unsuppressed event should broadcast");
+    assert_eq!(entry.target, "wardnetd::dns");
+}
+
+#[tokio::test]
+async fn suppressed_target_still_broadcasts_errors() {
+    let svc = Arc::new(
+        LogStreamService::new(16)
+            .with_suppressed_targets(vec!["hickory_resolver::recursor".to_owned()]),
+    );
+    svc.start();
+    let mut rx = svc.subscribe();
+    let subscriber = tracing_subscriber::registry().with(svc.tracing_layer());
+    let _guard = tracing::subscriber::set_default(subscriber);
+
+    tracing::warn!(target: "hickory_resolver::recursor::handle", "lookup error");
+    tracing::error!(target: "hickory_resolver::recursor::handle", "recursor is broken");
+
+    let entry = rx.try_recv().expect("ERROR must never be suppressed");
+    assert_eq!(entry.level, "ERROR");
+    assert!(rx.try_recv().is_err(), "the WARN must still be suppressed");
+}

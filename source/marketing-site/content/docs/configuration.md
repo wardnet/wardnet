@@ -67,6 +67,7 @@ live over the `/api/system/logs/stream` WebSocket.
 | `max_log_files` | `7` | Retention count for rotated files. |
 | `max_recent_errors` | `15` | Ring buffer size for `/api/system/errors`. |
 | `broadcast_capacity` | `256` | Buffer size for the live log WebSocket. |
+| `ui_suppressed_targets` | `["hickory_resolver::recursor"]` | Tracing targets hidden from the admin UI (live log stream and `/api/system/errors`), matched as a target prefix. These events are still written to the log file — this only keeps per-query dependency noise from drowning the events an admin can act on. Set to `[]` to show everything. |
 
 ## `[network]`
 

@@ -1,7 +1,8 @@
 {
+  "id": "/admin-app/",
   "name": "Wardnet Admin",
-  "short_name": "Wardnet",
-  "description": "Wardnet Admin — manage your network on the go",
+  "short_name": "Wardnet Admin",
+  "description": "Wardnet Admin \u2014 manage your network on the go",
   "start_url": "/admin-app/",
   "scope": "/admin-app/",
   "display": "standalone",
