@@ -55,6 +55,10 @@ fn empty_routing_snapshot() -> Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>> {
     Arc::new(ArcSwap::from_pointee(HashMap::new()))
 }
 
+fn empty_device_snapshot() -> Arc<ArcSwap<HashMap<IpAddr, uuid::Uuid>>> {
+    Arc::new(ArcSwap::from_pointee(HashMap::new()))
+}
+
 fn stub_tunnel_repo() -> Arc<dyn TunnelRepository> {
     struct Stub;
     #[async_trait]
@@ -339,6 +343,7 @@ fn build_test_server(config: DnsConfig, bind_addr: SocketAddr) -> UdpDnsServer {
         bind_addr,
         stub_filter(),
         empty_routing_snapshot(),
+        empty_device_snapshot(),
         stub_tunnel_repo(),
         stub_events(),
     )
@@ -609,6 +614,7 @@ fn record_query_with_no_sink_is_a_noop() {
         "example.com",
         RecordType::A,
         src,
+        None,
         "blocked",
         None,
         Duration::from_millis(2),
@@ -628,6 +634,7 @@ async fn record_query_with_sink_pushes_a_row_with_normalized_domain() {
         "example.com.",
         RecordType::AAAA,
         src,
+        None,
         "passed",
         Some("1.1.1.1".into()),
         Duration::from_millis(7),
@@ -681,6 +688,7 @@ async fn server_records_query_after_handling_it() {
         loopback_ephemeral(),
         stub_filter(),
         empty_routing_snapshot(),
+        empty_device_snapshot(),
         stub_tunnel_repo(),
         stub_events(),
     )
@@ -953,6 +961,7 @@ fn build_with_filter(
         loopback_ephemeral(),
         filter,
         empty_routing_snapshot(),
+        empty_device_snapshot(),
         stub_tunnel_repo(),
         stub_events(),
     )
@@ -1074,6 +1083,7 @@ async fn handle_query_tunnel_branch_records_upstream_error_when_forward_fails() 
         loopback_ephemeral(),
         filter,
         snapshot,
+        empty_device_snapshot(),
         tunnel_repo,
         stub_events(),
     )
@@ -1559,6 +1569,7 @@ async fn dns_filter_rebuilt_event_flushes_response_cache() {
         loopback_ephemeral(),
         filter.clone() as Arc<dyn wardnetd_services::DnsFilterService>,
         empty_routing_snapshot(),
+        empty_device_snapshot(),
         stub_tunnel_repo(),
         bus.clone(),
     );
@@ -2226,6 +2237,7 @@ async fn recursor_unavailable_falls_back_to_forwarding_when_upstreams_set() {
         foo_com_request(),
         0xCAFE,
         src,
+        None,
         "foo.com",
         RecordType::A,
         std::time::Instant::now(),
@@ -2281,6 +2293,7 @@ async fn recursor_unavailable_servfails_when_no_upstreams() {
         foo_com_request(),
         0xCAFE,
         src,
+        None,
         "foo.com",
         RecordType::A,
         std::time::Instant::now(),
@@ -2382,6 +2395,7 @@ async fn run_recursor_outcome(
         request,
         0xCAFE,
         src,
+        None,
         "foo.com",
         rtype,
         std::time::Instant::now(),
@@ -2632,6 +2646,7 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
         request,
         0xABCD,
         src,
+        None,
         "",
         RecordType::A,
         std::time::Instant::now(),

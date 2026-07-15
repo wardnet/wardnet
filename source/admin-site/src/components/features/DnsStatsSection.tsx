@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link } from "react-router";
 import {
   CartesianGrid,
   Legend,
@@ -14,14 +15,18 @@ import { ZoomableChartContainer } from "@/components/compound/ZoomableChartConta
 import { type ChartConfig } from "@/components/core/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Text } from "@wardnet/web";
+import { DeviceIcon } from "@wardnet/web";
 import { DashboardStatCard } from "@/components/compound/DashboardStatCard";
+import { HostCell } from "@/components/compound/HostCell";
 import { useChartZoom, type ZoomRange } from "@/hooks/useChartZoom";
 import {
+  useDevices,
   useDnsStatsDashboard,
+  deviceDisplayName,
   RANGE_HOURS,
   type StatsRange,
 } from "@wardnet/web";
-import type { StatsTopEntry } from "@wardnet/js";
+import type { Device, StatsTopEntry } from "@wardnet/js";
 
 const chartConfig: ChartConfig = {
   total: { label: "Total", color: "var(--chart-1)" },
@@ -49,6 +54,10 @@ interface Props {
 
 /** Stats panel for the DNS page: top cards, time series, top tables. */
 export function DnsStatsSection({ range }: Props) {
+  // Device list for resolving top-client entries' `device_id` labels to
+  // names. Lookup is by immutable device id — never by IP, which DHCP may
+  // have reassigned since the stats were recorded.
+  const { data: devicesData } = useDevices();
   // Tag zoom with the range it was committed for so it auto-invalidates
   // when the parent changes range without needing a useEffect reset.
   const [storedZoom, setStoredZoom] = useState<{
@@ -264,11 +273,10 @@ export function DnsStatsSection({ range }: Props) {
           labelKey="domain"
           valueLabel="blocks"
         />
-        <TopList
+        <TopClientsList
           title={`Top clients (${zoomLabel ?? range})`}
           entries={data?.topClients.entries}
-          labelKey="client"
-          valueLabel="queries"
+          devices={devicesData?.devices}
         />
       </div>
     </div>
@@ -316,7 +324,7 @@ function TopList({
         {entries && entries.length > 0 ? (
           <Text as="ul" size="sm" className="flex flex-col gap-2">
             {entries.map((entry, i) => {
-              // eslint-disable-next-line security/detect-object-injection -- labelKey is a literal ("domain"/"client") from the two local TopList call sites; read-only
+              // eslint-disable-next-line security/detect-object-injection -- labelKey is a literal ("domain") from the local TopList call site; read-only
               const label = parseLabels(entry.labels)[labelKey] ?? entry.labels;
               return (
                 <li key={i} className="flex items-center justify-between gap-2">
@@ -326,6 +334,83 @@ function TopList({
                   <span className="tabular-nums text-ink-3">
                     {Math.round(entry.total).toLocaleString()} {valueLabel}
                   </span>
+                </li>
+              );
+            })}
+          </Text>
+        ) : (
+          <Text as="p" size="sm" className="text-ink-3">
+            No data yet.
+          </Text>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Top-clients card: entries carry write-time device attribution.
+ *
+ * Each entry's labels hold `device_id` (when the daemon knew the device at
+ * query time) plus `client` (the IP seen). Known devices render name +
+ * icon linked to their detail page, with the IP as a secondary line;
+ * unattributed entries fall back to the bare IP. Resolution is by device
+ * id only — matching on IP would re-introduce the DHCP-churn
+ * misattribution this data model exists to prevent.
+ */
+function TopClientsList({
+  title,
+  entries,
+  devices,
+}: {
+  title: string;
+  entries: StatsTopEntry[] | undefined;
+  devices: Device[] | undefined;
+}) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-sm">{title}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {entries && entries.length > 0 ? (
+          <Text as="ul" size="sm" className="flex flex-col gap-2">
+            {entries.map((entry, i) => {
+              const labels = parseLabels(entry.labels);
+              const device = labels.device_id
+                ? devices?.find((d) => d.id === labels.device_id)
+                : undefined;
+              const total = (
+                <span className="tabular-nums text-ink-3">
+                  {Math.round(entry.total).toLocaleString()} queries
+                </span>
+              );
+              if (!device) {
+                return (
+                  <li
+                    key={i}
+                    className="flex items-center justify-between gap-2"
+                  >
+                    <Text size="xs" className="truncate font-mono">
+                      {labels.client ?? entry.labels}
+                    </Text>
+                    {total}
+                  </li>
+                );
+              }
+              return (
+                <li key={i} className="flex items-center justify-between gap-2">
+                  <Link to={`/devices/${device.id}`} className="min-w-0 flex-1">
+                    <HostCell
+                      primary={deviceDisplayName(device)}
+                      // The device's CURRENT IP — the entry's labels come
+                      // from an arbitrary member of the aggregated group,
+                      // so their client value may be any IP the device
+                      // held in the window.
+                      secondary={device.last_ip || labels.client || null}
+                      icon={<DeviceIcon type={device.device_type} size={16} />}
+                    />
+                  </Link>
+                  {total}
                 </li>
               );
             })}

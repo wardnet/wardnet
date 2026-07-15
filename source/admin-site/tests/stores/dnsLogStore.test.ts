@@ -19,7 +19,7 @@ describe("dnsLogStore", () => {
       connected: false,
       paused: false,
       skipped: 0,
-      filter: { domain: "", client_ip: "", results: [] },
+      filter: { domain: "", client_ip: "", device_id: "", results: [] },
     });
   });
 
@@ -44,9 +44,12 @@ describe("dnsLogStore", () => {
 
   it("setFilter keeps existing entries", () => {
     useDnsLogStore.getState()._addEvent(event());
-    useDnsLogStore
-      .getState()
-      .setFilter({ domain: "x", client_ip: "", results: ["blocked"] });
+    useDnsLogStore.getState().setFilter({
+      domain: "x",
+      client_ip: "",
+      device_id: "",
+      results: ["blocked"],
+    });
     const s = useDnsLogStore.getState();
     expect(s.filter.domain).toBe("x");
     expect(s.entries).toHaveLength(1);

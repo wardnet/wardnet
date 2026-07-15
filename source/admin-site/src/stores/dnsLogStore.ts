@@ -6,6 +6,8 @@ const MAX_ENTRIES = 500;
 export interface DnsLogFilter {
   domain: string;
   client_ip: string;
+  /** Matches the event's write-time device attribution (empty = any). */
+  device_id: string;
   results: string[];
 }
 
@@ -31,7 +33,7 @@ export const useDnsLogStore = create<DnsLogState>((set) => ({
   connected: false,
   paused: false,
   skipped: 0,
-  filter: { domain: "", client_ip: "", results: [] },
+  filter: { domain: "", client_ip: "", device_id: "", results: [] },
 
   _addEvent: (event) =>
     set((state) => {

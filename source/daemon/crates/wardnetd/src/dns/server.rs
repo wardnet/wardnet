@@ -121,6 +121,12 @@ pub struct UdpDnsServer {
     /// routing service. Maps a tunneled-device IP to `Tunnel(_)` only
     /// when that tunnel has `override_default_dns = true`.
     routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+    /// Lock-free IP → device-id snapshot, kept current by the
+    /// device-snapshot listener. Consulted once per query so log rows and
+    /// stats carry the device identity as of query time — re-deriving it
+    /// at read time would misattribute traffic after DHCP hands the IP to
+    /// a different device.
+    device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
     /// Tunnel repository — needed to translate `Tunnel(uuid)` from the
     /// routing snapshot into the interface name + DNS upstream we should
     /// forward to via `SO_BINDTODEVICE`.
@@ -195,6 +201,7 @@ impl UdpDnsServer {
         config: DnsConfig,
         dns_filter: Arc<dyn DnsFilterService>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+        device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
         events: Arc<dyn EventPublisher>,
     ) -> Self {
@@ -203,6 +210,7 @@ impl UdpDnsServer {
             SocketAddr::from(([0, 0, 0, 0], 53)),
             dns_filter,
             routing_snapshot,
+            device_snapshot,
             tunnel_repo,
             events,
         )
@@ -218,6 +226,7 @@ impl UdpDnsServer {
         bind_addr: SocketAddr,
         dns_filter: Arc<dyn DnsFilterService>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+        device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
         events: Arc<dyn EventPublisher>,
     ) -> Self {
@@ -271,6 +280,7 @@ impl UdpDnsServer {
             local_addr: Arc::new(std::sync::Mutex::new(None)),
             log_sink: None,
             routing_snapshot,
+            device_snapshot,
             tunnel_repo,
             tunnel_forwarders: Arc::new(RwLock::new(HashMap::new())),
             cache_invalidator_cancel,
@@ -343,6 +353,7 @@ impl DnsServer for UdpDnsServer {
         let running = Arc::clone(&self.running);
         let log_sink = self.log_sink.clone();
         let routing_snapshot = Arc::clone(&self.routing_snapshot);
+        let device_snapshot = Arc::clone(&self.device_snapshot);
         let tunnel_repo = Arc::clone(&self.tunnel_repo);
         let tunnel_forwarders = Arc::clone(&self.tunnel_forwarders);
         let authoritative_view = Arc::clone(&self.authoritative_view);
@@ -373,6 +384,7 @@ impl DnsServer for UdpDnsServer {
                 cancel,
                 tracker,
                 routing_snapshot,
+                device_snapshot,
                 tunnel_repo,
                 tunnel_forwarders,
                 authoritative_view,
@@ -505,6 +517,7 @@ async fn server_loop(
     cancel: CancellationToken,
     tracker: TaskTracker,
     routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+    device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
     tunnel_repo: Arc<dyn TunnelRepository>,
     tunnel_forwarders: Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
     authoritative_view: Arc<ArcSwap<AuthoritativeView>>,
@@ -531,6 +544,7 @@ async fn server_loop(
                         let recursor = Arc::clone(&recursor);
                         let log_sink = log_sink.clone();
                         let routing_snapshot = Arc::clone(&routing_snapshot);
+                        let device_snapshot = Arc::clone(&device_snapshot);
                         let tunnel_repo = Arc::clone(&tunnel_repo);
                         let tunnel_forwarders = Arc::clone(&tunnel_forwarders);
                         let authoritative_view = Arc::clone(&authoritative_view);
@@ -552,6 +566,7 @@ async fn server_loop(
                                 &recursor,
                                 log_sink.as_deref(),
                                 &routing_snapshot,
+                                &device_snapshot,
                                 &tunnel_repo,
                                 &tunnel_forwarders,
                                 &authoritative_view,
@@ -586,6 +601,7 @@ async fn handle_query(
     recursor: &Arc<RwLock<Option<TokioRecursor>>>,
     log_sink: Option<&DnsLogSink>,
     routing_snapshot: &Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+    device_snapshot: &Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
     tunnel_repo: &Arc<dyn TunnelRepository>,
     tunnel_forwarders: &Arc<RwLock<HashMap<Uuid, Arc<TunnelForwarderInfo>>>>,
     authoritative_view: &Arc<ArcSwap<AuthoritativeView>>,
@@ -604,6 +620,12 @@ async fn handle_query(
     let rtype = question.query_type();
     let start = std::time::Instant::now();
 
+    // Resolve the querying device once, from the point-in-time IP →
+    // device-id snapshot (wait-free load, no locks). Carried into every
+    // recorded log row and stat so the attribution survives DHCP later
+    // reassigning this IP to a different device. `None` = unknown client.
+    let device_id = device_snapshot.load().get(&src.ip()).copied();
+
     // 1. Rate limit (per-client token bucket). 0 disables; shed flooding
     // clients before any resolution work, returning REFUSED. The rate is
     // read lock-free from the limiter (no config lock on the hot path).
@@ -614,6 +636,7 @@ async fn handle_query(
             &domain,
             rtype,
             src,
+            device_id,
             DnsQueryResult::RateLimited.as_str(),
             None,
             start.elapsed(),
@@ -717,6 +740,7 @@ async fn handle_query(
             &domain,
             rtype,
             src,
+            device_id,
             DnsQueryResult::Authoritative.as_str(),
             None,
             start.elapsed(),
@@ -787,7 +811,16 @@ async fn handle_query(
             DnsQueryResult::AuthoritativeNxdomain.as_str()
         };
         tracing::trace!(%domain, ?rtype, result, "authoritative negative answer: {result}");
-        record_query(log_sink, &domain, rtype, src, result, None, start.elapsed());
+        record_query(
+            log_sink,
+            &domain,
+            rtype,
+            src,
+            device_id,
+            result,
+            None,
+            start.elapsed(),
+        );
         return Ok(());
     }
 
@@ -807,6 +840,7 @@ async fn handle_query(
                 &domain,
                 rtype,
                 src,
+                device_id,
                 DnsQueryResult::CacheHit.as_str(),
                 None,
                 start.elapsed(),
@@ -833,6 +867,7 @@ async fn handle_query(
                 &domain,
                 rtype,
                 src,
+                device_id,
                 DnsQueryResult::Blocked.as_str(),
                 None,
                 start.elapsed(),
@@ -869,6 +904,7 @@ async fn handle_query(
                 &domain,
                 rtype,
                 src,
+                device_id,
                 DnsQueryResult::Rewritten.as_str(),
                 None,
                 start.elapsed(),
@@ -896,6 +932,7 @@ async fn handle_query(
             &request,
             id,
             src,
+            device_id,
             &domain,
             rtype,
             start,
@@ -917,6 +954,7 @@ async fn handle_query(
                 &domain,
                 rtype,
                 src,
+                device_id,
                 DnsQueryResult::UpstreamError.as_str(),
                 Some(cond_upstream.ip().to_string()),
                 start.elapsed(),
@@ -939,6 +977,7 @@ async fn handle_query(
                     request,
                     id,
                     src,
+                    device_id,
                     &domain,
                     rtype,
                     start,
@@ -956,6 +995,7 @@ async fn handle_query(
                     request,
                     id,
                     src,
+                    device_id,
                     &domain,
                     rtype,
                     start,
@@ -978,6 +1018,7 @@ async fn handle_query(
                         &request,
                         id,
                         src,
+                        device_id,
                         &domain,
                         rtype,
                         start,
@@ -998,6 +1039,7 @@ async fn handle_query(
                             &domain,
                             rtype,
                             src,
+                            device_id,
                             DnsQueryResult::UpstreamError.as_str(),
                             Some(forwarder.upstream.ip().to_string()),
                             start.elapsed(),
@@ -1016,6 +1058,7 @@ async fn handle_query(
                         &domain,
                         rtype,
                         src,
+                        device_id,
                         DnsQueryResult::UpstreamError.as_str(),
                         None,
                         start.elapsed(),
@@ -1038,6 +1081,7 @@ async fn forward_via_default_resolver(
     request: Message,
     id: u16,
     src: SocketAddr,
+    device_id: Option<Uuid>,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1059,6 +1103,7 @@ async fn forward_via_default_resolver(
                 &request,
                 id,
                 src,
+                device_id,
                 domain,
                 rtype,
                 start,
@@ -1084,6 +1129,7 @@ async fn forward_via_default_resolver(
                 &request,
                 id,
                 src,
+                device_id,
                 domain,
                 rtype,
                 start,
@@ -1106,6 +1152,7 @@ async fn forward_via_default_resolver(
                 domain,
                 rtype,
                 src,
+                device_id,
                 DnsQueryResult::UpstreamError.as_str(),
                 upstream,
                 elapsed,
@@ -1127,6 +1174,7 @@ async fn send_resolved(
     request: &Message,
     id: u16,
     src: SocketAddr,
+    device_id: Option<Uuid>,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1159,6 +1207,7 @@ async fn send_resolved(
             domain,
             rtype,
             src,
+            device_id,
             DnsQueryResult::RebindingBlocked.as_str(),
             upstream_label,
             start.elapsed(),
@@ -1201,6 +1250,7 @@ async fn send_resolved(
         domain,
         rtype,
         src,
+        device_id,
         pass_result,
         upstream_label,
         elapsed,
@@ -1224,6 +1274,7 @@ pub(crate) async fn resolve_via_recursor(
     request: Message,
     id: u16,
     src: SocketAddr,
+    device_id: Option<Uuid>,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1258,6 +1309,7 @@ pub(crate) async fn resolve_via_recursor(
         request,
         id,
         src,
+        device_id,
         domain,
         rtype,
         start,
@@ -1282,6 +1334,7 @@ pub(crate) async fn handle_recursor_outcome(
     request: Message,
     id: u16,
     src: SocketAddr,
+    device_id: Option<Uuid>,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1307,6 +1360,7 @@ pub(crate) async fn handle_recursor_outcome(
                 &request,
                 id,
                 src,
+                device_id,
                 domain,
                 rtype,
                 start,
@@ -1333,6 +1387,7 @@ pub(crate) async fn handle_recursor_outcome(
                 &request,
                 id,
                 src,
+                device_id,
                 domain,
                 rtype,
                 start,
@@ -1362,6 +1417,7 @@ pub(crate) async fn handle_recursor_outcome(
                     request,
                     id,
                     src,
+                    device_id,
                     domain,
                     rtype,
                     start,
@@ -1376,6 +1432,7 @@ pub(crate) async fn handle_recursor_outcome(
                     domain,
                     rtype,
                     src,
+                    device_id,
                     DnsQueryResult::RecursorFailed.as_str(),
                     None,
                     start.elapsed(),
@@ -1397,6 +1454,7 @@ async fn forward_via_tunnel(
     _request: &Message,
     _id: u16,
     src: SocketAddr,
+    device_id: Option<Uuid>,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1468,6 +1526,7 @@ async fn forward_via_tunnel(
         domain,
         rtype,
         src,
+        device_id,
         result,
         Some(forwarder.upstream.ip().to_string()),
         elapsed,
@@ -1555,6 +1614,7 @@ async fn relay_negative(
     request: &Message,
     id: u16,
     src: SocketAddr,
+    device_id: Option<Uuid>,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1615,6 +1675,7 @@ async fn relay_negative(
         domain,
         rtype,
         src,
+        device_id,
         result,
         upstream_label,
         start.elapsed(),
@@ -1721,11 +1782,13 @@ fn bind_socket_to_device(_interface_name: &str) -> std::io::Result<UdpSocket> {
     UdpSocket::from_std(std_socket)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn record_query(
     sink: Option<&DnsLogSink>,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     src: SocketAddr,
+    device_id: Option<Uuid>,
     result: &str,
     upstream: Option<String>,
     latency: std::time::Duration,
@@ -1740,7 +1803,7 @@ pub(crate) fn record_query(
         result: result.to_owned(),
         upstream,
         latency_ms: duration_to_ms(latency),
-        device_id: None,
+        device_id: device_id.map(|id| id.to_string()),
     };
     sink.record(row);
 }
@@ -1912,6 +1975,7 @@ async fn forward_via_conditional(
     request: &Message,
     id: u16,
     src: SocketAddr,
+    device_id: Option<Uuid>,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -2004,6 +2068,7 @@ async fn forward_via_conditional(
         domain,
         rtype,
         src,
+        device_id,
         result,
         Some(upstream.ip().to_string()),
         elapsed,

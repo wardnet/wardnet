@@ -483,6 +483,7 @@ impl DnsService for DnsServiceImpl {
 
         let filter = QueryLogFilter {
             client_ip: params.client_ip,
+            device_id: params.device_id.map(|id| id.to_string()),
             domain: params.domain,
             result: params.result, // already Option<DnsQueryResult>
         };

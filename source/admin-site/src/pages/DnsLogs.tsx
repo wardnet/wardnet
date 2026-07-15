@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/compound/PageHeader";
 import { DataTable } from "@/components/core/ui/data-table";
 import { Toggle } from "@wardnet/web";
 import { Button } from "@wardnet/web";
+import { Input } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import {
@@ -14,9 +15,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/web";
+import { HelpCircle } from "lucide-react";
 import { DeviceIcon } from "@wardnet/web";
 import { DeviceSelect } from "@/components/compound/DeviceSelect";
-import { useDevices } from "@wardnet/web";
+import { HostCell } from "@/components/compound/HostCell";
+import { useDevices, deviceDisplayName } from "@wardnet/web";
 import { useDnsQueryLog } from "@wardnet/web";
 import { useDnsLogStore } from "@/stores/dnsLogStore";
 import { formatTime } from "@wardnet/web";
@@ -29,6 +32,9 @@ import type {
 interface RowShape {
   timestamp: string;
   client_ip: string;
+  /** Write-time device attribution; null for unknown sources and rows
+   *  recorded before attribution existed. */
+  device_id: string | null;
   domain: string;
   query_type: string;
   result: string;
@@ -89,23 +95,23 @@ const PAGE_SIZE = 50;
 /** DNS query log page: live tail + paginated history. Admin only. */
 export default function DnsLogs() {
   const [domain, setDomain] = useState("");
+  const [deviceId, setDeviceId] = useState("");
   const [clientIp, setClientIp] = useState("");
   const [result, setResult] = useState("any");
   const [page, setPage] = useState(0);
   const [liveTail, setLiveTail] = useState(true);
 
   const { data: devicesData } = useDevices();
-  // De-dupe by last_ip so the dropdown doesn't list two rows for the
-  // same IP — the DNS log is keyed on `client_ip` and that's what the
-  // filter narrows on.
-  const filterableDevices = useMemo(() => {
-    const seen = new Set<string>();
-    return (devicesData?.devices ?? []).filter((d) => {
-      if (!d.last_ip || seen.has(d.last_ip)) return false;
-      seen.add(d.last_ip);
-      return true;
-    });
-  }, [devicesData]);
+  // The dropdown is id-keyed so duplicates by IP are fine, but a device
+  // with no name, no hostname, and an empty last_ip would render a blank
+  // option (DeviceSelect's label falls back name → hostname → last_ip).
+  const filterableDevices = useMemo(
+    () =>
+      (devicesData?.devices ?? []).filter(
+        (d) => d.name || d.hostname || d.last_ip,
+      ),
+    [devicesData],
+  );
 
   const liveEntries = useDnsLogStore((s) => s.entries);
   const liveConnected = useDnsLogStore((s) => s.connected);
@@ -118,9 +124,10 @@ export default function DnsLogs() {
     setStoreFilter({
       domain,
       client_ip: clientIp,
+      device_id: deviceId,
       results: result === "any" ? [] : [result],
     });
-  }, [domain, clientIp, result, setStoreFilter]);
+  }, [domain, clientIp, deviceId, result, setStoreFilter]);
 
   // Auto-pause the store on filter change so a sudden flood of new
   // events doesn't interrupt scrolling.
@@ -135,15 +142,16 @@ export default function DnsLogs() {
       offset: page * PAGE_SIZE,
       domain: domain || undefined,
       client_ip: clientIp || undefined,
+      device_id: deviceId || undefined,
       result: result === "any" ? undefined : (result as DnsQueryResult),
     }),
-    [domain, clientIp, result, page],
+    [domain, clientIp, deviceId, result, page],
   );
   const { data, isLoading } = useDnsQueryLog(filterParams);
 
   const showLive = liveTail;
   const liveRows: RowShape[] = liveEntries
-    .filter(matchesFilter(domain, clientIp, result))
+    .filter(matchesFilter(domain, clientIp, deviceId, result))
     .map(eventToRow);
   const persistedRows: RowShape[] = data?.entries.map(persistedToRow) ?? [];
 
@@ -167,26 +175,23 @@ export default function DnsLogs() {
         header: "Device",
         meta: { className: "w-56" },
         cell: ({ row }) => {
-          const dev = devicesData?.devices.find(
-            (d) => d.last_ip === row.original.client_ip,
-          );
-          const primary = dev?.name || dev?.hostname || row.original.client_ip;
-          const secondary =
-            dev?.name || dev?.hostname ? row.original.client_ip : null;
+          // Resolve by the row's write-time device attribution — never by
+          // IP, which DHCP may have reassigned since the query happened.
+          const dev = row.original.device_id
+            ? devicesData?.devices.find((d) => d.id === row.original.device_id)
+            : undefined;
           return (
-            <div className="flex items-center gap-2">
-              {dev && <DeviceIcon type={dev.device_type} size={16} />}
-              <div className="flex min-w-0 flex-col">
-                <Text weight="medium" className="truncate">
-                  {primary}
-                </Text>
-                {secondary && (
-                  <Text size="xs" className="truncate text-ink-3">
-                    {secondary}
-                  </Text>
-                )}
-              </div>
-            </div>
+            <HostCell
+              primary={dev ? deviceDisplayName(dev) : row.original.client_ip}
+              secondary={dev ? row.original.client_ip : null}
+              icon={
+                dev ? (
+                  <DeviceIcon type={dev.device_type} size={16} />
+                ) : (
+                  <HelpCircle size={16} className="text-ink-3" />
+                )
+              }
+            />
           );
         },
       },
@@ -236,12 +241,26 @@ export default function DnsLogs() {
       <DeviceSelect
         id="device-filter"
         devices={filterableDevices}
-        value={clientIp}
-        onChange={(ip) => {
-          setClientIp(ip);
+        valueKey="id"
+        value={deviceId}
+        onChange={(id) => {
+          setDeviceId(id);
           setPage(0);
         }}
         triggerClassName="select-trigger--md w-48"
+      />
+      {/* Free-text IP filter: the only handle on rows with no device
+          attribution (unknown sources, pre-attribution history). */}
+      <Input
+        id="client-ip-filter"
+        data-testid="dns-log-ip-filter"
+        className="w-36"
+        placeholder="Client IP…"
+        value={clientIp}
+        onChange={(e) => {
+          setClientIp(e.target.value);
+          setPage(0);
+        }}
       />
       <Select
         value={result}
@@ -360,11 +379,14 @@ export default function DnsLogs() {
 function matchesFilter(
   domain: string,
   clientIp: string,
+  deviceId: string,
   result: string,
 ): (e: QueryLogEvent) => boolean {
   return (e) => {
     if (domain && !e.domain.includes(domain)) return false;
-    if (clientIp && e.client_ip !== clientIp) return false;
+    // Substring match, mirroring the domain filter and the server-side LIKE.
+    if (clientIp && !e.client_ip.includes(clientIp)) return false;
+    if (deviceId && e.device_id !== deviceId) return false;
     if (result !== "any" && e.result !== result) return false;
     return true;
   };
@@ -374,6 +396,7 @@ function eventToRow(e: QueryLogEvent): RowShape {
   return {
     timestamp: e.timestamp,
     client_ip: e.client_ip,
+    device_id: e.device_id ?? null,
     domain: e.domain,
     query_type: e.query_type,
     result: e.result,
@@ -385,6 +408,7 @@ function persistedToRow(e: DnsQueryLogEntry): RowShape {
   return {
     timestamp: e.timestamp,
     client_ip: e.client_ip,
+    device_id: e.device_id ?? null,
     domain: e.domain,
     query_type: e.query_type,
     result: e.result,

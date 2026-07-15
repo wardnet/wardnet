@@ -132,9 +132,16 @@ impl DnsRepository for SqliteDnsRepository {
 fn build_where(filter: &QueryLogFilter) -> (String, Vec<String>) {
     let mut conditions: Vec<&str> = Vec::new();
     let mut binds: Vec<String> = Vec::new();
+    // Substring match, mirroring the domain filter: the admin UI feeds this
+    // from a free-text input, so a partial IP ("192.168.1") must narrow
+    // rather than silently matching nothing.
     if let Some(ref ip) = filter.client_ip {
-        conditions.push("client_ip = ?");
-        binds.push(ip.clone());
+        conditions.push("client_ip LIKE ?");
+        binds.push(format!("%{ip}%"));
+    }
+    if let Some(ref device_id) = filter.device_id {
+        conditions.push("device_id = ?");
+        binds.push(device_id.clone());
     }
     if let Some(ref domain) = filter.domain {
         conditions.push("domain LIKE ?");

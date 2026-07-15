@@ -214,12 +214,65 @@ async fn top_n_returns_results_sorted_by_total_desc() {
     .await
     .unwrap();
     let entries = repo
-        .top_n("dns.queries", "domain", 0, 9999, 2)
+        .top_n("dns.queries", "domain", None, 0, 9999, 2)
         .await
         .unwrap();
     assert_eq!(entries.len(), 2, "limit of 2 must be respected");
     assert_eq!(entries[0].total, 10.0, "highest total must be first");
     assert_eq!(entries[1].total, 7.0);
+}
+
+/// COALESCE fallback: ranking by `device_id` still counts traffic from
+/// sources with no attributed device — those entries group by their
+/// `client` IP instead of being dropped, and rows sharing a `device_id`
+/// aggregate across different client IPs (DHCP churn).
+#[tokio::test]
+async fn top_n_fallback_groups_unattributed_by_fallback_key() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    repo.upsert_intraday(&[
+        // Same device seen under two IPs — must aggregate to one entry.
+        intraday(
+            "dns.queries.by_client",
+            r#"{"client":"10.0.0.5","device_id":"dev-a"}"#,
+            1000,
+            4.0,
+            "counter",
+        ),
+        intraday(
+            "dns.queries.by_client",
+            r#"{"client":"10.0.0.9","device_id":"dev-a"}"#,
+            1000,
+            3.0,
+            "counter",
+        ),
+        // Unknown source — no device_id label; groups by client IP.
+        intraday(
+            "dns.queries.by_client",
+            r#"{"client":"10.0.0.77"}"#,
+            1000,
+            5.0,
+            "counter",
+        ),
+    ])
+    .await
+    .unwrap();
+    let entries = repo
+        .top_n(
+            "dns.queries.by_client",
+            "device_id",
+            Some("client"),
+            0,
+            9999,
+            10,
+        )
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 2, "device group + unattributed IP group");
+    assert_eq!(entries[0].total, 7.0, "device totals aggregate across IPs");
+    assert!(entries[0].labels.contains("dev-a"));
+    assert_eq!(entries[1].total, 5.0);
+    assert!(entries[1].labels.contains("10.0.0.77"));
 }
 
 #[tokio::test]

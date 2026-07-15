@@ -49,9 +49,7 @@ vi.mock("@/components/compound/DeviceSelect", () => ({
     onChange: (value: string) => void;
     devices: unknown[];
   }) => (
-    <button onClick={() => onChange("10.232.1.10")}>
-      device-pick:{devices.length}
-    </button>
+    <button onClick={() => onChange("d1")}>device-pick:{devices.length}</button>
   ),
 }));
 
@@ -64,6 +62,9 @@ const liveEvent = (over: Record<string, unknown> = {}): QueryLogEvent =>
   ({
     timestamp: "2026-07-01T10:00:00Z",
     client_ip: "10.232.1.10",
+    // Write-time attribution to the "Laptop" device — the page resolves
+    // device names and the device filter by this id, never by IP.
+    device_id: "d1",
     domain: "ads.example.com",
     query_type: "A",
     result: "blocked",
@@ -78,7 +79,7 @@ beforeEach(() => {
     connected: false,
     paused: false,
     skipped: 0,
-    filter: { domain: "", client_ip: "", results: [] },
+    filter: { domain: "", client_ip: "", device_id: "", results: [] },
   });
   useDevices.mockReturnValue({
     data: {
@@ -90,7 +91,8 @@ beforeEach(() => {
           hostname: null,
           last_ip: undefined,
         }),
-        // Duplicate last_ip is de-duped out of the filter list.
+        // Shares d1's last_ip — still listed, since the dropdown is keyed
+        // by device id, not IP.
         makeDevice({ id: "d3", name: "Dup", last_ip: "10.232.1.10" }),
       ],
     },
@@ -108,8 +110,10 @@ describe("DnsLogs", () => {
       screen.getByRole("heading", { name: "DNS query log" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Live tail (offline)")).toBeInTheDocument();
-    // Only one device row remains after de-duping on last_ip.
-    expect(screen.getByText("device-pick:1")).toBeInTheDocument();
+    // The dropdown is id-keyed (no de-duping on last_ip), but devices with
+    // no displayable label (d2: no name/hostname/last_ip) are excluded so
+    // no option renders blank.
+    expect(screen.getByText("device-pick:2")).toBeInTheDocument();
   });
 
   it("renders live rows with resolved device names and result badges", () => {
@@ -119,6 +123,7 @@ describe("DnsLogs", () => {
         liveEvent(),
         liveEvent({
           client_ip: "9.9.9.9",
+          device_id: null,
           domain: "unknown.test",
           result: "blocked_skipped",
         }),
@@ -148,8 +153,12 @@ describe("DnsLogs", () => {
   it("narrows the live tail when a device is picked", async () => {
     useDnsLogStore.setState({
       entries: [
-        liveEvent({ domain: "mine.example.com", client_ip: "10.232.1.10" }),
-        liveEvent({ domain: "theirs.example.com", client_ip: "9.9.9.9" }),
+        liveEvent({ domain: "mine.example.com" }),
+        liveEvent({
+          domain: "theirs.example.com",
+          client_ip: "9.9.9.9",
+          device_id: null,
+        }),
       ],
     });
     const user = userEvent.setup();
@@ -224,7 +233,9 @@ describe("DnsLogs", () => {
 
   it("renders the raw client IP when no device matches", () => {
     useDnsLogStore.setState({
-      entries: [liveEvent({ client_ip: "9.9.9.9", domain: "x.test" })],
+      entries: [
+        liveEvent({ client_ip: "9.9.9.9", device_id: null, domain: "x.test" }),
+      ],
     });
     renderWithProviders(<DnsLogs />);
     const row = screen.getByText("x.test").closest("tr")!;

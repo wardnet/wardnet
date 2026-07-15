@@ -217,6 +217,10 @@ pub struct Services {
     /// `TlsRenewalRunner`; also called by the wizard (C9) and Settings (C10).
     pub tls: Arc<dyn TlsService>,
     pub discovery: Arc<dyn DeviceDiscoveryService>,
+    /// Lock-free IP → device-id map for the DNS hot path (write-time device
+    /// attribution of query logs and stats). Rebuilt by the device-snapshot
+    /// listener on device lifecycle events.
+    pub device_ip_snapshot: Arc<device::DeviceIpSnapshot>,
     pub log: Arc<dyn LogService>,
     pub vpn_provider: Arc<dyn VpnProviderService>,
     pub routing: Arc<dyn RoutingService>,
@@ -724,6 +728,8 @@ fn create_services(
         config,
     );
 
+    let device_ip_snapshot = Arc::new(device::DeviceIpSnapshot::new(device_repo.clone()));
+
     Services {
         auth: auth_service,
         backup: backup_service,
@@ -736,6 +742,7 @@ fn create_services(
         tls,
         log: log_service,
         discovery: discovery_service,
+        device_ip_snapshot,
         vpn_provider: vpn_provider_service,
         routing: routing_service,
         network_zone: network_zone_service,

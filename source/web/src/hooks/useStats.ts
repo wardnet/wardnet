@@ -126,7 +126,11 @@ export function useDnsStatsDashboard(
         queryFn: () =>
           statsService.top({
             metric: "dns.queries.by_client",
-            label_key: "client",
+            // Rank by write-time device attribution so totals survive DHCP
+            // reassigning an IP; unattributed traffic falls back to
+            // grouping by its client IP rather than being dropped.
+            label_key: "device_id",
+            fallback_label_key: "client",
             from: topFrom,
             to: topTo,
             limit: 10,

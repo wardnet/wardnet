@@ -170,6 +170,12 @@ export interface ListQueryLogParams {
   offset?: number;
   domain?: string;
   client_ip?: string;
+  /**
+   * Filter by the device attributed at query time (stable across DHCP
+   * reassignment, unlike `client_ip`). Rows from unknown sources have no
+   * device and only match `client_ip`.
+   */
+  device_id?: string;
   result?: DnsQueryResult;
 }
 

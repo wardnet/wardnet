@@ -114,12 +114,18 @@ pub trait StatsRepository: Send + Sync {
 
     /// Sum values grouped by `label_key` via `json_extract`, ordered DESC.
     ///
+    /// When `fallback_label_key` is set, entries whose labels lack
+    /// `label_key` group by the fallback dimension instead (COALESCE), so
+    /// e.g. a `device_id` ranking still counts unattributed traffic under
+    /// its `client` IP rather than silently dropping it.
+    ///
     /// Queries `stats_intraday` only (bounded by 25 h intraday retention).
     /// Top-N over longer windows is a known limitation tracked separately.
     async fn top_n(
         &self,
         metric: &str,
         label_key: &str,
+        fallback_label_key: Option<&str>,
         from: i64,
         to: i64,
         limit: u32,
