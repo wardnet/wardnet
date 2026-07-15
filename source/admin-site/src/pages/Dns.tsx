@@ -198,7 +198,7 @@ export default function Dns() {
                     <div>
                       <div className="stat__label">Hit rate</div>
                       <Text as="div" size="2xl" weight="bold">
-                        {status.cache_hit_rate.toFixed(1)}%
+                        {(status.cache_hit_rate * 100).toFixed(1)}%
                       </Text>
                     </div>
                   </Text>
