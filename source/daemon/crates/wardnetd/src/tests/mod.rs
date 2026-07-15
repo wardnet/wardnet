@@ -1,4 +1,5 @@
 mod device_detector;
+mod device_snapshot_listener;
 mod firewall_netlink;
 mod garp_learning;
 mod health_runner;

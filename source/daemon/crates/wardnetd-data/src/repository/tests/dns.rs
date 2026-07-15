@@ -65,6 +65,47 @@ async fn query_log_filter_by_client_ip() {
     for row in &rows {
         assert_eq!(row.client_ip, "192.168.1.10");
     }
+
+    // Substring semantics: a partial IP from the free-text filter narrows
+    // to every client that contains it.
+    let partial = QueryLogFilter {
+        client_ip: Some("192.168.1".to_owned()),
+        ..Default::default()
+    };
+    let rows = repo.query_log_paginated(10, 0, &partial).await.unwrap();
+    assert_eq!(rows.len(), 3, "partial IP must match all 192.168.1.* rows");
+}
+
+/// The device filter matches on write-time attribution: the same device
+/// stays findable after its IP changes, and an unattributed row (NULL
+/// `device_id`) never matches a device filter.
+#[tokio::test]
+async fn query_log_filter_by_device_id() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool);
+
+    let device = "550e8400-e29b-41d4-a716-446655440000";
+    let mut before_dhcp_churn = sample_row("192.168.1.10", "a.com", "allowed");
+    before_dhcp_churn.device_id = Some(device.to_owned());
+    let mut after_dhcp_churn = sample_row("192.168.1.55", "b.com", "allowed");
+    after_dhcp_churn.device_id = Some(device.to_owned());
+    // Different device later holding the first IP — must not match.
+    let unattributed_on_same_ip = sample_row("192.168.1.10", "c.com", "blocked");
+
+    repo.insert_query_log_batch(&[before_dhcp_churn, after_dhcp_churn, unattributed_on_same_ip])
+        .await
+        .unwrap();
+
+    let filter = QueryLogFilter {
+        device_id: Some(device.to_owned()),
+        ..Default::default()
+    };
+    let rows = repo.query_log_paginated(10, 0, &filter).await.unwrap();
+    assert_eq!(rows.len(), 2, "both IPs' rows attribute to the device");
+    for row in &rows {
+        assert_eq!(row.device_id.as_deref(), Some(device));
+    }
+    assert_eq!(repo.query_log_count(&filter).await.unwrap(), 2);
 }
 
 #[tokio::test]

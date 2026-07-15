@@ -12083,6 +12083,19 @@
             }
           },
           {
+            "name": "device_id",
+            "in": "query",
+            "description": "Filter by the device attributed at query time. Stable across DHCP\nreassignment; rows recorded before device attribution existed (or\nfrom unknown sources) have no device and only match `client_ip`.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "format": "uuid"
+            }
+          },
+          {
             "name": "result",
             "in": "query",
             "required": false,
@@ -17979,6 +17992,18 @@
             "required": true,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "fallback_label_key",
+            "in": "query",
+            "description": "Optional label dimension to group by when `label_key` is absent\nfrom an entry's labels (e.g. rank by `\"device_id\"` falling back to\n`\"client\"` for queries from sources with no known device).",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           {

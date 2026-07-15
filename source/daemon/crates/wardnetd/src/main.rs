@@ -22,6 +22,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::config::{ApplicationConfiguration, LogFormat, LogRotation, OtelConfig};
 use wardnetd::device_detector::DeviceDetector;
+use wardnetd::device_snapshot_listener::DeviceSnapshotListener;
 use wardnetd::entitlement_listener::EntitlementListener;
 use wardnetd::firewall_netlink::NetlinkFirewallManager;
 use wardnetd::garp_pnet::PnetGarpOps;
@@ -507,6 +508,21 @@ async fn run(
         config.tunnel.latency_probe_interval_secs,
         &root_span,
     );
+    // DNS hot-path IP → device-id snapshot: the listener must subscribe
+    // BEFORE any device-event publisher starts (the inbound-WG peer monitor
+    // below can publish on its immediate first tick, and the broadcast bus
+    // drops events with no subscriber), and the initial build runs after the
+    // subscribe so an event landing mid-build is buffered, not lost. A
+    // failed initial build is non-fatal: queries record without device
+    // attribution until the first successful rebuild.
+    let device_snapshot_listener = DeviceSnapshotListener::start(
+        &services.event_publisher,
+        services.device_ip_snapshot.clone(),
+        &root_span,
+    );
+    if let Err(e) = services.device_ip_snapshot.rebuild().await {
+        tracing::warn!(error = %e, "initial device IP snapshot build failed: {e}");
+    }
     // Inbound WireGuard peer liveness → device presence (#810). Always started:
     // `list_peers_for_monitor` naturally returns empty when the server is
     // disabled or has no peers, so the loop no-ops until a peer handshakes.
@@ -635,6 +651,7 @@ async fn run(
             wardnet_common::dns::DnsConfig::default(),
             services.dns_filter.clone(),
             services.routing.dns_upstream_snapshot(),
+            services.device_ip_snapshot.snapshot(),
             services.tunnel_repo.clone(),
             services.event_publisher.clone(),
         )
@@ -1058,6 +1075,7 @@ async fn run(
     }
     health_runner.shutdown().await;
     routing_listener.shutdown().await;
+    device_snapshot_listener.shutdown().await;
     zone_enforcement_listener.shutdown().await;
     entitlement_listener.shutdown().await;
     push_listener.shutdown().await;

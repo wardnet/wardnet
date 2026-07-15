@@ -89,7 +89,14 @@ impl StatsService for StatsServiceImpl {
         let to = q.to.timestamp();
         let entries = self
             .repo
-            .top_n(&q.metric, &q.label_key, from, to, q.limit)
+            .top_n(
+                &q.metric,
+                &q.label_key,
+                q.fallback_label_key.as_deref(),
+                from,
+                to,
+                q.limit,
+            )
             .await
             .map_err(AppError::Internal)?;
         Ok(StatsTopResponse {

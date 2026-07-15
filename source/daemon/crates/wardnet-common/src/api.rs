@@ -1613,6 +1613,11 @@ pub struct ListQueryLogParams {
     pub domain: Option<String>,
     #[serde(default)]
     pub client_ip: Option<String>,
+    /// Filter by the device attributed at query time. Stable across DHCP
+    /// reassignment; rows recorded before device attribution existed (or
+    /// from unknown sources) have no device and only match `client_ip`.
+    #[serde(default)]
+    pub device_id: Option<Uuid>,
     #[serde(default)]
     pub result: Option<DnsQueryResult>,
 }

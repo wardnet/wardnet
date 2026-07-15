@@ -318,11 +318,22 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     // deterministically from `now` so the dev experience is reproducible
     // across `make run-dev` restarts.
     // ------------------------------------------------------------------
-    let dns_client_ips: Vec<String> = device_lease_inputs
-        .iter()
-        .map(|(_, _, _, ip)| ip.clone())
-        .collect();
-    let log_rows = generate_dns_query_log(&dns_client_ips, now);
+    // (device_id, ip) pairs: seeded rows carry write-time device
+    // attribution just like the real DNS server records it. The last
+    // client is left unattributed so the dev UI exercises the
+    // unknown-source fallback rendering too.
+    let dns_clients: Vec<(Option<String>, String)> = {
+        let last = device_lease_inputs.len().saturating_sub(1);
+        device_lease_inputs
+            .iter()
+            .enumerate()
+            .map(|(i, (id, _, _, ip))| {
+                let device_id = (i != last).then(|| id.to_string());
+                (device_id, ip.clone())
+            })
+            .collect()
+    };
+    let log_rows = generate_dns_query_log(&dns_clients, now);
     let total_log_rows = log_rows.len();
     for chunk in log_rows.chunks(256) {
         dns_repo.insert_query_log_batch(chunk).await?;
@@ -333,19 +344,15 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     // partial 7d tabs have data immediately, plus one rollup row per day
     // for the 12m daily chart.
     // ------------------------------------------------------------------
-    let dns_client_ips_for_stats: Vec<String> = device_lease_inputs
-        .iter()
-        .map(|(_, _, _, ip)| ip.clone())
-        .collect();
     let stats_repo = factory.stats();
 
-    let intraday_stat_rows = generate_dns_intraday_stats(&dns_client_ips_for_stats, now);
+    let intraday_stat_rows = generate_dns_intraday_stats(&dns_clients, now);
     let total_intraday = intraday_stat_rows.len();
     for chunk in intraday_stat_rows.chunks(256) {
         stats_repo.upsert_intraday(chunk).await?;
     }
 
-    let daily_rollup_days = seed_daily_stats(&*stats_repo, &dns_client_ips_for_stats, now).await?;
+    let daily_rollup_days = seed_daily_stats(&*stats_repo, &dns_clients, now).await?;
 
     // ------------------------------------------------------------------
     // Tunnel stats — throughput counters + latency gauge per tunnel.
@@ -590,6 +597,16 @@ async fn seed_tunnel_daily_stats(
 
 // ── DNS query log fixture ─────────────────────────────────────────────────
 
+/// Sorted-JSON labels for a `dns.queries.by_client` row, matching the
+/// format the real log sink writes: `device_id` present only when the
+/// client is attributed to a device (keys sorted: `client` < `device_id`).
+fn client_stat_labels(device_id: Option<&str>, client_ip: &str) -> String {
+    match device_id {
+        Some(id) => format!(r#"{{"client":"{client_ip}","device_id":"{id}"}}"#),
+        None => format!(r#"{{"client":"{client_ip}"}}"#),
+    }
+}
+
 /// Build a 24-hour synthetic query log spread across the seeded device IPs.
 /// Returns rows in chronological order (oldest first) so paginated UI views
 /// show recent queries first.
@@ -598,8 +615,11 @@ async fn seed_tunnel_daily_stats(
     clippy::cast_sign_loss,
     clippy::cast_precision_loss
 )]
-fn generate_dns_query_log(client_ips: &[String], now: chrono::DateTime<Utc>) -> Vec<QueryLogRow> {
-    if client_ips.is_empty() {
+fn generate_dns_query_log(
+    clients: &[(Option<String>, String)],
+    now: chrono::DateTime<Utc>,
+) -> Vec<QueryLogRow> {
+    if clients.is_empty() {
         return Vec::new();
     }
 
@@ -638,7 +658,7 @@ fn generate_dns_query_log(client_ips: &[String], now: chrono::DateTime<Utc>) -> 
         for q in 0..queries_per_minute {
             // Deterministic pseudo-random index — no rng dependency.
             let seed = (minute_offset as u64).wrapping_mul(2_654_435_761) ^ u64::from(q);
-            let client = &client_ips[(seed as usize) % client_ips.len()];
+            let (device_id, client) = &clients[(seed as usize) % clients.len()];
             let bucket_pick = (seed >> 7) % 10;
 
             let (domain, result) = if bucket_pick < 2 {
@@ -695,7 +715,7 @@ fn generate_dns_query_log(client_ips: &[String], now: chrono::DateTime<Utc>) -> 
                 result: result.to_owned(),
                 upstream,
                 latency_ms,
-                device_id: None,
+                device_id: device_id.clone(),
             });
         }
     }
@@ -729,7 +749,7 @@ const CLIENT_WEIGHTS: [f64; 5] = [0.30, 0.25, 0.20, 0.15, 0.10];
     clippy::cast_precision_loss
 )]
 fn generate_dns_intraday_stats(
-    client_ips: &[String],
+    clients: &[(Option<String>, String)],
     now: chrono::DateTime<Utc>,
 ) -> Vec<IntradayStatRow> {
     const HOURS: i64 = 48;
@@ -739,8 +759,8 @@ fn generate_dns_intraday_stats(
     let end_ts = (now.timestamp() / 60) * 60;
     let start_ts = end_ts - HOURS * 3_600;
 
-    let capacity = ((end_ts - start_ts) / 60) as usize
-        * (3 + AD_BLOCKED_DOMAINS.len() + client_ips.len().min(5));
+    let capacity =
+        ((end_ts - start_ts) / 60) as usize * (3 + AD_BLOCKED_DOMAINS.len() + clients.len().min(5));
     let mut rows = Vec::with_capacity(capacity);
 
     let mut minute_ts = start_ts;
@@ -790,10 +810,10 @@ fn generate_dns_intraday_stats(
             });
         }
 
-        for (i, client_ip) in client_ips.iter().enumerate().take(5) {
+        for (i, (device_id, client_ip)) in clients.iter().enumerate().take(5) {
             rows.push(IntradayStatRow {
                 metric: "dns.queries.by_client".to_owned(),
-                labels: format!(r#"{{"client":"{client_ip}"}}"#),
+                labels: client_stat_labels(device_id.as_deref(), client_ip),
                 bucket_ts: minute_ts,
                 value: (total_qpm * CLIENT_WEIGHTS[i]).max(0.01),
                 kind: "counter".to_owned(),
@@ -818,7 +838,7 @@ fn generate_dns_intraday_stats(
 )]
 async fn seed_daily_stats(
     stats_repo: &dyn wardnetd_data::repository::StatsRepository,
-    client_ips: &[String],
+    clients: &[(Option<String>, String)],
     now: chrono::DateTime<Utc>,
 ) -> anyhow::Result<usize> {
     const DAILY_RETENTION_DAYS: i64 = 397;
@@ -878,10 +898,10 @@ async fn seed_daily_stats(
             });
         }
 
-        for (i, client_ip) in client_ips.iter().enumerate().take(5) {
+        for (i, (device_id, client_ip)) in clients.iter().enumerate().take(5) {
             day_rows.push(IntradayStatRow {
                 metric: "dns.queries.by_client".to_owned(),
-                labels: format!(r#"{{"client":"{client_ip}"}}"#),
+                labels: client_stat_labels(device_id.as_deref(), client_ip),
                 bucket_ts: noon_ts,
                 value: (total * CLIENT_WEIGHTS[i]).max(0.1),
                 kind: "counter".to_owned(),

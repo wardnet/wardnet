@@ -52,6 +52,9 @@ pub struct QueryLogRow {
 #[derive(Debug, Clone, Default)]
 pub struct QueryLogFilter {
     pub client_ip: Option<String>,
+    /// Exact match on the write-time device attribution (stable across
+    /// DHCP reassignment, unlike `client_ip`).
+    pub device_id: Option<String>,
     pub domain: Option<String>,
     pub result: Option<DnsQueryResult>,
 }

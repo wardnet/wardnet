@@ -61,6 +61,7 @@ export class DnsService {
     if (params.offset !== undefined) parts.push(`offset=${params.offset}`);
     if (params.domain) parts.push(`domain=${enc(params.domain)}`);
     if (params.client_ip) parts.push(`client_ip=${enc(params.client_ip)}`);
+    if (params.device_id) parts.push(`device_id=${enc(params.device_id)}`);
     if (params.result) parts.push(`result=${enc(params.result)}`);
     const path = parts.length === 0 ? "/dns/log" : `/dns/log?${parts.join("&")}`;
     return this.client.request<ListQueryLogResponse>(path);

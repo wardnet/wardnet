@@ -23,7 +23,7 @@
 //! | `dns.queries` | `{outcome}` | Counter per outcome |
 //! | `dns.latency_ms` | `{outcome}` | Gauge per outcome |
 //! | `dns.queries.by_domain` | `{domain}` | Counter; blocked queries only |
-//! | `dns.queries.by_client` | `{client}` | Counter per client IP |
+//! | `dns.queries.by_client` | `{client, device_id?}` | Counter per client; `device_id` present when attributed at query time |
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -226,8 +226,17 @@ fn record_dns_stats(inst: &DnsStatInstruments, row: &QueryLogRow) {
     }
 
     let client = row.client_ip.replace('"', r#"\""#);
-    inst.by_client
-        .add(&format!(r#"{{"client":"{client}"}}"#), 1.0);
+    // `device_id` is present only when the DNS server resolved the querying
+    // device at query time — top-clients groups by it (falling back to
+    // `client` for unknown sources) so attribution survives DHCP churn.
+    // Keys stay sorted as the stats schema requires (client < device_id).
+    let labels = match &row.device_id {
+        Some(device_id) => {
+            format!(r#"{{"client":"{client}","device_id":"{device_id}"}}"#)
+        }
+        None => format!(r#"{{"client":"{client}"}}"#),
+    };
+    inst.by_client.add(&labels, 1.0);
 }
 
 /// Normalise a raw DNS result string into the canonical outcome label value.

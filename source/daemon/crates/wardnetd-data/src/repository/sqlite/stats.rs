@@ -380,31 +380,49 @@ impl StatsRepository for SqliteStatsRepository {
         &self,
         metric: &str,
         label_key: &str,
+        fallback_label_key: Option<&str>,
         from: i64,
         to: i64,
         limit: u32,
     ) -> anyhow::Result<Vec<StatsTopEntry>> {
         // json_extract is covered by the expression indexes for the known
-        // label keys (outcome, domain, client). Unknown keys fall back to a
-        // full scan but still return correct results.
+        // label keys (outcome, domain, client, device_id). Unknown keys —
+        // and the COALESCE form — fall back to a scan of the (small,
+        // 25 h-bounded, pre-aggregated) intraday table but still return
+        // correct results.
+        //
+        // With a fallback key one group can span rows with different label
+        // strings (a device seen under several IPs); MAX(labels) keeps the
+        // representative row deterministic instead of leaving SQLite to
+        // pick an arbitrary member.
         let key_path = format!("$.{label_key}");
-        let rows = sqlx::query_as::<_, DbTopEntry>(
-            "SELECT labels, SUM(value) AS total \
+        let fallback_path = fallback_label_key.map(|f| format!("$.{f}"));
+        let group_expr = match &fallback_path {
+            Some(_) => "COALESCE(json_extract(labels, ?), json_extract(labels, ?))",
+            None => "json_extract(labels, ?)",
+        };
+        let sql = format!(
+            "SELECT MAX(labels) AS labels, SUM(value) AS total \
              FROM stats_intraday \
              WHERE metric = ? AND bucket_ts BETWEEN ? AND ? \
-               AND json_extract(labels, ?) IS NOT NULL \
-             GROUP BY json_extract(labels, ?) \
+               AND {group_expr} IS NOT NULL \
+             GROUP BY {group_expr} \
              ORDER BY total DESC \
              LIMIT ?",
-        )
-        .bind(metric)
-        .bind(from)
-        .bind(to)
-        .bind(&key_path)
-        .bind(&key_path)
-        .bind(limit)
-        .fetch_all(&self.pools.read)
-        .await?;
+        );
+        let mut query = sqlx::query_as::<_, DbTopEntry>(sqlx::AssertSqlSafe(sql))
+            .bind(metric)
+            .bind(from)
+            .bind(to);
+        // The grouping expression appears twice (IS NOT NULL + GROUP BY);
+        // bind its path parameter(s) once per occurrence.
+        for _ in 0..2 {
+            query = query.bind(&key_path);
+            if let Some(ref fallback) = fallback_path {
+                query = query.bind(fallback);
+            }
+        }
+        let rows = query.bind(limit).fetch_all(&self.pools.read).await?;
         Ok(rows.into_iter().map(Into::into).collect())
     }
 }

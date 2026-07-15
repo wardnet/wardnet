@@ -39,6 +39,12 @@ export interface StatsQueryResponse {
 export interface StatsTopQuery {
   metric: string;
   label_key: string;
+  /**
+   * Label dimension to group by when `label_key` is absent from an
+   * entry's labels (e.g. rank by `device_id` falling back to `client`
+   * for queries from sources with no known device).
+   */
+  fallback_label_key?: string;
   from: string;
   to: string;
   limit: number;

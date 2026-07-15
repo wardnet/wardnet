@@ -65,6 +65,9 @@ export class StatsService {
       `to=${enc(q.to)}`,
       `limit=${q.limit}`,
     ];
+    if (q.fallback_label_key) {
+      parts.push(`fallback_label_key=${enc(q.fallback_label_key)}`);
+    }
     return this.client.request<StatsTopResponse>(`/stats/top?${parts.join("&")}`);
   }
 }

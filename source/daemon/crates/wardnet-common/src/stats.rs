@@ -68,6 +68,11 @@ pub struct StatsTopQuery {
     pub metric: String,
     /// Label dimension to rank by (e.g. `"domain"`, `"client"`).
     pub label_key: String,
+    /// Optional label dimension to group by when `label_key` is absent
+    /// from an entry's labels (e.g. rank by `"device_id"` falling back to
+    /// `"client"` for queries from sources with no known device).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback_label_key: Option<String>,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
     pub limit: u32,

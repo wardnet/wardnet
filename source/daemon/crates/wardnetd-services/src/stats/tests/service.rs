@@ -123,21 +123,36 @@ impl StatsRepository for MemoryStatsRepo {
     async fn top_n(
         &self,
         metric: &str,
-        _label_key: &str,
+        label_key: &str,
+        fallback_label_key: Option<&str>,
         from: i64,
         to: i64,
         limit: u32,
     ) -> anyhow::Result<Vec<StatsTopEntry>> {
+        // Mirrors the SQL COALESCE semantics: group by `label_key`'s value,
+        // falling back to `fallback_label_key`'s; skip entries with neither.
+        let extract = |labels: &str, key: &str| -> Option<String> {
+            serde_json::from_str::<serde_json::Value>(labels)
+                .ok()?
+                .get(key)?
+                .as_str()
+                .map(ToOwned::to_owned)
+        };
         let guard = self.intraday.lock().unwrap();
-        let mut totals: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut totals: std::collections::HashMap<String, (String, f64)> =
+            std::collections::HashMap::new();
         for r in guard
             .iter()
             .filter(|r| r.metric == metric && r.bucket_ts >= from && r.bucket_ts <= to)
         {
-            *totals.entry(r.labels.clone()).or_insert(0.0) += r.value;
+            let key = extract(&r.labels, label_key)
+                .or_else(|| fallback_label_key.and_then(|f| extract(&r.labels, f)));
+            let Some(key) = key else { continue };
+            let entry = totals.entry(key).or_insert_with(|| (r.labels.clone(), 0.0));
+            entry.1 += r.value;
         }
         let mut entries: Vec<StatsTopEntry> = totals
-            .into_iter()
+            .into_values()
             .map(|(labels, total)| StatsTopEntry { labels, total })
             .collect();
         entries.sort_by(|a, b| {
@@ -476,6 +491,7 @@ async fn top_returns_forbidden_without_admin_context() {
     let q = StatsTopQuery {
         metric: "m".to_owned(),
         label_key: "outcome".to_owned(),
+        fallback_label_key: None,
         from: Utc::now(),
         to: Utc::now(),
         limit: 5,
@@ -506,6 +522,7 @@ async fn top_with_admin_context() {
     let q = StatsTopQuery {
         metric: "dns.queries".to_owned(),
         label_key: "domain".to_owned(),
+        fallback_label_key: None,
         from: Utc::now() - chrono::Duration::hours(1),
         to: Utc::now() + chrono::Duration::hours(1),
         limit: 5,
