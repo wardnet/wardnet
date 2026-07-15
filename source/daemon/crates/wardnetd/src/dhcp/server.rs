@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -160,6 +161,18 @@ impl DhcpServer for UdpDhcpServer {
         let service = Arc::clone(&self.service);
         let running = Arc::clone(&self.running);
 
+        // The daemon's own interfaces (including ones other than the LAN
+        // interface, e.g. an idle secondary NIC) must never be leased —
+        // otherwise a DISCOVER that loops back onto the LAN from the host's
+        // own hardware gets a real lease and shows up as a phantom device
+        // (mirrors the packet-capture self-filter in `packet_capture_pnet`).
+        let own_macs: Arc<HashSet<String>> = Arc::new(
+            crate::packet_capture_pnet::local_mac_addresses()
+                .into_iter()
+                .map(crate::packet_capture_pnet::format_mac)
+                .collect(),
+        );
+
         // Create a fresh cancellation token so stop()/start() cycles work.
         let new_cancel = CancellationToken::new();
         let cancel = new_cancel.clone();
@@ -168,7 +181,7 @@ impl DhcpServer for UdpDhcpServer {
         running.store(true, Ordering::SeqCst);
 
         let handle = tokio::spawn(async move {
-            server_loop(socket, service, running.clone(), cancel).await;
+            server_loop(socket, service, running.clone(), cancel, own_macs).await;
             running.store(false, Ordering::SeqCst);
             tracing::info!("DHCP server loop exited");
         });
@@ -207,6 +220,7 @@ pub(crate) async fn server_loop(
     service: Arc<dyn DhcpService>,
     running: Arc<AtomicBool>,
     cancel: CancellationToken,
+    own_macs: Arc<HashSet<String>>,
 ) {
     let mut buf = vec![0u8; 1500];
 
@@ -240,6 +254,15 @@ pub(crate) async fn server_loop(
 
         let mac = format_mac(msg.chaddr());
         tracing::debug!(%mac, ?msg_type, xid = msg.xid(), "received DHCP message: mac={mac}, type={msg_type:?}");
+
+        if own_macs.contains(&mac) {
+            tracing::debug!(
+                %mac,
+                ?msg_type,
+                "ignoring DHCP message from the daemon's own interface: mac={mac}, type={msg_type:?}"
+            );
+            continue;
+        }
 
         match msg_type {
             MessageType::Discover => match handle_discover(&service, &msg, &mac).await {

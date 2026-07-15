@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -313,9 +313,10 @@ async fn run_server_loop_until_idle(
     let cancel_clone = cancel.clone();
     let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
     let running_clone = Arc::clone(&running);
+    let own_macs = Arc::new(HashSet::new());
 
     let handle = tokio::spawn(async move {
-        server::server_loop(socket_dyn, service, running_clone, cancel_clone).await;
+        server::server_loop(socket_dyn, service, running_clone, cancel_clone, own_macs).await;
     });
 
     // Give the loop time to process all queued packets.
@@ -902,6 +903,41 @@ async fn server_loop_responds_to_discover_with_offer() {
 }
 
 #[tokio::test]
+async fn server_loop_ignores_discover_from_own_mac() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let own_chaddr = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
+    let discover = build_discover(own_chaddr);
+    socket.push_message(&discover, client_addr()).await;
+
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let cancel_clone = cancel.clone();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let running_clone = Arc::clone(&running);
+    let own_macs = Arc::new(HashSet::from([server::format_mac(&own_chaddr)]));
+
+    let handle = tokio::spawn(async move {
+        server::server_loop(socket_dyn, service, running_clone, cancel_clone, own_macs).await;
+    });
+
+    for _ in 0..20 {
+        tokio::task::yield_now().await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    cancel.cancel();
+    let _ = handle.await;
+
+    let messages = socket.sent_messages().await;
+    assert!(
+        messages.is_empty(),
+        "expected no DHCPOFFER for a DISCOVER from the daemon's own interface, got {messages:?}"
+    );
+}
+
+#[tokio::test]
 async fn server_loop_responds_to_request_with_ack() {
     let lease = test_lease();
     let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease.clone()));
@@ -1006,9 +1042,10 @@ async fn server_loop_stops_on_cancellation() {
     let cancel_clone = cancel.clone();
     let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
     let running_clone = Arc::clone(&running);
+    let own_macs = Arc::new(HashSet::new());
 
     let handle = tokio::spawn(async move {
-        server::server_loop(socket_dyn, service, running_clone, cancel_clone).await;
+        server::server_loop(socket_dyn, service, running_clone, cancel_clone, own_macs).await;
     });
 
     // Immediately cancel.
@@ -1176,9 +1213,10 @@ async fn server_loop_continues_after_recv_error() {
     let cancel_clone = cancel.clone();
     let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
     let running_clone = Arc::clone(&running);
+    let own_macs = Arc::new(HashSet::new());
 
     let handle = tokio::spawn(async move {
-        server::server_loop(socket_dyn, service, running_clone, cancel_clone).await;
+        server::server_loop(socket_dyn, service, running_clone, cancel_clone, own_macs).await;
     });
 
     // Give the loop time to hit the error and continue.
