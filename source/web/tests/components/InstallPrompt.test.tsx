@@ -45,7 +45,9 @@ describe("InstallPrompt", () => {
     await userEvent.click(screen.getByRole("button", { name: /Install/ }));
 
     await waitFor(() =>
-      expect(toast.success).toHaveBeenCalledWith("Added to home screen"),
+      expect(toast.success).toHaveBeenCalledWith("Added to home screen", {
+        position: "top-center",
+      }),
     );
     // Dismissed → component removed.
     await waitFor(() =>
