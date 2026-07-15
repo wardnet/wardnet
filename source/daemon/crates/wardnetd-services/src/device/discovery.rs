@@ -662,7 +662,11 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         // Start from the base LAN subnet; every valid zone subnet is folded in.
         let mut subnets: Vec<ipnetwork::Ipv4Network> = Vec::with_capacity(zones.len() + 1);
         subnets.push(self.lan_subnet);
-        subnets.extend(crate::subnet::parse_zone_subnets(&zones).into_iter().map(|(_, net)| net));
+        subnets.extend(
+            crate::subnet::parse_zone_subnets(&zones)
+                .into_iter()
+                .map(|(_, net)| net),
+        );
 
         tracing::debug!(
             count = subnets.len(),
