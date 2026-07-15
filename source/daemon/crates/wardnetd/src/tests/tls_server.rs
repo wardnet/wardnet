@@ -2,8 +2,9 @@
 //! build (which also exercises the crypto-provider install), the serving
 //! identity (`is_provisioned` / `canonical_fqdn`) produced by
 //! `build_serving_control` and flipped by `ServingControl::activate`, the 503
-//! guard transition, and the `:80`→`:443` redirect (same-host upgrade *and*
-//! short-name → canonical-FQDN rewrite).
+//! guard transition, and the `:80` redirect (provisioned: same-host HTTPS upgrade
+//! and short-name → canonical-FQDN rewrite; unprovisioned: downgrade to the
+//! plain-HTTP admin port with the root landing on `/admin/`).
 
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -126,7 +127,7 @@ impl ServingIdentity for PanicServing {
 /// propagate past the service.
 #[tokio::test]
 async fn redirect_router_isolates_handler_panics() {
-    let app = redirect_router(443, Arc::new(PanicServing));
+    let app = redirect_router(443, 7411, Arc::new(PanicServing));
 
     let req = Request::builder()
         .method("GET")
@@ -165,29 +166,47 @@ async fn guard_returns_503_until_provisioned() {
 }
 
 #[test]
-fn redirect_upgrades_to_https_same_host_when_no_canonical() {
+fn redirect_downgrades_root_to_admin_port_when_unprovisioned() {
+    // No cert exists for any name yet, so the friendly-name root lands on the
+    // plain-HTTP admin site — the only surface reachable before a subscription.
     let mut headers = HeaderMap::new();
-    headers.insert(header::HOST, "home.example.net".parse().unwrap());
-    let uri: Uri = "/setup?step=2".parse().unwrap();
+    headers.insert(header::HOST, "wardnet.lan".parse().unwrap());
+    let uri: Uri = "/".parse().unwrap();
 
-    let resp = redirect_to_https(443, None, &headers, &uri);
-    assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+    let resp = redirect_to_https(443, 7411, None, &headers, &uri);
+    // Provisioning is mutable (a cert can appear), so the downgrade is a 307.
+    assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
     assert_eq!(
         resp.headers().get(header::LOCATION).unwrap(),
-        "https://home.example.net/setup?step=2"
+        "http://wardnet.lan:7411/admin/"
     );
 }
 
 #[test]
-fn redirect_includes_non_default_https_port() {
+fn redirect_unprovisioned_preserves_root_query_onto_admin() {
     let mut headers = HeaderMap::new();
-    headers.insert(header::HOST, "home.example.net:80".parse().unwrap());
-    let uri: Uri = "/".parse().unwrap();
+    headers.insert(header::HOST, "wardnet".parse().unwrap());
+    let uri: Uri = "/?ref=setup".parse().unwrap();
 
-    let resp = redirect_to_https(8443, None, &headers, &uri);
+    let resp = redirect_to_https(443, 7411, None, &headers, &uri);
     assert_eq!(
         resp.headers().get(header::LOCATION).unwrap(),
-        "https://home.example.net:8443/"
+        "http://wardnet:7411/admin/?ref=setup"
+    );
+}
+
+#[test]
+fn redirect_unprovisioned_preserves_premium_surface_path() {
+    // An explicit `/app/` (or `/admin-app/`) path is passed through untouched so
+    // the plain-HTTP app router can answer with the premium-required page.
+    let mut headers = HeaderMap::new();
+    headers.insert(header::HOST, "wardnet".parse().unwrap());
+    let uri: Uri = "/app/dashboard".parse().unwrap();
+
+    let resp = redirect_to_https(443, 7411, None, &headers, &uri);
+    assert_eq!(
+        resp.headers().get(header::LOCATION).unwrap(),
+        "http://wardnet:7411/app/dashboard"
     );
 }
 
@@ -199,6 +218,7 @@ fn redirect_rewrites_short_name_to_canonical_fqdn() {
 
     let resp = redirect_to_https(
         443,
+        7411,
         Some(Arc::new("home.example.net".to_owned())),
         &headers,
         &uri,
@@ -212,6 +232,25 @@ fn redirect_rewrites_short_name_to_canonical_fqdn() {
 }
 
 #[test]
+fn redirect_rewrite_includes_non_default_https_port() {
+    let mut headers = HeaderMap::new();
+    headers.insert(header::HOST, "wardnet".parse().unwrap());
+    let uri: Uri = "/".parse().unwrap();
+
+    let resp = redirect_to_https(
+        8443,
+        7411,
+        Some(Arc::new("home.example.net".to_owned())),
+        &headers,
+        &uri,
+    );
+    assert_eq!(
+        resp.headers().get(header::LOCATION).unwrap(),
+        "https://home.example.net:8443/"
+    );
+}
+
+#[test]
 fn redirect_keeps_same_host_when_already_canonical() {
     let mut headers = HeaderMap::new();
     headers.insert(header::HOST, "home.example.net".parse().unwrap());
@@ -220,6 +259,7 @@ fn redirect_keeps_same_host_when_already_canonical() {
     // Host already equals the canonical FQDN → plain upgrade (permanent 308), no rewrite churn.
     let resp = redirect_to_https(
         443,
+        7411,
         Some(Arc::new("home.example.net".to_owned())),
         &headers,
         &uri,
@@ -232,11 +272,34 @@ fn redirect_keeps_same_host_when_already_canonical() {
 }
 
 #[test]
+fn redirect_same_host_upgrade_includes_non_default_https_port() {
+    // The same-host upgrade arm (host already the canonical FQDN) must also append
+    // a non-default HTTPS port — regression guard distinct from the rewrite arm.
+    let mut headers = HeaderMap::new();
+    headers.insert(header::HOST, "home.example.net".parse().unwrap());
+    let uri: Uri = "/x".parse().unwrap();
+
+    let resp = redirect_to_https(
+        8443,
+        7411,
+        Some(Arc::new("home.example.net".to_owned())),
+        &headers,
+        &uri,
+    );
+    assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+    assert_eq!(
+        resp.headers().get(header::LOCATION).unwrap(),
+        "https://home.example.net:8443/x"
+    );
+}
+
+#[test]
 fn redirect_missing_host_is_bad_request() {
     let headers = HeaderMap::new();
     let uri: Uri = "/".parse().unwrap();
     let resp = redirect_to_https(
         443,
+        7411,
         Some(Arc::new("home.example.net".to_owned())),
         &headers,
         &uri,
@@ -247,16 +310,16 @@ fn redirect_missing_host_is_bad_request() {
 #[test]
 fn redirect_preserves_ipv6_literal_host() {
     // A bracketed IPv6 Host with a port must keep its brackets and drop only the
-    // port — `split(':')` would otherwise mangle it to "[".
+    // port — `split(':')` would otherwise mangle it to "[". Exercised on the
+    // unprovisioned downgrade, which shares the host-parsing path.
     let mut headers = HeaderMap::new();
     headers.insert(header::HOST, "[2001:db8::1]:80".parse().unwrap());
     let uri: Uri = "/x".parse().unwrap();
 
-    // No canonical FQDN → same-host upgrade, brackets preserved, non-default port added.
-    let resp = redirect_to_https(8443, None, &headers, &uri);
-    assert_eq!(resp.status(), StatusCode::PERMANENT_REDIRECT);
+    let resp = redirect_to_https(443, 7411, None, &headers, &uri);
+    assert_eq!(resp.status(), StatusCode::TEMPORARY_REDIRECT);
     assert_eq!(
         resp.headers().get(header::LOCATION).unwrap(),
-        "https://[2001:db8::1]:8443/x"
+        "http://[2001:db8::1]:7411/x"
     );
 }

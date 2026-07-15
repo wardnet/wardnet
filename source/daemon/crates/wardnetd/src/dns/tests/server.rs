@@ -1952,6 +1952,166 @@ async fn authoritative_zone_apex_with_no_records_is_nodata_not_nxdomain() {
 }
 
 #[tokio::test]
+async fn single_label_query_resolves_via_local_search_domain_hop() {
+    use hickory_proto::op::ResponseCode;
+    use hickory_proto::rr::RData;
+    use wardnet_common::dns::{CustomDnsRecord, DnsRecordSource, DnsRecordType};
+
+    let server = build_test_server(DnsConfig::default(), loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    // Only `wardnet.lan` exists; the client asks for the bare label `wardnet`.
+    let zone = lan_zone();
+    let record = CustomDnsRecord {
+        id: Uuid::new_v4(),
+        zone_id: Some(zone.id),
+        domain: "wardnet.lan".into(),
+        record_type: DnsRecordType::A,
+        value: "192.168.1.1".into(),
+        ttl: 300,
+        enabled: true,
+        source: DnsRecordSource::System,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    server
+        .update_authoritative_view(AuthoritativeView::build(&[zone], vec![record], vec![]))
+        .await;
+
+    // Query bare `wardnet` A (id=0xAB3E) — single label, no dot.
+    let query: &[u8] = &[
+        0xAB, 0x3E, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x07, b'w', b'a',
+        b'r', b'd', b'n', b'e', b't', 0x00, 0x00, 0x01, 0x00, 0x01,
+    ];
+    let resp = send_and_recv(bound, query).await;
+
+    assert_eq!(
+        resp.metadata.response_code,
+        ResponseCode::NoError,
+        "bare `wardnet` must resolve via the local `.lan` search-domain hop"
+    );
+    assert!(
+        resp.metadata.authoritative,
+        "the hop answers from the authoritative view, so the AA bit must be set"
+    );
+    assert!(
+        resp.answers.iter().any(|r| matches!(
+            &r.data,
+            RData::A(a) if a.0 == Ipv4Addr::new(192, 168, 1, 1)
+        )),
+        "the bare-label answer must carry the `wardnet.lan` A record's address"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn single_label_miss_is_forwarded_not_answered_authoritatively() {
+    use hickory_proto::op::ResponseCode;
+
+    // Stub upstream answers NoError+A. A single label with no matching `.lan`
+    // record must fall through to it — the hop only adopts a positive hit and
+    // never synthesizes NXDOMAIN/NODATA for a bare name.
+    let upstream_addr = spawn_stub_upstream().await;
+    let cfg = DnsConfig {
+        upstream_servers: vec![UpstreamDns {
+            name: "stub".into(),
+            address: upstream_addr.ip().to_string(),
+            protocol: DnsProtocol::Udp,
+            port: Some(upstream_addr.port()),
+            tls_server_name: None,
+        }],
+        ..DnsConfig::default()
+    };
+    let server = build_test_server(cfg, loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    // Enabled `lan` zone but no `nope.lan` record.
+    server
+        .update_authoritative_view(AuthoritativeView::build(&[lan_zone()], vec![], vec![]))
+        .await;
+
+    // Query bare `nope` A (id=0xAB4E).
+    let query: &[u8] = &[
+        0xAB, 0x4E, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, b'n', b'o',
+        b'p', b'e', 0x00, 0x00, 0x01, 0x00, 0x01,
+    ];
+    let resp = send_and_recv(bound, query).await;
+
+    assert_eq!(
+        resp.metadata.response_code,
+        ResponseCode::NoError,
+        "a single-label miss must be forwarded to the upstream, not refused"
+    );
+    assert!(
+        !resp.metadata.authoritative,
+        "a forwarded answer must not set the AA bit — proves it was not answered locally"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn single_label_hop_ignores_dhcp_sourced_records() {
+    use wardnet_common::dns::{CustomDnsRecord, DnsRecordSource, DnsRecordType};
+
+    // A device-chosen DHCP hostname (`laptop` → `laptop.lan`) must NOT become
+    // resolvable at the bare single label `laptop`: the hop only adopts
+    // `System`-sourced records, so a device can't claim a bare name (e.g. `wpad`)
+    // the client never had a search domain for. The stub upstream answers, so a
+    // non-authoritative reply proves the query was forwarded, not answered locally.
+    let upstream_addr = spawn_stub_upstream().await;
+    let cfg = DnsConfig {
+        upstream_servers: vec![UpstreamDns {
+            name: "stub".into(),
+            address: upstream_addr.ip().to_string(),
+            protocol: DnsProtocol::Udp,
+            port: Some(upstream_addr.port()),
+            tls_server_name: None,
+        }],
+        ..DnsConfig::default()
+    };
+    let server = build_test_server(cfg, loopback_ephemeral());
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    // `laptop.lan` exists, but as a DHCP-sourced record (device-supplied name).
+    let zone = lan_zone();
+    let record = CustomDnsRecord {
+        id: Uuid::new_v4(),
+        zone_id: Some(zone.id),
+        domain: "laptop.lan".into(),
+        record_type: DnsRecordType::A,
+        value: "192.168.1.77".into(),
+        ttl: 300,
+        enabled: true,
+        source: DnsRecordSource::Dhcp,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    };
+    server
+        .update_authoritative_view(AuthoritativeView::build(&[zone], vec![record], vec![]))
+        .await;
+
+    // Query bare `laptop` A (id=0xAB5E).
+    let query: &[u8] = &[
+        0xAB, 0x5E, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, b'l', b'a',
+        b'p', b't', b'o', b'p', 0x00, 0x00, 0x01, 0x00, 0x01,
+    ];
+    let resp = send_and_recv(bound, query).await;
+
+    assert!(
+        !resp.metadata.authoritative,
+        "a DHCP-sourced `.lan` record must not be adopted for the bare label — the \
+         query is forwarded (no AA bit), while `laptop.lan` itself stays resolvable"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn conditional_forwarding_overrides_zone_authority() {
     // `corp.lan` is forwarded explicitly even though `lan` is authoritative.
     // The forward path never sets the AA bit, so `authoritative == false`
