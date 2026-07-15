@@ -101,11 +101,19 @@ jobs:
         # Makefile (`COV_IGNORE`). CI overrides COV_FMT to emit LCOV and
         # COV_RUNNER to drive nextest so we still get a JUnit alongside
         # the coverage report.
+        #
+        # The LCOV file must have "coverage" somewhere in its name: Codecov's
+        # uploader auto-discovers reports via a fixed pattern list (*.lcov,
+        # the exact name lcov.info, *coverage*.*, ...) and a name like
+        # "daemon-lcov.info" matches none of them — "lcov" alone isn't enough,
+        # only "coverage" or the .lcov extension are. That silently uploaded
+        # zero coverage files for months while the codecov-token/permissions
+        # all looked fine, which is why the badge sat on "unknown".
         run: |
           mkdir -p coverage
           make coverage-daemon \
             COV_RUNNER="nextest --profile ci" \
-            COV_FMT="--lcov --output-path ../../coverage/daemon-lcov.info"
+            COV_FMT="--lcov --output-path ../../coverage/daemon.coverage.info"
           cp source/daemon/target/nextest/ci/junit.xml coverage/daemon-junit.xml
 
       - name: Generate daemon coverage JSON report for bulwark
@@ -160,7 +168,7 @@ jobs:
         # to their original per-package paths before invoking bulwark.
         run: |
           mkdir -p coverage
-          cp source/marketing-site/coverage/lcov.info coverage/site-lcov.info
+          cp source/marketing-site/coverage/lcov.info coverage/site.coverage.info
           cp source/marketing-site/test-results/junit.xml coverage/site-junit.xml
           mkdir -p coverage/pkg-summaries/marketing-site
           cp source/marketing-site/coverage/coverage-summary.json coverage/pkg-summaries/marketing-site/
@@ -210,11 +218,11 @@ jobs:
         # to their original per-package paths before invoking bulwark.
         run: |
           mkdir -p coverage
-          : > coverage/frontend-lcov.info
+          : > coverage/frontend.coverage.info
           for pkg in web admin-site admin-app user-app; do
             lcov="source/$pkg/coverage/lcov.info"
             if [[ -f "$lcov" ]]; then
-              sed -E "s#^SF:(src/)#SF:source/$pkg/\1#" "$lcov" >> coverage/frontend-lcov.info
+              sed -E "s#^SF:(src/)#SF:source/$pkg/\1#" "$lcov" >> coverage/frontend.coverage.info
             fi
             junit="source/$pkg/test-results/junit.xml"
             if [[ -f "$junit" ]]; then
