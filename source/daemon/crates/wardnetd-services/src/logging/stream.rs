@@ -10,6 +10,7 @@ use tracing::field::{Field, Visit};
 use tracing_subscriber::registry::LookupSpan;
 
 use super::component::{BoxedLayer, LogComponent};
+use super::suppress::TargetSuppressor;
 
 /// A single structured log entry broadcast to WebSocket clients.
 #[derive(Debug, Clone, Serialize)]
@@ -40,6 +41,7 @@ pub trait LogStream: Send + Sync {
 pub struct LogStreamService {
     tx: broadcast::Sender<LogEntry>,
     active: Arc<AtomicBool>,
+    suppressor: TargetSuppressor,
 }
 
 impl LogStreamService {
@@ -53,7 +55,17 @@ impl LogStreamService {
         Self {
             tx,
             active: Arc::new(AtomicBool::new(false)),
+            suppressor: TargetSuppressor::default(),
         }
+    }
+
+    /// Hide the given tracing targets from the stream.
+    ///
+    /// See [`TargetSuppressor`] — suppressed events still reach the log file.
+    #[must_use]
+    pub fn with_suppressed_targets(mut self, targets: Vec<String>) -> Self {
+        self.suppressor = TargetSuppressor::new(targets);
+        self
     }
 }
 
@@ -69,6 +81,7 @@ impl LogComponent for LogStreamService {
         Box::new(LogStreamLayer {
             tx: self.tx.clone(),
             active: self.active.clone(),
+            suppressor: self.suppressor.clone(),
         })
     }
 
@@ -93,6 +106,7 @@ impl LogComponent for LogStreamService {
 struct LogStreamLayer {
     tx: broadcast::Sender<LogEntry>,
     active: Arc<AtomicBool>,
+    suppressor: TargetSuppressor,
 }
 
 /// Visitor that extracts all fields from a tracing event.
@@ -212,6 +226,15 @@ where
         }
 
         let metadata = event.metadata();
+
+        // Noise the admin cannot act on never reaches the UI, but it is still
+        // written to the log file by the fmt layer. ERROR is never suppressed.
+        if self
+            .suppressor
+            .is_suppressed(metadata.target(), metadata.level())
+        {
+            return;
+        }
 
         let level = metadata.level().as_str().to_uppercase();
         let target = metadata.target().to_string();

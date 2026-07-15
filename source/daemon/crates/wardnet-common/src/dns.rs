@@ -353,11 +353,76 @@ pub enum DnsQueryResult {
     Negative,
     /// Answered directly from a local authoritative record — resolver string `"authoritative"`.
     Authoritative,
+    /// Local authoritative zone answered NODATA: the name exists but has no
+    /// record of the requested type — resolver string `"authoritative_nodata"`.
+    AuthoritativeNodata,
+    /// Local authoritative zone answered NXDOMAIN: the name does not exist in
+    /// the zone — resolver string `"authoritative_nxdomain"`.
+    AuthoritativeNxdomain,
+    /// Dropped by the per-client query rate limiter — resolver string
+    /// `"rate_limited"`.
+    RateLimited,
+    /// DNS-rebinding protection refused an answer that pointed at a private IP
+    /// for an external domain — resolver string `"rebinding_blocked"`.
+    RebindingBlocked,
+    /// Recursive resolution failed — resolver string `"recursor_failed"`.
+    RecursorFailed,
     /// Resolution failed (parse fallback for unrecognised strings).
     Error,
 }
 
 impl DnsQueryResult {
+    /// Every variant, for exhaustive iteration.
+    ///
+    /// Kept honest by [`slot`](Self::slot): that match is exhaustive, so a new
+    /// variant fails to compile until it is given a slot here, and
+    /// `all_is_complete` asserts the slots and this array agree. Without that
+    /// pairing this array would be a comment, not a guarantee — and every test
+    /// that iterates it would quietly stop covering the new variant.
+    pub const ALL: [Self; 15] = [
+        Self::Forwarded,
+        Self::CacheHit,
+        Self::Blocked,
+        Self::BlockedSkipped,
+        Self::Rewritten,
+        Self::Recursive,
+        Self::UpstreamError,
+        Self::Negative,
+        Self::Authoritative,
+        Self::AuthoritativeNodata,
+        Self::AuthoritativeNxdomain,
+        Self::RateLimited,
+        Self::RebindingBlocked,
+        Self::RecursorFailed,
+        Self::Error,
+    ];
+
+    /// This variant's index in [`ALL`](Self::ALL).
+    ///
+    /// The only reason this exists: the match is exhaustive, so adding a
+    /// variant to the enum without adding it to `ALL` is a compile error here
+    /// rather than a silently under-covering test suite.
+    #[must_use]
+    pub const fn slot(self) -> usize {
+        match self {
+            Self::Forwarded => 0,
+            Self::CacheHit => 1,
+            Self::Blocked => 2,
+            Self::BlockedSkipped => 3,
+            Self::Rewritten => 4,
+            Self::Recursive => 5,
+            Self::UpstreamError => 6,
+            Self::Negative => 7,
+            Self::Authoritative => 8,
+            Self::AuthoritativeNodata => 9,
+            Self::AuthoritativeNxdomain => 10,
+            Self::RateLimited => 11,
+            Self::RebindingBlocked => 12,
+            Self::RecursorFailed => 13,
+            Self::Error => 14,
+        }
+    }
+
     /// Return the canonical `snake_case` string that the DNS resolver writes to
     /// the `dns_query_log.result` column. Inverse of [`DnsQueryResult::parse`].
     #[must_use]
@@ -372,35 +437,68 @@ impl DnsQueryResult {
             Self::UpstreamError => "upstream_error",
             Self::Negative => "negative",
             Self::Authoritative => "authoritative",
+            Self::AuthoritativeNodata => "authoritative_nodata",
+            Self::AuthoritativeNxdomain => "authoritative_nxdomain",
+            Self::RateLimited => "rate_limited",
+            Self::RebindingBlocked => "rebinding_blocked",
+            Self::RecursorFailed => "recursor_failed",
             Self::Error => "error",
+        }
+    }
+
+    /// Parse a raw DB / resolver string, returning `None` when it matches no
+    /// known variant. Exact inverse of [`as_str`](Self::as_str).
+    ///
+    /// This is the single source of truth for the accepted strings;
+    /// [`parse`](Self::parse) layers the lossy fallback on top. Keeping the
+    /// two apart is what lets the tests tell "parsed via a real arm" apart
+    /// from "fell through to `Error`" — the two are indistinguishable by
+    /// return value alone, which is how the missing `"error"` arm hid behind a
+    /// passing round-trip test.
+    #[must_use]
+    pub fn from_db_str(s: &str) -> Option<Self> {
+        match s {
+            "forwarded" => Some(Self::Forwarded),
+            "cache_hit" => Some(Self::CacheHit),
+            "blocked" => Some(Self::Blocked),
+            "blocked_skipped" => Some(Self::BlockedSkipped),
+            "rewritten" => Some(Self::Rewritten),
+            "recursive" => Some(Self::Recursive),
+            "upstream_error" => Some(Self::UpstreamError),
+            "negative" => Some(Self::Negative),
+            "authoritative" => Some(Self::Authoritative),
+            "authoritative_nodata" => Some(Self::AuthoritativeNodata),
+            "authoritative_nxdomain" => Some(Self::AuthoritativeNxdomain),
+            "rate_limited" => Some(Self::RateLimited),
+            "rebinding_blocked" => Some(Self::RebindingBlocked),
+            "recursor_failed" => Some(Self::RecursorFailed),
+            "error" => Some(Self::Error),
+            _ => None,
         }
     }
 
     /// Parse a raw DB / resolver string into the correct variant.
     ///
-    /// Every string the DNS resolver writes to the database is matched
-    /// exactly. Unknown strings emit a [`tracing::warn!`] and fall back to
+    /// Unknown strings emit a [`tracing::warn!`] and fall back to
     /// [`DnsQueryResult::Error`] so callers always get a typed value.
+    ///
+    /// This warning used to fire constantly, because the resolver wrote five
+    /// strings (`rate_limited`, `rebinding_blocked`, `recursor_failed`,
+    /// `authoritative_nodata`, `authoritative_nxdomain`) that had no variant —
+    /// so those queries were mislabelled `Error` in the UI and in the stats.
+    /// The strings are variants now, and the right response to the noise was to
+    /// fix the drift, not to lower the level: a fallback here means the
+    /// resolver is writing a string this enum does not know, which mislabels
+    /// rows and needs fixing. Keep it loud.
+    ///
+    /// Use [`from_db_str`](Self::from_db_str) when you need to distinguish an
+    /// unknown string from a genuine `Error` row.
     #[must_use]
     pub fn parse(s: &str) -> Self {
-        match s {
-            "forwarded" => Self::Forwarded,
-            "cache_hit" => Self::CacheHit,
-            "blocked" => Self::Blocked,
-            "blocked_skipped" => Self::BlockedSkipped,
-            "rewritten" => Self::Rewritten,
-            "recursive" => Self::Recursive,
-            "upstream_error" => Self::UpstreamError,
-            "negative" => Self::Negative,
-            "authoritative" => Self::Authoritative,
-            other => {
-                tracing::warn!(
-                    result = other,
-                    "unknown DNS result string; defaulting to Error"
-                );
-                Self::Error
-            }
-        }
+        Self::from_db_str(s).unwrap_or_else(|| {
+            tracing::warn!(result = s, "unknown DNS result string; defaulting to Error");
+            Self::Error
+        })
     }
 }
 
@@ -504,19 +602,47 @@ mod tests {
 
     #[test]
     fn as_str_round_trips_through_parse() {
-        let variants = [
-            DnsQueryResult::Forwarded,
-            DnsQueryResult::CacheHit,
-            DnsQueryResult::Blocked,
-            DnsQueryResult::BlockedSkipped,
-            DnsQueryResult::Rewritten,
-            DnsQueryResult::Recursive,
-            DnsQueryResult::UpstreamError,
-            DnsQueryResult::Authoritative,
-            DnsQueryResult::Error,
-        ];
-        for v in variants {
+        for v in DnsQueryResult::ALL {
             assert_eq!(DnsQueryResult::parse(v.as_str()), v);
+        }
+    }
+
+    /// `Error` round-trips through a real match arm, not the unknown-string
+    /// fallback.
+    ///
+    /// Without this, `as_str_round_trips_through_parse` passes vacuously for
+    /// `Error`: the fallback also returns `Error`, so a missing `"error"` arm
+    /// satisfies the assertion while silently routing every `"error"` row
+    /// through the "unknown DNS result string" path.
+    #[test]
+    fn every_variant_parses_without_hitting_the_fallback() {
+        for v in DnsQueryResult::ALL {
+            assert_eq!(
+                DnsQueryResult::from_db_str(v.as_str()),
+                Some(v),
+                "`{}` has no match arm — it would only survive the round-trip \
+                 via the unknown-string fallback",
+                v.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn from_db_str_rejects_unknown_strings() {
+        assert_eq!(DnsQueryResult::from_db_str("gibberish"), None);
+        assert_eq!(DnsQueryResult::from_db_str(""), None);
+    }
+
+    /// `ALL` really does hold every variant, exactly once.
+    ///
+    /// `slot()` is an exhaustive match, so a new variant cannot compile without
+    /// being given a slot; this asserts that slot lines up with a distinct
+    /// entry in `ALL`. Together they make `ALL` a guarantee rather than a
+    /// promise — every test that iterates it covers the new variant on day one.
+    #[test]
+    fn all_is_complete() {
+        for (i, v) in DnsQueryResult::ALL.into_iter().enumerate() {
+            assert_eq!(v.slot(), i, "ALL[{i}] = {v:?} is in the wrong slot");
         }
     }
 }

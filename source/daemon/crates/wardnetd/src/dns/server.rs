@@ -614,7 +614,7 @@ async fn handle_query(
             &domain,
             rtype,
             src,
-            "rate_limited",
+            DnsQueryResult::RateLimited.as_str(),
             None,
             start.elapsed(),
         );
@@ -717,7 +717,7 @@ async fn handle_query(
             &domain,
             rtype,
             src,
-            "authoritative",
+            DnsQueryResult::Authoritative.as_str(),
             None,
             start.elapsed(),
         );
@@ -782,9 +782,9 @@ async fn handle_query(
         let bytes = response.to_bytes()?;
         socket.send_to(&bytes, src).await?;
         let result = if name_exists {
-            "authoritative_nodata"
+            DnsQueryResult::AuthoritativeNodata.as_str()
         } else {
-            "authoritative_nxdomain"
+            DnsQueryResult::AuthoritativeNxdomain.as_str()
         };
         tracing::trace!(%domain, ?rtype, result, "authoritative negative answer: {result}");
         record_query(log_sink, &domain, rtype, src, result, None, start.elapsed());
@@ -807,7 +807,7 @@ async fn handle_query(
                 &domain,
                 rtype,
                 src,
-                "cache_hit",
+                DnsQueryResult::CacheHit.as_str(),
                 None,
                 start.elapsed(),
             );
@@ -833,7 +833,7 @@ async fn handle_query(
                 &domain,
                 rtype,
                 src,
-                "blocked",
+                DnsQueryResult::Blocked.as_str(),
                 None,
                 start.elapsed(),
             );
@@ -869,7 +869,7 @@ async fn handle_query(
                 &domain,
                 rtype,
                 src,
-                "rewritten",
+                DnsQueryResult::Rewritten.as_str(),
                 None,
                 start.elapsed(),
             );
@@ -917,7 +917,7 @@ async fn handle_query(
                 &domain,
                 rtype,
                 src,
-                "upstream_error",
+                DnsQueryResult::UpstreamError.as_str(),
                 Some(cond_upstream.ip().to_string()),
                 start.elapsed(),
             );
@@ -998,7 +998,7 @@ async fn handle_query(
                             &domain,
                             rtype,
                             src,
-                            "upstream_error",
+                            DnsQueryResult::UpstreamError.as_str(),
                             Some(forwarder.upstream.ip().to_string()),
                             start.elapsed(),
                         );
@@ -1016,7 +1016,7 @@ async fn handle_query(
                         &domain,
                         rtype,
                         src,
-                        "upstream_error",
+                        DnsQueryResult::UpstreamError.as_str(),
                         None,
                         start.elapsed(),
                     );
@@ -1106,7 +1106,7 @@ async fn forward_via_default_resolver(
                 domain,
                 rtype,
                 src,
-                "upstream_error",
+                DnsQueryResult::UpstreamError.as_str(),
                 upstream,
                 elapsed,
             );
@@ -1159,7 +1159,7 @@ async fn send_resolved(
             domain,
             rtype,
             src,
-            "rebinding_blocked",
+            DnsQueryResult::RebindingBlocked.as_str(),
             upstream_label,
             start.elapsed(),
         );
@@ -1312,7 +1312,7 @@ pub(crate) async fn handle_recursor_outcome(
                 start,
                 pass_result,
                 upstream_id,
-                Some("recursive".to_owned()),
+                Some(DnsQueryResult::Recursive.as_str().to_owned()),
                 rebinding,
                 ttl_min,
                 ttl_max,
@@ -1338,7 +1338,7 @@ pub(crate) async fn handle_recursor_outcome(
                 start,
                 pass_result,
                 upstream_id,
-                Some("recursive".to_owned()),
+                Some(DnsQueryResult::Recursive.as_str().to_owned()),
                 nx_domain,
                 e.into_soa(),
                 ttl_min,
@@ -1376,7 +1376,7 @@ pub(crate) async fn handle_recursor_outcome(
                     domain,
                     rtype,
                     src,
-                    "recursor_failed",
+                    DnsQueryResult::RecursorFailed.as_str(),
                     None,
                     start.elapsed(),
                 );

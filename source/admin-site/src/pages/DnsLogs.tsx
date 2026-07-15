@@ -45,6 +45,14 @@ const RESULT_BADGE: Record<string, "ok" | "warn" | "down" | "info" | "ghost"> =
     // Successful resolution whose answer is "no such name / record type"
     // (NXDOMAIN / NODATA) — informational, not an error.
     negative: "info",
+    // Negative answers served from a local authoritative zone — successful
+    // resolutions whose answer is "no such name / record type".
+    authoritative_nodata: "info",
+    authoritative_nxdomain: "info",
+    // Refused: the answer pointed at a private IP for an external domain.
+    rebinding_blocked: "down",
+    rate_limited: "warn",
+    recursor_failed: "warn",
     forwarded: "ghost",
     cache_hit: "ghost",
     rewritten: "info",
@@ -52,9 +60,20 @@ const RESULT_BADGE: Record<string, "ok" | "warn" | "down" | "info" | "ghost"> =
     error: "warn",
   };
 
+// Keep these short. The Result column is fixed-width and the Pill is
+// `white-space: nowrap`, so a label wider than the column overflows into
+// Latency rather than wrapping or truncating.
 const RESULT_LABEL: Record<string, string> = {
   blocked_skipped: "blocked (skipped)",
-  negative: "negative (no record)",
+  negative: "no record",
+  // Distinct from `negative`: answered by a local authoritative zone, not
+  // upstream. Same meaning, different source — the labels must differ or the
+  // two are indistinguishable in the table.
+  authoritative_nodata: "no record (local)",
+  authoritative_nxdomain: "no such name (local)",
+  rebinding_blocked: "rebinding",
+  rate_limited: "rate limited",
+  recursor_failed: "recursor",
 };
 
 function fmtTime(ts: string): string {
@@ -245,7 +264,22 @@ export default function DnsLogs() {
           <SelectItem value="cache_hit">Cache hit</SelectItem>
           <SelectItem value="rewritten">Rewritten</SelectItem>
           <SelectItem value="negative">Negative (no record)</SelectItem>
+          <SelectItem value="authoritative">Authoritative</SelectItem>
+          {/* The filter is an exact `result = ?` match server-side, so every
+              result string needs its own option — otherwise rows the table
+              renders are unreachable through the filter. */}
+          <SelectItem value="authoritative_nodata">
+            Authoritative (no record)
+          </SelectItem>
+          <SelectItem value="authoritative_nxdomain">
+            Authoritative (no such name)
+          </SelectItem>
+          <SelectItem value="rate_limited">Rate limited</SelectItem>
+          <SelectItem value="rebinding_blocked">Rebinding blocked</SelectItem>
+          <SelectItem value="recursive">Recursive</SelectItem>
+          <SelectItem value="recursor_failed">Recursor failed</SelectItem>
           <SelectItem value="upstream_error">Upstream error</SelectItem>
+          <SelectItem value="error">Error</SelectItem>
         </SelectContent>
       </Select>
     </>

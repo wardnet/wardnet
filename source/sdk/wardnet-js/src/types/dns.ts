@@ -133,6 +133,11 @@ export type DnsQueryResult =
   | "upstream_error"
   | "negative"
   | "authoritative"
+  | "authoritative_nodata"
+  | "authoritative_nxdomain"
+  | "rate_limited"
+  | "rebinding_blocked"
+  | "recursor_failed"
   | "error";
 
 /** A single entry in the persisted DNS query log. */
