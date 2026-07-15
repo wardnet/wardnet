@@ -110,7 +110,7 @@ beforeEach(() => {
       enabled: true,
       cache_size: 50,
       cache_capacity: 100,
-      cache_hit_rate: 88.25,
+      cache_hit_rate: 0.8825,
     },
     isLoading: false,
   });
