@@ -8,11 +8,49 @@
 use std::net::Ipv4Addr;
 
 use ipnetwork::Ipv4Network;
+use uuid::Uuid;
+use wardnet_common::network_zone::NetworkZone;
 
 /// First host of a subnet (the Wardnet gateway alias): network + 1.
 #[must_use]
 pub fn gateway_for(net: Ipv4Network) -> Ipv4Addr {
     Ipv4Addr::from(u32::from(net.network()) + 1)
+}
+
+/// Parse every zone's configured subnet CIDR, paired with its zone id.
+///
+/// A zone whose CIDR fails to parse is logged and skipped rather than failing
+/// the whole batch — write-time validation
+/// (`NetworkZoneServiceImpl::validate_targets_and_subnet`) already rejects
+/// unparseable/non-private/oversized CIDRs, so this is defense-in-depth
+/// against direct DB edits or older data, not an expected runtime path.
+///
+/// Shared by device discovery's trusted-subnet cache and zone enforcement's
+/// gateway/isolation checks, so the "which subnets does this zone claim"
+/// answer can't drift between the two.
+#[must_use]
+pub fn parse_zone_subnets(zones: &[NetworkZone]) -> Vec<(Uuid, Ipv4Network)> {
+    zones
+        .iter()
+        .filter_map(|zone| {
+            let subnet = zone.subnet.as_ref()?;
+            match subnet.cidr.parse::<Ipv4Network>() {
+                Ok(net) => Some((zone.id, net)),
+                Err(e) => {
+                    tracing::warn!(
+                        zone_id = %zone.id,
+                        zone = %zone.name,
+                        cidr = %subnet.cidr,
+                        error = %e,
+                        "zone {zone} has an unparseable subnet CIDR {cidr}; skipping it",
+                        zone = zone.name,
+                        cidr = subnet.cidr,
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
 }
 
 /// DHCP pool bounds within a subnet: (network+10 ..= broadcast-6). Returns None

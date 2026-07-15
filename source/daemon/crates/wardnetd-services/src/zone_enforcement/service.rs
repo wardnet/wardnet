@@ -227,11 +227,9 @@ impl ZoneEnforcementServiceImpl {
                 return false;
             }
         };
-        zones
-            .iter()
-            .filter_map(|z| z.subnet.as_ref())
-            .filter_map(|s| s.cidr.parse::<Ipv4Network>().ok())
-            .any(|net| crate::subnet::gateway_for(net) == addr)
+        crate::subnet::parse_zone_subnets(&zones)
+            .into_iter()
+            .any(|(_, net)| crate::subnet::gateway_for(net) == addr)
     }
 
     /// Install a device IP's zone rules. On a live change (`flush = true`) the
@@ -572,18 +570,7 @@ impl ZoneEnforcementServiceImpl {
                 .map_err(AppError::Internal)?;
 
             // Parse the subnet CIDR of every zone that has one.
-            for zone in &zones {
-                if let Some(subnet) = &zone.subnet {
-                    match subnet.cidr.parse::<Ipv4Network>() {
-                        Ok(net) => {
-                            zone_nets.insert(zone.id, net);
-                        }
-                        Err(e) => {
-                            tracing::warn!(error = %e, zone_id = %zone.id, cidr = %subnet.cidr, "zone enforcer: invalid zone subnet, skipping");
-                        }
-                    }
-                }
-            }
+            zone_nets.extend(crate::subnet::parse_zone_subnets(&zones));
 
             // The set of distinct subnets = base + each zone subnet.
             let mut all_subnets: Vec<String> = vec![crate::subnet::canonical_cidr(base_cidr)];
