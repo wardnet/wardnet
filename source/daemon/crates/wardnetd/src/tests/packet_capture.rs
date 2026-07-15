@@ -49,13 +49,13 @@ fn format_mac_emits_lowercase_hex_digits() {
 #[test]
 fn filter_own_mac() {
     let own = MacAddr::new(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01);
-    assert!(should_filter_mac(own, own));
+    assert!(should_filter_mac(own, &[own]));
 }
 
 #[test]
 fn filter_broadcast_mac() {
     let own = MacAddr::new(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01);
-    assert!(should_filter_mac(MacAddr::broadcast(), own));
+    assert!(should_filter_mac(MacAddr::broadcast(), &[own]));
 }
 
 #[test]
@@ -63,14 +63,23 @@ fn filter_multicast_mac() {
     let own = MacAddr::new(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01);
     // Multicast: bit 0 of first octet is set (0x01, 0x33, etc.)
     let multicast = MacAddr::new(0x01, 0x00, 0x5E, 0x00, 0x00, 0x01);
-    assert!(should_filter_mac(multicast, own));
+    assert!(should_filter_mac(multicast, &[own]));
+}
+
+#[test]
+fn filter_secondary_own_mac() {
+    // A second local interface's MAC (e.g. an unused NIC) must also be
+    // filtered, even though it isn't the interface being listened on.
+    let primary = MacAddr::new(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01);
+    let secondary = MacAddr::new(0x76, 0x0B, 0xA7, 0x05, 0x0C, 0xC3);
+    assert!(should_filter_mac(secondary, &[primary, secondary]));
 }
 
 #[test]
 fn allow_normal_unicast_mac() {
     let own = MacAddr::new(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01);
     let other = MacAddr::new(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x00);
-    assert!(!should_filter_mac(other, own));
+    assert!(!should_filter_mac(other, &[own]));
 }
 
 #[test]
@@ -78,7 +87,7 @@ fn filter_ipv6_multicast_mac() {
     let own = MacAddr::new(0x02, 0x00, 0x00, 0x00, 0x00, 0x01);
     // IPv6 multicast prefix 33:33:xx:xx:xx:xx -- first octet 0x33 has bit 0 set
     let ipv6_mcast = MacAddr::new(0x33, 0x33, 0x00, 0x00, 0x00, 0x01);
-    assert!(should_filter_mac(ipv6_mcast, own));
+    assert!(should_filter_mac(ipv6_mcast, &[own]));
 }
 
 // ---------------------------------------------------------------------------
@@ -224,7 +233,7 @@ fn parse_frame_arp_valid() {
     let sender_ip = Ipv4Addr::new(192, 168, 1, 50);
 
     let frame = make_arp_frame(sender_mac, sender_ip);
-    let obs = parse_frame(&frame, own_mac).expect("should parse ARP frame");
+    let obs = parse_frame(&frame, &[own_mac]).expect("should parse ARP frame");
 
     assert_eq!(obs.mac, "aa:bb:cc:11:22:33");
     assert_eq!(obs.ip, "192.168.1.50");
@@ -235,7 +244,7 @@ fn parse_frame_arp_valid() {
 fn parse_frame_arp_filtered_own_mac() {
     let own_mac = MacAddr::new(0xAA, 0xBB, 0xCC, 0x11, 0x22, 0x33);
     let frame = make_arp_frame(own_mac, Ipv4Addr::new(192, 168, 1, 1));
-    assert!(parse_frame(&frame, own_mac).is_none());
+    assert!(parse_frame(&frame, &[own_mac]).is_none());
 }
 
 #[test]
@@ -243,7 +252,7 @@ fn parse_frame_arp_filtered_unspecified_ip() {
     let own_mac = MacAddr::new(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01);
     let sender_mac = MacAddr::new(0xAA, 0xBB, 0xCC, 0x11, 0x22, 0x33);
     let frame = make_arp_frame(sender_mac, Ipv4Addr::UNSPECIFIED);
-    assert!(parse_frame(&frame, own_mac).is_none());
+    assert!(parse_frame(&frame, &[own_mac]).is_none());
 }
 
 #[test]
@@ -251,7 +260,7 @@ fn parse_frame_arp_filtered_broadcast_sender() {
     let own_mac = MacAddr::new(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01);
     // ARP with broadcast as sender MAC should be filtered
     let frame = make_arp_frame(MacAddr::broadcast(), Ipv4Addr::new(10, 0, 0, 1));
-    assert!(parse_frame(&frame, own_mac).is_none());
+    assert!(parse_frame(&frame, &[own_mac]).is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -265,7 +274,7 @@ fn parse_frame_ipv4_valid() {
     let src_ip = Ipv4Addr::new(10, 0, 0, 42);
 
     let frame = make_ipv4_frame(src_mac, src_ip);
-    let obs = parse_frame(&frame, own_mac).expect("should parse IPv4 frame");
+    let obs = parse_frame(&frame, &[own_mac]).expect("should parse IPv4 frame");
 
     assert_eq!(obs.mac, "00:1a:2b:3c:4d:5e");
     assert_eq!(obs.ip, "10.0.0.42");
@@ -276,7 +285,7 @@ fn parse_frame_ipv4_valid() {
 fn parse_frame_ipv4_filtered_own_mac() {
     let own_mac = MacAddr::new(0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x5E);
     let frame = make_ipv4_frame(own_mac, Ipv4Addr::new(10, 0, 0, 1));
-    assert!(parse_frame(&frame, own_mac).is_none());
+    assert!(parse_frame(&frame, &[own_mac]).is_none());
 }
 
 #[test]
@@ -284,7 +293,7 @@ fn parse_frame_ipv4_filtered_unspecified_ip() {
     let own_mac = MacAddr::new(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01);
     let src_mac = MacAddr::new(0x00, 0x1A, 0x2B, 0x3C, 0x4D, 0x5E);
     let frame = make_ipv4_frame(src_mac, Ipv4Addr::UNSPECIFIED);
-    assert!(parse_frame(&frame, own_mac).is_none());
+    assert!(parse_frame(&frame, &[own_mac]).is_none());
 }
 
 // ---------------------------------------------------------------------------
@@ -294,14 +303,14 @@ fn parse_frame_ipv4_filtered_unspecified_ip() {
 #[test]
 fn parse_frame_empty_data() {
     let own_mac = MacAddr::new(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01);
-    assert!(parse_frame(&[], own_mac).is_none());
+    assert!(parse_frame(&[], &[own_mac]).is_none());
 }
 
 #[test]
 fn parse_frame_truncated_ethernet_header() {
     let own_mac = MacAddr::new(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01);
     // Ethernet header needs at least 14 bytes; provide only 10
-    assert!(parse_frame(&[0u8; 10], own_mac).is_none());
+    assert!(parse_frame(&[0u8; 10], &[own_mac]).is_none());
 }
 
 #[test]
@@ -315,7 +324,7 @@ fn parse_frame_unknown_ethertype() {
         eth.set_destination(own_mac);
         eth.set_ethertype(EtherTypes::Ipv6);
     }
-    assert!(parse_frame(&buf, own_mac).is_none());
+    assert!(parse_frame(&buf, &[own_mac]).is_none());
 }
 
 // ---------------------------------------------------------------------------

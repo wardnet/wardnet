@@ -144,9 +144,15 @@ pub(crate) fn format_mac(mac: MacAddr) -> String {
 }
 
 /// Check whether a MAC address should be filtered out.
-pub(crate) fn should_filter_mac(mac: MacAddr, own_mac: MacAddr) -> bool {
-    // Own MAC
-    if mac == own_mac {
+///
+/// `own_macs` covers every local interface on the host, not just the one
+/// being listened on — a secondary NIC (e.g. an unused onboard port) can
+/// still emit DHCP/ARP traffic that reaches the capture interface via the
+/// LAN switch, and without this the daemon would self-quarantine as a
+/// "new device".
+pub(crate) fn should_filter_mac(mac: MacAddr, own_macs: &[MacAddr]) -> bool {
+    // Any of the host's own interfaces
+    if own_macs.contains(&mac) {
         return true;
     }
     // Broadcast
@@ -160,8 +166,19 @@ pub(crate) fn should_filter_mac(mac: MacAddr, own_mac: MacAddr) -> bool {
     false
 }
 
+/// Collect the MAC addresses of every local network interface.
+///
+/// Used to build the self-filter set for packet capture — see
+/// `should_filter_mac`.
+pub(crate) fn local_mac_addresses() -> Vec<MacAddr> {
+    datalink::interfaces()
+        .into_iter()
+        .filter_map(|iface| iface.mac)
+        .collect()
+}
+
 /// Parse an Ethernet frame into an `ObservedDevice`, if applicable.
-pub(crate) fn parse_frame(data: &[u8], own_mac: MacAddr) -> Option<ObservedDevice> {
+pub(crate) fn parse_frame(data: &[u8], own_macs: &[MacAddr]) -> Option<ObservedDevice> {
     let eth = EthernetPacket::new(data)?;
 
     match eth.get_ethertype() {
@@ -170,7 +187,7 @@ pub(crate) fn parse_frame(data: &[u8], own_mac: MacAddr) -> Option<ObservedDevic
             let sender_mac = arp.get_sender_hw_addr();
             let sender_ip = arp.get_sender_proto_addr();
 
-            if should_filter_mac(sender_mac, own_mac) {
+            if should_filter_mac(sender_mac, own_macs) {
                 return None;
             }
             // Filter out 0.0.0.0 (incomplete ARP)
@@ -186,7 +203,7 @@ pub(crate) fn parse_frame(data: &[u8], own_mac: MacAddr) -> Option<ObservedDevic
         }
         EtherTypes::Ipv4 => {
             let src_mac = eth.get_source();
-            if should_filter_mac(src_mac, own_mac) {
+            if should_filter_mac(src_mac, own_macs) {
                 return None;
             }
 
@@ -276,6 +293,16 @@ impl PacketCapture for PnetCapture {
             .mac
             .ok_or_else(|| anyhow::anyhow!("interface '{interface}' has no MAC address"))?;
 
+        // Re-querying all interfaces (rather than reusing `iface` above) is
+        // what lets a *different* local interface's traffic get filtered
+        // too — but that second query is a separate syscall, so explicitly
+        // include the already-validated `own_mac` in case it raced with an
+        // interface state change between the two calls.
+        let mut own_macs = local_mac_addresses();
+        if !own_macs.contains(&own_mac) {
+            own_macs.push(own_mac);
+        }
+
         let config = Config {
             read_timeout: Some(std::time::Duration::from_millis(500)),
             ..Config::default()
@@ -293,7 +320,7 @@ impl PacketCapture for PnetCapture {
             while !cancel.is_cancelled() {
                 match rx.next() {
                     Ok(data) => {
-                        if let Some(obs) = parse_frame(data, own_mac) {
+                        if let Some(obs) = parse_frame(data, &own_macs) {
                             // Non-blocking send; drop if channel is full
                             let _ = sender.try_send(obs);
                         }
