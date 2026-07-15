@@ -1,7 +1,7 @@
 //! Router-level tests for the premium-entitlement serving gate.
 //!
 //! Unless the box is **entitled** (on the wardnet DDNS provider and not
-//! suspended), the two **premium** app surfaces — the user PWA (`/`) and the
+//! suspended), the two **premium** app surfaces — the user PWA (`/app/`) and the
 //! admin mobile app (`/admin-app/`) — are short-circuited with a `403`
 //! premium-required page, while the admin **website** (`/admin/`) and the
 //! `/api/*` surface stay reachable so the operator can always (re)subscribe.
@@ -54,11 +54,11 @@ async fn get(state: AppState, path: &str) -> (StatusCode, Vec<u8>) {
 #[tokio::test]
 async fn free_blocks_the_user_pwa() {
     // Default state: never subscribed / free BYO-domain — `premium = false`.
-    let (status, body) = get(test_app_state(), "/").await;
+    let (status, body) = get(test_app_state(), "/app/").await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(
         String::from_utf8_lossy(&body).contains("Premium"),
-        "the user PWA root should serve the premium-required page when not entitled"
+        "the user PWA scope should serve the premium-required page when not entitled"
     );
 }
 
@@ -70,11 +70,11 @@ async fn free_blocks_the_admin_mobile_app() {
 
 #[tokio::test]
 async fn suspended_blocks_the_user_pwa() {
-    let (status, body) = get(premium_suspended_state(), "/").await;
+    let (status, body) = get(premium_suspended_state(), "/app/").await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     assert!(
         String::from_utf8_lossy(&body).contains("Premium"),
-        "the user PWA root should serve the premium-required page while suspended"
+        "the user PWA scope should serve the premium-required page while suspended"
     );
 }
 
@@ -112,9 +112,9 @@ async fn not_entitled_keeps_the_api_reachable() {
 
 #[tokio::test]
 async fn premium_active_does_not_block_the_user_pwa() {
-    // Premium-enrolled and not suspended: the root is served normally. With an
+    // Premium-enrolled and not suspended: the user PWA scope is served normally. With an
     // empty test `dist/` that's a 404, but crucially never the 403 gate.
-    let (status, _) = get(premium_active_state(), "/").await;
+    let (status, _) = get(premium_active_state(), "/app/").await;
     assert_ne!(status, StatusCode::FORBIDDEN);
 }
 

@@ -37,7 +37,7 @@ test("renders the resolved device from the LAN context", async ({ page }) => {
 test("shows the no-device fallback from a non-LAN context", async ({ page }) => {
   // Navigate to the mgmt proxy origin: the daemon sees that proxy's IP,
   // which is not a discovered device, so `devices/me` returns null.
-  await page.goto(`${UI_BASE_URL}/`);
+  await page.goto(`${UI_BASE_URL}/app/`);
 
   const fallback = page.getByTestId("no-device");
   await expect(fallback).toBeVisible();
