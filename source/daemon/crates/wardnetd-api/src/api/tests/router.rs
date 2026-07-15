@@ -200,14 +200,22 @@ async fn unknown_path_hits_fallback() {
 
 /// Paths outside every app surface — the user PWA's pre-move root tree — are
 /// permanently redirected into `/app/`, preserving path and query so old
-/// bookmarks, deep links, and installed start URLs keep landing. The redirect
-/// answers even when the box is not entitled (its target is what's gated).
+/// bookmarks, deep links, and installed start URLs keep landing; a slashless
+/// scope root is canonicalized to its trailing-slash URL so the served
+/// document is always inside its PWA scope. The redirects answer even when
+/// the box is not entitled (their targets are what's gated), and carry a
+/// bounded Cache-Control so a cached 308 can't permanently mask a path a
+/// future release starts serving.
 #[tokio::test]
 async fn legacy_root_paths_redirect_into_app_scope() {
     for (path, target) in [
         ("/", "/app/"),
         ("/dns", "/app/dns"),
         ("/routing?device=ab", "/app/routing?device=ab"),
+        ("/app", "/app/"),
+        ("/app?x=1", "/app/?x=1"),
+        ("/admin-app", "/admin-app/"),
+        ("/admin", "/admin/"),
     ] {
         for router in [full_router(), full_router_entitled()] {
             let req = Request::builder()
@@ -226,6 +234,15 @@ async fn legacy_root_paths_redirect_into_app_scope() {
                 .get(axum::http::header::LOCATION)
                 .and_then(|v| v.to_str().ok());
             assert_eq!(location, Some(target), "GET {path} Location header");
+            let cache_control = resp
+                .headers()
+                .get(axum::http::header::CACHE_CONTROL)
+                .and_then(|v| v.to_str().ok());
+            assert_eq!(
+                cache_control,
+                Some("max-age=86400"),
+                "GET {path} must bound how long the 308 may be cached"
+            );
         }
     }
 }

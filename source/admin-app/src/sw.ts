@@ -19,12 +19,12 @@ registerPushHandlers(self, {
   badge: "icons/badge-96.png",
 });
 
-// Offline shell — all navigation requests fall back to the app-shell index
+// Offline shell — navigation requests fall back to the app-shell index.
+// Navigations are dispatched to the SW whose scope contains the destination
+// URL, so only `/admin-app/…` ones ever reach this route — no denylist
+// needed for the other surfaces or `/api`.
 const handler = createHandlerBoundToURL("/admin-app/index.html");
-const navigationRoute = new NavigationRoute(handler, {
-  denylist: [/^\/api/],
-});
-registerRoute(navigationRoute);
+registerRoute(new NavigationRoute(handler));
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") {
