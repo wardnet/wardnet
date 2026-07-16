@@ -291,9 +291,9 @@ describe("Vpn", () => {
     await user.click(screen.getByRole("switch"));
     expect(mutate).toHaveBeenCalledWith({ enabled: false, listen_port: 51821 });
 
-    // By role: the "Listen port" caption is a <Text as="p">, not a <label
-    // htmlFor>, so the input has no accessible name to query by.
-    const port = screen.getByRole("spinbutton");
+    // By label, which only resolves because the caption is a real <label>
+    // bound to the input — the query is the accessibility assertion.
+    const port = screen.getByLabelText("Listen port");
     await user.clear(port);
     await user.type(port, "51999");
     await user.click(screen.getByRole("button", { name: "Save port" }));
