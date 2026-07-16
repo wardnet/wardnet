@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::{
-    AdminConfig, ApplicationConfiguration, LogFormat, LogRotation, SecretStoreConfig,
+    AdminConfig, ApplicationConfiguration, LogFormat, LogRotation, SecretStoreConfig, TunnelConfig,
 };
 
 #[test]
@@ -46,6 +46,34 @@ fn defaults_when_file_missing() {
     assert!(!config.otel.enabled);
     assert_eq!(config.otel.endpoint, "http://localhost:4317");
     assert_eq!(config.otel.service_name, "wardnetd");
+}
+
+/// Cloudflare's `__down` endpoint serves the payload only while `bytes` stays
+/// under 100 MB — at or above that it answers `403` with no body, which the
+/// throughput tester surfaces as a non-success status, failing every stream
+/// ("all parallel download streams failed"). Shipping a default the endpoint
+/// refuses breaks the speed test on every box that hasn't overridden the URL,
+/// so pin the default below the cap.
+#[test]
+fn default_speed_test_url_requests_a_payload_cloudflare_will_serve() {
+    /// Smallest `bytes` value observed to return 403 rather than a payload.
+    const CLOUDFLARE_DOWN_BYTES_CAP: u64 = 100_000_000;
+
+    let config = TunnelConfig::default();
+    let bytes: u64 = config
+        .speed_test_url
+        .split_once("bytes=")
+        .expect("default speed_test_url should carry a bytes= query parameter")
+        .1
+        .parse()
+        .expect("bytes= should be a plain integer");
+
+    assert!(
+        bytes < CLOUDFLARE_DOWN_BYTES_CAP,
+        "default speed_test_url requests {bytes} bytes, at/above Cloudflare's \
+         {CLOUDFLARE_DOWN_BYTES_CAP}-byte cap — the endpoint will 403 and every \
+         stream will fail",
+    );
 }
 
 #[test]
