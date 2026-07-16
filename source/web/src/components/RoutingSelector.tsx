@@ -7,8 +7,10 @@ import {
   Text,
 } from "@wardnet/ui";
 import { Link } from "react-router";
+import { useMemo } from "react";
 import { WifiOffIcon } from "lucide-react";
 import { countryFlag } from "../lib/country";
+import { sortByLabel } from "../lib/utils";
 import type { RoutingTarget, TunnelSummary } from "@wardnet/js";
 
 const DIRECT_VALUE = "direct";
@@ -48,6 +50,8 @@ export function RoutingSelector({
   "data-testid": dataTestId,
 }: RoutingSelectorProps) {
   const selected = valueFromTarget(value, tunnels);
+  // Before the empty-state early-return: hook order must not depend on props.
+  const sorted = useMemo(() => sortByLabel(tunnels, (t) => t.label), [tunnels]);
 
   function handleChange(next: string) {
     if (next === DIRECT_VALUE) {
@@ -99,7 +103,7 @@ export function RoutingSelector({
             Direct (no VPN)
           </span>
         </SelectItem>
-        {tunnels.map((t) => {
+        {sorted.map((t) => {
           const flag = t.country_code ? countryFlag(t.country_code) : "";
           return (
             <SelectItem key={t.id} value={t.id}>

@@ -9,6 +9,7 @@ import {
 } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@wardnet/web";
 import { Text } from "@wardnet/web";
+import { deviceDisplayName, sortByLabel } from "@wardnet/web";
 import { DiscoveryPlaceholder } from "@/components/compound/DiscoveryPlaceholder";
 import { HostCell, buildDeviceIndex } from "@/components/compound/HostCell";
 import { StatusBadge } from "@/components/compound/StatusBadge";
@@ -64,6 +65,22 @@ function reservationTypeBadge(): ReactNode {
   return <Pill variant="info">Static</Pill>;
 }
 
+/** The Host cell's primary line. Shared with the table's sort so rows are
+ *  ordered by the text the cell actually renders, not by raw MAC.
+ *
+ *  Precedence is the entry's own hostname over the device's — the lease said
+ *  so more recently — but the fallback chain itself is deviceDisplayName's, so
+ *  a blank hostname degrades to the MAC here exactly as it does everywhere
+ *  else rather than sorting as "" to the top of the table. */
+function hostLabel(entry: DhcpEntry, deviceIndex: Map<string, Device>): string {
+  const device = deviceIndex.get(entry.mac.toLowerCase());
+  return deviceDisplayName({
+    name: device?.name ?? null,
+    hostname: entry.hostname ?? device?.hostname ?? null,
+    mac: entry.mac,
+  });
+}
+
 function buildColumns(
   deviceIndex: Map<string, Device>,
 ): ColumnDef<DhcpEntry>[] {
@@ -74,8 +91,7 @@ function buildColumns(
       cell: ({ row }) => {
         const entry = row.original;
         const device = deviceIndex.get(entry.mac.toLowerCase());
-        const primary =
-          device?.name ?? entry.hostname ?? device?.hostname ?? entry.mac;
+        const primary = hostLabel(entry, deviceIndex);
         const secondary = primary === entry.mac ? null : entry.mac;
         const fallbackIcon =
           entry.kind === "reservation" ? (
@@ -227,15 +243,19 @@ export function DhcpEntryTable({
       return !(e.kind === "lease" && reservationIndex.has(e.mac.toLowerCase()));
     });
     const q = searchValue.trim().toLowerCase();
-    if (!q) return byGroup;
-    return byGroup.filter(
-      (e) =>
-        e.mac.toLowerCase().includes(q) ||
-        (e.hostname ?? "").toLowerCase().includes(q) ||
-        e.ip.toLowerCase().includes(q) ||
-        (e.description ?? "").toLowerCase().includes(q),
-    );
-  }, [entries, activeGroup, searchValue, reservationIndex]);
+    const matched = !q
+      ? byGroup
+      : byGroup.filter(
+          (e) =>
+            e.mac.toLowerCase().includes(q) ||
+            (e.hostname ?? "").toLowerCase().includes(q) ||
+            e.ip.toLowerCase().includes(q) ||
+            (e.description ?? "").toLowerCase().includes(q),
+        );
+    // Sorted here rather than on `entries` so the group counts above keep
+    // measuring the unsorted source lists.
+    return sortByLabel(matched, (e) => hostLabel(e, deviceIndex));
+  }, [entries, activeGroup, searchValue, reservationIndex, deviceIndex]);
 
   const columns = useMemo(() => buildColumns(deviceIndex), [deviceIndex]);
 

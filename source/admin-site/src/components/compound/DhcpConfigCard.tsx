@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Info } from "lucide-react";
 import { Button } from "@wardnet/web";
 import {
   Card,
@@ -360,27 +361,38 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
             </div>
             <div>
               <dt className="text-ink-3">Upstream DNS</dt>
-              <dd className={dnsEnabled ? "font-medium" : "font-mono text-xs"}>
+              <dd
+                className={`flex items-center gap-1.5 ${dnsEnabled ? "font-medium" : "font-mono text-xs"}`}
+              >
                 {dnsEnabled === undefined
                   ? "…"
                   : dnsEnabled
                     ? "Wardnet DNS"
                     : config.upstream_dns.join(", ") || "-"}
+                {/* "Wardnet DNS" is what NEW leases get. DHCP cannot push it to
+                    a device that already holds a lease, and a device resolving
+                    via its old server is silently unfiltered — so don't let this
+                    read as "every device is using Wardnet DNS right now". The
+                    caveat is a footnote, not a headline: it rides an info icon
+                    so it stops crowding the value it qualifies.
+
+                    `title` is the codebase's tooltip mechanism (see TunnelCard)
+                    — no hover-card primitive exists to reach for. It is
+                    keyboard- and touch-inert, so the note also stays on the
+                    enable/disable toast, which is where an admin acting on it
+                    actually sees it. */}
+                {dnsEnabled && (
+                  <span
+                    title={LEASE_RENEWAL_NOTE}
+                    aria-label={LEASE_RENEWAL_NOTE}
+                    role="img"
+                    data-testid="dhcp-dns-lease-note"
+                    className="inline-flex cursor-help text-ink-3"
+                  >
+                    <Info size={14} aria-hidden className="shrink-0" />
+                  </span>
+                )}
               </dd>
-              {/* "Wardnet DNS" is what NEW leases get. DHCP cannot push it to a
-                  device that already holds a lease, and a device resolving via
-                  its old server is silently unfiltered — so don't let this read
-                  as "every device is using Wardnet DNS right now". */}
-              {dnsEnabled && (
-                <Text
-                  as="p"
-                  size="xs"
-                  className="mt-1 text-ink-3"
-                  data-testid="dhcp-dns-lease-note"
-                >
-                  {LEASE_RENEWAL_NOTE}
-                </Text>
-              )}
             </div>
           </dl>
         </CardContent>

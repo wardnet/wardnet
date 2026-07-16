@@ -208,4 +208,72 @@ describe("DhcpEntryTable", () => {
     await user.click(screen.getByText("Known laptop"));
     expect(onDeviceClick).toHaveBeenCalledWith("dev-42");
   });
+
+  it("orders rows alphabetically by the host label", () => {
+    renderWithProviders(
+      <DhcpEntryTable
+        {...noop}
+        leases={[
+          makeLease({
+            id: "l1",
+            mac_address: "AA:BB:CC:DD:EE:02",
+            hostname: "zeta",
+          }),
+          makeLease({
+            id: "l2",
+            mac_address: "AA:BB:CC:DD:EE:03",
+            hostname: "Alpha",
+          }),
+        ]}
+        reservations={[
+          makeReservation({
+            id: "r1",
+            mac_address: "AA:BB:CC:DD:EE:01",
+            hostname: "beta",
+          }),
+        ]}
+        devices={[]}
+        activeGroup="all"
+        searchValue=""
+      />,
+    );
+    const rows = screen.getAllByRole("row").slice(1); // drop the header row
+    const hosts = rows.map((r) => r.textContent);
+    expect(hosts).toEqual([
+      expect.stringContaining("Alpha"),
+      expect.stringContaining("beta"),
+      expect.stringContaining("zeta"),
+    ]);
+  });
+
+  // An empty hostname must degrade to the MAC, not sort as "" above every
+  // named row while rendering a blank cell.
+  it("falls back to the MAC for a blank hostname instead of sorting it first", () => {
+    renderWithProviders(
+      <DhcpEntryTable
+        {...noop}
+        leases={[
+          makeLease({
+            id: "l1",
+            mac_address: "ZZ:ZZ:ZZ:ZZ:ZZ:99",
+            hostname: "",
+          }),
+          makeLease({
+            id: "l2",
+            mac_address: "AA:BB:CC:DD:EE:03",
+            hostname: "Alpha",
+          }),
+        ]}
+        reservations={[]}
+        devices={[]}
+        activeGroup="all"
+        searchValue=""
+      />,
+    );
+    const rows = screen.getAllByRole("row").slice(1);
+    expect(rows.map((r) => r.textContent)).toEqual([
+      expect.stringContaining("Alpha"),
+      expect.stringContaining("ZZ:ZZ:ZZ:ZZ:ZZ:99"),
+    ]);
+  });
 });

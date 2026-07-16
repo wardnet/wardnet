@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
   deviceDisplayName,
+  sortByLabel,
   Text,
 } from "@wardnet/web";
 import { DataTable } from "@/components/core/ui/data-table";
@@ -51,7 +52,10 @@ function buildColumns(): ColumnDef<Device>[] {
 export function TunnelDevicesTable({ tunnelId }: Props) {
   const navigate = useNavigate();
   const { data, isLoading, isError } = useTunnelDevices(tunnelId);
-  const devices = data?.devices ?? [];
+  const devices = useMemo(
+    () => sortByLabel(data?.devices ?? [], deviceDisplayName),
+    [data?.devices],
+  );
   const columns = useMemo(() => buildColumns(), []);
 
   return (

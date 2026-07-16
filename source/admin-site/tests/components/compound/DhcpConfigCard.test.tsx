@@ -91,10 +91,13 @@ describe("DhcpConfigCard", () => {
   // "Wardnet DNS" is what NEW leases get. DHCP cannot push it to a device
   // already holding a lease, and such a device resolves unfiltered without any
   // sign of it — so the read view must not imply the whole network is covered.
+  // The warning rides an info icon's tooltip rather than sitting inline, so
+  // assert on the accessible name: that is both what a screen reader announces
+  // and the only copy a sighted user can surface by hovering.
   it("warns that already-leased devices keep their old DNS until they reconnect", () => {
     mockDns.mockReturnValue({ data: { config: { enabled: true } } } as never);
     renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
-    expect(screen.getByTestId("dhcp-dns-lease-note")).toHaveTextContent(
+    expect(screen.getByTestId("dhcp-dns-lease-note")).toHaveAccessibleName(
       /reconnect a device/i,
     );
   });
@@ -207,6 +210,70 @@ describe("DhcpConfigCard", () => {
 
     await user.click(screen.getByText("Save and revoke"));
     expect(updateMutateAsync).toHaveBeenCalledOnce();
+  });
+
+  // The validation gate is what stands between a typo and a DHCP scope that
+  // strands the network, so each rejection reason is worth pinning to the
+  // field that triggers it.
+  it("rejects an incomplete pool start", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    await user.click(screen.getByTestId("dhcp-config-edit"));
+    const input = screen
+      .getByTestId("dhcp-pool-start")
+      .querySelectorAll("input")[0];
+    await user.click(input);
+    await user.keyboard("{Control>}a{/Control}{Backspace}");
+    expect(
+      await screen.findByText("Enter a complete pool start address."),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("dhcp-config-save")).toBeDisabled();
+  });
+
+  // Clearing an octet rather than pasting a partial string: Ipv4Input's paste
+  // handler only accepts a full dotted quad, so a partial paste is a no-op and
+  // would leave the field valid.
+  it("rejects an incomplete fallback router address", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    await user.click(screen.getByTestId("dhcp-config-edit"));
+    const octets = screen.getByTestId("dhcp-router").querySelectorAll("input");
+    await user.click(octets[3]);
+    await user.keyboard("{Control>}a{/Control}{Backspace}");
+    expect(
+      await screen.findByText("Enter a complete fallback router address."),
+    ).toBeInTheDocument();
+  });
+
+  // A public router address would hand every client a gateway off the LAN.
+  it("rejects a non-private fallback router address", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    await user.click(screen.getByTestId("dhcp-config-edit"));
+    const router = screen
+      .getByTestId("dhcp-router")
+      .querySelectorAll("input")[0];
+    await user.click(router);
+    await user.paste("8.8.8.8");
+    expect(
+      await screen.findByText(/Fallback router must be/),
+    ).toBeInTheDocument();
+  });
+
+  it("edits the lease duration and upstream DNS fields", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    await user.click(screen.getByTestId("dhcp-config-edit"));
+
+    const lease = screen.getByLabelText(/Lease duration/i);
+    await user.clear(lease);
+    await user.type(lease, "3600");
+    expect(lease).toHaveValue(3600);
+
+    const dns = screen.getByLabelText(/Upstream DNS/i);
+    await user.clear(dns);
+    await user.type(dns, "9.9.9.9");
+    expect(dns).toHaveValue("9.9.9.9");
   });
 
   it("renders an API error alert in edit mode when the update failed", async () => {
