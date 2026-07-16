@@ -150,8 +150,17 @@ jobs:
     # Gate each coverage job on the relevant change bucket (see pr.yml).
     with:
       run-daemon: ${{ needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true' }}
-      run-site: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs.ci == 'true' }}
-      run-frontend: ${{ needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
+      # site + frontend LCOVs merge into ONE "typescript" pool, and THIS
+      # workflow is what records the baseline PRs are judged against. Running
+      # only one of the two records a partial pool as if it were the whole:
+      # a push touching only `site` stored marketing-site's 98.02% over the
+      # real full-pool 92.68%, and every later PR — which pr.yml correctly
+      # makes run BOTH jobs — was then failed for a 4.3% "regression" it
+      # didn't cause. Keep these two conditions identical to each other and
+      # to pr.yml's, so the baseline always describes the same pool the PR
+      # gate measures.
+      run-site: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
+      run-frontend: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
     secrets: inherit
 
   tests-e2e:
