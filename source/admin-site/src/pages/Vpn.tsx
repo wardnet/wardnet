@@ -45,9 +45,9 @@ export default function Vpn() {
   const removePeer = useRemoveInboundWgPeer();
   const setPeerEnabled = useSetInboundWgPeerEnabled();
 
-  // The `?? []` fallbacks would mint a new array on every render while the
-  // queries are unresolved; memoising keeps the identities stable so the
-  // derived lists below (and DeviceSelect's sort) actually cache.
+  // Memoised so the `?? []` fallback cannot mint a fresh array identity on
+  // every render: the derived lists below depend on these, and DeviceSelect
+  // memoises its alphabetical sort on the `devices` prop it is handed.
   const peers = useMemo(() => peersData?.peers ?? [], [peersData?.peers]);
   const devices = useMemo(
     () => devicesData?.devices ?? [],

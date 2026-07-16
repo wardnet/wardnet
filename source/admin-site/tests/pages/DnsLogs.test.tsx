@@ -241,4 +241,27 @@ describe("DnsLogs", () => {
     const row = screen.getByText("x.test").closest("tr")!;
     expect(within(row).getByText("9.9.9.9")).toBeInTheDocument();
   });
+
+  // The IP box is the only handle on rows with no device attribution, so it
+  // must actually narrow the live tail — not just hold text.
+  it("filters the live tail by client IP", async () => {
+    const user = userEvent.setup();
+    useDnsLogStore.setState({
+      connected: true,
+      entries: [
+        liveEvent({ client_ip: "10.232.1.10", domain: "kept.test" }),
+        liveEvent({
+          client_ip: "9.9.9.9",
+          device_id: null,
+          domain: "gone.test",
+        }),
+      ],
+    });
+    renderWithProviders(<DnsLogs />);
+    expect(screen.getByText("gone.test")).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("dns-log-ip-filter"), "10.232.1.10");
+    expect(screen.getByText("kept.test")).toBeInTheDocument();
+    expect(screen.queryByText("gone.test")).not.toBeInTheDocument();
+  });
 });
