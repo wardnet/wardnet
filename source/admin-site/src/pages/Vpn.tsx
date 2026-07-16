@@ -10,6 +10,7 @@ import {
 } from "@wardnet/web";
 import { Button } from "@wardnet/web";
 import { Text } from "@wardnet/web";
+import { Field } from "@wardnet/web";
 import { Input } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import {
@@ -140,11 +141,16 @@ export default function Vpn() {
           </CardAction>
         </CardHeader>
         <CardContent>
-          <div className="flex flex-col gap-2 sm:max-w-xs">
-            <Text as="p" size="xs" weight="medium" className="text-ink-3">
-              Listen port
-            </Text>
+          {/* A real <label> via Field, not a floating <Text as="p">: the
+              caption has to be programmatically tied to the input or the
+              field has no accessible name for a screen reader to announce. */}
+          <Field
+            label="Listen port"
+            htmlFor="wg-listen-port"
+            className="sm:max-w-xs"
+          >
             <Input
+              id="wg-listen-port"
               type="number"
               min={1}
               max={65535}
@@ -152,7 +158,7 @@ export default function Vpn() {
               onChange={(e) => setListenPortDraft(Number(e.target.value))}
               disabled={setConfig.isPending}
             />
-          </div>
+          </Field>
         </CardContent>
         {enabled && listenPort !== config?.listen_port && (
           <CardFooter className="justify-end">
