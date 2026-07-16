@@ -155,10 +155,12 @@ jobs:
     with:
       run-daemon: ${{ needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true' }}
       # site + frontend LCOVs merge into ONE "typescript" pool in bulwark's
-      # coverage gate, and the baseline is recorded from full main runs. If
-      # only one of the two jobs runs on a PR, the partial pool is compared
-      # against the full-pool baseline and fails as a phantom regression —
-      # so any TypeScript-area change must run BOTH coverage jobs.
+      # coverage gate, and the baseline is recorded by ci.yml on main. If
+      # only one of the two jobs runs, the partial pool is compared against
+      # a full-pool baseline (or recorded as one) and fails as a phantom
+      # regression — so any TypeScript-area change must run BOTH coverage
+      # jobs. ci.yml's matching conditions must stay identical to these; the
+      # two drifting apart is exactly what poisoned the baseline once.
       run-site: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
       run-frontend: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
     secrets: inherit
