@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
   Card,
@@ -45,21 +45,35 @@ export default function Vpn() {
   const removePeer = useRemoveInboundWgPeer();
   const setPeerEnabled = useSetInboundWgPeerEnabled();
 
-  const peers = peersData?.peers ?? [];
-  const devices = devicesData?.devices ?? [];
+  // The `?? []` fallbacks would mint a new array on every render while the
+  // queries are unresolved; memoising keeps the identities stable so the
+  // derived lists below (and DeviceSelect's sort) actually cache.
+  const peers = useMemo(() => peersData?.peers ?? [], [peersData?.peers]);
+  const devices = useMemo(
+    () => devicesData?.devices ?? [],
+    [devicesData?.devices],
+  );
   // Only *managed* (admin-named) devices can be granted remote access — the
   // backend rejects unmanaged ones. A device with no name is still just
   // "discovered".
-  const managedDevices = devices.filter((d) => d.name != null);
+  const managedDevices = useMemo(
+    () => devices.filter((d) => d.name != null),
+    [devices],
+  );
   // Grantable = managed AND has no peer row yet. `connection_mode` is NOT a
   // reliable signal: the daemon only flips it to `remote` once the peer
   // actually handshakes (and clears it again on pause), so an offline /
   // freshly granted / paused device would still read `!== "remote"` and get
   // offered for a re-grant that the one-credential-per-device guard 409s.
-  const grantedDeviceIds = new Set(
-    peers.map((p) => p.device_id).filter((id): id is string => id !== null),
-  );
-  const grantable = managedDevices.filter((d) => !grantedDeviceIds.has(d.id));
+  // Memoised so the array identity is stable across renders: DeviceSelect
+  // memoises its alphabetical sort on the `devices` prop, and a fresh array
+  // every render would defeat that.
+  const grantable = useMemo(() => {
+    const grantedDeviceIds = new Set(
+      peers.map((p) => p.device_id).filter((id): id is string => id !== null),
+    );
+    return managedDevices.filter((d) => !grantedDeviceIds.has(d.id));
+  }, [managedDevices, peers]);
 
   // Local override for the listen-port input — `null` until the admin
   // edits it, so the field otherwise tracks the fetched config directly

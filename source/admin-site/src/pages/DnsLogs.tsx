@@ -238,30 +238,42 @@ export default function DnsLogs() {
   // height (34px). The search input itself is the Domain filter.
   const filters = (
     <>
-      <DeviceSelect
-        id="device-filter"
-        devices={filterableDevices}
-        valueKey="id"
-        value={deviceId}
-        onChange={(id) => {
-          setDeviceId(id);
-          setPage(0);
-        }}
-        triggerClassName="select-trigger--md w-48"
-      />
-      {/* Free-text IP filter: the only handle on rows with no device
-          attribution (unknown sources, pre-attribution history). */}
-      <Input
-        id="client-ip-filter"
-        data-testid="dns-log-ip-filter"
-        className="w-36"
-        placeholder="Client IP…"
-        value={clientIp}
-        onChange={(e) => {
-          setClientIp(e.target.value);
-          setPage(0);
-        }}
-      />
+      {/* Device and client-IP are one question ("which client?") asked two
+          ways, so they're wrapped rather than left as toolbar siblings: the
+          toolbar is `flex-wrap`, and loose siblings let the IP box wrap onto
+          its own row away from the dropdown it belongs with.
+
+          The pair stays on one row at every width instead of being allowed to
+          wrap, so the controls narrow on small screens rather than pushing the
+          toolbar into horizontal scroll: `min-w-0` defeats the default
+          `min-width:auto` that would otherwise stop a flex item shrinking
+          below its content. At 360px the group is ~284px and fits. */}
+      <div className="flex min-w-0 items-center gap-3">
+        <DeviceSelect
+          id="device-filter"
+          devices={filterableDevices}
+          valueKey="id"
+          value={deviceId}
+          onChange={(id) => {
+            setDeviceId(id);
+            setPage(0);
+          }}
+          triggerClassName="select-trigger--md w-40 min-w-0 sm:w-48"
+        />
+        {/* Free-text IP filter: the only handle on rows with no device
+            attribution (unknown sources, pre-attribution history). */}
+        <Input
+          id="client-ip-filter"
+          data-testid="dns-log-ip-filter"
+          className="w-28 min-w-0 sm:w-36"
+          placeholder="Client IP…"
+          value={clientIp}
+          onChange={(e) => {
+            setClientIp(e.target.value);
+            setPage(0);
+          }}
+        />
+      </div>
       <Select
         value={result}
         onValueChange={(v) => {

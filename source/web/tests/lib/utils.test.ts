@@ -15,6 +15,7 @@ import {
   formatTimeShort,
   formatDateTime,
   timeAgo,
+  sortByLabel,
 } from "../../src/lib/utils";
 
 describe("cn", () => {
@@ -22,6 +23,35 @@ describe("cn", () => {
     expect(cn("px-2", "px-4")).toBe("px-4");
     const skip: string | false = false;
     expect(cn("a", skip && "b", "c")).toBe("a c");
+  });
+});
+
+describe("sortByLabel", () => {
+  it("orders by the derived label, ignoring case", () => {
+    const items = [{ n: "zeta" }, { n: "Alpha" }, { n: "beta" }];
+    expect(sortByLabel(items, (i) => i.n).map((i) => i.n)).toEqual([
+      "Alpha",
+      "beta",
+      "zeta",
+    ]);
+  });
+
+  // Callers pass React Query data straight in; mutating it would reorder the
+  // cache under other consumers.
+  it("returns a new array and leaves the input untouched", () => {
+    const items = [{ n: "b" }, { n: "a" }];
+    const sorted = sortByLabel(items, (i) => i.n);
+    expect(sorted).not.toBe(items);
+    expect(items.map((i) => i.n)).toEqual(["b", "a"]);
+  });
+
+  it("sorts naturally across accents rather than by code point", () => {
+    const items = [{ n: "Zoe" }, { n: "Ähnlich" }, { n: "apple" }];
+    expect(sortByLabel(items, (i) => i.n).map((i) => i.n)).toEqual([
+      "Ähnlich",
+      "apple",
+      "Zoe",
+    ]);
   });
 });
 
@@ -36,6 +66,36 @@ describe("deviceDisplayName", () => {
     expect(deviceDisplayName({ name: null, hostname: null, mac: "m" })).toBe(
       "m",
     );
+  });
+
+  // A DHCP client that sends an empty hostname must not produce a blank label
+  // that renders as nothing and sorts above every real name.
+  it("treats blank and whitespace-only candidates as absent", () => {
+    expect(deviceDisplayName({ name: "", hostname: "h", mac: "m" })).toBe("h");
+    expect(deviceDisplayName({ name: "   ", hostname: "", mac: "m" })).toBe(
+      "m",
+    );
+  });
+
+  it("uses the fallback ahead of the mac when one is given", () => {
+    expect(
+      deviceDisplayName({ name: null, hostname: null, mac: "m" }, "10.0.0.5"),
+    ).toBe("10.0.0.5");
+    expect(
+      deviceDisplayName({ name: "TV", hostname: null, mac: "m" }, "10.0.0.5"),
+    ).toBe("TV");
+  });
+
+  // The dropdown passes `last_ip` as the fallback. It is typed non-null, but a
+  // null slipping through must degrade to the MAC rather than yield a
+  // non-string that would throw the moment a sort compares it.
+  it("falls through a null/blank fallback to the mac", () => {
+    expect(
+      deviceDisplayName({ name: null, hostname: null, mac: "m" }, null),
+    ).toBe("m");
+    expect(
+      deviceDisplayName({ name: null, hostname: null, mac: "m" }, ""),
+    ).toBe("m");
   });
 });
 

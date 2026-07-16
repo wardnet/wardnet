@@ -91,10 +91,13 @@ describe("DhcpConfigCard", () => {
   // "Wardnet DNS" is what NEW leases get. DHCP cannot push it to a device
   // already holding a lease, and such a device resolves unfiltered without any
   // sign of it — so the read view must not imply the whole network is covered.
+  // The warning rides an info icon's tooltip rather than sitting inline, so
+  // assert on the accessible name: that is both what a screen reader announces
+  // and the only copy a sighted user can surface by hovering.
   it("warns that already-leased devices keep their old DNS until they reconnect", () => {
     mockDns.mockReturnValue({ data: { config: { enabled: true } } } as never);
     renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
-    expect(screen.getByTestId("dhcp-dns-lease-note")).toHaveTextContent(
+    expect(screen.getByTestId("dhcp-dns-lease-note")).toHaveAccessibleName(
       /reconnect a device/i,
     );
   });

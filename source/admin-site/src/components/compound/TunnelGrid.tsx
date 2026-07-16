@@ -1,9 +1,12 @@
+import { useMemo } from "react";
 import { Card, CardContent } from "@wardnet/web";
+import { sortByLabel } from "@wardnet/web";
 import { TunnelCard } from "./TunnelCard";
 import { EmptyStatePlaceholder } from "./EmptyStatePlaceholder";
 import type { Tunnel, ProviderInfo } from "@wardnet/js";
 
 interface TunnelGridProps {
+  /** Rendered alphabetically by label regardless of the order passed in. */
   tunnels: Tunnel[];
   providers: ProviderInfo[];
   isLoading: boolean;
@@ -22,6 +25,9 @@ export function TunnelGrid({
   onDelete,
   onAdd,
 }: TunnelGridProps) {
+  // Before the loading/empty early-returns: hook order must not depend on state.
+  const sorted = useMemo(() => sortByLabel(tunnels, (t) => t.label), [tunnels]);
+
   if (isLoading) {
     return (
       <Card>
@@ -48,7 +54,7 @@ export function TunnelGrid({
 
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      {tunnels.map((tunnel) => (
+      {sorted.map((tunnel) => (
         <TunnelCard
           key={tunnel.id}
           tunnel={tunnel}

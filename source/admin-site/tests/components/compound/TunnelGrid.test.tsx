@@ -126,4 +126,29 @@ describe("TunnelGrid", () => {
     await user.click(deleteButtons[0]);
     expect(onDelete).toHaveBeenCalledWith("t1");
   });
+
+  // Card order is the grid's job. Asserted on the rendered sequence so
+  // dropping the sort can't pass silently.
+  it("renders tunnel cards alphabetically regardless of the order passed in", () => {
+    renderWithProviders(
+      <TunnelGrid
+        tunnels={[
+          makeTunnel({ id: "t1", label: "zeta" }),
+          makeTunnel({ id: "t2", label: "Alpha" }),
+          makeTunnel({ id: "t3", label: "beta" }),
+        ]}
+        providers={providers}
+        isLoading={false}
+        isError={false}
+        onDelete={vi.fn()}
+      />,
+    );
+    // Each card is a link wrapping the whole tunnel; assert on href order so
+    // the check is about sequence, not card markup.
+    expect(
+      screen.getAllByRole("link").map((a) => a.getAttribute("href")),
+    ).toEqual(
+      ["/tunnels/t2", "/tunnels/t3", "/tunnels/t1"], // Alpha, beta, zeta
+    );
+  });
 });

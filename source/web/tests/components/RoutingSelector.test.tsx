@@ -89,4 +89,31 @@ describe("RoutingSelector", () => {
     await user.click(within(listbox).getByRole("option", { name: /Direct/ }));
     expect(onChange).toHaveBeenCalledWith({ type: "direct" });
   });
+
+  // Tunnels sort alphabetically, but "Direct (no VPN)" is a fixed first
+  // option, not a tunnel — it must stay pinned to the top.
+  it("lists tunnels alphabetically below a pinned Direct option", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <RoutingSelector
+        value={null}
+        onChange={vi.fn()}
+        tunnels={[
+          makeTunnel({ id: "t1", label: "zeta" }),
+          makeTunnel({ id: "t2", label: "Alpha" }),
+          makeTunnel({ id: "t3", label: "beta" }),
+        ]}
+        data-testid="routing"
+      />,
+    );
+    await user.click(screen.getByTestId("routing"));
+    const listbox = await screen.findByRole("listbox");
+    const options = within(listbox).getAllByRole("option");
+    expect(options.map((o) => o.textContent)).toEqual([
+      expect.stringContaining("Direct"),
+      expect.stringContaining("Alpha"),
+      expect.stringContaining("beta"),
+      expect.stringContaining("zeta"),
+    ]);
+  });
 });

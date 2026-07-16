@@ -3,7 +3,7 @@ import { useNavigate } from "react-router";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DeviceTable } from "@/components/compound/DeviceTable";
 import { DiscoveryPlaceholder } from "@/components/compound/DiscoveryPlaceholder";
-import { deviceDisplayName, useDevices } from "@wardnet/web";
+import { deviceDisplayName, sortByLabel, useDevices } from "@wardnet/web";
 import type { Device } from "@wardnet/js";
 
 type GroupId = "all" | "managed" | "unmanaged" | "recent";
@@ -30,14 +30,6 @@ function matchesSearch(d: Device, q: string): boolean {
     (d.last_ip ?? "").toLowerCase().includes(needle) ||
     (d.name ?? "").toLowerCase().includes(needle)
   );
-}
-
-function sortDevices(devices: Device[]): Device[] {
-  return [...devices].sort((a, b) => {
-    const nameA = deviceDisplayName(a).toLowerCase();
-    const nameB = deviceDisplayName(b).toLowerCase();
-    return nameA.localeCompare(nameB);
-  });
 }
 
 /** Devices page with grouped, searchable device table. */
@@ -72,7 +64,10 @@ export default function Devices() {
           : group === "recent"
             ? allDevices.filter((d) => isRecent(d, now))
             : allDevices;
-    return sortDevices(byGroup.filter((d) => matchesSearch(d, query)));
+    return sortByLabel(
+      byGroup.filter((d) => matchesSearch(d, query)),
+      deviceDisplayName,
+    );
   }, [allDevices, group, query, now]);
 
   function openDevice(id: string) {

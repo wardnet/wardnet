@@ -6,11 +6,61 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Canonical display name for a device: explicit name, else hostname, else MAC. */
+/** Treat blank as absent. The API hands back `""` for an unset hostname about
+ *  as often as it hands back null (see `normalizeDescription` in
+ *  DhcpEntryTable), and `??` alone would accept the empty string and render —
+ *  and sort — a nameless row. */
+function nonBlank(value: string | null | undefined): string | null {
+  return value?.trim() ? value : null;
+}
+
+/**
+ * Canonical display name for a device: explicit name, else hostname, else
+ * `fallback`, else MAC. Blank candidates are skipped, not rendered.
+ *
+ * `fallback` exists so surfaces that would rather show an IP than a MAC (the
+ * device dropdown) still resolve the name through *this* function. The
+ * alternative — each surface writing its own fallback chain — is what let the
+ * devices table order an unnamed device by MAC while the dropdown ordered the
+ * same device by IP. One chain, one ordering, everywhere. The MAC is the final
+ * fallback for every caller because it is the only field the API guarantees.
+ */
 export function deviceDisplayName(
   device: Pick<Device, "name" | "hostname" | "mac">,
+  fallback?: string | null,
 ): string {
-  return device.name ?? device.hostname ?? device.mac;
+  return (
+    nonBlank(device.name) ??
+    nonBlank(device.hostname) ??
+    nonBlank(fallback) ??
+    device.mac
+  );
+}
+
+/** Built once and reused: `localeCompare` with an options object constructs a
+ *  fresh collator on every call, and the comparator below runs O(n log n)
+ *  times per sort. `sensitivity: "base"` folds case and accents together, so
+ *  "iPad" and "Apple TV" order the way a reader expects, not by code point. */
+const labelCollator = new Intl.Collator(undefined, { sensitivity: "base" });
+
+/**
+ * Case-insensitive alphabetical sort by a caller-derived label, returning a
+ * new array (inputs are usually React Query data — never mutate it).
+ *
+ * The label is a callback rather than a field name because the string a list
+ * sorts by must be the same string it *renders*: devices fall back through
+ * name → hostname → IP/MAC, tunnels use their label, and a sort keyed on the
+ * wrong field silently orders rows by text the user cannot see.
+ *
+ * Labels are derived once per item rather than inside the comparator — the
+ * callback can be non-trivial (a Map lookup per device), and a comparator
+ * would re-run it ~2n·log n times.
+ */
+export function sortByLabel<T>(items: T[], label: (item: T) => string): T[] {
+  return items
+    .map((item) => ({ item, key: label(item) }))
+    .sort((a, b) => labelCollator.compare(a.key, b.key))
+    .map(({ item }) => item);
 }
 
 /** Strip a MAC to its 12 lowercase hex digits, or `null` if it isn't a

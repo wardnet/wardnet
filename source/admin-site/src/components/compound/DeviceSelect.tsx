@@ -7,10 +7,22 @@ import {
 } from "@wardnet/web";
 import { DeviceIcon } from "@wardnet/web";
 import { Text } from "@wardnet/web";
+import { deviceDisplayName, sortByLabel } from "@wardnet/web";
+import { useCallback, useMemo } from "react";
 import type { Device } from "@wardnet/js";
 
+/** The option's primary line — also what the list sorts by, so the two can't
+ *  drift. Defers to the shared display name (rather than repeating its
+ *  fallback chain) so this dropdown orders a given device identically to the
+ *  devices table; `last_ip` is only a fallback *preference* ahead of the MAC. */
+function optionLabel(d: Device): string {
+  return deviceDisplayName(d, d.last_ip);
+}
+
 interface DeviceSelectProps {
-  /** Devices to choose from. Order is preserved. */
+  /** Devices to choose from. Rendered alphabetically by display name
+   *  regardless of the order passed in. A device whose `valueKey` field is
+   *  blank is omitted — it cannot be represented as an option. */
   devices: Device[];
   /** Currently selected value. Empty string = nothing selected (shows the
    *  sentinel/placeholder). */
@@ -62,7 +74,25 @@ export function DeviceSelect({
   id,
   triggerClassName,
 }: DeviceSelectProps) {
-  const keyOf = (d: Device) => (valueKey === "id" ? d.id : d.last_ip);
+  const keyOf = useCallback(
+    (d: Device) => (valueKey === "id" ? d.id : d.last_ip),
+    [valueKey],
+  );
+
+  // A device with a blank key cannot become an option: Radix reserves the
+  // empty string for "no selection" and throws on a SelectItem carrying one,
+  // which takes down the entire dropdown rather than just that row. Dropping
+  // such a device costs nothing — in IP mode a device with no IP is precisely
+  // the device an IP filter could never match, and `id` is a primary key, so
+  // in practice this only ever guards the IP mode.
+  const options = useMemo(
+    () =>
+      sortByLabel(
+        devices.filter((d) => keyOf(d)?.trim()),
+        optionLabel,
+      ),
+    [devices, keyOf],
+  );
   const selected = devices.find((d) => keyOf(d) === value);
   // Trigger label collapses to a single line (icon + name) so it fits
   // the narrow filter column. Dropdown items remain two-line so users
@@ -71,7 +101,7 @@ export function DeviceSelect({
     <span className="flex min-w-0 items-center gap-2">
       <DeviceIcon type={selected.device_type} size={16} />
       <Text as="span" weight="medium" className="truncate">
-        {selected.name || selected.hostname || selected.last_ip}
+        {optionLabel(selected)}
       </Text>
     </span>
   ) : (
@@ -104,16 +134,22 @@ export function DeviceSelect({
             <span className="text-ink-3">{anyLabel}</span>
           </SelectItem>
         )}
-        {!includeAny && devices.length === 0 && emptyLabel && (
+        {/* Keyed off the rendered options, not the raw prop: if every device
+            was filtered out for lacking a usable key, the dropdown is empty
+            and must say so rather than open onto nothing. */}
+        {!includeAny && options.length === 0 && emptyLabel && (
           <div className="px-2 py-1.5">
             <Text as="span" size="sm" className="text-ink-3">
               {emptyLabel}
             </Text>
           </div>
         )}
-        {devices.map((d) => {
-          const primary = d.name || d.hostname || d.last_ip;
-          const secondary = d.name || d.hostname ? d.last_ip : null;
+        {options.map((d) => {
+          const primary = optionLabel(d);
+          // Suppress the IP subtitle when the IP *is* the primary line —
+          // derived from the rendered label rather than re-testing
+          // name/hostname, so the two can't disagree.
+          const secondary = primary === d.last_ip ? null : d.last_ip;
           return (
             <SelectItem key={d.id} value={keyOf(d)}>
               <div className="flex items-center gap-2">
