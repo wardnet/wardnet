@@ -381,14 +381,16 @@ pub struct TunnelConfig {
     /// requires the same response shape.
     pub test_probe_url: String,
     /// URL the speed test downloads from to measure throughput. The default
-    /// is Cloudflare's `__down` endpoint requesting a 500 MB payload — sized
-    /// generously because each stream stops reading once the measure window
-    /// elapses (see `speed_test_measure_ms`), not once the payload is fully
-    /// downloaded, so this only needs to be large enough that no stream runs
-    /// dry mid-measurement even on a near-gigabit link. The download runs
-    /// twice per speed test — once unbound (direct/WAN) and once bound to
-    /// the tunnel interface (`SO_BINDTODEVICE`) — so the endpoint must serve
-    /// the requested byte count over plain HTTPS.
+    /// is Cloudflare's `__down` endpoint requesting a 50 MB payload. That
+    /// endpoint only serves `bytes` values under 100 MB — at or above the cap
+    /// it answers `403` with no body, which fails every stream — so the
+    /// default deliberately sits well below it, leaving headroom in case the
+    /// cap tightens. A stream that drains the payload before the measure
+    /// window closes simply requests it again (see the throughput tester), so
+    /// size only trades re-request overhead against the cap, never accuracy.
+    /// The download runs twice per speed test — once unbound (direct/WAN) and
+    /// once bound to the tunnel interface (`SO_BINDTODEVICE`) — so the
+    /// endpoint must serve the requested byte count over plain HTTPS.
     pub speed_test_url: String,
     /// Number of ICMP echo samples taken per leg of a speed test to derive
     /// median latency and jitter. Defaults to 5.
@@ -421,7 +423,7 @@ impl Default for TunnelConfig {
             latency_probe_interval_secs: 60,
             latency_probe_target: "1.1.1.1".to_owned(),
             test_probe_url: "https://1.1.1.1/cdn-cgi/trace".to_owned(),
-            speed_test_url: "https://speed.cloudflare.com/__down?bytes=500000000".to_owned(),
+            speed_test_url: "https://speed.cloudflare.com/__down?bytes=50000000".to_owned(),
             speed_test_latency_samples: 5,
             speed_test_parallel_streams: 4,
             speed_test_warmup_ms: 1000,

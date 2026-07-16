@@ -1,6 +1,8 @@
 //! Real `ThroughputTester` impl: runs several concurrent HTTP downloads,
 //! discards an initial warm-up window, and sums bytes read over a fixed
-//! measure window afterward.
+//! measure window afterward. Each stream re-requests the payload if it
+//! drains before the window closes, so the download endpoint's per-request
+//! size cap doesn't bound what the tester can measure.
 //!
 //! A single-shot, single-connection download is prone to two skews: its
 //! timing includes DNS/TCP/TLS handshake and TCP slow-start (understating
@@ -116,6 +118,16 @@ impl HttpThroughputTester {
     /// reading once the measure window ends, regardless of how much of the
     /// payload remains. Wrapped in `stream_timeout` so a stalled connection
     /// can't hang the whole speed test.
+    ///
+    /// Re-requests the payload whenever it drains before the window closes.
+    /// The endpoint caps how much a single request may ask for (Cloudflare's
+    /// `__down` refuses 100 MB or more), so on a fast enough link one request
+    /// cannot cover the whole window — and a stream that just stopped early
+    /// would contribute its bytes while [`aggregate_throughput`] still divided
+    /// by the full `measure`, understating throughput exactly on the fast
+    /// links this tester exists to measure. Re-requesting keeps bytes flowing
+    /// for the entire window, so payload size trades only re-request overhead
+    /// (roughly one RTT per refill on a kept-alive connection), not accuracy.
     async fn run_stream(
         &self,
         client: &reqwest::Client,
@@ -125,37 +137,45 @@ impl HttpThroughputTester {
         use futures::StreamExt;
 
         let attempt = async {
-            let resp = client
-                .get(&self.download_url)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-            if !resp.status().is_success() {
-                return Err(format!("download returned HTTP {}", resp.status()));
-            }
-
             let deadline = start + self.warmup + self.measure;
-            let mut body = resp.bytes_stream();
             let mut bytes_in_window: u64 = 0;
-            loop {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
+
+            'refill: loop {
+                if Instant::now() >= deadline {
                     break;
                 }
-                tokio::select! {
-                    chunk = body.next() => {
-                        match chunk {
-                            Some(Ok(bytes)) => {
-                                let now = Instant::now();
-                                if now >= start + self.warmup && now < deadline {
-                                    bytes_in_window += bytes.len() as u64;
-                                }
-                            }
-                            Some(Err(e)) => return Err(e.to_string()),
-                            None => break,
-                        }
+                let resp = client
+                    .get(&self.download_url)
+                    .send()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                if !resp.status().is_success() {
+                    return Err(format!("download returned HTTP {}", resp.status()));
+                }
+
+                let mut body = resp.bytes_stream();
+                loop {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if remaining.is_zero() {
+                        break 'refill;
                     }
-                    () = tokio::time::sleep(remaining) => break,
+                    tokio::select! {
+                        chunk = body.next() => {
+                            match chunk {
+                                Some(Ok(bytes)) => {
+                                    let now = Instant::now();
+                                    if now >= start + self.warmup && now < deadline {
+                                        bytes_in_window += bytes.len() as u64;
+                                    }
+                                }
+                                Some(Err(e)) => return Err(e.to_string()),
+                                // Payload drained; grab another to keep the
+                                // link saturated for the rest of the window.
+                                None => continue 'refill,
+                            }
+                        }
+                        () = tokio::time::sleep(remaining) => break 'refill,
+                    }
                 }
             }
             Ok(bytes_in_window)
