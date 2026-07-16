@@ -133,8 +133,11 @@ path = "/var/lib/wardnet/secrets"
 | `latency_probe_interval_secs` | `60` | How often to re-measure tunnel latency for the latency chart. |
 | `latency_probe_target` | `"1.1.1.1"` | Host pinged to measure tunnel latency. |
 | `test_probe_url` | `"https://1.1.1.1/cdn-cgi/trace"` | URL used for the tunnel connectivity test probe. |
-| `speed_test_url` | `"https://speed.cloudflare.com/__down?bytes=10000000"` | Download URL used by the tunnel speed test. |
+| `speed_test_url` | `"https://speed.cloudflare.com/__down?bytes=500000000"` | Download URL used by the tunnel speed test. Sized generously since each stream stops reading once `speed_test_measure_ms` elapses, not once the payload finishes. |
 | `speed_test_latency_samples` | `5` | Number of samples averaged for the speed test's latency reading. |
+| `speed_test_parallel_streams` | `4` | Concurrent download streams per throughput leg — avoids the single-TCP-flow bandwidth ceiling that understates tunnel throughput at higher RTT. |
+| `speed_test_warmup_ms` | `1000` | Warm-up period (ms) discarded from each stream before bytes count toward the measurement, excluding connection setup and TCP slow-start. |
+| `speed_test_measure_ms` | `4000` | Measurement window (ms), after warm-up, over which bytes are counted. Keep `speed_test_warmup_ms + speed_test_measure_ms` well under 15s — the daemon adds a fixed 15s connect/scheduling grace on top as a safety-net timeout, so a much larger window will make every stream time out. |
 
 Tunnel private keys are stored via `[secret_store]` (above), they are
 not configured here.

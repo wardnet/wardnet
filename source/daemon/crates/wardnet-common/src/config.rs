@@ -381,14 +381,35 @@ pub struct TunnelConfig {
     /// requires the same response shape.
     pub test_probe_url: String,
     /// URL the speed test downloads from to measure throughput. The default
-    /// is Cloudflare's `__down` endpoint requesting a 10 MB payload. The
-    /// download runs twice per speed test — once unbound (direct/WAN) and
-    /// once bound to the tunnel interface (`SO_BINDTODEVICE`) — so the
-    /// endpoint must serve the requested byte count over plain HTTPS.
+    /// is Cloudflare's `__down` endpoint requesting a 500 MB payload — sized
+    /// generously because each stream stops reading once the measure window
+    /// elapses (see `speed_test_measure_ms`), not once the payload is fully
+    /// downloaded, so this only needs to be large enough that no stream runs
+    /// dry mid-measurement even on a near-gigabit link. The download runs
+    /// twice per speed test — once unbound (direct/WAN) and once bound to
+    /// the tunnel interface (`SO_BINDTODEVICE`) — so the endpoint must serve
+    /// the requested byte count over plain HTTPS.
     pub speed_test_url: String,
     /// Number of ICMP echo samples taken per leg of a speed test to derive
     /// median latency and jitter. Defaults to 5.
     pub speed_test_latency_samples: u32,
+    /// Number of concurrent download streams per throughput leg. A single
+    /// TCP stream's throughput is capped by its bandwidth-delay product, so
+    /// one flow understates available bandwidth on higher-RTT paths (e.g.
+    /// through a tunnel) more than on a low-RTT direct path — running
+    /// several streams in parallel avoids that single-flow ceiling. Defaults
+    /// to 4.
+    pub speed_test_parallel_streams: u32,
+    /// Warm-up period (milliseconds) discarded from the start of each
+    /// stream's download before bytes count toward the throughput
+    /// calculation. Excludes connection setup and TCP slow-start from the
+    /// measurement. Defaults to 1000 (1s).
+    pub speed_test_warmup_ms: u64,
+    /// Duration (milliseconds), after the warm-up period, over which bytes
+    /// are counted toward the throughput calculation. Defaults to 4000
+    /// (4s) — long enough to average out short ISP burst-allowance windows,
+    /// short enough to keep total speed-test job time reasonable.
+    pub speed_test_measure_ms: u64,
 }
 
 impl Default for TunnelConfig {
@@ -400,8 +421,11 @@ impl Default for TunnelConfig {
             latency_probe_interval_secs: 60,
             latency_probe_target: "1.1.1.1".to_owned(),
             test_probe_url: "https://1.1.1.1/cdn-cgi/trace".to_owned(),
-            speed_test_url: "https://speed.cloudflare.com/__down?bytes=10000000".to_owned(),
+            speed_test_url: "https://speed.cloudflare.com/__down?bytes=500000000".to_owned(),
             speed_test_latency_samples: 5,
+            speed_test_parallel_streams: 4,
+            speed_test_warmup_ms: 1000,
+            speed_test_measure_ms: 4000,
         }
     }
 }

@@ -38,9 +38,8 @@ impl ReqwestTunnelExitProbe {
 impl TunnelExitProbe for ReqwestTunnelExitProbe {
     #[cfg(target_os = "linux")]
     async fn probe(&self, interface: &str) -> Result<ExitInfo, ProbeError> {
-        let client = reqwest::Client::builder()
+        let client = crate::reqwest_client::interface_bound_builder(Some(interface))
             .timeout(PROBE_TIMEOUT)
-            .interface(interface)
             .build()
             .map_err(|e| ProbeError::Connect(format!("client build failed: {e}")))?;
 

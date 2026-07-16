@@ -353,6 +353,9 @@ async fn run(
         )),
         tunnel_throughput_tester: Arc::new(HttpThroughputTester::new(
             config.tunnel.speed_test_url.clone(),
+            config.tunnel.speed_test_parallel_streams,
+            std::time::Duration::from_millis(config.tunnel.speed_test_warmup_ms),
+            std::time::Duration::from_millis(config.tunnel.speed_test_measure_ms),
         )),
         policy_router: Arc::new(
             NetlinkPolicyRouter::new(executor.clone())

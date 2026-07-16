@@ -26,7 +26,7 @@ pub struct ThroughputMeasurement {
     pub mbps: f64,
 }
 
-/// Downloads a fixed payload and measures the achieved throughput.
+/// Measures sustained download throughput against a configured URL.
 ///
 /// The download URL is fixed at construction (mirroring
 /// [`TunnelExitProbe`](crate::tunnel::exit_probe::TunnelExitProbe) and
@@ -35,6 +35,15 @@ pub struct ThroughputMeasurement {
 /// to it (Linux: `SO_BINDTODEVICE`) so the download traverses that tunnel;
 /// when `None`, the download runs **unbound** over the default route — the
 /// direct/WAN baseline the speed test compares the tunnel against.
+///
+/// Implementations should measure *sustained* throughput rather than timing
+/// a single fixed-size download end to end: a single-shot single-connection
+/// transfer is skewed by connection-setup time and TCP slow-start (worse at
+/// higher RTT, e.g. through a tunnel) and by the single-flow
+/// bandwidth-delay-product ceiling. The daemon's real implementation
+/// (`HttpThroughputTester` in the `wardnetd` crate) addresses this by
+/// running several concurrent streams over a fixed measurement window,
+/// discarding an initial warm-up period.
 #[async_trait]
 pub trait ThroughputTester: Send + Sync {
     /// Download the configured payload through `interface_name` (or the

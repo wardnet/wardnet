@@ -19,6 +19,7 @@ mod tls_server;
 mod tunnel_idle;
 mod tunnel_interface_wireguard;
 mod tunnel_monitor;
+mod tunnel_throughput_tester;
 mod watchdog_hard;
 mod watchdog_soft;
 mod zone_enforcement_listener;

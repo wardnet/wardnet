@@ -137,13 +137,14 @@ describe("ApiReference", () => {
     expect(
       // Default 1s findByText timeout flakes on loaded CI runners (the
       // rejection → catch → setState → re-render chain lands just past it).
-      await screen.findByText(
-        /failed to load\. please refresh to try again/i,
-        undefined,
-        { timeout: 5_000 },
-      ),
+      await screen.findByText(/failed to load\. please refresh to try again/i, undefined, {
+        timeout: 5_000,
+      }),
     ).toBeInTheDocument();
-  });
+    // The per-test timeout must clear the injection wait (~1s) plus the 5s
+    // findByText above; vitest's 5s default equals the inner budget, so the
+    // outer bound could fire before findByText ever spent its allowance.
+  }, 15_000);
 
   it("loads the Scalar script and renders once it loads", async () => {
     delete window.Scalar;
@@ -159,6 +160,8 @@ describe("ApiReference", () => {
     window.Scalar = { createApiReference } as unknown as Window["Scalar"];
     script.onload?.(new Event("load"));
 
-    await waitFor(() => expect(createApiReference).toHaveBeenCalled());
-  });
+    // Same injection-then-render chain as the error case above, so give the
+    // wait (and the test) headroom over the default 1s to survive CI load.
+    await waitFor(() => expect(createApiReference).toHaveBeenCalled(), { timeout: 5_000 });
+  }, 15_000);
 });
