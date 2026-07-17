@@ -219,3 +219,23 @@ the "Install / Add to home screen" banner (**Later**) first.
 
 > Note: the grant needs the inbound WG server enabled once (see personal-vpn desktop recipe). A device can only be granted once — use a different named device for a fresh sheet/QR pair.
 
+
+## Social preview (OG) cards
+
+Each blog post gets a **1200×630** social-preview image (`og:image` /
+`twitter:image`) — a designed card, not a cropped screenshot, so nothing
+is clipped and it stays legible at thumbnail size.
+
+1. Build a self-contained 1200×630 HTML card using the brand tokens: ink
+   `#11152B` background, emerald `#12B981` accent, `Inter Tight` (loaded
+   from Google Fonts), the `logo.png` lockup embedded as a data URI, the
+   post headline, and a subtle route/network motif.
+2. Render it with the chrome-devtools MCP: `emulate` viewport
+   `1200x630x2`, wait for `document.fonts.ready`, `take_screenshot`
+   (→ 2400×1260), then downscale to exactly 1200×630
+   (`magick in.png -resize 1200x630 -strip out.png`).
+3. Save to `public/og/<slug>.png` and set the post's `image:` field in
+   `content/blog.yml` to `/og/<slug>.png`. The prerender
+   (`generate-blog-prerender.ts`) turns it into an absolute
+   `https://wardnet.network/og/<slug>.png` in the OG/Twitter tags; posts
+   with no `image` fall back to a screenshot.
