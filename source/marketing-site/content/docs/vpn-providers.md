@@ -58,5 +58,5 @@ flow and the tunnel detail page.
 Provider credentials are used once, to validate and to fetch the tunnel
 config. The resulting WireGuard private key is held in Wardnet's
 encrypted secret store and is included in an encrypted
-[backup](/docs/backup-restore), so restoring on a fresh Pi brings every
-provider tunnel back without re-entering anything.
+[backup](/docs/backup-restore), so restoring on fresh hardware brings
+every provider tunnel back without re-entering anything.

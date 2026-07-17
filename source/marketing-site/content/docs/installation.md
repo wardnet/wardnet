@@ -128,8 +128,8 @@ migrations). The daemon itself never runs as root.
 Two install-time flags worth knowing about:
 
 - `--static-ip <address>` writes `/etc/dhcpcd.conf.d/wardnet.conf` to pin
-  the host's own LAN IP, useful on a dedicated Pi where you don't want
-  the address to drift.
+  the host's own LAN IP, useful on a dedicated gateway where you don't
+  want the address to drift.
 - `--upgrade-only` re-runs the installer idempotently, skipping user and
   config creation, handy for scripted upgrade flows that just need the
   binary and units refreshed.

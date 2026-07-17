@@ -201,7 +201,7 @@ good.
 
 ## See also
 
-- [Installation](/docs/installation), get Wardnet running on a Pi.
+- [Installation](/docs/installation), get Wardnet running on your hardware.
 - [Configuration](/docs/configuration), `wardnet.toml` reference,
   including the `[secret_store]` section the backup flow relies on.
 - [Database backup, SQLite](/docs/database-backup-sqlite), how the

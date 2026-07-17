@@ -36,7 +36,7 @@ Wardnet is in active development and currently in **beta** (see [`CALVER`](../CA
 ### Known caveats when in use
 
 - Switching a device between routing targets flushes conntrack and injects a short-lived TCP RST rule so stale sockets die immediately rather than hanging for 30–60s. It is a mitigation, not a cure: a device that doesn't retransmit inside the ~1.5s window can still wait out its own TCP timeout. See [#77](https://github.com/wardnet/wardnet/issues/77).
-- Network Zone enforcement acts on traffic the Pi routes. On a flat shared subnet, same-subnet peer-to-peer traffic never reaches the Pi and so is not gated — that is the access point's job, or the per-zone-subnet isolation rung. See [ADR 0019](adr/0019-network-zone-enforcement.md).
+- Network Zone enforcement acts on traffic Wardnet routes. On a flat shared subnet, same-subnet peer-to-peer traffic never reaches Wardnet and so is not gated — that is the access point's job, or the per-zone-subnet isolation rung. See [ADR 0019](adr/0019-network-zone-enforcement.md).
 - Conntrack flushing shells out to the `conntrack` binary; without it installed, routing changes still apply but existing flows may linger on the previous path.
 
 ## Architecture
