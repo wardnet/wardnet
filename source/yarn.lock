@@ -5573,6 +5573,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@wardnet/site@workspace:marketing-site"
   dependencies:
+    "@eslint/js": "npm:10.0.1"
     "@fontsource-variable/inter-tight": "npm:^5.2.7"
     "@fontsource-variable/jetbrains-mono": "npm:^5.2.8"
     "@modyfi/vite-plugin-yaml": "npm:1.1.1"
@@ -5590,6 +5591,13 @@ __metadata:
     "@vitest/coverage-v8": "npm:4.1.9"
     "@wardnet/brand": "npm:^0.1.0"
     "@wardnet/styles": "npm:^0.1.0"
+    eslint: "npm:10.6.0"
+    eslint-config-prettier: "npm:10.1.8"
+    eslint-plugin-prettier: "npm:5.5.6"
+    eslint-plugin-react-hooks: "npm:7.1.1"
+    eslint-plugin-react-refresh: "npm:0.5.3"
+    eslint-plugin-security: "npm:4.0.1"
+    globals: "npm:17.7.0"
     jsdom: "npm:29.1.1"
     lucide-react: "npm:1.24.0"
     prettier: "npm:3.9.4"
@@ -5603,8 +5611,10 @@ __metadata:
     tsx: "npm:4.23.0"
     typedoc: "npm:^0.28.20"
     typescript: "npm:6.0.3"
+    typescript-eslint: "npm:8.63.0"
     vite: "npm:8.1.3"
     vitest: "npm:4.1.9"
+    yaml: "npm:2.9.0"
   languageName: unknown
   linkType: soft
 
@@ -12563,7 +12573,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"yaml@npm:^2.9.0":
+"yaml@npm:2.9.0, yaml@npm:^2.9.0":
   version: 2.9.0
   resolution: "yaml@npm:2.9.0"
   bin:

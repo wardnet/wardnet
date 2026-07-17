@@ -1,0 +1,12 @@
+# Blog posts for the public site, newest first. Drives the /blog index and
+# the per-post <title>/description/Open Graph tags emitted by the build-time
+# prerender step (scripts/generate-blog-prerender.ts). Add an entry here to
+# publish a post; the body lives in content/blog/<slug>.md.
+
+posts:
+  - slug: why-i-built-wardnet
+    title: "My TV can't run a VPN. So I gave it one anyway."
+    date: "2026-07-17"
+    description: >-
+      Why I built Wardnet: per-device VPN routing on a box next to your
+      router, plus network-wide ad blocking and firewall-enforced zones.

@@ -78,6 +78,12 @@ export function Navbar({ onLogoClick, showBack, backTo }: NavbarProps) {
           Premium
         </Link>
         <Link
+          to="/blog"
+          className="text-side-ink hover:text-side-ink-active t-size-sm t-weight-medium transition-colors"
+        >
+          Blog
+        </Link>
+        <Link
           to="/docs"
           className="text-side-ink hover:text-side-ink-active t-size-sm t-weight-medium transition-colors"
         >

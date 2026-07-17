@@ -6,7 +6,11 @@ import { describe, expect, it } from "vitest";
 import { MD_COMPONENTS } from "@/lib/markdown-components";
 
 function renderMarkdown(source: string) {
-  render(<ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{source}</ReactMarkdown>);
+  render(
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>
+      {source}
+    </ReactMarkdown>,
+  );
 }
 
 describe("MD_COMPONENTS", () => {

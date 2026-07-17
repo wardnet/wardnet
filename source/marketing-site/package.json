@@ -5,15 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "yarn copy:install-script && yarn copy:scalar && yarn generate:sdk-reference && vite",
-    "build": "yarn generate:release-manifests && yarn copy:install-script && yarn copy:scalar && yarn generate:sdk-reference && tsc -b && vite build && cp dist/index.html dist/404.html",
+    "build": "yarn generate:release-manifests && yarn copy:install-script && yarn copy:scalar && yarn generate:sdk-reference && tsc -b && vite build && cp dist/index.html dist/404.html && yarn generate:blog-prerender",
     "preview": "vite preview",
     "type-check": "yarn generate:release-manifests && tsc -b",
     "test": "yarn generate:release-manifests && vitest run",
     "test:watch": "yarn generate:release-manifests && vitest",
     "test:coverage": "yarn generate:release-manifests && vitest run --coverage",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.ts\"",
-    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"scripts/**/*.ts\"",
+    "lint": "eslint .",
+    "format": "prettier --write \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,css}\" \"tests/**/*.{ts,tsx}\" \"scripts/**/*.ts\"",
     "generate:release-manifests": "tsx scripts/generate-release-manifests.ts",
+    "generate:blog-prerender": "tsx scripts/generate-blog-prerender.ts",
     "generate:sdk-reference": "typedoc --entryPoints ../sdk/wardnet-js/src/index.ts --tsconfig ../sdk/wardnet-js/tsconfig.json --out public/sdk-docs --disableSources --name @wardnet/js --hideGenerator",
     "copy:install-script": "mkdir -p public && cp ../../deploy/install.sh public/install.sh",
     "copy:scalar": "mkdir -p public/api-docs && cp ../daemon/crates/wardnetd-api/assets/vendor/scalar-api-reference.js public/api-docs/scalar.js"
@@ -31,6 +33,7 @@
     "remark-gfm": "4.0.1"
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@modyfi/vite-plugin-yaml": "1.1.1",
     "@octokit/rest": "22.0.1",
     "@tailwindcss/vite": "4.3.2",
@@ -44,6 +47,13 @@
     "@types/semver": "7.7.1",
     "@vitejs/plugin-react": "6.0.3",
     "@vitest/coverage-v8": "4.1.9",
+    "eslint": "10.6.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-prettier": "5.5.6",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "eslint-plugin-react-refresh": "0.5.3",
+    "eslint-plugin-security": "4.0.1",
+    "globals": "17.7.0",
     "jsdom": "29.1.1",
     "prettier": "3.9.4",
     "semver": "7.8.5",
@@ -51,8 +61,10 @@
     "tsx": "4.23.0",
     "typedoc": "^0.28.20",
     "typescript": "6.0.3",
+    "typescript-eslint": "8.63.0",
     "vite": "8.1.3",
-    "vitest": "4.1.9"
+    "vitest": "4.1.9",
+    "yaml": "2.9.0"
   },
   "packageManager": "yarn@4.17.0"
 }

@@ -44,9 +44,8 @@ describe("LatestReleaseBadge", () => {
     vi.doMock("@/generated/release-info", () => ({
       releaseInfo: { stable: null, beta: null, generated_at: "" },
     }));
-    const { LatestReleaseBadge: Reloaded } = await import(
-      "@/components/compound/LatestReleaseBadge"
-    );
+    const { LatestReleaseBadge: Reloaded } =
+      await import("@/components/compound/LatestReleaseBadge");
     const { container } = render(<Reloaded />);
     expect(container.firstChild).toBeNull();
   });
