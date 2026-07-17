@@ -35,7 +35,7 @@ Learn more at [**wardnet.network**](https://wardnet.network).
 ### Manage it from anywhere
 
 - **Mobile apps.** Installable User and Admin apps (PWAs) — check status, flip your own routing policy, or manage the whole gateway from your phone. A Premium capability; everything they do is also available free from the desktop admin site.
-- **Push notifications.** Get alerted the moment a tunnel drops or a device changes its own routing — no need to keep the dashboard open.
+- **Push notifications.** Get alerted the moment a tunnel drops or a device changes its own routing — no need to keep the dashboard open. Delivered to the mobile apps, and Premium along with them.
 - **Automatic HTTPS.** The daemon terminates TLS itself and renews certificates automatically, so you can reach your gateway securely from outside your LAN. Bring your own domain for free, or let Wardnet manage a hostname and certificate for you.
 - **WireGuard tunnels on demand.** Add tunnels from a `.conf` file or provision through a provider (NordVPN integration ships today — more to follow). Interfaces come up when needed and tear down after an idle timeout.
 
@@ -73,10 +73,13 @@ money to run on your behalf, plus the mobile layer:
 - **Roaming private DNS** — keep your filtering with you off the LAN.
 - **Personal VPN** — your own inbound WireGuard server, so your phone and
   laptop reach your home network from anywhere.
-- **The mobile apps** — the User PWA and the Admin mobile PWA.
+- **The mobile apps** — the User PWA and the Admin mobile PWA, and the push
+  notifications they deliver.
 
 The mobile apps are a convenience layer, not a functionality gate: every
-action they offer can be performed for free from the desktop admin site.
+action they offer can be performed for free from the desktop admin site. The
+one thing that genuinely needs them is push — alerts are delivered to the
+installed apps, so they arrive with them.
 
 See [Premium](https://wardnet.network/docs/premium) for the full breakdown.
 
