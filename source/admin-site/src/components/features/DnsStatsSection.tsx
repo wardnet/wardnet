@@ -109,7 +109,11 @@ export function DnsStatsSection({ range }: Props) {
         blocked += p.blocked;
       }
     }
-    return { total, blocked };
+    // Chart points are pre-aggregated bucket values, so summing them yields a
+    // fractional result. A query count is a whole number by definition, and
+    // these totals feed both the "Window total" subtitle and (when zoomed) the
+    // Queries/Blocked stat cards, so round once here rather than at each site.
+    return { total: Math.round(total), blocked: Math.round(blocked) };
   }, [chartSeries, zoom]);
 
   // When zoomed, show the window duration instead of the range label and
