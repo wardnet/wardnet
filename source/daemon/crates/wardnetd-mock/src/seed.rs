@@ -2,7 +2,9 @@
 //!
 //! Populates realistic but entirely fake data via repositories so the web UI
 //! has something to display without requiring a real Pi deployment:
-//! devices (laptop, phone, TV, tablet, `IoT`), two `WireGuard` tunnels, a
+//! devices (laptop, phone, TV, tablet, `IoT`) spread across the Trusted /
+//! `IoT` / Guest zones with one cross-zone casting exception, `WireGuard`
+//! tunnels, a
 //! disabled DNS blocklist with a few custom rules, and a single routing rule.
 //!
 //! Admin credentials are **not** seeded — the setup wizard runs on every
@@ -10,6 +12,9 @@
 
 use chrono::{Datelike, Duration, Utc};
 use uuid::Uuid;
+use wardnet_common::zone_exception::{
+    ExceptionEndpoint, ExceptionEndpointKind, ServiceSet, ServiceSpec, ZoneException,
+};
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
     AllowlistRow, CustomRuleRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow, IntradayStatRow,
@@ -30,6 +35,11 @@ pub struct SeededIds {
 /// deduplicate against existing rows.
 #[allow(clippy::too_many_lines)]
 pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededIds> {
+    // System-zone UUIDs seeded by the `network_zones` migration.
+    const ZONE_TRUSTED: &str = "00000000-0000-0000-0000-000000000201";
+    const ZONE_IOT: &str = "00000000-0000-0000-0000-000000000202";
+    const ZONE_GUEST: &str = "00000000-0000-0000-0000-000000000203";
+
     let device_repo = factory.device();
     let tunnel_repo = factory.tunnel();
     let dns_repo = factory.dns();
@@ -44,6 +54,9 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     // ------------------------------------------------------------------
     // Devices
     // ------------------------------------------------------------------
+    // Spreading the demo devices across all three system zones (rather than
+    // parking everyone in Trusted) gives the Zones page a non-zero member count
+    // per zone and sets up a real cross-zone (casting) boundary below.
     let devices = [
         (
             "AA:BB:CC:11:22:01",
@@ -52,6 +65,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             "laptop",
             "127.0.0.1",
             Duration::minutes(2),
+            ZONE_TRUSTED,
         ),
         (
             "AA:BB:CC:11:22:02",
@@ -60,6 +74,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             "phone",
             "192.168.1.42",
             Duration::seconds(30),
+            ZONE_TRUSTED,
         ),
         (
             "AA:BB:CC:11:22:03",
@@ -68,6 +83,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             "tv",
             "192.168.1.55",
             Duration::minutes(10),
+            ZONE_IOT,
         ),
         (
             "AA:BB:CC:11:22:04",
@@ -76,6 +92,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             "tablet",
             "192.168.1.67",
             Duration::hours(4),
+            ZONE_GUEST,
         ),
         (
             "AA:BB:CC:11:22:05",
@@ -84,6 +101,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             "iot",
             "192.168.1.78",
             Duration::minutes(1),
+            ZONE_IOT,
         ),
     ];
 
@@ -92,7 +110,11 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     // The device the user PWA resolves `/devices/me` to in local dev — tracked
     // by IP (not insertion order) so it stays correct if the seed list changes.
     let mut localhost_device_id: Option<Uuid> = None;
-    for (mac, hostname, manufacturer, device_type, ip, last_seen_ago) in devices {
+    // Endpoints of the demo casting exception (phone in Trusted → TV in IoT),
+    // captured by hostname so they survive reordering of the seed list.
+    let mut casting_from_id: Option<Uuid> = None;
+    let mut casting_to_id: Option<Uuid> = None;
+    for (mac, hostname, manufacturer, device_type, ip, last_seen_ago, zone_id) in devices {
         let id = Uuid::new_v4();
         let first_seen = (now - Duration::days(7)).to_rfc3339();
         let last_seen = (now - last_seen_ago).to_rfc3339();
@@ -106,9 +128,8 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             first_seen,
             last_seen,
             last_ip: ip.to_owned(),
-            // Seeded demo devices are the owner's known devices → Trusted zone
-            // (seeded by the network_zones migration; allows direct + tunnel).
-            zone_id: "00000000-0000-0000-0000-000000000201".to_owned(),
+            // Zone assigned per-device above (network_zones migration UUIDs).
+            zone_id: zone_id.to_owned(),
             // Demo devices are LAN-discovered.
             connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
         };
@@ -116,6 +137,11 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         device_ids.push(id);
         if ip == "127.0.0.1" {
             localhost_device_id = Some(id);
+        }
+        match hostname {
+            Some("alice-phone") => casting_from_id = Some(id),
+            Some("living-room-tv") => casting_to_id = Some(id),
+            _ => {}
         }
         device_lease_inputs.push((
             id,
@@ -140,6 +166,38 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             .update_dns_capture_settings(&localhost_id.to_string(), Some(true), None, None)
             .await?;
         tracing::debug!(device_id = %localhost_id, "enabled DNS capture on localhost device");
+    }
+
+    // ------------------------------------------------------------------
+    // Cross-zone (casting) exception — the phone (Trusted) is allowed to reach
+    // the living-room TV (IoT) over the curated casting port set, so the Zones
+    // page's exceptions card renders a real entry instead of an empty state.
+    // ------------------------------------------------------------------
+    if let (Some(from_id), Some(to_id)) = (casting_from_id, casting_to_id) {
+        let exception = ZoneException {
+            id: Uuid::new_v4(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: from_id,
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: to_id,
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            // Casting needs discovery/streaming traffic in both directions.
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        };
+        factory.zone_exception().insert(&exception).await?;
+        tracing::debug!(
+            from = %from_id,
+            to = %to_id,
+            "seeded casting exception: phone → living-room TV",
+        );
     }
 
     // ------------------------------------------------------------------
