@@ -5,6 +5,8 @@ import { Home } from "@/pages/Home";
 import { Premium } from "@/pages/Premium";
 import { Docs } from "@/pages/Docs";
 import { DocsArticle } from "@/pages/DocsArticle";
+import { Blog } from "@/pages/Blog";
+import { BlogArticle } from "@/pages/BlogArticle";
 import { ApiReference } from "@/pages/ApiReference";
 import { Legal } from "@/pages/Legal";
 import { NotFound } from "@/pages/NotFound";
@@ -32,6 +34,8 @@ export default function App() {
               generic `:slug` route so it wins over the markdown renderer. */}
           <Route path="/docs/api-reference" element={<ApiReference />} />
           <Route path="/docs/:slug" element={<DocsArticle />} />
+          <Route path="/blog" element={<Blog />} />
+          <Route path="/blog/:slug" element={<BlogArticle />} />
           <Route path="/terms" element={<Legal slug="terms" />} />
           <Route path="/privacy" element={<Legal slug="privacy" />} />
           {/* Dev-only: force a render-time error so the ErrorBoundary can be

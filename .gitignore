@@ -75,3 +75,6 @@ ds-bundle/
 .mcp.json
 CLAUDE.md
 .agentic-toolkit.lock.yaml
+
+# scratch screenshots used when refreshing the docs/blog images
+.shots-tmp/

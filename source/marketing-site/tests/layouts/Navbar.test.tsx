@@ -32,6 +32,15 @@ describe("Navbar", () => {
     expect(screen.getByRole("link", { name: "Premium" })).toHaveAttribute("href", "/premium");
   });
 
+  it("renders the Blog link", () => {
+    render(
+      <MemoryRouter>
+        <Navbar />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("link", { name: "Blog" })).toHaveAttribute("href", "/blog");
+  });
+
   it("renders the GitHub icon link", () => {
     render(
       <MemoryRouter>

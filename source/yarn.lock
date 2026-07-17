@@ -5605,6 +5605,7 @@ __metadata:
     typescript: "npm:6.0.3"
     vite: "npm:8.1.3"
     vitest: "npm:4.1.9"
+    yaml: "npm:2.9.0"
   languageName: unknown
   linkType: soft
 
@@ -12563,7 +12564,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"yaml@npm:^2.9.0":
+"yaml@npm:2.9.0, yaml@npm:^2.9.0":
   version: 2.9.0
   resolution: "yaml@npm:2.9.0"
   bin:
