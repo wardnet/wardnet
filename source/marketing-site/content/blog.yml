@@ -7,6 +7,8 @@ posts:
   - slug: why-i-built-wardnet
     title: "My TV can't run a VPN. So I gave it one anyway."
     date: "2026-07-17"
+    # 1200x630 social-preview card (og:image / twitter:image). See SCREENSHOTS.md.
+    image: /og/why-i-built-wardnet.png
     description: >-
       Why I built Wardnet: per-device VPN routing on a box next to your
       router, plus network-wide ad blocking and firewall-enforced zones.
