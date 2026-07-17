@@ -24,12 +24,12 @@ async fn populate_inserts_expected_demo_data() {
         .await
         .expect("populate should succeed");
 
-    assert_eq!(ids.device_ids.len(), 5, "should seed 5 devices");
+    assert_eq!(ids.device_ids.len(), 10, "should seed 10 devices");
     assert_eq!(ids.tunnel_ids.len(), 3, "should seed 3 tunnels");
 
     // Verify via repository reads.
     let devices = factory.device().find_all().await.unwrap();
-    assert_eq!(devices.len(), 5);
+    assert_eq!(devices.len(), 10);
 
     let tunnels = factory.tunnel().find_all().await.unwrap();
     assert_eq!(tunnels.len(), 3);

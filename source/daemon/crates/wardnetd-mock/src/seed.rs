@@ -103,6 +103,54 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             Duration::minutes(1),
             ZONE_IOT,
         ),
+        // The "things that can't run a VPN" cohort — the devices the origin
+        // story is about. Cameras / doorbell / vacuum sit in IoT; the media
+        // boxes are trusted home devices.
+        (
+            "AA:BB:CC:11:22:06",
+            Some("hallway-camera"),
+            Some("Reolink"),
+            "iot",
+            "192.168.1.56",
+            Duration::minutes(3),
+            ZONE_IOT,
+        ),
+        (
+            "AA:BB:CC:11:22:07",
+            Some("smart-doorbell"),
+            Some("Ring"),
+            "iot",
+            "192.168.1.57",
+            Duration::seconds(45),
+            ZONE_IOT,
+        ),
+        (
+            "AA:BB:CC:11:22:08",
+            Some("robot-vacuum"),
+            Some("iRobot"),
+            "iot",
+            "192.168.1.58",
+            Duration::hours(2),
+            ZONE_IOT,
+        ),
+        (
+            "AA:BB:CC:11:22:09",
+            Some("games-console"),
+            Some("Sony"),
+            "game_console",
+            "192.168.1.60",
+            Duration::minutes(20),
+            ZONE_TRUSTED,
+        ),
+        (
+            "AA:BB:CC:11:22:0A",
+            Some("set-top-box"),
+            Some("Roku"),
+            "settop_box",
+            "192.168.1.61",
+            Duration::hours(1),
+            ZONE_TRUSTED,
+        ),
     ];
 
     let mut device_ids = Vec::with_capacity(devices.len());
@@ -223,7 +271,10 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         dhcp_repo.insert_lease(&lease).await?;
     }
 
-    if let Some((_, mac, hostname, ip)) = device_lease_inputs.last() {
+    if let Some((_, mac, hostname, ip)) = device_lease_inputs
+        .iter()
+        .find(|(_, _, hostname, _)| hostname.as_deref() == Some("smart-plug-kitchen"))
+    {
         let reservation = DhcpReservationRow {
             id: Uuid::new_v4().to_string(),
             mac_address: mac.clone(),
@@ -376,21 +427,19 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     // deterministically from `now` so the dev experience is reproducible
     // across `make run-dev` restarts.
     // ------------------------------------------------------------------
-    // (device_id, ip) pairs: seeded rows carry write-time device
-    // attribution just like the real DNS server records it. The last
-    // client is left unattributed so the dev UI exercises the
-    // unknown-source fallback rendering too.
-    let dns_clients: Vec<(Option<String>, String)> = {
-        let last = device_lease_inputs.len().saturating_sub(1);
-        device_lease_inputs
-            .iter()
-            .enumerate()
-            .map(|(i, (id, _, _, ip))| {
-                let device_id = (i != last).then(|| id.to_string());
-                (device_id, ip.clone())
-            })
-            .collect()
-    };
+    // (device_id, ip) pairs: every seeded row carries write-time device
+    // attribution, exactly as the real DNS server records it (the
+    // `DeviceIpSnapshot` resolves the client IP to a device id when the query
+    // is logged). Attributing every client keeps a known device from showing
+    // up twice in Top clients — once by device id and once by a bare IP — the
+    // failure mode issue #941 flagged, which was a seed artifact rather than a
+    // product bug (top-N ranks by device id and only falls back to the raw IP
+    // for genuinely unattributed traffic, so it never merges an IP back onto a
+    // device — an IP can be reassigned by DHCP).
+    let dns_clients: Vec<(Option<String>, String)> = device_lease_inputs
+        .iter()
+        .map(|(id, _, _, ip)| (Some(id.to_string()), ip.clone()))
+        .collect();
     let log_rows = generate_dns_query_log(&dns_clients, now);
     let total_log_rows = log_rows.len();
     for chunk in log_rows.chunks(256) {
