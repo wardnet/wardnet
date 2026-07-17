@@ -19,9 +19,7 @@ describe("Blog", () => {
 
   it("lists the origin-story post", () => {
     renderBlog();
-    expect(
-      screen.getByText("My TV can't run a VPN. So I gave it one anyway."),
-    ).toBeInTheDocument();
+    expect(screen.getByText("My TV can't run a VPN. So I gave it one anyway.")).toBeInTheDocument();
   });
 
   it("links each post card to its slug", () => {
@@ -35,9 +33,7 @@ describe("Blog", () => {
   it("renders a back button and links the logo to home", () => {
     renderBlog();
     expect(screen.getByRole("button", { name: /go back/i })).toBeInTheDocument();
-    const homeLink = screen
-      .getAllByRole("link")
-      .find((el) => el.getAttribute("href") === "/");
+    const homeLink = screen.getAllByRole("link").find((el) => el.getAttribute("href") === "/");
     expect(homeLink).toBeDefined();
   });
 });

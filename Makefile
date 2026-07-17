@@ -208,6 +208,7 @@ build-site:
 check-site:
 	cd $(SITE_DIR) && yarn install --immutable
 	cd $(SITE_DIR) && yarn type-check
+	cd $(SITE_DIR) && yarn lint
 	cd $(SITE_DIR) && yarn format:check
 	cd $(SITE_DIR) && yarn test
 

@@ -52,8 +52,6 @@ describe("Home", () => {
     renderHome();
 
     await userEvent.click(screen.getByRole("button", { name: /scroll to features/i }));
-    await waitFor(() =>
-      expect(screen.getByTestId("location")).toHaveTextContent("/?view=content"),
-    );
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/?view=content"));
   });
 });

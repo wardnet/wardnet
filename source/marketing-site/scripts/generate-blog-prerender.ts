@@ -87,8 +87,13 @@ async function emit(template: string, route: string, meta: PageMeta): Promise<vo
     .replace(/<title>[\s\S]*?<\/title>/, "")
     .replace(/<meta[^>]*name="description"[^>]*\/>/, "")
     .replace("</head>", `    ${headTags(meta)}\n  </head>`);
+  // `dir`/`route` are build-time constants (a fixed ROOT plus route names from
+  // content/blog.yml), never user input — the non-literal-path findings below
+  // are false positives for a build script.
   const dir = resolve(ROOT, "dist", route);
+  // eslint-disable-next-line security/detect-non-literal-fs-filename
   await mkdir(dir, { recursive: true });
+  // eslint-disable-next-line security/detect-non-literal-fs-filename
   await writeFile(resolve(dir, "index.html"), html, "utf8");
 }
 

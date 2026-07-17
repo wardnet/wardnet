@@ -41,9 +41,7 @@ describe("Docs", () => {
     // The back arrow pops real browser history, so it's a button rather
     // than a fixed link. The logo stays a plain link to home.
     expect(screen.getByRole("button", { name: /go back/i })).toBeInTheDocument();
-    const homeLink = screen
-      .getAllByRole("link")
-      .find((el) => el.getAttribute("href") === "/");
+    const homeLink = screen.getAllByRole("link").find((el) => el.getAttribute("href") === "/");
     expect(homeLink).toBeDefined();
   });
 

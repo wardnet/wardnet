@@ -29,7 +29,6 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
   componentDidCatch(error: Error, info: ErrorInfo) {
     // Log for dev console + any installed reporter. The UI only shows the
     // short message; the full stack + component trace stay in logs.
-    // eslint-disable-next-line no-console
     console.error("ErrorBoundary caught:", error, info.componentStack);
   }
 
