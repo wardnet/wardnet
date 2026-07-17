@@ -31,9 +31,10 @@ end-to-end tests against a real kernel in Docker, `cargo audit` on every
 build, CodeQL, and OpenSSF Scorecard. AI assistance changed how the code
 was written; it did not lower the bar for what gets in.
 
-The honest caveat that matters more than any of the above: Wardnet is
-**beta**, and it is daily-driven on exactly one Raspberry Pi — mine.
-Treat it accordingly, whoever or whatever wrote it.
+The honest caveat that matters more than any of the above: Wardnet runs
+on exactly one box — a Raspberry Pi CM5, mine, where it is the gateway
+for my home LAN. That is the whole of its production evidence. Treat it
+accordingly, whoever or whatever wrote it.
 
 ## Why this file exists
 
