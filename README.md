@@ -34,7 +34,7 @@ Learn more at [**wardnet.network**](https://wardnet.network).
 
 ### Manage it from anywhere
 
-- **Mobile apps.** Installable User and Admin apps (PWAs) — check status, flip your own routing policy, or manage the whole gateway from your phone.
+- **Mobile apps.** Installable User and Admin apps (PWAs) — check status, flip your own routing policy, or manage the whole gateway from your phone. A Premium capability; everything they do is also available free from the desktop admin site.
 - **Push notifications.** Get alerted the moment a tunnel drops or a device changes its own routing — no need to keep the dashboard open.
 - **Automatic HTTPS.** The daemon terminates TLS itself and renews certificates automatically, so you can reach your gateway securely from outside your LAN. Bring your own domain for free, or let Wardnet manage a hostname and certificate for you.
 - **WireGuard tunnels on demand.** Add tunnels from a `.conf` file or provision through a provider (NordVPN integration ships today — more to follow). Interfaces come up when needed and tear down after an idle timeout.
@@ -58,7 +58,27 @@ Learn more at [**wardnet.network**](https://wardnet.network).
 
 ## Free vs. Premium
 
-Everything above — VPN routing, DNS blocking, local DNS, Network Zones, DHCP, the mobile apps, backups, self-healing — is free and fully self-hostable, forever, as long as you bring your own domain for HTTPS. **Premium** is an optional, paid add-on for the parts that cost us real money to run on your behalf: a managed hostname with automatic HTTPS so you don't need your own domain, and the Tunneler for private DNS while you're away from home.
+The gateway itself is free and fully self-hostable, forever: per-device VPN
+routing and WireGuard tunnels, DNS ad and tracker blocking, local DNS,
+Network Zones, DHCP, device discovery, encrypted backups, self-healing, and
+the full desktop admin site — with automatic HTTPS when you bring your own
+domain. No account required, and none of it is time-limited or feature-gated.
+
+**Premium** is an optional, paid add-on covering the parts that cost us real
+money to run on your behalf, plus the mobile layer:
+
+- **Dynamic DNS** — reach your gateway with no domain of your own.
+- **Secure remote tunneling** with automatic HTTPS — encrypted inbound access
+  from anywhere.
+- **Roaming private DNS** — keep your filtering with you off the LAN.
+- **Personal VPN** — your own inbound WireGuard server, so your phone and
+  laptop reach your home network from anywhere.
+- **The mobile apps** — the User PWA and the Admin mobile PWA.
+
+The mobile apps are a convenience layer, not a functionality gate: every
+action they offer can be performed for free from the desktop admin site.
+
+See [Premium](https://wardnet.network/docs/premium) for the full breakdown.
 
 ## Install
 
@@ -99,6 +119,7 @@ Full walkthrough, configuration reference, and guides in the [**user documentati
 - [**User documentation**](https://wardnet.network/docs) — installation, configuration, setup walkthrough, guides
 - [**Development guide**](docs/DEVELOPMENT.md) — build, run locally, deploy, contribute
 - [**Security policy & release signing**](SECURITY.md) — reporting vulnerabilities, verifying releases
+- [**AI declaration**](ai-declaration.md) — where and how much AI is used in developing Wardnet
 - [**Release notes**](docs/releases/) — per-version changelogs
 - [**Marketing site**](https://wardnet.network) — setup walkthrough, screenshots, docs
 

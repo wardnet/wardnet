@@ -7,7 +7,7 @@ securely from outside your LAN. There's no external reverse proxy to
 run: the daemon terminates TLS itself on port 443, redirects plain
 HTTP to HTTPS, and routes each surface by path (`/`, `/admin/`,
 `/admin-app/`) under the one hostname. The private key never leaves
-the Pi.
+your gateway.
 
 Open **Remote access** to set it up.
 
@@ -59,7 +59,7 @@ Once configured, the status card shows exactly what's live:
 - **Certificate**, the expiry date, or "Not issued yet" while the
   first one is still being provisioned.
 - **Public DNS**, whether the hostname currently resolves to this
-  Pi from the outside: **Resolves correctly**, **Points to the wrong
+  gateway from the outside: **Resolves correctly**, **Points to the wrong
   IP**, **Not yet visible publicly** (still propagating), or **Not
   configured**.
 

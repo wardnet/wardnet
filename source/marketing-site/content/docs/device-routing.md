@@ -72,6 +72,6 @@ Routing rules are applied in the gateway's packet-forwarding path, not
 on the device. When you point a device at a tunnel, Wardnet matches that
 device's traffic by its network address and forwards it through the
 tunnel interface. Switch the rule back to **Direct** and the next
-packets take the normal path. Because the enforcement lives on the Pi,
-the same rule covers every app on the device, including ones that ignore
-system VPN settings.
+packets take the normal path. Because the enforcement lives on the
+gateway, the same rule covers every app on the device, including ones
+that ignore system VPN settings.

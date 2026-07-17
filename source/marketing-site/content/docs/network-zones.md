@@ -27,8 +27,8 @@ Each zone defines:
   direct, tunnel, or both. At least one must stay on.
 - **Zone subnet**, an optional CIDR for devices in this zone. Requires
   Wardnet to be your DHCP server; recorded but inactive otherwise.
-- **Admin UI reachable**, whether devices in this zone can reach the
-  Pi's admin surfaces at all.
+- **Admin UI reachable**, whether devices in this zone can reach
+  Wardnet's admin surfaces at all.
 
 Exactly one zone is the **home** zone (full trust, can't be deleted)
 and one is **default for new devices**, where freshly-discovered
@@ -78,7 +78,7 @@ independent checks run per device IP:
 - An **egress gate** blocks traffic to VPN tunnels or the direct
   internet path, whichever the zone doesn't allow.
 - An **admin-UI gate** resets connections from non-admin-reachable
-  zones to the Pi's admin ports, while leaving DNS and DHCP untouched
+  zones to Wardnet's admin ports, while leaving DNS and DHCP untouched
   so the device still gets connectivity.
 
 Both reload live when you change a zone or move a device, no restart
