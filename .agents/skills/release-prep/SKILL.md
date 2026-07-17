@@ -73,8 +73,24 @@ Template, modelled on `v2026.05.00.md`:
 - `## Upgrading` — auto-update flow as the default path; manual
   installer flow as the alternative. Repeat any `> [!IMPORTANT]`
   callouts here as concrete steps.
-- `## Targets in this release` — copy the platform list from the
-  previous release notes, adjust if the supported targets changed.
+- `## Targets in this release` — **derive** the list from the build
+  matrix in `.github/workflows/build-daemon.yml`. That matrix is what
+  actually produces the assets, so it is the only thing that can be
+  right. Do **not** copy the table from the previous release notes:
+  that copies a copy, and an error in it survives every release that
+  inherits it. Verify against what the last release really shipped —
+  if the two disagree, the notes are wrong, not the assets:
+
+  ```sh
+  gh release view v<previous> --json assets --jq '.assets[].name'
+  ```
+
+  > This is not hypothetical. An `armv7-unknown-linux-gnueabihf` row
+  > entered at `2026.06.00-beta.2`, rode the beta chain by copy, and
+  > reached the `2026.07.00` stable notes — promising a 32-bit tarball
+  > CI has never built, to exactly the Pi users most likely to need
+  > one. `v2026.05.03` had it right the whole time. Nobody checked the
+  > table against the matrix because the instruction never said to.
 
 Sourcing the changelog:
 
@@ -245,3 +261,10 @@ try to verify and reject.
 - **Auto-update assumes monotonic CalVer.** Don't reuse a CALVER for
   a re-tag; bump to the next free patch slot if you need to redo a
   release.
+- **Trusting the targets table because it was already there.** Every
+  other pitfall on this list is caught by a gate — `check-version`,
+  `check-openapi`, CI. This one is caught by nothing. It is prose,
+  sitting next to a generated asset list it is never diffed against,
+  and it stayed wrong across six releases precisely because each one
+  inherited it from the last. Derive it from `build-daemon.yml` and
+  diff it against `gh release view v<previous> --json assets`.
