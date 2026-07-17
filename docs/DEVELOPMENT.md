@@ -4,17 +4,24 @@ This guide covers everything you need to build, run, and contribute to Wardnet. 
 
 ## Project status
 
-Wardnet is in active development (Phase 1 MVP). It is being daily-driven on a Raspberry Pi at home but is not yet a finished product — expect to read the source occasionally if you hit rough edges. Roadmap, known bugs, and feature ideas are tracked as [GitHub issues](https://github.com/wardnet/wardnet/issues) and grouped by [milestones](https://github.com/wardnet/wardnet/milestones); cross-cutting work (DNS milestone, e2e test rollout) lives in pinned umbrella issues.
+Wardnet is in active development and currently in **beta** (see [`CALVER`](../CALVER)). It is daily-driven on a Raspberry Pi at home — one Pi, mine — but is not yet a finished product; expect to read the source occasionally if you hit rough edges. Roadmap, known bugs, and feature ideas are tracked as [GitHub issues](https://github.com/wardnet/wardnet/issues) and grouped by [milestones](https://github.com/wardnet/wardnet/milestones); cross-cutting work lives in pinned umbrella issues.
 
 ### What works today
 
-- WireGuard tunnel CRUD with NordVPN provider integration
-- Per-device routing policy (direct / specific tunnel / network default), applied via `ip rule` + nftables
+- WireGuard tunnel CRUD with NordVPN provider integration, on-demand interface bring-up and idle teardown
+- Per-device routing policy (direct / specific tunnel / network default), applied via `ip rule` source routing + nftables
+- DNS leak prevention on tunnel-routed devices: upstream queries egress via the tunnel using a `SO_BINDTODEVICE`-bound socket
 - Built-in DHCP server with leases, static reservations, and conflict detection
-- Built-in DNS server with network-wide ad blocking, allowlist, and custom rules
-- Device detection (ARP, OUI lookup, departure tracking)
-- DNS leak prevention on tunnel-routed devices (port 53 DNAT to the tunnel's DNS)
-- Web UI with setup wizard, dashboard, devices, tunnels, DHCP, DNS, ad blocking
+- Built-in DNS server with network-wide ad blocking, allowlist, custom rules, per-device filter profiles, and a per-device kill switch that logs what it would have blocked
+- Local/authoritative DNS with conditional forwarding
+- Network Zones with nftables-enforced egress and admin-UI gating, optional per-zone subnets and member isolation
+- Device detection (ARP, OUI lookup, departure tracking, randomised-MAC detection)
+- Daemon-owned TLS with automatic certificate renewal
+- Daemon-side auto-update with signature verification and crash-loop rollback, across stable/beta/edge channels
+- Three-layer watchdog: health monitor, health-gated `sd_notify` soft restart, and an ungated `/dev/watchdog` hard reboot
+- Encrypted backup and restore
+- Admin site, User PWA, and Admin mobile PWA, with Web Push notifications
+- Stats pipeline with time-series and top-N queries; live DNS query log
 - REST + WebSocket API with session + API-key auth
 - `wctl` CLI (scaffolded)
 - OpenTelemetry trace/log/metric export and Pyroscope continuous profiling (opt-in)
@@ -22,14 +29,15 @@ Wardnet is in active development (Phase 1 MVP). It is being daily-driven on a Ra
 
 ### What's not done yet
 
-- Daemon-side auto-update (pipeline is signed and published; the update runner inside `wardnetd` is next)
-- Gateway resilience (keepalived failover, hardware watchdog, graceful shutdown)
-- Mobile app, kill switch per device, scheduled routing
+- Gateway resilience beyond the watchdog (e.g. keepalived failover)
+- Scheduled routing
+- IPv6 across the routing path (policy routing is IPv4-only today)
 
 ### Known caveats when in use
 
-- After switching a device *off* a tunnel (VPN → direct, or between tunnels), the device's existing TCP sockets may stay stuck for ~30–60s while their stack times out. Routing on the Pi is correct immediately; toggling Wi-Fi on the device fixes it instantly. See [#77](https://github.com/wardnet/wardnet/issues/77).
-- A NordVPN server selected at tunnel-creation time may be unhealthy when you actually try to use it; the daemon currently still marks such tunnels as "up" even when no WireGuard handshake has ever completed. See [#79](https://github.com/wardnet/wardnet/issues/79) and [#80](https://github.com/wardnet/wardnet/issues/80).
+- Switching a device between routing targets flushes conntrack and injects a short-lived TCP RST rule so stale sockets die immediately rather than hanging for 30–60s. It is a mitigation, not a cure: a device that doesn't retransmit inside the ~1.5s window can still wait out its own TCP timeout. See [#77](https://github.com/wardnet/wardnet/issues/77).
+- Network Zone enforcement acts on traffic the Pi routes. On a flat shared subnet, same-subnet peer-to-peer traffic never reaches the Pi and so is not gated — that is the access point's job, or the per-zone-subnet isolation rung. See [ADR 0019](adr/0019-network-zone-enforcement.md).
+- Conntrack flushing shells out to the `conntrack` binary; without it installed, routing changes still apply but existing flows may linger on the previous path.
 
 ## Architecture
 
