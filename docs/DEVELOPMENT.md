@@ -4,7 +4,7 @@ This guide covers everything you need to build, run, and contribute to Wardnet. 
 
 ## Project status
 
-Wardnet is in active development. The first stable release, [`2026.07.00`](https://github.com/wardnet/wardnet/releases/tag/v2026.07.00), shipped in July 2026 (see [`CALVER`](../CALVER)). It is daily-driven on a Raspberry Pi CM5 serving as the gateway for a real home LAN — one box, mine, which is the whole of its production evidence. It's a young project: expect to read the source occasionally if you hit rough edges. Roadmap, known bugs, and feature ideas are tracked as [GitHub issues](https://github.com/wardnet/wardnet/issues) and grouped by [milestones](https://github.com/wardnet/wardnet/milestones); cross-cutting work lives in pinned umbrella issues.
+Wardnet is in active development. The first stable release, [`2026.07.00`](https://github.com/wardnet/wardnet/releases/tag/v2026.07.00), shipped in July 2026 (see [`CALVER`](../CALVER)). It is daily-driven: a Raspberry Pi CM5 running Wardnet is the gateway for my own home LAN, on the same signed release you'd install. It's still a young project, so expect to read the source occasionally if you hit rough edges. Roadmap, known bugs, and feature ideas are tracked as [GitHub issues](https://github.com/wardnet/wardnet/issues) and grouped by [milestones](https://github.com/wardnet/wardnet/milestones); cross-cutting work lives in pinned umbrella issues.
 
 ### What works today
 

@@ -31,10 +31,11 @@ end-to-end tests against a real kernel in Docker, `cargo audit` on every
 build, CodeQL, and OpenSSF Scorecard. AI assistance changed how the code
 was written; it did not lower the bar for what gets in.
 
-The honest caveat that matters more than any of the above: Wardnet runs
-on exactly one box — a Raspberry Pi CM5, mine, where it is the gateway
-for my home LAN. That is the whole of its production evidence. Treat it
-accordingly, whoever or whatever wrote it.
+And the assurance that counts for more than any of the above: I run
+Wardnet on my own home LAN. A Raspberry Pi CM5 in my house is the
+gateway every device here depends on, running the same signed release
+you would install. Nothing ships that I am not already trusting with my
+own network — whoever, or whatever, wrote it.
 
 ## Why this file exists
 
