@@ -869,3 +869,83 @@ async fn rollback_retracts_the_applied_announcement() {
     );
     assert_eq!(status.applied_at, None);
 }
+
+// ── is_newer (pure version comparator) ──────────────────────────────────
+
+use crate::update::service::is_newer;
+
+#[test]
+fn calver_padded_components() {
+    // The padded canonical CalVer form — leading zeros in month / day
+    // were the reason we couldn't keep `semver::Version::parse`.
+    assert!(is_newer("2026.05.10", "2026.05.03"));
+    assert!(is_newer("2026.06.01", "2026.05.31"));
+    assert!(!is_newer("2026.05.03", "2026.05.10"));
+    assert!(!is_newer("2026.05.03", "2026.05.03"));
+}
+
+#[test]
+fn calver_unpadded_compares_numerically() {
+    // `2026.5.3` < `2026.10.3` — the comparator parses each component
+    // as `u64` so the lexically-smaller `10` correctly outranks `5`.
+    assert!(is_newer("2026.10.3", "2026.5.3"));
+    assert!(!is_newer("2026.5.3", "2026.10.3"));
+}
+
+#[test]
+fn semver_legacy_strings_still_compare() {
+    // Pre-CalVer release tooling would have used these. Still works
+    // because the comparator is tuple-of-ints, not CalVer-specific.
+    assert!(is_newer("0.2.0", "0.1.0"));
+    assert!(!is_newer("0.1.0", "0.2.0"));
+}
+
+#[test]
+fn build_metadata_stripped_base_wins() {
+    // Build tags must not mask the base-version ordering.
+    assert!(is_newer("2026.05.10+gabc", "2026.05.03+gdef"));
+    // A pre-release on a newer base is still newer.
+    assert!(is_newer("2026.05.10-beta.1", "2026.05.03"));
+}
+
+#[test]
+fn pre_release_ordering() {
+    // beta.2 is newer than beta.1 on the same base.
+    assert!(is_newer("2026.06.00-beta.2", "2026.06.00-beta.1"));
+    assert!(!is_newer("2026.06.00-beta.1", "2026.06.00-beta.2"));
+    // A release outranks any pre-release of the same base.
+    assert!(is_newer("2026.06.00", "2026.06.00-beta.2"));
+    assert!(!is_newer("2026.06.00-beta.2", "2026.06.00"));
+    // A pre-release is still newer than an older base release.
+    assert!(is_newer("2026.06.00-beta.1", "2026.05.03"));
+    // Same pre-release → not newer.
+    assert!(!is_newer("2026.06.00-beta.1", "2026.06.00-beta.1"));
+    // Label without numeric suffix (edge-case tolerance).
+    assert!(is_newer("2026.06.00-rc", "2026.06.00-beta"));
+}
+
+#[test]
+fn edge_ordering_is_a_one_way_ratchet() {
+    // `"edge" > "beta"` lexicographically, so an edge build outranks any
+    // beta of the same base — that's how an edge box keeps up with edge.
+    assert!(is_newer("2026.07.00-edge.147", "2026.07.00-beta.5"));
+    assert!(is_newer("2026.07.00-edge.148", "2026.07.00-edge.147"));
+    // ...and the ratchet: flipping a box back to beta does NOT walk it
+    // back down to a beta of the same base. This is intentional (ADR-0023)
+    // — the escape hatches are `install.sh CHANNEL=beta` (no version
+    // comparison) or dropping the TOML flag and waiting for the next base.
+    assert!(!is_newer("2026.07.00-beta.6", "2026.07.00-edge.147"));
+    // The next base CalVer clears it, by either channel.
+    assert!(is_newer("2026.08.00-beta.1", "2026.07.00-edge.147"));
+    // A final release still outranks an edge build of the same base.
+    assert!(is_newer("2026.07.00", "2026.07.00-edge.147"));
+}
+
+#[test]
+fn malformed_returns_false() {
+    // A malformed candidate must never report "newer" — that would
+    // let a bad manifest entry trigger an install.
+    assert!(!is_newer("not-a-version", "2026.05.03"));
+    assert!(!is_newer("2026.05.03", "also-bad"));
+    assert!(!is_newer("", "2026.05.03"));
+}

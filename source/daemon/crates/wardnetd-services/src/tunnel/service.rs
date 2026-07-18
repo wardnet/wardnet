@@ -200,7 +200,7 @@ struct LegMeasurement {
 /// Reduce a set of ICMP RTT samples (ms) to `(median, jitter)`, where jitter
 /// is the sample standard deviation. Returns `(0.0, 0.0)` for an empty slice
 /// (callers reject empty sample sets before this point).
-fn summarize_latency(samples: &[u64]) -> (f64, f64) {
+pub(crate) fn summarize_latency(samples: &[u64]) -> (f64, f64) {
     if samples.is_empty() {
         return (0.0, 0.0);
     }
@@ -1466,44 +1466,5 @@ impl TunnelService for TunnelServiceImpl {
             .await
             .map_err(AppError::Internal)?;
         Ok(TunnelSpeedTestHistoryResponse { results })
-    }
-}
-
-#[cfg(test)]
-mod summarize_latency_tests {
-    use super::summarize_latency;
-
-    fn approx(a: f64, b: f64) -> bool {
-        (a - b).abs() < 1e-9
-    }
-
-    #[test]
-    fn empty_is_zero() {
-        let (median, jitter) = summarize_latency(&[]);
-        assert!(approx(median, 0.0));
-        assert!(approx(jitter, 0.0));
-    }
-
-    #[test]
-    fn single_sample_has_no_jitter() {
-        let (median, jitter) = summarize_latency(&[42]);
-        assert!(approx(median, 42.0));
-        assert!(approx(jitter, 0.0));
-    }
-
-    #[test]
-    fn odd_count_takes_middle_and_sample_stddev() {
-        // Sorted: [10, 20, 30] -> median 20; mean 20, sample variance
-        // (100 + 0 + 100) / 2 = 100 -> stddev 10.
-        let (median, jitter) = summarize_latency(&[10, 30, 20]);
-        assert!(approx(median, 20.0));
-        assert!(approx(jitter, 10.0));
-    }
-
-    #[test]
-    fn even_count_averages_the_two_middles() {
-        // Sorted: [10, 20, 30, 40] -> median midpoint(20, 30) = 25.
-        let (median, _) = summarize_latency(&[40, 10, 30, 20]);
-        assert!(approx(median, 25.0));
     }
 }

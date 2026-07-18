@@ -2835,3 +2835,41 @@ async fn rebuild_not_found() {
     let result = auth_context::with_context(admin_ctx(), h.svc.rebuild(Uuid::new_v4())).await;
     assert!(matches!(result, Err(AppError::NotFound(_))));
 }
+
+// ── summarize_latency (pure) ───────────────────────────────
+
+use crate::tunnel::service::summarize_latency;
+
+fn approx(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-9
+}
+
+#[test]
+fn empty_is_zero() {
+    let (median, jitter) = summarize_latency(&[]);
+    assert!(approx(median, 0.0));
+    assert!(approx(jitter, 0.0));
+}
+
+#[test]
+fn single_sample_has_no_jitter() {
+    let (median, jitter) = summarize_latency(&[42]);
+    assert!(approx(median, 42.0));
+    assert!(approx(jitter, 0.0));
+}
+
+#[test]
+fn odd_count_takes_middle_and_sample_stddev() {
+    // Sorted: [10, 20, 30] -> median 20; mean 20, sample variance
+    // (100 + 0 + 100) / 2 = 100 -> stddev 10.
+    let (median, jitter) = summarize_latency(&[10, 30, 20]);
+    assert!(approx(median, 20.0));
+    assert!(approx(jitter, 10.0));
+}
+
+#[test]
+fn even_count_averages_the_two_middles() {
+    // Sorted: [10, 20, 30, 40] -> median midpoint(20, 30) = 25.
+    let (median, _) = summarize_latency(&[40, 10, 30, 20]);
+    assert!(approx(median, 25.0));
+}

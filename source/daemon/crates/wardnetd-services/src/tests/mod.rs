@@ -1,4 +1,5 @@
 mod db_maintenance_runner;
+mod entitlement;
 mod error;
 mod event;
 mod health;
@@ -6,6 +7,7 @@ mod health_checks;
 mod init;
 mod jobs;
 mod request_context;
+mod subnet;
 mod version;
 
 use uuid::Uuid;

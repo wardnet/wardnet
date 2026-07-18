@@ -29,10 +29,10 @@ use crate::event::EventPublisher;
 
 /// The seeded `.lan` zone id (see `20260414000000_dns.sql`). Records are
 /// attached to it so they inherit the zone's enabled state.
-const LAN_ZONE_ID: Uuid = uuid::uuid!("00000000-0000-0000-0000-000000000010");
+pub(crate) const LAN_ZONE_ID: Uuid = uuid::uuid!("00000000-0000-0000-0000-000000000010");
 
 /// Fallback record TTL (seconds) used when the DHCP config can't be read.
-const FALLBACK_TTL_SECS: u32 = 300;
+pub(crate) const FALLBACK_TTL_SECS: u32 = 300;
 
 pub struct DhcpLanRunner {
     cancel: CancellationToken,
@@ -113,7 +113,7 @@ pub(crate) fn lan_label(hostname: &str) -> Option<String> {
 
 /// Upsert `{first-label-of-hostname}.lan → ip` as a DHCP-sourced A record.
 /// Never fatal: every failure path logs a warning and returns.
-async fn register_lease(
+pub(crate) async fn register_lease(
     dns_local: &dyn DnsLocalService,
     dhcp: &dyn DhcpService,
     admin_ctx: &AuthContext,
@@ -175,5 +175,3 @@ async fn register_lease(
     }
 }
 
-#[cfg(test)]
-mod tests;
