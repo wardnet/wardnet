@@ -22,4 +22,5 @@ mod tunnel_monitor;
 mod tunnel_throughput_tester;
 mod watchdog_hard;
 mod watchdog_soft;
+mod wireguard_interface;
 mod zone_enforcement_listener;

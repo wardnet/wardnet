@@ -1,6 +1,7 @@
 use crate::tunnel_interface_wireguard::{
-    PeerStatsInput, WireGuardTunnelInterface, aggregate_peer_stats, is_interface_absent_error,
+    PeerStatsInput, WireGuardTunnelInterface, aggregate_peer_stats,
 };
+use crate::wireguard_interface::is_interface_absent_error;
 use std::time::{Duration, SystemTime};
 use wardnetd_services::tunnel::interface::TunnelInterface;
 use wireguard_control::{Backend, Device, DeviceUpdate, InterfaceName, Key, PeerConfigBuilder};
@@ -171,49 +172,6 @@ fn aggregate_three_peers_with_mixed_handshakes() {
         Some(chrono::DateTime::<chrono::Utc>::from(t2)),
         "t2 (300) is the latest"
     );
-}
-
-#[test]
-fn absent_error_enodev_is_absent() {
-    let err = std::io::Error::from_raw_os_error(libc::ENODEV);
-    assert!(is_interface_absent_error(&err));
-}
-
-#[test]
-fn absent_error_enoent_is_absent() {
-    let err = std::io::Error::from_raw_os_error(libc::ENOENT);
-    assert!(is_interface_absent_error(&err));
-}
-
-/// A `NotFound` error without a raw OS errno (e.g. synthesized by the
-/// userspace backend) still counts as "interface absent".
-#[test]
-fn absent_error_not_found_kind_without_errno_is_absent() {
-    let err = std::io::Error::new(std::io::ErrorKind::NotFound, "no such socket");
-    assert!(is_interface_absent_error(&err));
-}
-
-/// A stale userspace control socket with no `wireguard-go` listening surfaces
-/// as `ECONNREFUSED` — the interface is effectively dead, so it counts as
-/// absent (the old empty-`apply` path returned Ok here too).
-#[test]
-fn absent_error_econnrefused_is_absent() {
-    let err = std::io::Error::from_raw_os_error(libc::ECONNREFUSED);
-    assert!(is_interface_absent_error(&err));
-}
-
-/// A permission error is a real failure, not an absent interface — `remove()`
-/// must propagate it instead of pretending the removal was a no-op.
-#[test]
-fn absent_error_eperm_is_not_absent() {
-    let err = std::io::Error::from_raw_os_error(libc::EPERM);
-    assert!(!is_interface_absent_error(&err));
-}
-
-#[test]
-fn absent_error_other_kind_is_not_absent() {
-    let err = std::io::Error::other("netlink payload mismatch");
-    assert!(!is_interface_absent_error(&err));
 }
 
 /// Full kernel round-trip for `remove()`: stand up a real `WireGuard` interface

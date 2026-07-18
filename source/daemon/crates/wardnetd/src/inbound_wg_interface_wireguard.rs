@@ -112,20 +112,18 @@ impl InboundWgInterface for WireGuardInboundInterface {
     }
 
     async fn tear_down_server(&self, interface_name: &str) -> anyhow::Result<()> {
-        // Best-effort delete: an absent interface is the expected steady state
-        // when the server was never enabled, so a failure here is non-fatal.
-        let output = tokio::process::Command::new("ip")
-            .args(["link", "delete", interface_name])
-            .output()
-            .await?;
-        if output.status.success() {
-            tracing::info!(interface = %interface_name, "inbound wireguard server torn down");
+        // An absent interface is the expected steady state when the server
+        // was never enabled, so it is an idempotent no-op. Real failures
+        // (e.g. permission errors) propagate instead of being swallowed.
+        if crate::wireguard_interface::delete_wireguard_interface(interface_name)? {
+            tracing::info!(
+                interface = %interface_name,
+                "inbound wireguard server {interface_name} torn down"
+            );
         } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
             tracing::debug!(
                 interface = %interface_name,
-                "inbound wireguard tear-down skipped (interface absent?): {}",
-                stderr.trim()
+                "inbound wireguard server {interface_name} already absent, nothing to tear down"
             );
         }
         Ok(())
