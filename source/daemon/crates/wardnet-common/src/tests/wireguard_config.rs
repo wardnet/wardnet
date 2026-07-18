@@ -1,4 +1,4 @@
-use crate::wireguard_config::{WgConfigError, parse};
+use crate::wireguard_config::{WgConfigError, WgInterfaceConfig, WgPeerConfig, parse};
 
 #[test]
 fn parse_minimal_config() {
@@ -166,4 +166,55 @@ fn handle_windows_line_endings() {
         "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     );
     assert_eq!(config.peers.len(), 1);
+}
+
+#[test]
+fn interface_config_debug_redacts_private_key() {
+    let iface = WgInterfaceConfig {
+        private_key: "SECRET-PRIVATE-KEY-DO-NOT-LEAK=".to_owned(),
+        address: vec!["10.0.0.1/24".to_owned()],
+        listen_port: Some(51820),
+        dns: vec!["1.1.1.1".to_owned()],
+    };
+    let rendered = format!("{iface:?}");
+    assert!(!rendered.contains("SECRET-PRIVATE-KEY-DO-NOT-LEAK="));
+    assert!(rendered.contains("[REDACTED]"));
+    // Non-secret fields still render verbatim.
+    assert!(rendered.contains("10.0.0.1/24"));
+    assert!(rendered.contains("51820"));
+    assert!(rendered.contains("1.1.1.1"));
+}
+
+#[test]
+fn peer_config_debug_redacts_preshared_key() {
+    let peer = WgPeerConfig {
+        public_key: "PUBLIC-KEY-VISIBLE=".to_owned(),
+        endpoint: Some("203.0.113.1:51820".to_owned()),
+        allowed_ips: vec!["0.0.0.0/0".to_owned()],
+        preshared_key: Some("SECRET-PSK-DO-NOT-LEAK=".to_owned()),
+        persistent_keepalive: Some(25),
+    };
+    let rendered = format!("{peer:?}");
+    assert!(!rendered.contains("SECRET-PSK-DO-NOT-LEAK="));
+    assert!(rendered.contains("[REDACTED]"));
+    // Non-secret fields (including the public key) still render verbatim.
+    assert!(rendered.contains("PUBLIC-KEY-VISIBLE="));
+    assert!(rendered.contains("203.0.113.1:51820"));
+    assert!(rendered.contains("0.0.0.0/0"));
+    assert!(rendered.contains("25"));
+}
+
+#[test]
+fn peer_config_debug_without_preshared_key_shows_none() {
+    let peer = WgPeerConfig {
+        public_key: "PUBLIC-KEY-VISIBLE=".to_owned(),
+        endpoint: None,
+        allowed_ips: vec![],
+        preshared_key: None,
+        persistent_keepalive: None,
+    };
+    let rendered = format!("{peer:?}");
+    // Absence of a PSK renders as `None`, not `[REDACTED]`.
+    assert!(rendered.contains("preshared_key: None"));
+    assert!(!rendered.contains("[REDACTED]"));
 }
