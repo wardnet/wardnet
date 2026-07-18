@@ -145,4 +145,3 @@ async fn handle_socket(mut socket: WebSocket, mut rx: broadcast::Receiver<QueryL
         }
     }
 }
-

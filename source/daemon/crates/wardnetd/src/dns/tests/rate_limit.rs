@@ -4,7 +4,6 @@ use crate::dns::rate_limit::RateLimiter;
 
 use std::time::{Duration, Instant};
 
-
 const IP: std::net::IpAddr = std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 5));
 
 #[test]

@@ -178,4 +178,3 @@ impl Entitlement {
         self.emit_if_entitlement_changed(was_entitled);
     }
 }
-

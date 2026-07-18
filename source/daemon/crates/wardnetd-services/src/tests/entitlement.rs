@@ -66,9 +66,7 @@ impl crate::event::EventPublisher for RecordingPublisher {
     fn publish(&self, event: wardnet_common::event::WardnetEvent) {
         self.events.lock().unwrap().push(event);
     }
-    fn subscribe(
-        &self,
-    ) -> tokio::sync::broadcast::Receiver<wardnet_common::event::WardnetEvent> {
+    fn subscribe(&self) -> tokio::sync::broadcast::Receiver<wardnet_common::event::WardnetEvent> {
         tokio::sync::broadcast::channel(16).1
     }
 }

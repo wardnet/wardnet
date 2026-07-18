@@ -62,4 +62,3 @@ pub(crate) fn synthetic_ip(tunnel_id: &uuid::Uuid) -> String {
     let last_octet = (u32::from(bytes[15]) % 254) + 1;
     format!("198.51.100.{last_octet}")
 }
-

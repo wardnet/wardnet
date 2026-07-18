@@ -134,4 +134,3 @@ pub(crate) fn classify_dhcp_source(dropin_path: &std::path::Path) -> DhcpSource 
         DhcpSource::Dhcp
     }
 }
-

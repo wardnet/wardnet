@@ -344,4 +344,3 @@ pub(crate) fn parse_dhcp_offer(frame: &[u8], xid: u32) -> Option<Ipv4Addr> {
         _ => None,
     })
 }
-

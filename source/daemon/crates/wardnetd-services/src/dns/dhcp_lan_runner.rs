@@ -174,4 +174,3 @@ pub(crate) async fn register_lease(
         }
     }
 }
-

@@ -29,14 +29,9 @@ fn upstreams() -> Vec<String> {
 fn non_single_modes_clear_the_selection() {
     // Switching away from Single drops the address, even a stale one.
     for target in [Failover, Fastest] {
-        let (mode, single) = resolve_forwarder_selection(
-            Single,
-            Some("8.8.8.8"),
-            Some(target),
-            None,
-            &upstreams(),
-        )
-        .unwrap();
+        let (mode, single) =
+            resolve_forwarder_selection(Single, Some("8.8.8.8"), Some(target), None, &upstreams())
+                .unwrap();
         assert_eq!(mode, target);
         assert_eq!(single, None);
     }
@@ -44,28 +39,18 @@ fn non_single_modes_clear_the_selection() {
 
 #[test]
 fn selecting_a_listed_server_is_accepted() {
-    let (mode, single) = resolve_forwarder_selection(
-        Failover,
-        None,
-        Some(Single),
-        Some("9.9.9.9"),
-        &upstreams(),
-    )
-    .unwrap();
+    let (mode, single) =
+        resolve_forwarder_selection(Failover, None, Some(Single), Some("9.9.9.9"), &upstreams())
+            .unwrap();
     assert_eq!(mode, Single);
     assert_eq!(single.as_deref(), Some("9.9.9.9"));
 }
 
 #[test]
 fn selecting_an_unlisted_server_is_rejected() {
-    let err = resolve_forwarder_selection(
-        Failover,
-        None,
-        Some(Single),
-        Some("4.4.4.4"),
-        &upstreams(),
-    )
-    .unwrap_err();
+    let err =
+        resolve_forwarder_selection(Failover, None, Some(Single), Some("4.4.4.4"), &upstreams())
+            .unwrap_err();
     assert!(
         err.contains("4.4.4.4"),
         "message names the bad address: {err}"
@@ -84,8 +69,8 @@ fn removing_the_selected_server_is_rejected() {
     // Mode unchanged (stays Single via current), request only changes the
     // upstream list to one that no longer contains the selected address.
     let remaining = vec!["1.1.1.1".to_owned(), "9.9.9.9".to_owned()];
-    let err = resolve_forwarder_selection(Single, Some("8.8.8.8"), None, None, &remaining)
-        .unwrap_err();
+    let err =
+        resolve_forwarder_selection(Single, Some("8.8.8.8"), None, None, &remaining).unwrap_err();
     assert!(
         err.contains("8.8.8.8"),
         "rejects orphaning the selection: {err}"

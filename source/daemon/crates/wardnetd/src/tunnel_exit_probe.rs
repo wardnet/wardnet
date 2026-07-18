@@ -104,4 +104,3 @@ pub(crate) fn parse_trace_body(body: &str) -> Result<ExitInfo, ProbeError> {
 
     Ok(ExitInfo { ip, country_code })
 }
-

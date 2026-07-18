@@ -75,4 +75,3 @@ pub fn pool_bounds(net: Ipv4Network) -> Option<(Ipv4Addr, Ipv4Addr)> {
 pub fn canonical_cidr(net: Ipv4Network) -> String {
     format!("{}/{}", net.network(), net.prefix())
 }
-

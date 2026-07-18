@@ -46,4 +46,3 @@ pub(crate) fn synthetic_rtt(interface_name: &str) -> u64 {
     });
     25 + (h % 56)
 }
-

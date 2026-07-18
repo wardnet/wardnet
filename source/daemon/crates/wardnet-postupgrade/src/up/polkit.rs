@@ -99,4 +99,3 @@ fn fsync_dir(dir: &Path) -> anyhow::Result<()> {
         .with_context(|| format!("fsync dir {}", dir.display()))?;
     Ok(())
 }
-

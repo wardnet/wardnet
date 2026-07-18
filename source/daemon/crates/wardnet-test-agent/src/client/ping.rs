@@ -80,4 +80,3 @@ pub async fn run(args: PingArgs) -> Result<PingResponse, ClientError> {
         rtt_avg_ms,
     })
 }
-

@@ -250,4 +250,3 @@ pub fn build_garp_reply(sender_mac: MacAddr, sender_ip: Ipv4Addr) -> Option<Vec<
 
     Some(buf)
 }
-

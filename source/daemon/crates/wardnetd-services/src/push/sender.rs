@@ -201,4 +201,3 @@ impl WebPushSender for ReqwestWebPushSender {
         }
     }
 }
-
