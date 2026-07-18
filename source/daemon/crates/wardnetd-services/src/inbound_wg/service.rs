@@ -502,10 +502,14 @@ impl InboundWgService for InboundWgServiceImpl {
                 .remove_inbound_wg_accept()
                 .await
                 .map_err(AppError::Internal)?;
-            self.interface
-                .tear_down_server(INBOUND_WG_INTERFACE)
-                .await
-                .map_err(AppError::Internal)?;
+            // A teardown failure must not block the disable: persisting
+            // enabled=false below is what reconcile acts on (a propagated
+            // error here would leave the server "enabled" and let reconcile
+            // resurrect it), and a leftover interface is reaped by the next
+            // ensure_server. Disabling is always allowed — see above.
+            if let Err(e) = self.interface.tear_down_server(INBOUND_WG_INTERFACE).await {
+                tracing::warn!("failed to tear down inbound wireguard server: {e}");
+            }
 
             self.system_config
                 .set_inbound_wg_enabled(false)

@@ -73,20 +73,11 @@ impl TunnelInterface for WireGuardTunnelInterface {
 
         // Remove any stale interface left over from a previous daemon run or crash.
         // This prevents "Address already assigned" errors when re-creating.
-        let check = tokio::process::Command::new("ip")
-            .args(["link", "show", &params.interface_name])
-            .output()
-            .await;
-        if check.is_ok_and(|o| o.status.success()) {
-            tracing::info!(
-                interface = %params.interface_name,
-                "removing stale wireguard interface before re-creation"
-            );
-            let _ = tokio::process::Command::new("ip")
-                .args(["link", "delete", &params.interface_name])
-                .output()
-                .await;
-        }
+        crate::wireguard_interface::remove_stale_link(
+            &params.interface_name,
+            "wireguard interface",
+        )
+        .await;
 
         let private_key = Key(private_key);
         let peer_key = Key(peer_public_key);
@@ -188,16 +179,10 @@ impl TunnelInterface for WireGuardTunnelInterface {
     }
 
     async fn remove(&self, interface_name: &str) -> anyhow::Result<()> {
-        let iface: InterfaceName = interface_name
-            .parse()
-            .map_err(|e| anyhow::anyhow!("invalid interface name: {e}"))?;
-
-        // Apply an empty update — the interface is removed when the last
-        // reference is dropped on most backends. Use a minimal no-op update
-        // so the kernel removes it.
-        DeviceUpdate::new().apply(&iface, Backend::default())?;
-
-        tracing::info!(interface = %interface_name, "wireguard interface removed");
+        crate::wireguard_interface::delete_wireguard_interface(
+            interface_name,
+            "wireguard interface",
+        )?;
         Ok(())
     }
 
@@ -206,8 +191,17 @@ impl TunnelInterface for WireGuardTunnelInterface {
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid interface name: {e}"))?;
 
-        let Ok(device) = Device::get(&iface, Backend::default()) else {
-            return Ok(None);
+        let device = match Device::get(&iface, Backend::default()) {
+            Ok(device) => device,
+            // Absent interface is a normal state (tunnel down) — no stats.
+            Err(e) if crate::wireguard_interface::is_interface_absent_error(&e) => {
+                return Ok(None);
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "failed to query wireguard interface {interface_name} stats: {e}"
+                ));
+            }
         };
 
         let peers: Vec<PeerStatsInput> = device

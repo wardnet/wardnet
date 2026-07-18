@@ -14,6 +14,7 @@ pub mod tunnel_exit_probe;
 pub mod tunnel_interface_wireguard;
 pub mod tunnel_latency_prober;
 pub mod tunnel_throughput_tester;
+pub mod wireguard_interface;
 
 // DHCP/DNS server implementations.
 pub mod dhcp;

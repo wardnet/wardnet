@@ -44,20 +44,11 @@ impl InboundWgInterface for WireGuardInboundInterface {
         // crash so re-creation doesn't hit "Address already assigned". The
         // service re-adds every enabled peer immediately after this call, so
         // dropping the interface's current peers here is safe and intentional.
-        let check = tokio::process::Command::new("ip")
-            .args(["link", "show", &config.interface_name])
-            .output()
-            .await;
-        if check.is_ok_and(|o| o.status.success()) {
-            tracing::info!(
-                interface = %config.interface_name,
-                "removing stale inbound wireguard interface before re-creation"
-            );
-            let _ = tokio::process::Command::new("ip")
-                .args(["link", "delete", &config.interface_name])
-                .output()
-                .await;
-        }
+        crate::wireguard_interface::remove_stale_link(
+            &config.interface_name,
+            "inbound wireguard interface",
+        )
+        .await;
 
         // Configure the server key + listen port (this creates the interface).
         DeviceUpdate::new()
@@ -112,22 +103,13 @@ impl InboundWgInterface for WireGuardInboundInterface {
     }
 
     async fn tear_down_server(&self, interface_name: &str) -> anyhow::Result<()> {
-        // Best-effort delete: an absent interface is the expected steady state
-        // when the server was never enabled, so a failure here is non-fatal.
-        let output = tokio::process::Command::new("ip")
-            .args(["link", "delete", interface_name])
-            .output()
-            .await?;
-        if output.status.success() {
-            tracing::info!(interface = %interface_name, "inbound wireguard server torn down");
-        } else {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            tracing::debug!(
-                interface = %interface_name,
-                "inbound wireguard tear-down skipped (interface absent?): {}",
-                stderr.trim()
-            );
-        }
+        // An absent interface is the expected steady state when the server
+        // was never enabled, so it is an idempotent no-op. Real failures
+        // (e.g. permission errors) propagate instead of being swallowed.
+        crate::wireguard_interface::delete_wireguard_interface(
+            interface_name,
+            "inbound wireguard server",
+        )?;
         Ok(())
     }
 
@@ -179,8 +161,17 @@ impl InboundWgInterface for WireGuardInboundInterface {
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid interface name: {e}"))?;
 
-        let Ok(device) = Device::get(&iface, Backend::default()) else {
-            return Ok(Vec::new());
+        let device = match Device::get(&iface, Backend::default()) {
+            Ok(device) => device,
+            // Absent interface (server disabled) — no peers to report.
+            Err(e) if crate::wireguard_interface::is_interface_absent_error(&e) => {
+                return Ok(Vec::new());
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "failed to query inbound wireguard server {interface_name} peers: {e}"
+                ));
+            }
         };
 
         Ok(device
