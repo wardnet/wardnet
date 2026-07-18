@@ -85,7 +85,8 @@ fn read_artifacts_returns_none_on_missing_payload() {
     let dir = TempDir::new().expect("tempdir");
     // signature exists, payload does not
     std::fs::write(dir.path().join("sig"), b"sig").unwrap();
-    let result = read_artifacts(&dir.path().join("missing.bin"), &dir.path().join("sig"));
+    let result = read_artifacts(&dir.path().join("missing.bin"), &dir.path().join("sig"))
+        .expect("missing payload is not an error");
     assert!(result.is_none());
 }
 
@@ -96,7 +97,8 @@ fn read_artifacts_returns_none_on_missing_signature() {
     let result = read_artifacts(
         &dir.path().join("payload.bin"),
         &dir.path().join("missing.minisig"),
-    );
+    )
+    .expect("missing signature is not an error");
     assert!(result.is_none());
 }
 
@@ -109,34 +111,46 @@ fn read_artifacts_returns_bytes_when_both_present() {
         &dir.path().join("payload.bin"),
         &dir.path().join("payload.minisig"),
     )
+    .expect("read ok")
     .expect("both files present");
     assert_eq!(p, b"payload");
     assert_eq!(s, b"sig");
 }
 
 #[test]
-fn read_artifacts_returns_none_when_payload_path_is_a_directory() {
+fn read_artifacts_returns_err_when_payload_path_is_a_directory() {
     // `std::fs::read` on a directory returns an `Err` whose kind is
-    // not `NotFound`, exercising the unhappy I/O branch the runner
-    // logs as an ERROR before returning None.
+    // not `NotFound`. Something *is* staged but can't be read — that
+    // must surface as `Err`, not be conflated with the benign
+    // "nothing staged" `None`.
     let dir = TempDir::new().unwrap();
     let dir_as_payload = dir.path().join("a-directory");
     std::fs::create_dir(&dir_as_payload).unwrap();
     std::fs::write(dir.path().join("sig"), b"sig").unwrap();
 
-    let result = read_artifacts(&dir_as_payload, &dir.path().join("sig"));
-    assert!(result.is_none());
+    let err = read_artifacts(&dir_as_payload, &dir.path().join("sig"))
+        .expect_err("unreadable payload must surface as Err");
+    let chain = format!("{err:#}");
+    assert!(
+        chain.contains("failed to read payload"),
+        "expected payload-read context, got: {chain}"
+    );
 }
 
 #[test]
-fn read_artifacts_returns_none_when_signature_path_is_a_directory() {
+fn read_artifacts_returns_err_when_signature_path_is_a_directory() {
     let dir = TempDir::new().unwrap();
     std::fs::write(dir.path().join("payload.bin"), b"payload").unwrap();
     let dir_as_sig = dir.path().join("a-directory");
     std::fs::create_dir(&dir_as_sig).unwrap();
 
-    let result = read_artifacts(&dir.path().join("payload.bin"), &dir_as_sig);
-    assert!(result.is_none());
+    let err = read_artifacts(&dir.path().join("payload.bin"), &dir_as_sig)
+        .expect_err("unreadable signature must surface as Err");
+    let chain = format!("{err:#}");
+    assert!(
+        chain.contains("failed to read signature"),
+        "expected signature-read context, got: {chain}"
+    );
 }
 
 #[test]

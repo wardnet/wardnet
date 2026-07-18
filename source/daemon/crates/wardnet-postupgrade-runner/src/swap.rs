@@ -124,11 +124,15 @@ pub fn run(paths: &SwapPaths, public_key: &str) -> SwapOutcome {
         };
     }
 
-    let Some((tarball, signature)) =
-        verify::read_artifacts(&paths.pending_tarball, &paths.pending_signature)
-    else {
-        return SwapOutcome::NoOp;
-    };
+    let (tarball, signature) =
+        match verify::read_artifacts(&paths.pending_tarball, &paths.pending_signature) {
+            Ok(Some(pair)) => pair,
+            Ok(None) => return SwapOutcome::NoOp,
+            // A staged tarball we cannot read is not "nothing staged" —
+            // exit nonzero so the failed update surfaces instead of the
+            // host silently booting the old binary.
+            Err(e) => return SwapOutcome::Failed(e.context("read pending update artifacts")),
+        };
 
     if let Err(e) = verify::verify(public_key, &tarball, &signature) {
         return SwapOutcome::Failed(e.context("pending tarball signature verification failed"));

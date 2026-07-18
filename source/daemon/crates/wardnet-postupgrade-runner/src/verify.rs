@@ -4,38 +4,36 @@ use std::path::Path;
 
 use anyhow::Context;
 
-/// Read the payload + detached signature from disk. Returns `None` if
-/// either file is missing — the caller maps this to exit-0 (nothing
+/// Read the payload + detached signature from disk. Returns `Ok(None)`
+/// if either file is missing — the caller maps this to exit-0 (nothing
 /// to do) per the framework's "tolerate missing payload" contract.
-/// Any other I/O error is surfaced as `Err`.
-pub fn read_artifacts(payload: &Path, signature: &Path) -> Option<(Vec<u8>, Vec<u8>)> {
-    let payload_bytes = match std::fs::read(payload) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(e) => {
-            tracing::error!(
-                error = %e,
-                path = %payload.display(),
-                "failed to read payload at {path}: {e}",
-                path = payload.display(),
-            );
-            return None;
-        }
+/// Any other I/O error is surfaced as `Err`: a staged-but-unreadable
+/// artifact must fail loudly, not masquerade as "nothing staged".
+pub fn read_artifacts(
+    payload: &Path,
+    signature: &Path,
+) -> anyhow::Result<Option<(Vec<u8>, Vec<u8>)>> {
+    let Some(payload_bytes) = read_optional(payload, "payload")? else {
+        return Ok(None);
     };
-    let signature_bytes = match std::fs::read(signature) {
-        Ok(b) => b,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(e) => {
-            tracing::error!(
-                error = %e,
-                path = %signature.display(),
-                "failed to read signature at {path}: {e}",
-                path = signature.display(),
-            );
-            return None;
-        }
+    let Some(signature_bytes) = read_optional(signature, "signature")? else {
+        return Ok(None);
     };
-    Some((payload_bytes, signature_bytes))
+    Ok(Some((payload_bytes, signature_bytes)))
+}
+
+/// Read a file that is allowed to be absent. `NotFound` is the benign
+/// `None`; any other I/O error is a hard `Err` so both artifact reads
+/// keep the same missing-vs-unreadable policy.
+fn read_optional(path: &Path, what: &str) -> anyhow::Result<Option<Vec<u8>>> {
+    match std::fs::read(path) {
+        Ok(b) => Ok(Some(b)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => {
+            Err(anyhow::Error::from(e)
+                .context(format!("failed to read {what} at {}", path.display())))
+        }
+    }
 }
 
 /// Verify a detached minisign signature over `payload` using the

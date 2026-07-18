@@ -28,6 +28,16 @@ fn main() {
             );
             std::process::exit(0);
         }
+        RunOutcome::ArtifactReadFailed(e) => {
+            let error = format!("{e:#}");
+            let payload = runner.payload_path.display().to_string();
+            tracing::error!(
+                %error,
+                %payload,
+                "could not read staged postupgrade artifacts for {payload}: {error}",
+            );
+            std::process::exit(4);
+        }
         RunOutcome::VerifyFailed(e) => {
             tracing::error!(
                 error = %e,

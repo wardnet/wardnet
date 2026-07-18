@@ -41,6 +41,7 @@ missing_panics_doc = "allow"
 [workspace.dependencies]
 # Internal
 wardnet-common = { path = "crates/wardnet-common" }
+wardnet-postupgrade = { path = "crates/wardnet-postupgrade" }
 wardnetd-api = { path = "crates/wardnetd-api" }
 wardnetd-data = { path = "crates/wardnetd-data" }
 wardnetd-mock = { path = "crates/wardnetd-mock" }

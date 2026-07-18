@@ -64,6 +64,12 @@ pub enum RunOutcome {
     /// so this branch is reached only on a hand-deleted file or an
     /// ancient tarball that predates the framework.
     NoPayload,
+    /// The payload or signature exists but could not be read (payload
+    /// path is a directory, permission error, failing disk). Distinct
+    /// from [`RunOutcome::NoPayload`]: something *is* staged, so
+    /// pretending nothing happened would silently skip an update. The
+    /// runner logs ERROR and exits nonzero.
+    ArtifactReadFailed(anyhow::Error),
     /// Signature verification failed. The runner logs ERROR, records
     /// the failure into `state.json`, and exits nonzero.
     VerifyFailed(anyhow::Error),
@@ -115,11 +121,12 @@ impl Runner {
             }
         }
 
-        let Some((payload, signature)) =
-            verify::read_artifacts(&self.payload_path, &self.signature_path)
-        else {
-            return RunOutcome::NoPayload;
-        };
+        let (payload, signature) =
+            match verify::read_artifacts(&self.payload_path, &self.signature_path) {
+                Ok(Some(pair)) => pair,
+                Ok(None) => return RunOutcome::NoPayload,
+                Err(e) => return RunOutcome::ArtifactReadFailed(e),
+            };
 
         if let Err(e) = verify::verify(self.public_key, &payload, &signature) {
             // Record the failure best-effort; if state.json itself is
