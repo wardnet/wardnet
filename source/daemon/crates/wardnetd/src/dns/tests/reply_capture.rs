@@ -2,7 +2,7 @@
 //! turns the pipeline's "send on a socket" into "response bytes out" for
 //! stream transports (#911).
 //!
-//! The pipeline sends exactly one response per query, so the interesting
+//! The pipeline sends at most one response per query, so the interesting
 //! cases are the degenerate ones: an extra send (must be dropped, not an
 //! error) and a receiver that went away mid-query (must behave like a
 //! UDP datagram to a vanished client — fire and forget).

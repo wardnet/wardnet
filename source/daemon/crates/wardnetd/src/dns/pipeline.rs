@@ -3,9 +3,10 @@
 //! [`QueryPipeline`] owns every piece of shared state a query needs —
 //! config, resolver, recursor, rate limiter, cache, filter, routing and
 //! device snapshots, authoritative view — and exposes
-//! [`QueryPipeline::handle`]: raw query bytes in, exactly one response
-//! sent on the supplied [`DnsSocket`]. The UDP listener in `server.rs`
-//! drives it directly; stream transports capture the single response via
+//! [`QueryPipeline::handle`]: raw query bytes in, at most one response
+//! sent on the supplied [`DnsSocket`] (exactly one on every resolution
+//! path; none for a malformed or question-less packet). The UDP listener
+//! in `server.rs` drives it directly; stream transports capture the response via
 //! [`ReplyCapture`](crate::dns::reply_capture::ReplyCapture) instead of
 //! this being rewritten into a `-> Response` shape — the raw-byte relay
 //! paths (`forward_via_tunnel` / `forward_via_conditional`) have no
@@ -60,16 +61,48 @@ const LOCAL_ZONE_SUFFIX: &str = "lan";
 /// the datagram, so it attributes the query by IP through the device
 /// snapshot — today's behaviour for every UDP/LAN client. A stream
 /// transport that authenticates the client out of band (the DNS-over-TLS
-/// listener attributes the connection by its SNI device token) hands the pipeline
-/// the resolved device directly, so log rows and stats don't depend on
-/// an IP → device mapping that may not cover the client's address.
-#[derive(Debug, Clone)]
+/// listener attributes the connection by its SNI device token) hands the
+/// pipeline the resolved device directly, so log rows and stats don't
+/// depend on an IP → device mapping that may not cover the client's
+/// address.
+///
+/// Scope: the identity feeds **attribution only** — the `device_id`
+/// stamped on log rows and stats. Rate limiting, per-client upstream
+/// selection, and the filter-policy lookup all still key on the
+/// transport-level source IP (see [`QueryPipeline::handle`]). A
+/// transport whose peer addresses the snapshots and filter contexts
+/// don't cover gets the default upstream and default filter policy for
+/// those clients; extending the IP-keyed paths to honour the device
+/// identity is on the transport that needs it, not silently implied by
+/// this enum.
+#[derive(Clone)]
 pub enum ClientIdentity {
     /// Attribute by source IP via the device snapshot.
     Ip(IpAddr),
     /// The transport already authenticated a specific device (e.g. via
-    /// the per-device token presented in the TLS SNI).
+    /// the per-device token presented in the TLS SNI). The token rides
+    /// along for the listener that validated it; the pipeline itself
+    /// reads only `device_id`.
     Device { device_id: Uuid, token: String },
+}
+
+// Manual impl so the SNI device token — a per-device credential — can't
+// end up in the log file via a stray `tracing::debug!(?client)`. Same
+// treatment as the WireGuard key redaction (#954).
+impl std::fmt::Debug for ClientIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ip(ip) => f.debug_tuple("Ip").field(ip).finish(),
+            Self::Device {
+                device_id,
+                token: _,
+            } => f
+                .debug_struct("Device")
+                .field("device_id", device_id)
+                .field("token", &"[REDACTED]")
+                .finish(),
+        }
+    }
 }
 
 /// Cached metadata required to forward a query to a specific tunnel's
@@ -90,7 +123,6 @@ pub(crate) struct TunnelForwarderInfo {
 /// `pub(crate)` so the server's config/lifecycle plumbing (`update_config`,
 /// cache stats, the authoritative-view swap) keeps operating on the same
 /// shared state the handlers read.
-#[derive(Clone)]
 pub struct QueryPipeline {
     pub(crate) config: Arc<RwLock<DnsConfig>>,
     /// Shared upstream resolver. Lives behind a lock (rather than being
@@ -179,13 +211,19 @@ impl QueryPipeline {
         }
     }
 
-    /// Handle one raw DNS query; every path through here sends exactly
-    /// one response on `reply`.
+    /// Handle one raw DNS query. Every resolution path sends exactly one
+    /// response on `reply` — but there are two zero-send exits a
+    /// transport must expect: a packet that fails to parse returns `Err`,
+    /// and a parsed message with no question returns `Ok(())`, both
+    /// without answering. A caller awaiting a captured response (see
+    /// `reply_capture`) must bound the wait rather than rely on a frame
+    /// always arriving.
     ///
     /// `src` is the transport-level peer address — it keys the rate
-    /// limiter and the per-client upstream selection, and is stamped on
-    /// log rows. `client` carries the attribution identity (see
-    /// [`ClientIdentity`]); the UDP listener passes `Ip(src.ip())`.
+    /// limiter, the per-client upstream selection, and the filter-policy
+    /// lookup, and is stamped on log rows. `client` carries the
+    /// attribution identity (see [`ClientIdentity`]); the UDP listener
+    /// passes `Ip(src.ip())`.
     #[allow(clippy::too_many_lines)]
     pub async fn handle(
         &self,

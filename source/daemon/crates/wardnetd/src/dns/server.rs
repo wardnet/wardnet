@@ -236,15 +236,16 @@ impl UdpDnsServer {
         }
     }
 
-    /// Attach the query-log sink. Builder-style, called before `start()`:
-    /// the pipeline hasn't been handed to a listener yet, so swapping it
-    /// for a clone that carries the sink is race-free (all other pipeline
-    /// state sits behind the same shared `Arc`s either way).
+    /// Attach the query-log sink. Builder-style, and it must run before
+    /// the pipeline is shared (i.e. before `start()` or any second
+    /// listener takes a clone) — `Arc::get_mut` enforces that: wiring
+    /// that breaks the ordering panics here at construction time instead
+    /// of a transport silently running with a sink-less pipeline.
     #[must_use]
     pub fn with_log_sink(mut self, sink: Arc<DnsLogSink>) -> Self {
-        let mut pipeline = (*self.pipeline).clone();
-        pipeline.log_sink = Some(sink);
-        self.pipeline = Arc::new(pipeline);
+        Arc::get_mut(&mut self.pipeline)
+            .expect("with_log_sink must run before the pipeline is shared")
+            .log_sink = Some(sink);
         self
     }
 

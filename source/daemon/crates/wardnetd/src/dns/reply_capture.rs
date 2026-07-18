@@ -5,8 +5,14 @@
 //! which suits UDP but leaves stream transports — DNS-over-TLS first —
 //! needing "query bytes in → response bytes out". `ReplyCapture` bridges
 //! that: the transport hands the pipeline a capture socket per query and
-//! awaits the captured frame on the paired receiver. Every pipeline path
-//! sends exactly one response, so a capacity-1 channel is sufficient.
+//! awaits the captured frame on the paired receiver.
+//!
+//! The pipeline sends **at most one** response per query: exactly one on
+//! every resolution path, none for a malformed or question-less packet
+//! (see [`QueryPipeline::handle`](crate::dns::pipeline::QueryPipeline::handle)).
+//! A capacity-1 channel is therefore sufficient — but the transport must
+//! bound its receive (time it out, or drop the capture before awaiting)
+//! rather than assume a frame always arrives.
 
 use std::net::SocketAddr;
 
@@ -24,9 +30,12 @@ pub struct ReplyCapture {
 
 impl ReplyCapture {
     /// Create a capture socket and the receiver its response arrives on.
+    /// One pair serves one query: a reused, undrained pair silently
+    /// drops later frames (see `send_to`), so make a fresh channel per
+    /// query rather than recycling one across a connection.
     #[must_use]
     pub fn channel() -> (Self, mpsc::Receiver<Vec<u8>>) {
-        // Capacity 1: the pipeline sends exactly one response per query.
+        // Capacity 1: the pipeline sends at most one response per query.
         // A second send (a defect, not a supported path) or a receiver
         // that went away must degrade to a dropped datagram, never an
         // error or a stall — see `send_to`.

@@ -421,7 +421,7 @@ impl DnsFilterServiceImpl {
             // Removed — drop the cache entry. We deliberately do NOT
             // publish `DnsFilterRebuilt` on this path: the response
             // cache only ever holds `Pass` answers (the Block/Rewrite
-            // branches in `UdpDnsServer::handle_query` skip caching),
+            // branches in the daemon's `QueryPipeline::handle` skip caching),
             // and removing a blocklist can only un-block, never
             // un-pass. Anything currently cached is still a valid
             // answer. If a future change starts caching Block answers
