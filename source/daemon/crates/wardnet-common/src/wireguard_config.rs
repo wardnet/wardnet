@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Parsed `[Interface]` section of a `WireGuard` config file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct WgInterfaceConfig {
     pub private_key: String,
     pub address: Vec<String>,
@@ -9,14 +9,49 @@ pub struct WgInterfaceConfig {
     pub dns: Vec<String>,
 }
 
+// Redact `private_key` — the tunnel's WireGuard private key, the
+// highest-value secret in the system — so a stray `tracing::debug!(?config)`
+// anywhere on the import path can't write it to the log file. The derived
+// impl would leak it unconditionally.
+impl std::fmt::Debug for WgInterfaceConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WgInterfaceConfig")
+            .field("private_key", &"[REDACTED]")
+            .field("address", &self.address)
+            .field("listen_port", &self.listen_port)
+            .field("dns", &self.dns)
+            .finish()
+    }
+}
+
 /// Parsed `[Peer]` section of a `WireGuard` config file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct WgPeerConfig {
     pub public_key: String,
     pub endpoint: Option<String>,
     pub allowed_ips: Vec<String>,
     pub preshared_key: Option<String>,
     pub persistent_keepalive: Option<u16>,
+}
+
+// Redact `preshared_key` so a stray `tracing::debug!(?peer)` can't leak the
+// PSK. `TunnelConfig` (tunnel.rs) embeds `WgPeerConfig` by value and keeps
+// its derived `Debug`, which picks up this redaction transparently via the
+// field's own impl. `Some` renders as `[REDACTED]`, `None` verbatim, so the
+// presence of a PSK is not itself hidden.
+impl std::fmt::Debug for WgPeerConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WgPeerConfig")
+            .field("public_key", &self.public_key)
+            .field("endpoint", &self.endpoint)
+            .field("allowed_ips", &self.allowed_ips)
+            .field(
+                "preshared_key",
+                &self.preshared_key.as_ref().map(|_| "[REDACTED]"),
+            )
+            .field("persistent_keepalive", &self.persistent_keepalive)
+            .finish()
+    }
 }
 
 /// Complete parsed `WireGuard` configuration file.
