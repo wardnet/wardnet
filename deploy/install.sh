@@ -582,6 +582,26 @@ for unit in wardnetd.service wardnetd-rollback.service wardnet-postupgrade.servi
         chmod 0644 "/etc/systemd/system/$unit"
     fi
 done
+
+# 6b. IP forwarding. Per-device VPN routing forwards LAN traffic into the
+#     WireGuard tunnels, which requires net.ipv4.ip_forward=1. The daemon
+#     runs as an unprivileged user (User=wardnet, no CAP_DAC_OVERRIDE) and
+#     cannot write /proc/sys itself, so enable it here rather than leaving it
+#     to chance. Bare-metal only: in container mode the container's networking
+#     owns forwarding (`docker run --sysctl`, or host/macvlan) and /proc/sys is
+#     read-only to the container anyway — see the Docker install docs.
+if [[ -z "$CONTAINER_MODE" ]]; then
+    install -d -m 0755 /etc/sysctl.d
+    printf '# Wardnet: per-device VPN routing forwards LAN traffic through WireGuard.\nnet.ipv4.ip_forward = 1\n' \
+        > /etc/sysctl.d/99-wardnet.conf
+    chmod 0644 /etc/sysctl.d/99-wardnet.conf
+    # Apply immediately (installer runs as root); the drop-in makes it persist.
+    sysctl -q -w net.ipv4.ip_forward=1 2>/dev/null \
+        || echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null \
+        || true
+    echo "Enabled IP forwarding (net.ipv4.ip_forward=1); persisted in /etc/sysctl.d/99-wardnet.conf"
+fi
+
 if [[ -z "$CONTAINER_MODE" ]]; then
     systemctl daemon-reload
 fi
