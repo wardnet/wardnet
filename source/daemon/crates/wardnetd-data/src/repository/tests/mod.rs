@@ -15,6 +15,7 @@ mod session;
 mod stats;
 mod system_config;
 mod tunnel;
+mod update;
 mod zone_exception;
 
 use sqlx::SqlitePool;

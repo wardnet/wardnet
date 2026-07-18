@@ -41,7 +41,7 @@ LINUX_TARGET := $(CURDIR)/.target-linux
 
 # Coverage: files excluded from cargo-llvm-cov.  Single source of truth —
 # CI calls `make coverage-daemon` with COV_FMT overridden for LCOV output.
-COV_IGNORE := (main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|firewall_netlink\.rs|route_monitor\.rs|mdns_advertiser\.rs|pnet_network_probe\.rs|garp_pnet\.rs|tunnel_exit_probe\.rs|tunnel_throughput_tester\.rs|tunnel_latency_prober\.rs|linux_watchdog\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)
+COV_IGNORE := (main\.rs|noop_.*\.rs|db\.rs|web\.rs|api/mod\.rs|auth_context\.rs|command\.rs|policy_router_netlink\.rs|firewall_netlink\.rs|route_monitor\.rs|mdns_advertiser\.rs|pnet_network_probe\.rs|garp_pnet\.rs|tunnel_exit_probe\.rs|tunnel_throughput_tester\.rs|tunnel_latency_prober\.rs|inbound_wg_peer_monitor\.rs|linux_watchdog\.rs|wardnet-test-agent/.*|wardnetd-mock/src/events\.rs|wardnetd-data/src/lib\.rs)
 # Default: human-readable summary.  CI overrides:
 #   make coverage-daemon COV_FMT="--lcov --output-path ../../coverage/daemon-lcov.info"
 COV_FMT    ?= --summary-only
