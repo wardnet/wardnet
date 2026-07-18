@@ -5,5 +5,6 @@
 // exercise the lifecycle and the `record_query` / `duration_to_ms` /
 // `upstream_label` helpers that don't need a fake `DnsSocket` plumbed.
 
+mod rate_limit;
 mod reply_capture;
 mod server;

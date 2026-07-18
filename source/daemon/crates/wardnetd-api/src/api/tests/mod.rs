@@ -7,6 +7,7 @@ mod dns_capture;
 mod dns_events;
 mod dns_filter;
 mod dns_local;
+mod dns_log_ws;
 mod entitlement_gate;
 mod health;
 mod inbound_wg;

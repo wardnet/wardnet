@@ -15,6 +15,9 @@ use std::path::Path;
 
 pub mod polkit;
 
+#[cfg(test)]
+mod tests;
+
 /// Migration `0001_polkit_power_rule` entry point.
 ///
 /// Writes `/etc/polkit-1/rules.d/50-wardnet-power.rules` so the

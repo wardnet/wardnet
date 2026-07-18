@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dhcproto::v4::{DhcpOption, Flags, Message, MessageType, Opcode};
-use dhcproto::{Decodable, Decoder, Encodable, Encoder};
+use dhcproto::{Encodable, Encoder};
 use pnet::datalink::{self, Channel, Config};
 use pnet::packet::Packet;
 use pnet::packet::arp::{ArpOperations, ArpPacket};
@@ -53,12 +53,12 @@ const READ_POLL: Duration = Duration::from_millis(100);
 /// (second hex of first byte = 2) and clearly not a real client so
 /// Wardnet's own DHCP server can ignore the lease tracking — the
 /// probe just wants to know whether *anything* answered.
-const PROBE_CHADDR: MacAddr = MacAddr(0x02, 0x57, 0x41, 0x52, 0x44, 0x01);
+pub(crate) const PROBE_CHADDR: MacAddr = MacAddr(0x02, 0x57, 0x41, 0x52, 0x44, 0x01);
 
 /// Stable transaction ID. Servers echo it in their OFFER so we can
 /// filter for replies to *our* probe and ignore unrelated DHCP
 /// chatter on the LAN.
-const PROBE_XID: u32 = 0xDEAD_BEEF;
+pub(crate) const PROBE_XID: u32 = 0xDEAD_BEEF;
 
 /// Real probe backed by `pnet`. Resolves source MAC + IP from the
 /// named interface on each call so re-creating the channel after a
@@ -144,7 +144,7 @@ fn run_arp_probe(interface_name: &str, target_ip: Ipv4Addr) -> anyhow::Result<Op
 
 /// Pull the sender MAC out of an ARP reply for `target_ip`. Returns
 /// `None` if the frame is anything else.
-fn parse_arp_reply(frame: &[u8], target_ip: Ipv4Addr) -> Option<String> {
+pub(crate) fn parse_arp_reply(frame: &[u8], target_ip: Ipv4Addr) -> Option<String> {
     let eth = EthernetPacket::new(frame)?;
     if eth.get_ethertype() != EtherTypes::Arp {
         return None;
@@ -212,7 +212,7 @@ fn run_dhcp_probe(interface_name: &str) -> anyhow::Result<DhcpProbeOutcome> {
 
 /// Build a complete Ethernet frame carrying a DHCPDISCOVER:
 /// `Ethernet(broadcast) → IPv4(0.0.0.0 → 255.255.255.255) → UDP(68 → 67) → DHCP`.
-fn build_dhcp_discover_frame(src_mac: MacAddr) -> anyhow::Result<Vec<u8>> {
+pub(crate) fn build_dhcp_discover_frame(src_mac: MacAddr) -> anyhow::Result<Vec<u8>> {
     let dhcp_payload = encode_dhcp_discover()?;
 
     // UDP: 8-byte header + payload.
@@ -309,7 +309,7 @@ fn encode_dhcp_discover() -> anyhow::Result<Vec<u8>> {
 /// Parse an Ethernet frame and, if it carries a DHCPOFFER for our
 /// transaction, extract the `ServerIdentifier`. Anything else returns
 /// `None`.
-fn parse_dhcp_offer(frame: &[u8], xid: u32) -> Option<Ipv4Addr> {
+pub(crate) fn parse_dhcp_offer(frame: &[u8], xid: u32) -> Option<Ipv4Addr> {
     let eth = EthernetPacket::new(frame)?;
     if eth.get_ethertype() != EtherTypes::Ipv4 {
         return None;
@@ -323,7 +323,9 @@ fn parse_dhcp_offer(frame: &[u8], xid: u32) -> Option<Ipv4Addr> {
     if udp.get_source() != 67 || udp.get_destination() != 68 {
         return None;
     }
-    let msg = Message::decode(&mut Decoder::new(udp.payload())).ok()?;
+    // Bounded decode: rejects wire hlen > 16 so a future `chaddr()` use
+    // here can never hit dhcproto's slice panic (issue #829).
+    let msg = crate::dhcp::server::decode_bounded(udp.payload())?;
     if msg.xid() != xid {
         return None;
     }
@@ -343,210 +345,4 @@ fn parse_dhcp_offer(frame: &[u8], xid: u32) -> Option<Ipv4Addr> {
         DhcpOption::ServerIdentifier(ip) => Some(*ip),
         _ => None,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use pnet::packet::arp::{ArpHardwareTypes, MutableArpPacket};
-    use pnet::packet::ethernet::MutableEthernetPacket;
-    use pnet::util::MacAddr;
-
-    fn craft_arp_reply(
-        src_mac: MacAddr,
-        src_ip: Ipv4Addr,
-        dst_mac: MacAddr,
-        dst_ip: Ipv4Addr,
-    ) -> Vec<u8> {
-        let mut buf = vec![0u8; 42];
-        {
-            let mut eth = MutableEthernetPacket::new(&mut buf).unwrap();
-            eth.set_destination(dst_mac);
-            eth.set_source(src_mac);
-            eth.set_ethertype(EtherTypes::Arp);
-        }
-        {
-            let mut arp = MutableArpPacket::new(&mut buf[14..]).unwrap();
-            arp.set_hardware_type(ArpHardwareTypes::Ethernet);
-            arp.set_protocol_type(EtherTypes::Ipv4);
-            arp.set_hw_addr_len(6);
-            arp.set_proto_addr_len(4);
-            arp.set_operation(ArpOperations::Reply);
-            arp.set_sender_hw_addr(src_mac);
-            arp.set_sender_proto_addr(src_ip);
-            arp.set_target_hw_addr(dst_mac);
-            arp.set_target_proto_addr(dst_ip);
-        }
-        buf
-    }
-
-    #[test]
-    fn parses_matching_reply() {
-        let frame = craft_arp_reply(
-            MacAddr(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF),
-            Ipv4Addr::new(192, 168, 1, 1),
-            MacAddr(0x11, 0x22, 0x33, 0x44, 0x55, 0x66),
-            Ipv4Addr::new(192, 168, 1, 100),
-        );
-        let mac = parse_arp_reply(&frame, Ipv4Addr::new(192, 168, 1, 1));
-        assert_eq!(mac.as_deref(), Some("aa:bb:cc:dd:ee:ff"));
-    }
-
-    #[test]
-    fn ignores_reply_from_wrong_ip() {
-        let frame = craft_arp_reply(
-            MacAddr(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF),
-            Ipv4Addr::new(192, 168, 1, 2),
-            MacAddr(0x11, 0x22, 0x33, 0x44, 0x55, 0x66),
-            Ipv4Addr::new(192, 168, 1, 100),
-        );
-        assert!(parse_arp_reply(&frame, Ipv4Addr::new(192, 168, 1, 1)).is_none());
-    }
-
-    #[test]
-    fn ignores_arp_request_frames() {
-        let req = build_arp_request(
-            MacAddr(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF),
-            Ipv4Addr::new(192, 168, 1, 100),
-            Ipv4Addr::new(192, 168, 1, 1),
-        )
-        .unwrap();
-        assert!(parse_arp_reply(&req, Ipv4Addr::new(192, 168, 1, 1)).is_none());
-    }
-
-    #[test]
-    fn ignores_non_arp_ethertype() {
-        // Ethernet frame with EtherType IPv4 — should be ignored.
-        let mut buf = vec![0u8; 42];
-        {
-            let mut eth = MutableEthernetPacket::new(&mut buf).unwrap();
-            eth.set_destination(MacAddr(0, 0, 0, 0, 0, 0));
-            eth.set_source(MacAddr(0, 0, 0, 0, 0, 0));
-            eth.set_ethertype(EtherTypes::Ipv4);
-        }
-        assert!(parse_arp_reply(&buf, Ipv4Addr::new(192, 168, 1, 1)).is_none());
-    }
-
-    // -- DHCP probe --------------------------------------------------------
-
-    /// Wrap a DHCP `Message` in UDP/IPv4/Ethernet using the same
-    /// builder paths as `build_dhcp_discover_frame`, swapping the
-    /// payload for an OFFER reply we can hand to `parse_dhcp_offer`.
-    fn craft_dhcp_offer_frame(server_ip: Ipv4Addr, xid: u32) -> Vec<u8> {
-        let mut msg = Message::default();
-        msg.set_opcode(Opcode::BootReply)
-            .set_xid(xid)
-            .set_yiaddr(Ipv4Addr::new(192, 168, 1, 50))
-            .set_siaddr(server_ip)
-            .set_chaddr(&[
-                PROBE_CHADDR.0,
-                PROBE_CHADDR.1,
-                PROBE_CHADDR.2,
-                PROBE_CHADDR.3,
-                PROBE_CHADDR.4,
-                PROBE_CHADDR.5,
-            ]);
-        let opts = msg.opts_mut();
-        opts.insert(DhcpOption::MessageType(MessageType::Offer));
-        opts.insert(DhcpOption::ServerIdentifier(server_ip));
-
-        let mut payload = Vec::new();
-        msg.encode(&mut Encoder::new(&mut payload)).unwrap();
-
-        let udp_total_len = 8 + payload.len();
-        let ip_total_len = 20 + udp_total_len;
-        let frame_len = 14 + ip_total_len;
-        let mut buf = vec![0u8; frame_len];
-
-        {
-            let mut eth = MutableEthernetPacket::new(&mut buf).unwrap();
-            eth.set_destination(MacAddr::broadcast());
-            eth.set_source(MacAddr(0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x02));
-            eth.set_ethertype(EtherTypes::Ipv4);
-        }
-        {
-            let mut ip = MutableIpv4Packet::new(&mut buf[14..]).unwrap();
-            ip.set_version(4);
-            ip.set_header_length(5);
-            ip.set_total_length(u16::try_from(ip_total_len).unwrap());
-            ip.set_ttl(64);
-            ip.set_next_level_protocol(IpNextHeaderProtocols::Udp);
-            ip.set_source(server_ip);
-            ip.set_destination(Ipv4Addr::BROADCAST);
-            let cs = pnet::packet::ipv4::checksum(&ip.to_immutable());
-            ip.set_checksum(cs);
-        }
-        {
-            let mut udp = MutableUdpPacket::new(&mut buf[14 + 20..]).unwrap();
-            udp.set_source(67);
-            udp.set_destination(68);
-            udp.set_length(u16::try_from(udp_total_len).unwrap());
-            udp.set_payload(&payload);
-            let cs = udp_ipv4_checksum(&udp.to_immutable(), &server_ip, &Ipv4Addr::BROADCAST);
-            udp.set_checksum(cs);
-        }
-        buf
-    }
-
-    #[test]
-    fn build_discover_frame_round_trips_through_parser() {
-        // Build the frame the probe sends, then re-parse it as if it
-        // were arriving from the wire — proves the wrapping layers
-        // line up. We swap the message type to OFFER so the parser's
-        // type filter returns Some.
-        let frame = build_dhcp_discover_frame(MacAddr(0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x11)).unwrap();
-
-        // Replace the DHCP payload with an OFFER carrying a known
-        // server identifier — this is just a layered re-test of the
-        // parser using the real wrapper code.
-        let server_ip = Ipv4Addr::new(192, 168, 1, 1);
-        let offer = craft_dhcp_offer_frame(server_ip, PROBE_XID);
-        assert_eq!(parse_dhcp_offer(&offer, PROBE_XID), Some(server_ip));
-
-        // Sanity: the DISCOVER frame itself isn't an OFFER and parses
-        // to None — guards against accidentally matching our own
-        // outgoing packet if we ever loop back.
-        assert!(parse_dhcp_offer(&frame, PROBE_XID).is_none());
-    }
-
-    #[test]
-    fn ignores_offer_with_wrong_xid() {
-        let server_ip = Ipv4Addr::new(192, 168, 1, 1);
-        let frame = craft_dhcp_offer_frame(server_ip, PROBE_XID.wrapping_add(1));
-        assert!(parse_dhcp_offer(&frame, PROBE_XID).is_none());
-    }
-
-    #[test]
-    fn ignores_non_dhcp_udp_traffic() {
-        // UDP packet to port 53 (DNS) — definitely not a DHCP OFFER.
-        let payload = b"\x00\x00\x00\x01some dns junk";
-        let udp_total_len = 8 + payload.len();
-        let ip_total_len = 20 + udp_total_len;
-        let frame_len = 14 + ip_total_len;
-        let mut buf = vec![0u8; frame_len];
-        {
-            let mut eth = MutableEthernetPacket::new(&mut buf).unwrap();
-            eth.set_destination(MacAddr::broadcast());
-            eth.set_source(MacAddr(0, 0, 0, 0, 0, 0));
-            eth.set_ethertype(EtherTypes::Ipv4);
-        }
-        {
-            let mut ip = MutableIpv4Packet::new(&mut buf[14..]).unwrap();
-            ip.set_version(4);
-            ip.set_header_length(5);
-            ip.set_total_length(u16::try_from(ip_total_len).unwrap());
-            ip.set_ttl(64);
-            ip.set_next_level_protocol(IpNextHeaderProtocols::Udp);
-            ip.set_source(Ipv4Addr::new(1, 1, 1, 1));
-            ip.set_destination(Ipv4Addr::new(192, 168, 1, 100));
-        }
-        {
-            let mut udp = MutableUdpPacket::new(&mut buf[14 + 20..]).unwrap();
-            udp.set_source(53);
-            udp.set_destination(54321);
-            udp.set_length(u16::try_from(udp_total_len).unwrap());
-            udp.set_payload(payload);
-        }
-        assert!(parse_dhcp_offer(&buf, PROBE_XID).is_none());
-    }
 }
