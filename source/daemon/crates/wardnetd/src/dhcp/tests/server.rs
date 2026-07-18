@@ -55,10 +55,7 @@ impl MockDhcpSocket {
 
     /// Push an encoded DHCP message into the incoming queue.
     async fn push_message(&self, msg: &Message, src: SocketAddr) {
-        let mut buf = Vec::with_capacity(512);
-        let mut encoder = Encoder::new(&mut buf);
-        msg.encode(&mut encoder).unwrap();
-        self.push_packet(buf, src).await;
+        self.push_packet(encode_message(msg), src).await;
     }
 
     /// Return all packets sent via `send_to`.
@@ -299,6 +296,27 @@ fn build_release(mac: [u8; 6]) -> Message {
 /// A fake client address for incoming packets.
 fn client_addr() -> SocketAddr {
     "192.168.1.50:68".parse().unwrap()
+}
+
+/// Encode a DHCP message to wire bytes.
+fn encode_message(msg: &Message) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(512);
+    let mut encoder = Encoder::new(&mut buf);
+    msg.encode(&mut encoder).unwrap();
+    buf
+}
+
+/// Poll the mock socket until at least `count` responses have been sent.
+/// Returns as soon as the server loop has actually produced the output,
+/// with a hard 2-second deadline instead of a fixed lower bound of sleep.
+async fn wait_for_sent(socket: &MockDhcpSocket, count: usize) {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while socket.outgoing.lock().await.len() < count {
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .expect("timed out waiting for the DHCP server to send responses");
 }
 
 /// Run `server_loop` with the given socket and service, returning the socket
@@ -1169,10 +1187,16 @@ async fn server_loop_handles_discover_then_request_sequence() {
 /// so an oversized value can only be produced by patching the raw bytes —
 /// exactly what an attacker on the wire would send.
 fn encode_with_hlen(msg: &Message, hlen: u8) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(512);
-    let mut encoder = Encoder::new(&mut buf);
-    msg.encode(&mut encoder).unwrap();
+    let mut buf = encode_message(msg);
     buf[2] = hlen;
+    buf
+}
+
+/// Encode `msg` and overwrite the BOOTP `htype` field (byte offset 1),
+/// crafting a non-Ethernet hardware type without dhcproto's setters.
+fn encode_with_htype(msg: &Message, htype: u8) -> Vec<u8> {
+    let mut buf = encode_message(msg);
+    buf[1] = htype;
     buf
 }
 
@@ -1225,23 +1249,24 @@ async fn udp_server_survives_oversized_hlen_packet() {
     let server = UdpDhcpServer::with_socket(service, socket_dyn);
     server.start().await.unwrap();
 
-    // One unauthenticated packet with hlen > 16 must not kill the task.
+    // One unauthenticated packet with hlen > 16 must not kill the task. The
+    // valid DISCOVER queued behind it only gets an OFFER if the loop survived
+    // (the FIFO socket guarantees the malicious packet was consumed first).
     let malicious = build_discover([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]);
     socket
         .push_packet(encode_with_hlen(&malicious, 255), client_addr())
         .await;
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    let valid = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket.push_message(&valid, client_addr()).await;
 
+    wait_for_sent(&socket, 1).await;
+
+    // The OFFER above proves is_running() reflects a live loop rather than
+    // a stale flag left behind by a panicked task.
     assert!(
         server.is_running(),
         "server must still be running after an oversized-hlen packet"
     );
-
-    // And it must still actually serve: a valid DISCOVER gets an OFFER,
-    // proving is_running() reflects a live loop rather than a stale flag.
-    let valid = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
-    socket.push_message(&valid, client_addr()).await;
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
     let messages = socket.sent_messages().await;
     assert_eq!(
@@ -1252,6 +1277,65 @@ async fn udp_server_survives_oversized_hlen_packet() {
     assert_eq!(messages[0].0.opts().msg_type(), Some(MessageType::Offer));
 
     server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn server_loop_drops_non_ethernet_hardware_addresses() {
+    let lease = test_lease();
+    let mock_service = Arc::new(MockDhcpService::new(lease.clone()));
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    // A legitimate DHCP client on this network is always Ethernet/Wi-Fi:
+    // htype 1 with a 6-byte hardware address. hlen 0-5 would otherwise
+    // become truncated or empty MAC strings used as lease-store identity
+    // keys; hlen 7-16 and foreign htypes are not real clients here.
+    let malicious = build_discover([0xde, 0xad, 0xbe, 0xef, 0x00, 0x02]);
+    for packet in [
+        encode_with_hlen(&malicious, 0),
+        encode_with_hlen(&malicious, 5),
+        encode_with_hlen(&malicious, 16),
+        encode_with_htype(&malicious, 6), // htype 6 = IEEE 802, hlen still 6
+    ] {
+        socket.push_packet(packet, client_addr()).await;
+    }
+
+    let valid = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket.push_message(&valid, client_addr()).await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(
+        messages.len(),
+        1,
+        "non-Ethernet hardware addresses must be dropped; only the valid DISCOVER gets an OFFER"
+    );
+    assert_eq!(messages[0].0.opts().msg_type(), Some(MessageType::Offer));
+
+    // The lease service must never see the degenerate identities.
+    let calls = mock_service.recorded_calls().await;
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "assign_lease");
+    assert_eq!(calls[0].1, "aa:bb:cc:dd:ee:ff");
+}
+
+/// The shared wire-decode bound used by every non-server decode site (the
+/// pnet network probe): oversized `hlen` is rejected at decode time so no
+/// later `chaddr()` call can panic, while any in-bounds `hlen` still decodes.
+#[test]
+fn decode_bounded_rejects_oversized_hlen() {
+    let msg = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+
+    assert!(server::decode_bounded(&encode_with_hlen(&msg, 17)).is_none());
+    assert!(server::decode_bounded(&encode_with_hlen(&msg, 255)).is_none());
+
+    // In-bounds hlen values decode, including the 16-byte boundary.
+    assert!(server::decode_bounded(&encode_message(&msg)).is_some());
+    assert!(server::decode_bounded(&encode_with_hlen(&msg, 16)).is_some());
+
+    // Undecodable bytes are rejected, not panicked on.
+    assert!(server::decode_bounded(&[0xde, 0xad]).is_none());
 }
 
 // ---------------------------------------------------------------------------
