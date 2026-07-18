@@ -10,9 +10,23 @@ bundle archiver, SQLite restore, and bundle-manifest JSON.
   copies the repo, and stages `build.sh`.
 - `build.sh` — invoked inside the image at build time. Runs
   `cargo build` (not `cargo fuzz build`) against `source/daemon/fuzz/`
-  with sanitizer flags set via target-specific `RUSTFLAGS` so
-  proc-macro crates are not instrumented, then copies the resulting
-  binaries into `$OUT/`.
+  for a **custom target triple** (`x86_64-wardnet-linux-gnu`, a
+  byte-for-byte copy of the `x86_64-unknown-linux-gnu` spec under a
+  different name), then copies the resulting binaries into `$OUT/`.
+
+  The custom triple is the fix for #587: on the OSS-Fuzz image the
+  host triple equals the fuzz target triple, so nothing — rustflags,
+  `CFLAGS`, `[target.*]` config — can be scoped to the fuzz binaries
+  without also hitting host-side builds. In particular the image's
+  global sanitizer `CFLAGS` leak into build-script C compiles for
+  proc-macro dependencies (`libsqlite3-sys` under `sqlx-macros`), and
+  the resulting proc-macro `.so` fails to dlopen inside rustc with
+  `undefined symbol: __sancov_lowest_stack`. With a distinct target
+  name, sanitizer rustflags and C flags are pinned to
+  `CARGO_TARGET_X86_64_WARDNET_LINUX_GNU_RUSTFLAGS` /
+  `CFLAGS_x86_64_wardnet_linux_gnu` while host builds stay clean; the
+  binaries remain ABI-identical to plain gnu and run unmodified in
+  the CFLite runner.
 
 Fuzz targets and harnesses live at `source/daemon/fuzz/` — a
 **standalone** cargo workspace (the daemon workspace excludes it)
