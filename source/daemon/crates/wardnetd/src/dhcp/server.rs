@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use dhcproto::v4::{DhcpOption, Flags, Message, MessageType, Opcode, OptionCode};
+use dhcproto::v4::{DhcpOption, Flags, HType, Message, MessageType, Opcode, OptionCode};
 use dhcproto::{Decodable, Decoder, Encodable, Encoder};
 use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
@@ -247,6 +247,28 @@ pub(crate) async fn server_loop(
             }
         };
 
+        // A legitimate DHCP client on this network is always Ethernet or
+        // Wi-Fi: htype 1 with a 6-byte hardware address. Enforcing that
+        // before any `chaddr()` call bounds the wire-supplied `hlen` —
+        // `dhcproto` slices its fixed 16-byte chaddr array by `hlen`, so an
+        // attacker-controlled hlen > 16 would panic and silently kill the
+        // whole server loop (issue #829) — and rejects degenerate identities
+        // (hlen 0-5 would become truncated or empty MAC lease keys). This
+        // guard also covers the `request.chaddr()` calls in
+        // `build_response`/`build_nak`, which only ever see messages that
+        // passed this loop.
+        let htype = msg.htype();
+        let hlen = msg.hlen();
+        if htype != HType::Eth || hlen != 6 {
+            tracing::debug!(
+                ?htype,
+                hlen,
+                %src_addr,
+                "dropping DHCP message with non-Ethernet hardware address: htype={htype:?}, hlen={hlen}, src={src_addr}"
+            );
+            continue;
+        }
+
         let Some(msg_type) = msg.opts().msg_type() else {
             tracing::debug!("DHCP message has no message type option, ignoring");
             continue;
@@ -420,6 +442,12 @@ fn extract_requested_ip(msg: &Message) -> Ipv4Addr {
 /// its request was rejected and it must restart the handshake. The server
 /// identifier is taken from the device's resolved per-zone scope (#737).
 pub(crate) fn build_nak(request: &Message, scope: &DhcpScope) -> Message {
+    // `request.chaddr()` panics when the wire-supplied hlen exceeds the
+    // fixed 16-byte chaddr array; callers must bound it first (issue #829).
+    debug_assert!(
+        request.hlen() <= 16,
+        "build_nak requires a message whose hlen was bounded before dispatch (issue #829)"
+    );
     let server_ip = scope.gateway_ip;
 
     let mut response = Message::default();
@@ -443,6 +471,12 @@ pub(crate) fn build_response(
     lease: &DhcpLease,
     scope: &DhcpScope,
 ) -> Message {
+    // `request.chaddr()` panics when the wire-supplied hlen exceeds the
+    // fixed 16-byte chaddr array; callers must bound it first (issue #829).
+    debug_assert!(
+        request.hlen() <= 16,
+        "build_response requires a message whose hlen was bounded before dispatch (issue #829)"
+    );
     // Wardnet's IP within this scope: the LAN IP for the base pool, or the Pi's
     // per-zone gateway alias for a zone subnet (#737).
     let server_ip = scope.gateway_ip;
@@ -519,6 +553,19 @@ pub(crate) async fn send_response(socket: &dyn DhcpSocket, msg: &Message, dest: 
     if let Err(e) = socket.send_to(&buf, dest).await {
         tracing::error!(error = %e, dest = %dest, "failed to send DHCP response to {dest}: {e}");
     }
+}
+
+/// Decode a DHCP message from untrusted wire bytes, rejecting any message
+/// whose wire-supplied `hlen` overruns the fixed 16-byte BOOTP `chaddr`
+/// field. `dhcproto` slices its `[u8; 16]` chaddr array by `hlen`, so
+/// calling `chaddr()` on such a message panics (issue #829). Every decode
+/// of raw wire bytes must go through this bound (or a stricter guard, like
+/// `server_loop`'s Ethernet-only check) before the message reaches code
+/// that may touch `chaddr()`.
+pub(crate) fn decode_bounded(packet: &[u8]) -> Option<Message> {
+    Message::decode(&mut Decoder::new(packet))
+        .ok()
+        .filter(|msg| msg.hlen() <= 16)
 }
 
 /// Format the first 6 bytes of a hardware address as a MAC string.

@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dhcproto::v4::{DhcpOption, Flags, Message, MessageType, Opcode};
-use dhcproto::{Decodable, Decoder, Encodable, Encoder};
+use dhcproto::{Encodable, Encoder};
 use pnet::datalink::{self, Channel, Config};
 use pnet::packet::Packet;
 use pnet::packet::arp::{ArpOperations, ArpPacket};
@@ -323,7 +323,9 @@ fn parse_dhcp_offer(frame: &[u8], xid: u32) -> Option<Ipv4Addr> {
     if udp.get_source() != 67 || udp.get_destination() != 68 {
         return None;
     }
-    let msg = Message::decode(&mut Decoder::new(udp.payload())).ok()?;
+    // Bounded decode: rejects wire hlen > 16 so a future `chaddr()` use
+    // here can never hit dhcproto's slice panic (issue #829).
+    let msg = crate::dhcp::server::decode_bounded(udp.payload())?;
     if msg.xid() != xid {
         return None;
     }
