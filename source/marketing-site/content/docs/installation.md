@@ -120,6 +120,7 @@ Verification flow the installer runs, in order:
 | `/etc/systemd/system/wardnet-postupgrade.service` | Runs one-off migrations shipped with an upgrade, when a release includes them. |
 | `/usr/local/libexec/wardnet/runner/wardnet-postupgrade-runner` | Root-owned post-upgrade migration runner. |
 | `/var/lib/wardnet/postupgrade/`, `/var/lib/wardnet-postupgrade/` | Post-upgrade migration state. |
+| `/etc/sysctl.d/99-wardnet.conf` | Enables `net.ipv4.ip_forward=1` so per-device VPN routing can forward LAN traffic through the tunnels. |
 
 The `wardnet` system user owns all of the above (except the root-owned
 post-upgrade runner, which needs elevated privileges to apply
@@ -213,12 +214,28 @@ fires the `wardnetd-rollback.service` unit after three failures within
 
 ```bash
 sudo systemctl disable --now wardnetd
+sudo systemctl disable --now wardnet-postupgrade.service
 sudo rm -f /etc/systemd/system/wardnetd.service
 sudo rm -f /etc/systemd/system/wardnetd-rollback.service
 sudo rm -f /etc/systemd/system/wardnet-postupgrade.service
 sudo rm -f /usr/local/bin/wardnetd /usr/local/bin/wardnetd.old
 sudo rm -rf /etc/wardnet /var/lib/wardnet /var/log/wardnet
 sudo rm -rf /usr/local/libexec/wardnet /var/lib/wardnet-postupgrade
+sudo rm -f /etc/sysctl.d/99-wardnet.conf
+sudo rm -f /etc/dhcpcd.conf.d/wardnet.conf
 sudo userdel wardnet
 sudo systemctl daemon-reload
 ```
+
+This removes everything the installer created. Two notes:
+
+- `/etc/dhcpcd.conf.d/wardnet.conf` only exists if you installed with
+  `--static-ip`; the `rm -f` is a harmless no-op otherwise.
+- Removing `/etc/sysctl.d/99-wardnet.conf` stops IP forwarding from
+  persisting across reboots, but the running kernel keeps
+  `net.ipv4.ip_forward=1` until the next reboot. Leave the setting alone
+  if anything else on the host relies on forwarding.
+
+**This deletes your configuration and data** (the SQLite database,
+WireGuard keys, and secrets under `/var/lib/wardnet`). Take an
+[encrypted backup](/docs/backup-restore) first if you might want it back.
