@@ -247,6 +247,21 @@ pub(crate) async fn server_loop(
             }
         };
 
+        // Bound the wire-supplied hardware-address length before any
+        // `chaddr()` call: `dhcproto` slices its fixed 16-byte chaddr array
+        // by `hlen`, so an attacker-controlled hlen > 16 would panic and
+        // silently kill the whole server loop (issue #829). This guard also
+        // covers the `request.chaddr()` calls in `build_response`/`build_nak`,
+        // which only ever see messages that passed this loop.
+        if usize::from(msg.hlen()) > 16 {
+            tracing::debug!(
+                hlen = msg.hlen(),
+                %src_addr,
+                "dropping DHCP message with invalid hlen"
+            );
+            continue;
+        }
+
         let Some(msg_type) = msg.opts().msg_type() else {
             tracing::debug!("DHCP message has no message type option, ignoring");
             continue;

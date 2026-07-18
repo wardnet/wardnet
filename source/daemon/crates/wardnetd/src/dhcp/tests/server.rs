@@ -1161,6 +1161,100 @@ async fn server_loop_handles_discover_then_request_sequence() {
 }
 
 // ---------------------------------------------------------------------------
+// server_loop: attacker-controlled hlen (issue #829)
+// ---------------------------------------------------------------------------
+
+/// Encode `msg` and overwrite the BOOTP `hlen` field (byte offset 2) with an
+/// attacker-controlled value. `dhcproto`'s `set_chaddr` clamps `hlen` to 16,
+/// so an oversized value can only be produced by patching the raw bytes —
+/// exactly what an attacker on the wire would send.
+fn encode_with_hlen(msg: &Message, hlen: u8) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(512);
+    let mut encoder = Encoder::new(&mut buf);
+    msg.encode(&mut encoder).unwrap();
+    buf[2] = hlen;
+    buf
+}
+
+#[tokio::test]
+async fn server_loop_drops_oversized_hlen_and_keeps_serving() {
+    let lease = test_lease();
+    let mock_service = Arc::new(MockDhcpService::new(lease.clone()));
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    // Valid option-53 DISCOVERs whose wire hlen exceeds the 16-byte chaddr
+    // array — both the minimal (17) and maximal (255) malicious values.
+    let malicious = build_discover([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]);
+    socket
+        .push_packet(encode_with_hlen(&malicious, 17), client_addr())
+        .await;
+    socket
+        .push_packet(encode_with_hlen(&malicious, 255), client_addr())
+        .await;
+
+    // A legitimate DISCOVER after the malicious packets: it only gets an
+    // OFFER if the loop survived (did not panic on the oversized hlen).
+    let valid = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket.push_message(&valid, client_addr()).await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(
+        messages.len(),
+        1,
+        "malicious packets must be dropped and the valid DISCOVER must still get an OFFER"
+    );
+    assert_eq!(messages[0].0.opts().msg_type(), Some(MessageType::Offer));
+
+    // The service must never have seen the malicious packets.
+    let calls = mock_service.recorded_calls().await;
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "assign_lease");
+    assert_eq!(calls[0].1, "aa:bb:cc:dd:ee:ff");
+}
+
+#[tokio::test]
+async fn udp_server_survives_oversized_hlen_packet() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease.clone()));
+    let socket = Arc::new(MockDhcpSocket::new());
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+
+    let server = UdpDhcpServer::with_socket(service, socket_dyn);
+    server.start().await.unwrap();
+
+    // One unauthenticated packet with hlen > 16 must not kill the task.
+    let malicious = build_discover([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]);
+    socket
+        .push_packet(encode_with_hlen(&malicious, 255), client_addr())
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    assert!(
+        server.is_running(),
+        "server must still be running after an oversized-hlen packet"
+    );
+
+    // And it must still actually serve: a valid DISCOVER gets an OFFER,
+    // proving is_running() reflects a live loop rather than a stale flag.
+    let valid = build_discover([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket.push_message(&valid, client_addr()).await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(
+        messages.len(),
+        1,
+        "a valid DISCOVER after the malicious packet must still be answered"
+    );
+    assert_eq!(messages[0].0.opts().msg_type(), Some(MessageType::Offer));
+
+    server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
 // server_loop: recv error recovery
 // ---------------------------------------------------------------------------
 
