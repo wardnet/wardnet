@@ -161,17 +161,19 @@ jobs:
         run: cd source/marketing-site && yarn install --immutable && yarn test:coverage
 
       - name: Collect into shared layout
-        # coverage/pkg-summaries/<pkg>/coverage-summary.json preserves the
-        # package-relative layout bulwark's TS coverage auto-discovery
-        # expects (it reads <pkgDir>/coverage/coverage-summary.json
-        # in-place, not from a flag) — the bulwark job restores these back
-        # to their original per-package paths before invoking bulwark.
+        # coverage/pkg-summaries/<pkg>/ preserves the package-relative layout
+        # bulwark's TS coverage auto-discovery expects (it reads
+        # <pkgDir>/coverage/coverage-summary.json and, for patch coverage,
+        # <pkgDir>/coverage/lcov.info in-place, not from a flag) — the
+        # bulwark job restores these back to their original per-package
+        # paths before invoking bulwark.
         run: |
           mkdir -p coverage
           cp source/marketing-site/coverage/lcov.info coverage/site.coverage.info
           cp source/marketing-site/test-results/junit.xml coverage/site-junit.xml
           mkdir -p coverage/pkg-summaries/marketing-site
           cp source/marketing-site/coverage/coverage-summary.json coverage/pkg-summaries/marketing-site/
+          cp source/marketing-site/coverage/lcov.info coverage/pkg-summaries/marketing-site/
 
       - name: Upload site coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -211,11 +213,14 @@ jobs:
         # unambiguous repo paths (four packages all have a `src/`), then
         # concatenate into one LCOV. JUnit files are copied per package.
         #
-        # coverage/pkg-summaries/<pkg>/coverage-summary.json preserves the
-        # package-relative layout bulwark's TS coverage auto-discovery
-        # expects (it reads <pkgDir>/coverage/coverage-summary.json
-        # in-place, not from a flag) — the bulwark job restores these back
-        # to their original per-package paths before invoking bulwark.
+        # coverage/pkg-summaries/<pkg>/ preserves the package-relative layout
+        # bulwark's TS coverage auto-discovery expects (it reads
+        # <pkgDir>/coverage/coverage-summary.json and, for patch coverage,
+        # <pkgDir>/coverage/lcov.info in-place, not from a flag) — the
+        # bulwark job restores these back to their original per-package
+        # paths before invoking bulwark. The lcov copied there is the
+        # unprefixed per-package original, unlike the path-prefixed
+        # concatenation above.
         run: |
           mkdir -p coverage
           : > coverage/frontend.coverage.info
@@ -232,6 +237,10 @@ jobs:
             if [[ -f "$summary" ]]; then
               mkdir -p "coverage/pkg-summaries/$pkg"
               cp "$summary" "coverage/pkg-summaries/$pkg/"
+            fi
+            if [[ -f "$lcov" ]]; then
+              mkdir -p "coverage/pkg-summaries/$pkg"
+              cp "$lcov" "coverage/pkg-summaries/$pkg/"
             fi
           done
 
@@ -311,12 +320,17 @@ jobs:
 
       - name: Restore per-package coverage reports for bulwark
         # bulwark's TS coverage auto-discovery reads
-        # <pkgDir>/coverage/coverage-summary.json in-place (no flag), so the
-        # downloaded pkg-summaries have to land back at their original
-        # per-package paths. Rust coverage is a single explicit
-        # --rust-report flag instead. Both are skipped gracefully (empty
-        # rust-report output, package simply absent) when their producer
-        # job didn't run — bulwark just measures whatever's present.
+        # <pkgDir>/coverage/{coverage-summary.json,lcov.info} in-place (no
+        # flag), so the downloaded pkg-summaries have to land back at their
+        # original per-package paths. Rust coverage is a pair of explicit
+        # flags instead: --rust-report (the llvm-cov JSON, aggregate) and
+        # --rust-lcov-report (the lcov export, patch coverage — without it
+        # bulwark's patch gate has no per-line data and reports the language
+        # as unmeasured, while Codecov happily grades the same diff from the
+        # lcov it auto-discovered; that's how #957 got a green bulwark
+        # comment next to a red codecov/patch). All of these are skipped
+        # gracefully (empty flag outputs, package simply absent) when their
+        # producer job didn't run — bulwark just measures whatever's present.
         id: restore
         run: |
           set -euo pipefail
@@ -327,12 +341,21 @@ jobs:
             rust_report="daemon/coverage/daemon-llvm-cov.json"
           fi
           echo "rust-report=${rust_report}" >> "$GITHUB_OUTPUT"
+          rust_lcov_report=""
+          if [[ -f coverage/daemon.coverage.info ]]; then
+            mkdir -p source/daemon/coverage
+            cp coverage/daemon.coverage.info source/daemon/coverage/lcov.info
+            rust_lcov_report="daemon/coverage/lcov.info"
+          fi
+          echo "rust-lcov-report=${rust_lcov_report}" >> "$GITHUB_OUTPUT"
           for pkg in web admin-site admin-app user-app marketing-site; do
-            summary="coverage/pkg-summaries/$pkg/coverage-summary.json"
-            if [[ -f "$summary" ]]; then
-              mkdir -p "source/$pkg/coverage"
-              cp "$summary" "source/$pkg/coverage/coverage-summary.json"
-            fi
+            for file in coverage-summary.json lcov.info; do
+              src="coverage/pkg-summaries/$pkg/$file"
+              if [[ -f "$src" ]]; then
+                mkdir -p "source/$pkg/coverage"
+                cp "$src" "source/$pkg/coverage/$file"
+              fi
+            done
           done
 
       - uses: wardnet/bulwark@v1
@@ -340,6 +363,7 @@ jobs:
           dir: source
           tests-mode: skip
           rust-report: ${{ steps.restore.outputs.rust-report }}
+          rust-lcov-report: ${{ steps.restore.outputs.rust-lcov-report }}
           codecov-token: ${{ secrets.CODECOV_TOKEN }}
           semgrep-app-token: ${{ secrets.SEMGREP_APP_TOKEN }}
 
