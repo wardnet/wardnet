@@ -1,6 +1,6 @@
 //! Hot-path channel for DNS query log events.
 //!
-//! `handle_query` in the DNS server fires one event per query into this
+//! The DNS server's query pipeline fires one event per query into this
 //! sink. The sink fans events out two ways:
 //!
 //! - **`mpsc` (bounded, capacity `5_000`)** — drained by the persistence
