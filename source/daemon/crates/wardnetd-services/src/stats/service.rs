@@ -106,6 +106,7 @@ impl StatsService for StatsServiceImpl {
     }
 
     async fn run_flush(&self, rows: Vec<IntradayStatRow>) -> anyhow::Result<()> {
+        auth_context::require_admin()?;
         if rows.is_empty() {
             return Ok(());
         }
@@ -113,6 +114,7 @@ impl StatsService for StatsServiceImpl {
     }
 
     async fn run_maintenance(&self) -> anyhow::Result<()> {
+        auth_context::require_admin()?;
         let now = Utc::now();
 
         // ── Hourly rollup ─────────────────────────────────────────────────────

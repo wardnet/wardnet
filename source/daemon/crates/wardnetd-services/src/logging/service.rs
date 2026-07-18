@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
+use crate::auth_context;
 use crate::error::AppError;
 
 use super::component::{BoxedLayer, LogComponent};
@@ -33,7 +34,7 @@ pub trait LogService: Send + Sync {
     fn subscribe(&self) -> broadcast::Receiver<LogEntry>;
 
     /// Return the most recent errors and warnings.
-    fn get_recent_errors(&self) -> Vec<ErrorEntry>;
+    fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError>;
 
     /// List all available log files with metadata.
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError>;
@@ -92,11 +93,13 @@ impl LogService for LogServiceImpl {
         self.stream.subscribe()
     }
 
-    fn get_recent_errors(&self) -> Vec<ErrorEntry> {
-        self.error_notifier.get_recent_errors()
+    fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+        auth_context::require_admin()?;
+        Ok(self.error_notifier.get_recent_errors())
     }
 
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
+        auth_context::require_admin()?;
         let candidates = discover_log_files(&self.log_path).await?;
         let active_path = find_active_log_path(&self.log_path, &candidates);
 
@@ -133,6 +136,7 @@ impl LogService for LogServiceImpl {
     }
 
     async fn download_log_file(&self, name: Option<&str>) -> Result<String, AppError> {
+        auth_context::require_admin()?;
         let target_path = if let Some(name) = name {
             // Resolve within the log directory — prevent path traversal.
             let dir = self

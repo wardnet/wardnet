@@ -6,7 +6,10 @@ use std::sync::Arc;
 
 use tracing_subscriber::layer::SubscriberExt;
 use uuid::Uuid;
+use wardnet_common::auth::AuthContext;
 
+use crate::auth_context;
+use crate::error::AppError;
 use crate::logging::error_notifier::ErrorNotifierService;
 use crate::logging::service::{LogService, LogServiceImpl};
 use crate::logging::stream::LogStreamService;
@@ -19,6 +22,12 @@ fn build_service() -> (LogServiceImpl, PathBuf) {
     let dir = std::env::temp_dir().join(format!("wardnet-test-logs-{}", Uuid::new_v4()));
     let log_path = dir.join("wardnetd.log");
     (LogServiceImpl::new(stream, errors, log_path.clone()), dir)
+}
+
+fn admin_ctx() -> AuthContext {
+    AuthContext::Admin {
+        admin_id: Uuid::new_v4(),
+    }
 }
 
 #[test]
@@ -54,16 +63,54 @@ fn subscribe_returns_receiver() {
     let _rx = svc.subscribe();
 }
 
-#[test]
-fn get_recent_errors_is_empty_initially() {
+#[tokio::test]
+async fn get_recent_errors_is_empty_initially() {
     let (svc, _dir) = build_service();
-    assert!(svc.get_recent_errors().is_empty());
+    let recent = auth_context::with_context(admin_ctx(), async { svc.get_recent_errors() })
+        .await
+        .unwrap();
+    assert!(recent.is_empty());
+}
+
+#[tokio::test]
+async fn get_recent_errors_forbidden_without_admin_context() {
+    let (svc, _dir) = build_service();
+    let res = svc.get_recent_errors();
+    assert!(matches!(res, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn list_log_files_forbidden_without_admin_context() {
+    let (svc, dir) = build_service();
+    tokio::fs::create_dir_all(&dir).await.unwrap();
+    tokio::fs::write(dir.join("wardnetd.log"), b"secret")
+        .await
+        .unwrap();
+
+    let res = svc.list_log_files().await;
+    assert!(matches!(res, Err(AppError::Forbidden(_))));
+
+    let _ = tokio::fs::remove_dir_all(&dir).await;
+}
+
+#[tokio::test]
+async fn download_log_file_forbidden_without_admin_context() {
+    let (svc, dir) = build_service();
+    tokio::fs::create_dir_all(&dir).await.unwrap();
+    tokio::fs::write(dir.join("wardnetd.log"), b"secret")
+        .await
+        .unwrap();
+
+    let res = svc.download_log_file(None).await;
+    assert!(matches!(res, Err(AppError::Forbidden(_))));
+
+    let _ = tokio::fs::remove_dir_all(&dir).await;
 }
 
 #[tokio::test]
 async fn list_log_files_missing_directory_errors() {
     let (svc, dir) = build_service();
-    let res = svc.list_log_files().await;
+    let res = auth_context::with_context(admin_ctx(), svc.list_log_files()).await;
     // Directory does not exist — should surface an Internal error.
     assert!(res.is_err(), "expected error for missing directory");
     let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -79,7 +126,9 @@ async fn list_log_files_returns_files() {
     let rotated = dir.join("wardnetd.log.2026-04-12");
     tokio::fs::write(&rotated, b"older").await.unwrap();
 
-    let files = svc.list_log_files().await.unwrap();
+    let files = auth_context::with_context(admin_ctx(), svc.list_log_files())
+        .await
+        .unwrap();
     assert!(files.len() >= 2);
     // Exactly one file should be marked active.
     assert_eq!(files.iter().filter(|f| f.active).count(), 1);
@@ -97,7 +146,9 @@ async fn download_log_file_returns_content() {
         .await
         .unwrap();
 
-    let content = svc.download_log_file(None).await.unwrap();
+    let content = auth_context::with_context(admin_ctx(), svc.download_log_file(None))
+        .await
+        .unwrap();
     assert!(content.contains("plain text line"));
 
     let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -109,7 +160,8 @@ async fn download_log_file_rejects_path_traversal() {
     tokio::fs::create_dir_all(&dir).await.unwrap();
 
     // A name with a traversal segment should be rejected.
-    let res = svc.download_log_file(Some("../etc/passwd")).await;
+    let res =
+        auth_context::with_context(admin_ctx(), svc.download_log_file(Some("../etc/passwd"))).await;
     assert!(res.is_err(), "path traversal should be rejected");
 
     let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -133,7 +185,9 @@ async fn layers_published_via_service_capture_events() {
     let entry = rx.recv().await.unwrap();
     assert_eq!(entry.level, "ERROR");
     // Error notifier captures it too.
-    let recent = svc.get_recent_errors();
+    let recent = auth_context::with_context(admin_ctx(), async { svc.get_recent_errors() })
+        .await
+        .unwrap();
     assert_eq!(recent.len(), 1);
     assert_eq!(recent[0].level, "ERROR");
 }
@@ -147,10 +201,12 @@ async fn download_log_file_by_name_returns_content() {
     let rotated = dir.join("wardnetd.log.2026-04-12");
     tokio::fs::write(&rotated, b"rotated line\n").await.unwrap();
 
-    let content = svc
-        .download_log_file(Some("wardnetd.log.2026-04-12"))
-        .await
-        .unwrap();
+    let content = auth_context::with_context(
+        admin_ctx(),
+        svc.download_log_file(Some("wardnetd.log.2026-04-12")),
+    )
+    .await
+    .unwrap();
     assert!(content.contains("rotated line"));
 
     let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -168,7 +224,9 @@ async fn download_log_file_formats_json_lines() {
         .await
         .unwrap();
 
-    let content = svc.download_log_file(None).await.unwrap();
+    let content = auth_context::with_context(admin_ctx(), svc.download_log_file(None))
+        .await
+        .unwrap();
     assert!(content.contains("2026-04-17T12:00:00Z"));
     assert!(content.contains("INFO"));
     assert!(content.contains("wardnetd"));
@@ -184,7 +242,11 @@ async fn download_log_file_missing_file_errors() {
     let (svc, dir) = build_service();
     tokio::fs::create_dir_all(&dir).await.unwrap();
 
-    let res = svc.download_log_file(Some("wardnetd.log.absent")).await;
+    let res = auth_context::with_context(
+        admin_ctx(),
+        svc.download_log_file(Some("wardnetd.log.absent")),
+    )
+    .await;
     assert!(res.is_err(), "missing file should error");
 
     let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -197,7 +259,7 @@ async fn download_log_file_no_files_not_found() {
     let (svc, dir) = build_service();
     tokio::fs::create_dir_all(&dir).await.unwrap();
 
-    let res = svc.download_log_file(None).await;
+    let res = auth_context::with_context(admin_ctx(), svc.download_log_file(None)).await;
     assert!(res.is_err(), "no files should surface an error");
 
     let _ = tokio::fs::remove_dir_all(&dir).await;
@@ -215,7 +277,9 @@ async fn list_log_files_ignores_unrelated_files() {
         .await
         .unwrap();
 
-    let files = svc.list_log_files().await.unwrap();
+    let files = auth_context::with_context(admin_ctx(), svc.list_log_files())
+        .await
+        .unwrap();
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].name, "wardnetd.log");
     assert!(files[0].active);
@@ -234,7 +298,9 @@ async fn list_log_files_picks_newest_as_active_when_configured_missing() {
     tokio::fs::write(&older, b"older").await.unwrap();
     tokio::fs::write(&newer, b"newer").await.unwrap();
 
-    let files = svc.list_log_files().await.unwrap();
+    let files = auth_context::with_context(admin_ctx(), svc.list_log_files())
+        .await
+        .unwrap();
     assert_eq!(files.len(), 2);
     // Exactly one should be active. It must be the lexicographically-greatest
     // (the one find_active_log_path picks when configured file is absent).
@@ -258,7 +324,9 @@ async fn list_log_files_orders_by_modified_desc() {
         .await
         .unwrap();
 
-    let files = svc.list_log_files().await.unwrap();
+    let files = auth_context::with_context(admin_ctx(), svc.list_log_files())
+        .await
+        .unwrap();
     // Sorted newest-first: each entry's modified_at should be >= the next.
     for pair in files.windows(2) {
         assert!(pair[0].modified_at >= pair[1].modified_at);

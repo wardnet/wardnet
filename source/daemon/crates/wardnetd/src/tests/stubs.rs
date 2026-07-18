@@ -1066,8 +1066,10 @@ impl wardnetd_services::logging::LogService for StubLogService {
         drop(tx);
         rx
     }
-    fn get_recent_errors(&self) -> Vec<wardnetd_services::logging::error_notifier::ErrorEntry> {
-        Vec::new()
+    fn get_recent_errors(
+        &self,
+    ) -> Result<Vec<wardnetd_services::logging::error_notifier::ErrorEntry>, AppError> {
+        Ok(Vec::new())
     }
     async fn list_log_files(
         &self,

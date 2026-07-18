@@ -1020,8 +1020,8 @@ impl LogService for StubLogService {
         drop(tx);
         rx
     }
-    fn get_recent_errors(&self) -> Vec<ErrorEntry> {
-        Vec::new()
+    fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+        Ok(Vec::new())
     }
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
         Ok(Vec::new())

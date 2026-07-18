@@ -575,8 +575,8 @@ async fn recent_errors_returns_populated_errors() {
             drop(tx);
             rx
         }
-        fn get_recent_errors(&self) -> Vec<ErrorEntry> {
-            vec![
+        fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+            Ok(vec![
                 ErrorEntry {
                     level: "ERROR".to_owned(),
                     message: "boom".to_owned(),
@@ -589,7 +589,7 @@ async fn recent_errors_returns_populated_errors() {
                     target: "test".to_owned(),
                     timestamp: chrono::Utc::now(),
                 },
-            ]
+            ])
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
             Ok(Vec::new())
@@ -717,8 +717,8 @@ async fn download_logs_returns_text_when_log_exists() {
             drop(tx);
             rx
         }
-        fn get_recent_errors(&self) -> Vec<ErrorEntry> {
-            Vec::new()
+        fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+            Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
             Ok(Vec::new())
@@ -815,8 +815,8 @@ async fn download_logs_formats_non_json_lines_as_is() {
             drop(tx);
             rx
         }
-        fn get_recent_errors(&self) -> Vec<ErrorEntry> {
-            Vec::new()
+        fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+            Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
             Ok(Vec::new())
@@ -897,8 +897,8 @@ async fn download_logs_finds_dated_file() {
             drop(tx);
             rx
         }
-        fn get_recent_errors(&self) -> Vec<ErrorEntry> {
-            Vec::new()
+        fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+            Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
             Ok(Vec::new())
@@ -979,8 +979,8 @@ async fn download_logs_no_file_returns_500() {
             drop(tx);
             rx
         }
-        fn get_recent_errors(&self) -> Vec<ErrorEntry> {
-            Vec::new()
+        fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+            Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
             Ok(Vec::new())

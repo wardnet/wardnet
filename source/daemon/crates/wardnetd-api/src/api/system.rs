@@ -329,12 +329,12 @@ pub struct RecentErrorsResponse {
 pub async fn recent_errors(
     State(state): State<AppState>,
     _auth: AdminAuth,
-) -> Json<RecentErrorsResponse> {
+) -> Result<Json<RecentErrorsResponse>, AppError> {
     let errors = state
         .log_service()
-        .get_recent_errors()
+        .get_recent_errors()?
         .into_iter()
         .map(ApiErrorEntry::from)
         .collect();
-    Json(RecentErrorsResponse { errors })
+    Ok(Json(RecentErrorsResponse { errors }))
 }
