@@ -23,15 +23,8 @@ name: Fuzzing (scheduled)
 # run catches regressions within half a day anyway.
 
 on:
-  # Scheduled runs are disabled: the ClusterFuzzLite image build cannot
-  # currently succeed (host == fuzz target triple makes cargo link the
-  # instrumented sqlx-core rlib into the host sqlx-macros proc-macro,
-  # which then fails to dlopen on __sancov_lowest_stack). See #587.
-  # The cron is removed so the perpetually failing build stops generating
-  # noise; workflow_dispatch is kept so the build can be re-run by hand
-  # while working the fix. Restore the schedule once #587 is resolved.
-  #   schedule:
-  #     - cron: "0 */12 * * *"
+  schedule:
+    - cron: "0 */12 * * *"
   workflow_dispatch:
 
 permissions:

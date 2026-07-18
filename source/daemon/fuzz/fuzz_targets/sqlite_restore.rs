@@ -42,11 +42,17 @@ fn fuzz_db_path() -> PathBuf {
 }
 
 fuzz_target!(|data: &[u8]| {
+    // Force the `Lazy` from outside the runtime: its initializer calls
+    // `RUNTIME.block_on`, which panics ("Cannot start a runtime from
+    // within a runtime") if the first deref happens inside the
+    // `block_on` below.
+    //
+    // `SqlitePool` is `Arc`-backed internally, so `clone()` is cheap
+    // and the real pool underneath is shared across every fuzz
+    // iteration in this process.
+    let pool = POOL.clone();
     RUNTIME.block_on(async {
-        // `SqlitePool` is `Arc`-backed internally, so `clone()` is cheap
-        // and the real pool underneath is shared across every fuzz
-        // iteration in this process.
-        let dumper = SqliteDumper::new(POOL.clone(), fuzz_db_path());
+        let dumper = SqliteDumper::new(pool, fuzz_db_path());
         let _ = dumper.restore(data).await;
     });
 });
