@@ -1,6 +1,6 @@
 # Privacy Policy
 
-_Last updated: July 7, 2026_
+_Last updated: July 18, 2026_
 
 Wardnet is built around one rule: your network's data stays on your
 network unless you explicitly opt into something that requires it to
@@ -28,8 +28,14 @@ disabled by default) and point it at an endpoint you control, see
 
 ## 2. This website
 
-wardnet.network doesn't use analytics, tracking pixels, or advertising
-cookies. We don't know who's reading these docs.
+wardnet.network uses **Cloudflare Web Analytics**, a privacy-first,
+**cookieless** analytics service. It records only aggregate page views
+and referrers, so we can see which pages and articles are read and where
+visitors arrive from. It sets no cookies, does no fingerprinting, and
+does not track visitors across sites, and it collects no personal data.
+It is designed so that neither we nor Cloudflare can identify an
+individual visitor. There are no advertising or tracking cookies on this
+site.
 
 ## 3. Premium and account.wardnet.network
 
@@ -53,14 +59,14 @@ listed below and when required by law.
 
 ## 4. Sub-processors
 
-These are the third parties that process data on our behalf to run
-Premium and account.wardnet.network:
+These are the third parties that process data on our behalf across
+Wardnet's website and the Premium cloud services:
 
 | Sub-processor | Purpose |
 | --- | --- |
 | Stripe | Payment processing and billing. |
 | Hetzner | Hosts the account/billing API and the DDNS/tunnel relay infrastructure behind account.wardnet.network. |
-| Cloudflare | DNS for Wardnet's own zones (including the zero-config `wardnet.services` dynamic DNS domain) and reverse proxy/DDoS protection in front of account.wardnet.network. |
+| Cloudflare | DNS for Wardnet's own zones (including the zero-config `wardnet.services` dynamic DNS domain), reverse proxy/DDoS protection in front of account.wardnet.network, and privacy-first, cookieless web analytics for wardnet.network. |
 
 If you bring your own domain via Cloudflare for remote access (see
 [remote access](/docs/remote-access)), that's a Cloudflare account you
@@ -69,7 +75,8 @@ control directly, not a sub-processor relationship with us.
 ## 5. Cookies
 
 account.wardnet.network uses a session cookie to keep you signed in.
-We don't use cookies for advertising or cross-site tracking.
+Our website analytics is cookieless, and we don't use cookies for
+advertising or cross-site tracking anywhere.
 
 ## 6. Data retention
 
