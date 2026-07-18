@@ -140,6 +140,12 @@ coverage)
     ;;
 esac
 
+# Link with LLD: the image's /usr/bin/ld is an old BFD binutils that
+# chokes on the build-std compiler_builtins rlib ("file format not
+# recognized"); lld ships with the image's clang and handles the
+# modern object files fine.
+TARGET_RUSTFLAGS+=" -Clink-arg=-fuse-ld=lld"
+
 export CARGO_TARGET_X86_64_WARDNET_LINUX_GNU_RUSTFLAGS="$TARGET_RUSTFLAGS"
 unset RUSTFLAGS 2>/dev/null || true
 
