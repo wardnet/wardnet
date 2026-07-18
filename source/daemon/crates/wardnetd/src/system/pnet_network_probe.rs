@@ -20,7 +20,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use dhcproto::v4::{DhcpOption, Flags, Message, MessageType, Opcode};
-use dhcproto::{Decodable, Decoder, Encodable, Encoder};
+use dhcproto::{Encodable, Encoder};
 use pnet::datalink::{self, Channel, Config};
 use pnet::packet::Packet;
 use pnet::packet::arp::{ArpOperations, ArpPacket};
