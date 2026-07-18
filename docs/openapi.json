@@ -3002,7 +3002,10 @@
         },
         "security": [
           {
-            "admin_auth": []
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
           }
         ]
       },
@@ -3087,7 +3090,10 @@
         },
         "security": [
           {
-            "admin_auth": []
+            "session_cookie": []
+          },
+          {
+            "bearer_auth": []
           }
         ]
       }
@@ -14506,7 +14512,7 @@
     "/api/network/zones/exceptions": {
       "get": {
         "tags": [
-          "zone_exceptions"
+          "zone-exceptions"
         ],
         "description": "List every cross-zone exception. Admin only.",
         "operationId": "list_exceptions",
@@ -14629,7 +14635,7 @@
       },
       "post": {
         "tags": [
-          "zone_exceptions"
+          "zone-exceptions"
         ],
         "description": "Create a cross-zone exception. Both endpoints must exist and differ; a custom port list must be non-empty with valid ranges. Admin only.",
         "operationId": "create_exception",
@@ -14796,7 +14802,7 @@
     "/api/network/zones/exceptions/{id}": {
       "get": {
         "tags": [
-          "zone_exceptions"
+          "zone-exceptions"
         ],
         "description": "Fetch a single cross-zone exception. Admin only.",
         "operationId": "get_exception",
@@ -14963,7 +14969,7 @@
       },
       "put": {
         "tags": [
-          "zone_exceptions"
+          "zone-exceptions"
         ],
         "description": "Partially update a cross-zone exception. Every field is optional; the resolved exception is re-validated. Admin only.",
         "operationId": "update_exception",
@@ -15172,7 +15178,7 @@
       },
       "delete": {
         "tags": [
-          "zone_exceptions"
+          "zone-exceptions"
         ],
         "description": "Delete a cross-zone exception. Admin only.",
         "operationId": "delete_exception",
@@ -24009,15 +24015,17 @@
         "description": "Response for POST /api/network/dhcp-self-probe.\n\nThe wizard's primary-mode step 3 uses this to verify Wardnet now\nowns LAN DHCP after the operator disabled it on their router:\n\n- `wardnet_responded == true && foreign_responded == false` → ready\n  to advance.\n- `foreign_responded == true` → re-show the disable-DHCP guide;\n  `foreign_server_ip` lets the wizard call out which device is\n  still answering.",
         "required": [
           "wardnet_responded",
-          "foreign_responded",
-          "foreign_server_ip"
+          "foreign_responded"
         ],
         "properties": {
           "foreign_responded": {
             "type": "boolean"
           },
           "foreign_server_ip": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "wardnet_responded": {
             "type": "boolean"
@@ -24079,9 +24087,6 @@
       "DiscoverGatewayMacRequest": {
         "type": "object",
         "description": "Request body for POST /api/network/discover-gateway-mac.\n\nAll fields optional. If `mac` is provided the daemon skips the ARP\nprobe and just persists the value (validated). Otherwise it probes\nthe gateway IP from `GET /api/network/status`; `target_ip` lets a\ncaller override that for testing or when the gateway differs from\nthe kernel's default route.",
-        "required": [
-          "target_ip"
-        ],
         "properties": {
           "mac": {
             "type": [
@@ -24090,7 +24095,10 @@
             ]
           },
           "target_ip": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -25606,7 +25614,6 @@
         "required": [
           "interface",
           "ip",
-          "gateway",
           "dhcp_source"
         ],
         "properties": {
@@ -25614,7 +25621,10 @@
             "$ref": "#/components/schemas/DhcpSource"
           },
           "gateway": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "interface": {
             "type": "string"
@@ -28307,16 +28317,36 @@
       "description": "Unauthenticated daemon info"
     },
     {
+      "name": "health",
+      "description": "Unauthenticated liveness/readiness probe"
+    },
+    {
       "name": "devices",
       "description": "Device discovery and routing"
+    },
+    {
+      "name": "network",
+      "description": "LAN interface status and gateway discovery"
     },
     {
       "name": "network_zones",
       "description": "Network Zones: device policy buckets"
     },
     {
+      "name": "zone-exceptions",
+      "description": "Cross-zone exceptions: admin-granted allowances between isolated zones"
+    },
+    {
+      "name": "rule-requests",
+      "description": "Device-initiated firewall rule requests and admin decisions"
+    },
+    {
       "name": "tunnels",
       "description": "WireGuard tunnel lifecycle"
+    },
+    {
+      "name": "inbound-wg",
+      "description": "Inbound WireGuard remote-access server and peers"
     },
     {
       "name": "providers",
@@ -28357,6 +28387,10 @@
     {
       "name": "push",
       "description": "Web Push subscriptions and VAPID key"
+    },
+    {
+      "name": "backup",
+      "description": "Encrypted configuration export / import and snapshots"
     }
   ]
 }

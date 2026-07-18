@@ -178,6 +178,85 @@ fn api_doc_authenticated_endpoint_references_both_schemes() {
     );
 }
 
+/// Visit every operation in the serialized spec, yielding
+/// `(path, method, operation)` for each HTTP-method entry under `paths`.
+fn for_each_operation(
+    doc: &serde_json::Value,
+    mut visit: impl FnMut(&str, &str, &serde_json::Value),
+) {
+    const METHODS: [&str; 7] = ["get", "put", "post", "delete", "patch", "head", "options"];
+    let paths = doc["paths"].as_object().expect("paths block must exist");
+    for (path, item) in paths {
+        for method in METHODS {
+            let op = &item[method];
+            if !op.is_null() {
+                visit(path, method, op);
+            }
+        }
+    }
+}
+
+#[test]
+fn every_security_requirement_references_a_registered_scheme() {
+    // The spot-check above only covers /api/devices. This walks the whole
+    // document: any scheme name an operation references must exist in
+    // `components.securitySchemes`, otherwise generated clients silently
+    // send no credentials and validators reject the spec.
+    let doc = api_doc_json();
+    let registered: Vec<String> = doc["components"]["securitySchemes"]
+        .as_object()
+        .expect("securitySchemes block must exist")
+        .keys()
+        .cloned()
+        .collect();
+
+    for_each_operation(&doc, |path, method, op| {
+        let Some(requirements) = op["security"].as_array() else {
+            return;
+        };
+        for entry in requirements {
+            // An empty `{}` entry is the marker for "no auth required".
+            for name in entry.as_object().into_iter().flat_map(|o| o.keys()) {
+                assert!(
+                    registered.iter().any(|r| r == name),
+                    "{method} {path} references security scheme {name:?}, \
+                     which is not registered (have: {registered:?})"
+                );
+            }
+        }
+    });
+}
+
+#[test]
+fn operation_tags_match_the_declared_tag_list() {
+    // Two-way check: every tag an operation uses must be declared on ApiDoc
+    // (otherwise it renders undescribed in Scalar), and every declared tag
+    // must be used by at least one operation (otherwise it's dead weight).
+    let doc = api_doc_json();
+    let declared: std::collections::BTreeSet<String> = doc["tags"]
+        .as_array()
+        .expect("top-level tags block must exist")
+        .iter()
+        .map(|t| t["name"].as_str().expect("tag name is a string").to_owned())
+        .collect();
+
+    let mut used = std::collections::BTreeSet::new();
+    for_each_operation(&doc, |_, _, op| {
+        for tag in op["tags"].as_array().into_iter().flatten() {
+            used.insert(tag.as_str().expect("operation tag is a string").to_owned());
+        }
+    });
+
+    assert_eq!(
+        used,
+        declared,
+        "operation tags and ApiDoc's declared tags have drifted apart \
+         (missing declarations: {:?}; declared but unused: {:?})",
+        used.difference(&declared).collect::<Vec<_>>(),
+        declared.difference(&used).collect::<Vec<_>>()
+    );
+}
+
 // ---------------------------------------------------------------------------
 // HTML + static assets
 // ---------------------------------------------------------------------------

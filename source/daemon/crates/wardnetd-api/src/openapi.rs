@@ -43,9 +43,14 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "users", description = "Authenticated admin identity"),
         (name = "setup", description = "First-run setup wizard"),
         (name = "info", description = "Unauthenticated daemon info"),
+        (name = "health", description = "Unauthenticated liveness/readiness probe"),
         (name = "devices", description = "Device discovery and routing"),
+        (name = "network", description = "LAN interface status and gateway discovery"),
         (name = "network_zones", description = "Network Zones: device policy buckets"),
+        (name = "zone-exceptions", description = "Cross-zone exceptions: admin-granted allowances between isolated zones"),
+        (name = "rule-requests", description = "Device-initiated firewall rule requests and admin decisions"),
         (name = "tunnels", description = "WireGuard tunnel lifecycle"),
+        (name = "inbound-wg", description = "Inbound WireGuard remote-access server and peers"),
         (name = "providers", description = "VPN provider integration"),
         (name = "dhcp", description = "DHCP server configuration, leases, and reservations"),
         (name = "dns", description = "DNS resolver, ad-blocking, filters"),
@@ -56,6 +61,7 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "stats", description = "Generic pre-aggregating time-series and top-N stats"),
         (name = "update", description = "Auto-update and rollback"),
         (name = "push", description = "Web Push subscriptions and VAPID key"),
+        (name = "backup", description = "Encrypted configuration export / import and snapshots"),
     )
 )]
 pub struct ApiDoc;
