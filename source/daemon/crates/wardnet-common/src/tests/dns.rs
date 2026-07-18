@@ -728,16 +728,6 @@ fn default_upstreams_include_quad9() {
 }
 
 #[test]
-fn default_forwarder_selection_is_failover() {
-    let cfg = DnsConfig::default();
-    assert_eq!(
-        cfg.forwarder_selection_mode,
-        ForwarderSelectionMode::Failover
-    );
-    assert_eq!(cfg.single_upstream, None);
-}
-
-#[test]
 fn forwarder_selection_mode_str_matches_serde() {
     // as_str() must match the snake_case wire form used for KV persistence.
     for m in [

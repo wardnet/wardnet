@@ -1,30 +1,5 @@
-//! Tests for the DHCP `.lan` hostname-label derivation.
-
-use crate::dns::dhcp_lan_runner::lan_label;
-
-#[test]
-fn single_label_passthrough() {
-    assert_eq!(lan_label("mypc").as_deref(), Some("mypc"));
-}
-
-#[test]
-fn fqdn_keeps_only_first_label() {
-    assert_eq!(lan_label("mypc.home.arpa").as_deref(), Some("mypc"));
-}
-
-#[test]
-fn lowercased_and_trimmed() {
-    assert_eq!(lan_label("  MyPC  ").as_deref(), Some("mypc"));
-    assert_eq!(lan_label("HOST.local").as_deref(), Some("host"));
-}
-
-#[test]
-fn empty_or_whitespace_is_none() {
-    assert_eq!(lan_label(""), None);
-    assert_eq!(lan_label("   "), None);
-    // Leading dot → empty first label → None.
-    assert_eq!(lan_label(".lan"), None);
-}
+//! Tests for the DHCP `.lan` runner: the pure `lan_label` helper and the
+//! `register_lease` upsert logic.
 
 use std::net::Ipv4Addr;
 use std::sync::Arc;
@@ -33,29 +8,45 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
 use uuid::Uuid;
-use wardnet_common::auth::AuthContext;
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease};
 use wardnetd_data::repository::SqliteDnsLocalRepository;
 
+use super::admin;
 use crate::auth_context;
 use crate::dhcp::DhcpService;
-use crate::dns::dhcp_lan_runner::{DhcpLanRunner, FALLBACK_TTL_SECS, LAN_ZONE_ID, register_lease};
+use crate::dns::dhcp_lan_runner::{
+    DhcpLanRunner, FALLBACK_TTL_SECS, LAN_ZONE_ID, lan_label, register_lease,
+};
 use crate::dns_local::service::{DnsLocalService, DnsLocalServiceImpl};
 use crate::error::AppError;
 
 // ── lan_label (pure) ──────────────────────────────────────────────────────
 
 #[test]
-fn lan_label_keeps_first_label_lowercased() {
-    assert_eq!(lan_label("MyPC.home.arpa").as_deref(), Some("mypc"));
+fn single_label_passthrough() {
+    assert_eq!(lan_label("mypc").as_deref(), Some("mypc"));
     assert_eq!(lan_label("nas").as_deref(), Some("nas"));
-    assert_eq!(lan_label("  Trimmed  ").as_deref(), Some("trimmed"));
 }
 
 #[test]
-fn lan_label_rejects_empty() {
+fn fqdn_keeps_only_first_label() {
+    assert_eq!(lan_label("mypc.home.arpa").as_deref(), Some("mypc"));
+    assert_eq!(lan_label("MyPC.home.arpa").as_deref(), Some("mypc"));
+}
+
+#[test]
+fn lowercased_and_trimmed() {
+    assert_eq!(lan_label("  MyPC  ").as_deref(), Some("mypc"));
+    assert_eq!(lan_label("  Trimmed  ").as_deref(), Some("trimmed"));
+    assert_eq!(lan_label("HOST.local").as_deref(), Some("host"));
+}
+
+#[test]
+fn empty_or_whitespace_is_none() {
     assert_eq!(lan_label(""), None);
     assert_eq!(lan_label("   "), None);
+    // Leading (or lone) dot → empty first label → None.
+    assert_eq!(lan_label(".lan"), None);
     assert_eq!(lan_label("."), None);
 }
 
@@ -182,12 +173,6 @@ async fn build_service() -> (DnsLocalServiceImpl, SqlitePool) {
     let events: Arc<dyn crate::event::EventPublisher> =
         Arc::new(crate::event::BroadcastEventBus::new(16));
     (DnsLocalServiceImpl::new(repo, events), pool)
-}
-
-fn admin() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
 }
 
 async fn lan_records(svc: &DnsLocalServiceImpl) -> Vec<wardnet_common::dns::CustomDnsRecord> {

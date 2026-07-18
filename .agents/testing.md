@@ -68,10 +68,15 @@ Tests **must** live in separate files. Never put `#[test]` or `#[tokio::test]` b
 **Repository tests** follow the same layout under `src/repository/tests/`. The shared `test_pool()` helper lives in `src/repository/tests/mod.rs`.
 
 This rule is enforced by code review **and by CI** — no exceptions.
-`source/daemon/build-support/check-inline-tests.sh` (run by `make
-check-daemon` and as a dedicated step in the Check Daemon job) fails the
-build on any inline `#[cfg(test)] mod ... { ... }` block outside a `tests/`
-directory. The pre-existing inline blocks were migrated in issue #847.
+`source/daemon/build-support/check-inline-tests.sh` (the first step of
+`make check-daemon`, which the Check Daemon CI job runs) fails the build on
+inline test code in any `crates/*/src` file outside a `tests/` directory:
+bare `#[test]`/`#[tokio::test]` functions as well as `#[cfg(...test...)]
+mod ... { ... }` blocks. Files named `tests.rs` are exempt only to
+grandfather the few pre-existing `<mod>/tests.rs` siblings (e.g.
+`push/tests.rs`) — they are separate test files, but new code should use
+the `tests/` directory layout above. The pre-existing inline blocks were
+migrated in issue #847.
 
 ## Test patterns
 

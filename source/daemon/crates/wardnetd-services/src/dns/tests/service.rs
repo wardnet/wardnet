@@ -5,12 +5,11 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use uuid::Uuid;
 use wardnet_common::api::{UpdateDnsConfigRequest, UpstreamDnsRequest};
-use wardnet_common::auth::AuthContext;
 use wardnet_common::dns::DnsProtocol;
 use wardnet_common::dns::ForwarderSelectionMode::{self, Failover, Fastest, Single};
 
+use super::admin;
 use crate::dns::service::{DnsService, DnsServiceImpl, resolve_forwarder_selection};
 use crate::error::AppError;
 use wardnetd_data::repository::{
@@ -149,12 +148,6 @@ fn service() -> DnsServiceImpl {
         Arc::new(crate::event::BroadcastEventBus::new(16)),
         None,
     )
-}
-
-fn admin() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
 }
 
 fn udp(address: &str, name: &str) -> UpstreamDnsRequest {

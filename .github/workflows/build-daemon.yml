@@ -92,12 +92,6 @@ jobs:
         with:
           tool: clippy-sarif,sarif-fmt
 
-      - name: Forbid inline test modules
-        # `.agents/testing.md` mandates tests in separate files under
-        # tests/. `make check-daemon` also runs this, but a dedicated
-        # step keeps the failure reason obvious in the job summary.
-        run: source/daemon/build-support/check-inline-tests.sh
-
       - name: Check
         # SARIF_OUT flips `make check-daemon` into piping clippy output
         # through clippy-sarif — single clippy run, SARIF as by-product.
