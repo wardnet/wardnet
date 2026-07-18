@@ -8,7 +8,7 @@ recommended:
     title: Installation
     icon: download
     excerpt: >
-      Get Wardnet running on your Raspberry Pi in minutes. Download the
+      Get Wardnet running on your own hardware in minutes. Download the
       latest release, configure the daemon, and start protecting your
       network with a single command.
 
@@ -32,7 +32,7 @@ topics:
   - slug: installation
     title: Installation
     icon: download
-    description: Download, install, and run Wardnet on a Raspberry Pi.
+    description: Download, install, and run Wardnet on a Raspberry Pi, mini-PC, or any Linux host.
 
   - slug: first-run
     title: First-time setup
