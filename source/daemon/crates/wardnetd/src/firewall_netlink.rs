@@ -253,15 +253,25 @@ pub(crate) fn inbound_wg_iface_exact_value() -> Vec<u8> {
 }
 
 /// The device IP a zone rule is keyed on: the final `:`-delimited segment of a
-/// `wardnet:zone:<kind>:<ip>` comment. IPv4 only (no `:` in the address), which
-/// matches the daemon's IPv4-only device model.
-fn zone_rule_ip(comment: &str) -> Option<&str> {
-    comment.starts_with(ZONE_COMMENT_PREFIX).then(|| {
-        comment
-            .rsplit(':')
-            .next()
-            .expect("rsplit always yields at least one element")
-    })
+/// `wardnet:zone:<kind>:<ip>` comment, returned only when that segment is a valid
+/// IPv4 literal. IPv4 only (no `:` in the address), which matches the daemon's
+/// IPv4-only device model.
+///
+/// The IP check is what keeps the per-device namespace disjoint from the
+/// zone-subsystem control rules that share `ZONE_COMMENT_PREFIX` but carry no
+/// device IP — the base-forward jump `wardnet:zone:isojump` and the isolation
+/// ACCEPT rules `wardnet:zone:allow`. Without it, `isojump` reads as a device
+/// "IP" and the orphan sweep deletes the FORWARD→`zone_isolation` jump on every
+/// boot, silently disabling all L3 zone isolation.
+pub(crate) fn zone_rule_ip(comment: &str) -> Option<&str> {
+    if !comment.starts_with(ZONE_COMMENT_PREFIX) {
+        return None;
+    }
+    let tail = comment
+        .rsplit(':')
+        .next()
+        .expect("rsplit always yields at least one element");
+    tail.parse::<Ipv4Addr>().is_ok().then_some(tail)
 }
 
 /// Parse a `"a.b.c.d/prefix"` string into an [`IpNetwork`] for the network
@@ -714,13 +724,15 @@ impl FirewallManager for NetlinkFirewallManager {
     }
 
     async fn remove_zone_rules(&self, device_ip: &str) -> anyhow::Result<()> {
-        let suffix = format!(":{device_ip}");
+        let key = device_ip.to_owned();
         let removed = run_blocking(move || {
             let mut all = Vec::new();
             for chain_name in [FORWARD, INPUT] {
-                let r = delete_rules_where(chain_name, |c| {
-                    c.starts_with(ZONE_COMMENT_PREFIX) && c.ends_with(&suffix)
-                })?;
+                // Match on the parsed device-IP key rather than a raw `:<ip>`
+                // suffix: `zone_rule_ip` rejects any comment whose tail isn't a
+                // valid IPv4, so a control rule like `wardnet:zone:isojump` can
+                // never be selected here even if `key` were "isojump".
+                let r = delete_rules_where(chain_name, |c| zone_rule_ip(c) == Some(key.as_str()))?;
                 all.extend(r);
             }
             Ok(all)
