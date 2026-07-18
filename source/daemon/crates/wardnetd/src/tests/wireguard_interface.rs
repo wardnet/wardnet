@@ -54,8 +54,11 @@ fn absent_error_other_kind_is_not_absent() {
 /// before any netlink traffic.
 #[test]
 fn delete_rejects_invalid_interface_name() {
-    let err = delete_wireguard_interface("this-name-is-far-too-long-for-an-interface")
-        .expect_err("invalid interface name should be rejected");
+    let err = delete_wireguard_interface(
+        "this-name-is-far-too-long-for-an-interface",
+        "wireguard interface",
+    )
+    .expect_err("invalid interface name should be rejected");
     assert!(
         err.to_string().contains("invalid interface name"),
         "unexpected error: {err}"

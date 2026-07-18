@@ -187,7 +187,7 @@ async fn kernel_remove_deletes_configured_interface() {
     let iface: InterfaceName = name.parse().unwrap();
 
     // Self-heal from a previous failed run that leaked the interface.
-    let _ = crate::wireguard_interface::delete_wireguard_interface(name);
+    let _ = crate::wireguard_interface::delete_wireguard_interface(name, "wireguard interface");
 
     // Configure the interface directly via netlink (what `create()` does,
     // minus the address assignment that needs iproute2).

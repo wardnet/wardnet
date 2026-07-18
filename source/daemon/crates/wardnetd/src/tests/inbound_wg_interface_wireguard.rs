@@ -53,7 +53,7 @@ async fn kernel_tear_down_server_deletes_interface() {
     let iface: InterfaceName = name.parse().unwrap();
 
     // Self-heal from a previous failed run that leaked the interface.
-    let _ = crate::wireguard_interface::delete_wireguard_interface(name);
+    let _ = crate::wireguard_interface::delete_wireguard_interface(name, "wireguard interface");
 
     let update = DeviceUpdate::new().set_private_key(Key::generate_private());
     if !super::apply_or_skip_kernel(update, &iface) {

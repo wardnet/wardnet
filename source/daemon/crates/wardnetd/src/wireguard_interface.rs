@@ -26,28 +26,66 @@ pub fn is_interface_absent_error(err: &std::io::Error) -> bool {
         )
 }
 
-/// Delete a `WireGuard` interface by name.
+/// Delete a `WireGuard` interface by name, logging the outcome.
 ///
 /// `Device::delete` is the crate's real removal path (netlink `DelLink` on
 /// the Linux kernel backend). Applying an empty `DeviceUpdate` instead would
 /// only layer a no-op config change on top of the existing interface — the
 /// kernel backend never deletes on `apply`.
 ///
+/// `label` names the interface kind in log and error messages (e.g.
+/// "wireguard interface", "inbound wireguard server").
+///
 /// Returns `Ok(true)` when an interface was actually removed and `Ok(false)`
-/// when it was already absent (idempotent no-op). An absent-classified error
-/// from either the get or the delete (the interface can vanish between the
-/// two, e.g. a concurrent teardown) counts as already absent. Real failures
-/// (e.g. permission errors) are returned as `Err`.
-pub fn delete_wireguard_interface(interface_name: &str) -> anyhow::Result<bool> {
+/// when it was already absent (idempotent no-op; logged at debug, not as a
+/// removal). An absent-classified error from either the get or the delete
+/// (the interface can vanish between the two, e.g. a concurrent teardown)
+/// counts as already absent. Real failures (e.g. permission errors) are
+/// returned as `Err`.
+pub fn delete_wireguard_interface(interface_name: &str, label: &str) -> anyhow::Result<bool> {
     let iface: InterfaceName = interface_name
         .parse()
         .map_err(|e| anyhow::anyhow!("invalid interface name: {e}"))?;
 
     match Device::get(&iface, Backend::default()).and_then(Device::delete) {
-        Ok(()) => Ok(true),
-        Err(e) if is_interface_absent_error(&e) => Ok(false),
+        Ok(()) => {
+            tracing::info!(interface = %interface_name, "{label} {interface_name} removed");
+            Ok(true)
+        }
+        Err(e) if is_interface_absent_error(&e) => {
+            tracing::debug!(
+                interface = %interface_name,
+                "{label} {interface_name} already absent, nothing to remove"
+            );
+            Ok(false)
+        }
         Err(e) => Err(anyhow::anyhow!(
-            "failed to remove wireguard interface {interface_name}: {e}"
+            "failed to remove {label} {interface_name}: {e}"
         )),
+    }
+}
+
+/// Best-effort removal of any same-named link via `ip link`, regardless of
+/// link type.
+///
+/// Deliberately a shell-out rather than [`delete_wireguard_interface`]: the
+/// `WireGuard` netlink family cannot see links of the wrong type or ones
+/// left partially created by a crash, while `ip link delete` reaps them all.
+/// Used by the create paths to clear stale interfaces before re-creating
+/// (avoiding "Address already assigned" errors).
+pub async fn remove_stale_link(interface_name: &str, label: &str) {
+    let check = tokio::process::Command::new("ip")
+        .args(["link", "show", interface_name])
+        .output()
+        .await;
+    if check.is_ok_and(|o| o.status.success()) {
+        tracing::info!(
+            interface = %interface_name,
+            "removing stale {label} {interface_name} before re-creation"
+        );
+        let _ = tokio::process::Command::new("ip")
+            .args(["link", "delete", interface_name])
+            .output()
+            .await;
     }
 }
