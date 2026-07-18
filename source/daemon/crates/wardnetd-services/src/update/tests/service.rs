@@ -13,7 +13,7 @@ use crate::auth_context;
 use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::update::applier::{BinaryApplier, SwapOutcome};
 use crate::update::release_source::ReleaseSource;
-use crate::update::service::{UpdateService, UpdateServiceImpl};
+use crate::update::service::{UpdateService, UpdateServiceImpl, is_newer};
 use crate::update::verifier::ReleaseVerifier;
 use wardnet_common::update::{UpdateHistoryEntry, UpdateHistoryStatus};
 use wardnetd_data::repository::SystemConfigRepository;
@@ -871,8 +871,6 @@ async fn rollback_retracts_the_applied_announcement() {
 }
 
 // ── is_newer (pure version comparator) ──────────────────────────────────
-
-use crate::update::service::is_newer;
 
 #[test]
 fn calver_padded_components() {

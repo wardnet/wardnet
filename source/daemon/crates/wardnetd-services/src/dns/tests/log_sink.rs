@@ -125,17 +125,11 @@ fn make_meter() -> Meter {
     Meter::new(StatsBuffer::new())
 }
 
+/// [`sample_row`] with an optional device id, for the capture-path tests.
 fn make_row(domain: &str, device_id: Option<&str>) -> QueryLogRow {
-    QueryLogRow {
-        timestamp: "2026-06-12T00:00:00Z".to_owned(),
-        client_ip: "192.168.1.1".to_owned(),
-        domain: domain.to_owned(),
-        query_type: "A".to_owned(),
-        result: "forwarded".to_owned(),
-        upstream: None,
-        latency_ms: 1.0,
-        device_id: device_id.map(str::to_owned),
-    }
+    let mut row = sample_row(domain);
+    row.device_id = device_id.map(str::to_owned);
+    row
 }
 
 /// A row with `device_id = Some(...)` must appear on both `capture_rx`

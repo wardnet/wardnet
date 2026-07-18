@@ -1,5 +1,6 @@
-//! Service-level tests for the push subsystem. Delivery crypto is covered in
-//! [`super::sender`]; here we exercise the audience/label mapping, Gone-pruning,
+//! Tests for the push subsystem. Delivery crypto and the wire format are
+//! covered in the `ReqwestWebPushSender` section at the bottom of this
+//! file; the service-level tests here exercise the audience/label mapping, Gone-pruning,
 //! subscription ownership, and VAPID idempotency over real in-memory `SQLite`
 //! repositories (same migration set as the rest of the workspace) plus a
 //! recording [`WebPushSender`].
@@ -8,6 +9,8 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use chrono::Utc;
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
@@ -1000,9 +1003,6 @@ async fn device_keyed_payload_omits_url_but_keeps_kind_and_subject() {
 }
 
 // ── ReqwestWebPushSender (wire format + outcome classification) ─────────
-
-use base64::Engine as _;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 
 /// A valid subscriber target: a real P-256 point + 16-byte auth secret.
 fn valid_target(endpoint: &str) -> (String, String, String) {

@@ -23,6 +23,7 @@ use crate::tunnel::exit_probe::{ExitInfo, ProbeError, TunnelExitProbe};
 use crate::tunnel::interface::{CreateTunnelParams, TunnelInterface, TunnelStats};
 use crate::tunnel::key_store::KeyStore;
 use crate::tunnel::latency_prober::{LatencyProbeError, TunnelLatencyProber};
+use crate::tunnel::service::summarize_latency;
 use crate::tunnel::throughput_tester::{ThroughputError, ThroughputMeasurement, ThroughputTester};
 use crate::vpn::resolver::{EmptyServerListError, ServerResolver};
 use crate::{TunnelService, TunnelServiceImpl};
@@ -2837,8 +2838,6 @@ async fn rebuild_not_found() {
 }
 
 // ── summarize_latency (pure) ───────────────────────────────
-
-use crate::tunnel::service::summarize_latency;
 
 fn approx(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
