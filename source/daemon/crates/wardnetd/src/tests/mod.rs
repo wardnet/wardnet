@@ -24,3 +24,24 @@ mod watchdog_hard;
 mod watchdog_soft;
 mod wireguard_interface;
 mod zone_enforcement_listener;
+
+/// Apply `update` to a kernel `WireGuard` interface for an opt-in `kernel_*`
+/// test, returning `false` when this kernel has no `WireGuard` support (the
+/// caller should skip the test).
+///
+/// Panics on any other failure (e.g. missing `CAP_NET_ADMIN`).
+pub fn apply_or_skip_kernel(
+    update: wireguard_control::DeviceUpdate,
+    iface: &wireguard_control::InterfaceName,
+) -> bool {
+    match update.apply(iface, wireguard_control::Backend::Kernel) {
+        Ok(()) => true,
+        Err(e) if e.raw_os_error() == Some(libc::EOPNOTSUPP) => {
+            eprintln!("skipping: this kernel has no WireGuard support ({e})");
+            false
+        }
+        Err(e) => {
+            panic!("failed to create kernel wireguard interface (needs CAP_NET_ADMIN): {e}")
+        }
+    }
+}

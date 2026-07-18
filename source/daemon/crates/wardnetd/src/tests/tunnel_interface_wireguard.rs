@@ -186,21 +186,19 @@ async fn kernel_remove_deletes_configured_interface() {
     let name = "wgtest832a";
     let iface: InterfaceName = name.parse().unwrap();
 
+    // Self-heal from a previous failed run that leaked the interface.
+    let _ = crate::wireguard_interface::delete_wireguard_interface(name);
+
     // Configure the interface directly via netlink (what `create()` does,
     // minus the address assignment that needs iproute2).
-    let apply_result = DeviceUpdate::new()
+    let update = DeviceUpdate::new()
         .set_private_key(Key::generate_private())
         .add_peer(PeerConfigBuilder::new(
             &Key::generate_private().get_public(),
-        ))
-        .apply(&iface, Backend::Kernel);
-    if let Err(e) = &apply_result
-        && e.raw_os_error() == Some(libc::EOPNOTSUPP)
-    {
-        eprintln!("skipping: this kernel has no WireGuard support ({e})");
+        ));
+    if !super::apply_or_skip_kernel(update, &iface) {
         return;
     }
-    apply_result.expect("failed to create kernel wireguard interface (needs CAP_NET_ADMIN)");
 
     let device = Device::get(&iface, Backend::Kernel).expect("interface should exist after apply");
     assert!(

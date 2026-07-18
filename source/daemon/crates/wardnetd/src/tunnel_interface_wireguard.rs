@@ -73,6 +73,9 @@ impl TunnelInterface for WireGuardTunnelInterface {
 
         // Remove any stale interface left over from a previous daemon run or crash.
         // This prevents "Address already assigned" errors when re-creating.
+        // Deliberately an `ip link` shell-out, not `delete_wireguard_interface`:
+        // it also reaps links the WireGuard netlink family cannot see (wrong
+        // type or partially created), which `remove()` classifies as absent.
         let check = tokio::process::Command::new("ip")
             .args(["link", "show", &params.interface_name])
             .output()

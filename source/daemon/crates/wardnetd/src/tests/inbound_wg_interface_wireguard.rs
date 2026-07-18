@@ -52,16 +52,13 @@ async fn kernel_tear_down_server_deletes_interface() {
     let name = "wgtest832c";
     let iface: InterfaceName = name.parse().unwrap();
 
-    let apply_result = DeviceUpdate::new()
-        .set_private_key(Key::generate_private())
-        .apply(&iface, Backend::Kernel);
-    if let Err(e) = &apply_result
-        && e.raw_os_error() == Some(libc::EOPNOTSUPP)
-    {
-        eprintln!("skipping: this kernel has no WireGuard support ({e})");
+    // Self-heal from a previous failed run that leaked the interface.
+    let _ = crate::wireguard_interface::delete_wireguard_interface(name);
+
+    let update = DeviceUpdate::new().set_private_key(Key::generate_private());
+    if !super::apply_or_skip_kernel(update, &iface) {
         return;
     }
-    apply_result.expect("failed to create kernel wireguard interface (needs CAP_NET_ADMIN)");
     Device::get(&iface, Backend::Kernel).expect("interface should exist after apply");
 
     WireGuardInboundInterface

@@ -286,6 +286,9 @@ struct MockInterface {
     /// When set, `add_peer` returns an error instead of recording the peer —
     /// used to exercise the service's row-rollback compensating action.
     fail_add_peer: AtomicBool,
+    /// When set, `tear_down_server` returns an error — used to verify a
+    /// disable still persists enabled=false when the teardown fails.
+    fail_tear_down: AtomicBool,
 }
 
 #[async_trait]
@@ -295,6 +298,9 @@ impl InboundWgInterface for MockInterface {
         Ok(())
     }
     async fn tear_down_server(&self, interface_name: &str) -> anyhow::Result<()> {
+        if self.fail_tear_down.load(Ordering::SeqCst) {
+            anyhow::bail!("mock interface: tear_down_server failure");
+        }
         self.tear_downs
             .lock()
             .unwrap()
@@ -529,6 +535,24 @@ async fn disable_is_allowed_without_entitlement() {
         .expect("disable is allowed without Premium");
     assert!(!resp.enabled);
     assert!(!h.system_config.inbound_wg_enabled().await.unwrap());
+}
+
+#[tokio::test]
+async fn disable_persists_even_when_interface_teardown_fails() {
+    let h = harness();
+    auth_context::with_context(admin_ctx(), h.service.set_config(true, 51821))
+        .await
+        .expect("enable while entitled");
+    h.interface.fail_tear_down.store(true, Ordering::SeqCst);
+
+    let resp = auth_context::with_context(admin_ctx(), h.service.set_config(false, 51821))
+        .await
+        .expect("disable succeeds despite the interface teardown failing");
+    assert!(!resp.enabled);
+    assert!(
+        !h.system_config.inbound_wg_enabled().await.unwrap(),
+        "enabled=false must be persisted so reconcile cannot resurrect the server"
+    );
 }
 
 #[tokio::test]

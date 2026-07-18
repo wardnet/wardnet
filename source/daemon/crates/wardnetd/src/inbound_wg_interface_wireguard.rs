@@ -44,6 +44,10 @@ impl InboundWgInterface for WireGuardInboundInterface {
         // crash so re-creation doesn't hit "Address already assigned". The
         // service re-adds every enabled peer immediately after this call, so
         // dropping the interface's current peers here is safe and intentional.
+        // Deliberately an `ip link` shell-out, not `delete_wireguard_interface`:
+        // it also reaps links the WireGuard netlink family cannot see (wrong
+        // type or partially created), which `tear_down_server` classifies as
+        // absent and leaves behind.
         let check = tokio::process::Command::new("ip")
             .args(["link", "show", &config.interface_name])
             .output()
