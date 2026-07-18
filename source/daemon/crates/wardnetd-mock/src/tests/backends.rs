@@ -121,3 +121,37 @@ async fn noop_dns_server_toggles_and_returns_zero_metrics() {
     s.stop().await.unwrap();
     assert!(!s.is_running());
 }
+
+// ── synthetic exit-probe / latency values ───────────────────────────────
+
+use crate::backends::noop_exit_probe::synthetic_ip;
+use crate::backends::noop_latency_prober::synthetic_rtt;
+
+#[test]
+fn synthetic_ip_is_in_test_net_2_range() {
+    for _ in 0..32 {
+        let id = uuid::Uuid::new_v4();
+        let ip = synthetic_ip(&id);
+        assert!(ip.starts_with("198.51.100."));
+        let last: u32 = ip.rsplit('.').next().unwrap().parse().unwrap();
+        assert!((1..=254).contains(&last));
+    }
+}
+
+#[test]
+fn synthetic_ip_is_deterministic_per_id() {
+    let id = uuid::Uuid::new_v4();
+    assert_eq!(synthetic_ip(&id), synthetic_ip(&id));
+}
+#[test]
+fn synthetic_rtt_is_in_expected_range() {
+    for name in ["wg_ward0", "wg_ward1", "wg_ward2", "ifaceX"] {
+        let rtt = synthetic_rtt(name);
+        assert!((25..=80).contains(&rtt), "got {rtt} for {name}");
+    }
+}
+
+#[test]
+fn synthetic_rtt_is_deterministic() {
+    assert_eq!(synthetic_rtt("wg_ward0"), synthetic_rtt("wg_ward0"));
+}
