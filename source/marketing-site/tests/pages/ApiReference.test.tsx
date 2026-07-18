@@ -1,8 +1,7 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ApiReference } from "@/pages/ApiReference";
 
 // Newest-spec-first, matching what the generator emits. Row 0 is a beta spec,
 // row 1 a stable spec that shipped across two releases.
@@ -39,8 +38,17 @@ function stubFetch(payload: unknown, ok = true) {
 }
 
 let createApiReference: ReturnType<typeof vi.fn>;
+// Re-imported fresh each test (see beforeEach). ApiReference keeps a
+// module-level `scalarPromise` singleton — correct in production (the page loads
+// the viewer bundle once for its lifetime), but it would otherwise leak the
+// script-load outcome from one test into the next. Resetting the module gives
+// every test a clean singleton, so the two injection tests below are order- and
+// state-independent.
+let ApiReference: (typeof import("@/pages/ApiReference"))["ApiReference"];
 
-beforeEach(() => {
+beforeEach(async () => {
+  vi.resetModules();
+  ({ ApiReference } = await import("@/pages/ApiReference"));
   createApiReference = vi.fn();
   // The vi.fn() mock is callable but doesn't structurally match Scalar's
   // declared signature; cast so the stub satisfies the global type.
@@ -51,6 +59,12 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   delete window.Scalar;
+  // ensureScalar() appends its <script> straight to document.head, outside the
+  // React tree, so RTL's auto-cleanup never removes it. Strip any leftover here
+  // to keep the injection tests independent — otherwise a later test's
+  // querySelector matches an earlier (already-settled) script instead of its
+  // own freshly-injected one.
+  document.querySelectorAll('script[src$="api-docs/scalar.js"]').forEach((el) => el.remove());
 });
 
 function renderPage() {
@@ -117,51 +131,58 @@ describe("ApiReference", () => {
   });
 
   // The two tests below exercise ensureScalar()'s script-injection path, so
-  // window.Scalar must be absent when the component's effect first runs
-  // (the other tests pre-seed it in beforeEach to skip straight to
-  // "already loaded"). Order matters: the module-level scalarPromise
-  // singleton only resets to null after a rejection, so the error case
-  // runs first to guarantee both tests see a fresh injection.
+  // window.Scalar must be absent when the component's effect first runs (the
+  // other tests pre-seed it in beforeEach to skip straight to "already loaded").
+  // They no longer depend on run order — beforeEach resets the module, so each
+  // starts with a fresh scalarPromise singleton.
+  // jsdom never actually runs the injected <script>, so these two tests drive
+  // its onload/onerror by hand. Everything that follows a dispatched event is a
+  // synchronous chain of microtasks (promise settle → catch/then → setState →
+  // re-render), so we flush it through act() rather than polling for the result
+  // with a timeout — the state is committed by the time act() resolves, which
+  // is both deterministic and fast (no CI-load-sensitive wait window).
+  async function injectedScalarScript(): Promise<HTMLScriptElement> {
+    // The <script> is appended by the viewer effect, which only runs after the
+    // manifest fetch resolves and commits `ready` — a multi-turn chain, so we
+    // retry the query with waitFor rather than a fixed act() drain (which can
+    // land a turn short). This wait is for a cheap DOM presence check; the
+    // load/error state transition it precedes is asserted deterministically via
+    // act() below, with no polling window of its own.
+    return waitFor(() => {
+      const scripts = document.querySelectorAll<HTMLScriptElement>(
+        'script[src$="api-docs/scalar.js"]',
+      );
+      const el = scripts[scripts.length - 1];
+      if (!el) throw new Error("Scalar script was never injected");
+      return el;
+    });
+  }
+
   it("shows an error state when the Scalar script fails to load", async () => {
     delete window.Scalar;
     stubFetch(ROWS);
     renderPage();
 
-    const script = await vi.waitFor(() => {
-      const el = document.querySelector<HTMLScriptElement>('script[src$="api-docs/scalar.js"]');
-      if (!el) throw new Error("script not yet injected");
-      return el;
+    const script = await injectedScalarScript();
+    await act(async () => {
+      script.onerror?.(new Event("error"));
     });
-    script.onerror?.(new Event("error"));
 
-    expect(
-      // Default 1s findByText timeout flakes on loaded CI runners (the
-      // rejection → catch → setState → re-render chain lands just past it).
-      await screen.findByText(/failed to load\. please refresh to try again/i, undefined, {
-        timeout: 5_000,
-      }),
-    ).toBeInTheDocument();
-    // The per-test timeout must clear the injection wait (~1s) plus the 5s
-    // findByText above; vitest's 5s default equals the inner budget, so the
-    // outer bound could fire before findByText ever spent its allowance.
-  }, 15_000);
+    expect(screen.getByText(/failed to load\. please refresh to try again/i)).toBeInTheDocument();
+  });
 
   it("loads the Scalar script and renders once it loads", async () => {
     delete window.Scalar;
     stubFetch(ROWS);
     renderPage();
 
-    const script = await vi.waitFor(() => {
-      const el = document.querySelector<HTMLScriptElement>('script[src$="api-docs/scalar.js"]');
-      if (!el) throw new Error("script not yet injected");
-      return el;
-    });
+    const script = await injectedScalarScript();
     // The real bundle would set window.Scalar as a side effect of loading.
     window.Scalar = { createApiReference } as unknown as Window["Scalar"];
-    script.onload?.(new Event("load"));
+    await act(async () => {
+      script.onload?.(new Event("load"));
+    });
 
-    // Same injection-then-render chain as the error case above, so give the
-    // wait (and the test) headroom over the default 1s to survive CI load.
-    await waitFor(() => expect(createApiReference).toHaveBeenCalled(), { timeout: 5_000 });
-  }, 15_000);
+    expect(createApiReference).toHaveBeenCalled();
+  });
 });
