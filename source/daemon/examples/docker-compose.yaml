@@ -1,16 +1,25 @@
 # wardnetd reference compose.
 #
-# Copy this file to your project, adjust the configuration, and run:
+# Copy this file to your project, adjust, and run:
 #   docker compose up -d
 #
-# The daemon needs a few host-level permissions to manage WireGuard interfaces,
-# nftables rules, and DHCP/DNS sockets. None of these require `privileged: true`.
+# A gateway runs DHCP, DNS, and HTTPS directly on your LAN, so how you network
+# the container matters more than which ports you publish. This file defaults
+# to HOST networking: the simplest setup, and the only bridge-free way DHCP
+# broadcasts reach real LAN clients. Two alternatives are documented at the
+# bottom: macvlan (its own LAN IP) and a bridge (web UI + DNS + tunnels, no
+# DHCP). None of this requires `privileged: true`.
 
 services:
   wardnetd:
     image: ghcr.io/wardnet/wardnetd:latest
     container_name: wardnetd
     restart: unless-stopped
+
+    # HOST networking: the daemon binds the host's own interfaces directly (web
+    # UI 7411, DNS 53, DHCP 67, automatic HTTPS 80/443, WireGuard), and DHCP
+    # broadcasts reach LAN clients. Needs those ports free on the host.
+    network_mode: host
 
     # NET_ADMIN — create/configure WireGuard interfaces, add ip rules, manage nftables.
     # NET_RAW   — raw sockets used by the packet-capture device detector.
@@ -22,27 +31,17 @@ services:
     devices:
       - /dev/net/tun
 
-    # IP forwarding is required to route LAN traffic through WireGuard tunnels.
-    sysctls:
-      net.ipv4.ip_forward: "1"
+    # IP forwarding is required to route LAN traffic through WireGuard. With host
+    # networking, enable it on the HOST — Docker rejects network sysctls in this
+    # mode, so `sysctls:` / `--sysctl` do not apply here:
+    #   echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-wardnet.conf
+    #   sudo sysctl --system
 
     # systemd (PID 1) requires a writable /run. Do not use a named volume here —
     # systemd's runtime state must not persist across container restarts.
     tmpfs:
       - /run
       - /run/lock
-
-    ports:
-      # Web UI and daemon API. Open this to any host that needs dashboard access.
-      - "7411:7411/tcp"
-      # DNS: publish only on the LAN-facing interface if your host has multiple.
-      # Example: - "192.168.1.1:53:53/udp"
-      - "53:53/udp"
-      - "53:53/tcp"
-      # DHCP: UDP broadcast — the container must share the LAN bridge for DHCP
-      # to reach clients. Binding the port alone is not sufficient; see the
-      # network section below or use `network_mode: host` for simple setups.
-      - "67:67/udp"
 
     volumes:
       # Persistent state: database, WireGuard keys, staged updates, logs.
@@ -51,10 +50,47 @@ services:
       # Optional: override the default configuration.
       # - ./wardnet.toml:/etc/wardnet/wardnet.toml:ro
 
-    # Optional: attach the container directly to the host network so DHCP
-    # broadcasts reach LAN clients without additional bridge configuration.
-    # Comment out the `ports` section above when using this.
-    # network_mode: host
-
 volumes:
   wardnet-data:
+
+# ── Alternative networking modes ──────────────────────────────────────────
+#
+# macvlan — give the container its OWN MAC + IP on the LAN (good when the host
+# runs other services, so wardnetd doesn't collide with host ports). Caveats:
+# the Docker host cannot reach the container by default; the IP must sit
+# outside both your router's DHCP pool and the pool wardnetd hands out; the NIC
+# must allow promiscuous mode (most WiFi APs reject macvlan, and it is
+# unavailable on Docker Desktop). Enable ip_forward on the host, as above.
+# Replace `network_mode: host` on the service with:
+#
+#   services:
+#     wardnetd:
+#       networks:
+#         wardnet_lan:
+#           ipv4_address: 192.168.1.2   # outside all DHCP pools
+#   networks:
+#     wardnet_lan:
+#       driver: macvlan
+#       driver_opts:
+#         parent: eth0                  # your LAN NIC
+#       ipam:
+#         config:
+#           - subnet: 192.168.1.0/24
+#             gateway: 192.168.1.1
+#
+# bridge — keep your router's DHCP and use wardnetd only for the web UI, DNS,
+# and tunnels (point clients' DNS at the Docker host's IP). This CANNOT run
+# wardnetd's DHCP server: DHCP needs LAN broadcast, which a NAT bridge does not
+# carry. Replace `network_mode: host` on the service with published ports and
+# the sysctl (which works in this mode, since the container has its own netns):
+#
+#   services:
+#     wardnetd:
+#       sysctls:
+#         net.ipv4.ip_forward: "1"
+#       ports:
+#         - "7411:7411/tcp"
+#         - "53:53/tcp"
+#         - "53:53/udp"
+#         # - "80:80/tcp"    # add 80 + 443 to serve automatic HTTPS here
+#         # - "443:443/tcp"

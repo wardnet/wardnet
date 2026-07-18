@@ -7,6 +7,92 @@ the container.
 
 ## Run with Docker
 
+A gateway runs DHCP, DNS, and HTTPS **directly on your LAN**, so how you
+network the container matters more than which ports you publish. Pick one
+of the three modes below.
+
+### Host networking (recommended)
+
+The daemon shares the host's network stack and binds the host's interfaces
+directly: web UI on 7411, DNS on 53, DHCP on 67, automatic HTTPS on 80/443,
+plus WireGuard. DHCP broadcasts reach real LAN clients, and there's nothing
+to publish. This is the simplest setup and behaves just like a bare-metal
+install.
+
+```bash
+# Enable IP forwarding on the host (persists across reboots):
+echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-wardnet.conf
+sudo sysctl --system
+
+docker run -d \
+  --name wardnetd \
+  --network host \
+  --cap-add NET_ADMIN --cap-add NET_RAW \
+  --device /dev/net/tun \
+  --tmpfs /run --tmpfs /run/lock \
+  -v wardnet-data:/var/lib/wardnet \
+  ghcr.io/wardnet/wardnetd:latest
+```
+
+Open **http://localhost:7411** to complete the setup wizard.
+
+| Flag | Why |
+| --- | --- |
+| `--network host` | Puts the daemon on the LAN directly, so DHCP broadcasts reach clients and DNS/HTTPS bind the real interfaces. |
+| `--cap-add NET_ADMIN` | Create/configure WireGuard interfaces, manage nftables and `ip rule`. |
+| `--cap-add NET_RAW` | Raw sockets for the packet-capture device detector. |
+| `--device /dev/net/tun` | WireGuard tunnels use the tun device. |
+| `--tmpfs /run --tmpfs /run/lock` | systemd (PID 1) needs a writable, non-persistent `/run`. |
+| `-v wardnet-data:/var/lib/wardnet` | Persistent state: database, WireGuard keys, staged updates. |
+
+`net.ipv4.ip_forward` is enabled on the **host** (above), not via
+`docker run --sysctl`, because Docker rejects network sysctls when a
+container shares the host network namespace. Host networking also needs
+ports 53/67/80/443/7411 free on the host, so run it on a box dedicated to
+Wardnet (for example, don't leave `systemd-resolved` bound to `:53`).
+
+### Its own LAN IP with macvlan (advanced)
+
+If Wardnet shares a host with other services, give the container its **own
+MAC and IP on the LAN** with a macvlan network, so it doesn't collide with
+the host's ports and clients point at a dedicated gateway address:
+
+```bash
+# Replace eth0 with your LAN NIC, and the subnet/gateway/IP with your LAN's.
+docker network create -d macvlan \
+  --subnet 192.168.1.0/24 --gateway 192.168.1.1 \
+  -o parent=eth0 wardnet-lan
+
+docker run -d \
+  --name wardnetd \
+  --network wardnet-lan --ip 192.168.1.2 \
+  --cap-add NET_ADMIN --cap-add NET_RAW \
+  --device /dev/net/tun \
+  --tmpfs /run --tmpfs /run/lock \
+  -v wardnet-data:/var/lib/wardnet \
+  ghcr.io/wardnet/wardnetd:latest
+```
+
+macvlan caveats worth knowing before you choose it:
+
+- **The Docker host can't reach the container** over the network by default
+  (and vice versa); it's a macvlan limitation. If you need host-to-daemon
+  access, add a macvlan "shim" interface on the host.
+- The chosen IP (`192.168.1.2` above) must sit **outside** both your
+  router's DHCP pool and the pool Wardnet hands out.
+- It needs the NIC in promiscuous mode: fine on wired NICs, but **most WiFi
+  access points reject macvlan**, and it doesn't work on Docker Desktop
+  (macOS/Windows).
+- Enable `ip_forward` on the host, same as the host-networking mode above.
+
+### Bridge with published ports (web UI, DNS, and tunnels only)
+
+To keep your **existing router's DHCP** and use Wardnet only for the
+dashboard, DNS ad-blocking, and tunnel management, a normal bridge with
+published ports is enough; point your clients' DNS at the Docker **host's**
+IP. This mode **cannot run Wardnet's DHCP server**: DHCP relies on LAN
+broadcast, which a NAT bridge doesn't carry.
+
 ```bash
 docker run -d \
   --name wardnetd \
@@ -16,30 +102,16 @@ docker run -d \
   --tmpfs /run --tmpfs /run/lock \
   -p 7411:7411 \
   -p 53:53/tcp -p 53:53/udp \
-  -p 67:67/udp \
   -v wardnet-data:/var/lib/wardnet \
   ghcr.io/wardnet/wardnetd:latest
 ```
 
-Open **http://localhost:7411** to complete the setup wizard.
+Add `-p 80:80 -p 443:443` to serve automatic HTTPS for remote access here
+rather than through Premium tunneling. In this mode `--sysctl
+net.ipv4.ip_forward=1` works, because the container has its own bridged
+network namespace.
 
-The flags are required:
-
-| Flag | Why |
-| --- | --- |
-| `--cap-add NET_ADMIN` | Create/configure WireGuard interfaces, manage nftables and `ip rule`. |
-| `--cap-add NET_RAW` | Raw sockets for the packet-capture device detector. |
-| `--device /dev/net/tun` | WireGuard tunnels use the tun device. |
-| `--sysctl net.ipv4.ip_forward=1` | Required to route LAN traffic through WireGuard tunnels. |
-| `--tmpfs /run --tmpfs /run/lock` | systemd (PID 1) needs a writable, non-persistent `/run`. |
-| `-p 53:53/tcp -p 53:53/udp` | DNS resolution and ad-blocking for LAN clients. |
-| `-p 67:67/udp` | DHCP server, if you want Wardnet handing out leases. |
-| `-v wardnet-data:/var/lib/wardnet` | Persistent state: database, WireGuard keys, staged updates. |
-
-Skip the DNS/DHCP port mappings if you only want the web UI and tunnel
-management, and plan to keep your existing router's DNS/DHCP in place.
-
-A reference compose file with all options documented is at
+A reference compose file covering all three modes is at
 [`source/daemon/examples/docker-compose.yaml`](https://github.com/wardnet/wardnet/blob/main/source/daemon/examples/docker-compose.yaml).
 
 ### Auto-update in Docker
