@@ -79,7 +79,7 @@ impl State {
         }
         let bytes = serde_json::to_vec_pretty(self).context("serialize state")?;
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, &bytes).with_context(|| format!("writing {}", tmp.display()))?;
+        write_root_only(&tmp, &bytes).with_context(|| format!("writing {}", tmp.display()))?;
         std::fs::rename(&tmp, path)
             .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
         Ok(())
@@ -90,4 +90,31 @@ impl State {
     pub fn is_applied(&self, id: &str) -> bool {
         self.applied.iter().any(|e| e.id == id)
     }
+}
+
+/// Write `bytes` to `path` with mode 0600. The rename in `save`
+/// carries the tmp file's permissions to state.json, so this is what
+/// upholds the root-only mode documented at the top of this module —
+/// a plain `std::fs::write` would leave it world-readable (0644).
+fn write_root_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(bytes)?;
+    // The creation mode does not apply when the file already exists —
+    // a stale tmp from an interrupted earlier run keeps its old mode —
+    // so tighten it explicitly either way.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
 }

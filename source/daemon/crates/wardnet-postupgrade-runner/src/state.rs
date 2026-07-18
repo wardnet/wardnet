@@ -85,7 +85,8 @@ pub fn record_verification_failure(
 
     let serialized = serde_json::to_vec_pretty(&state).context("serialize state.json")?;
     let tmp = state_path.with_extension("json.tmp");
-    std::fs::write(&tmp, &serialized).with_context(|| format!("write {} failed", tmp.display()))?;
+    write_root_only(&tmp, &serialized)
+        .with_context(|| format!("write {} failed", tmp.display()))?;
     std::fs::rename(&tmp, state_path).with_context(|| {
         format!(
             "rename {} -> {} failed",
@@ -93,5 +94,32 @@ pub fn record_verification_failure(
             state_path.display()
         )
     })?;
+    Ok(())
+}
+
+/// Write `bytes` to `path` with mode 0600. The rename that follows
+/// carries the tmp file's permissions to state.json, so this is what
+/// upholds the file's documented root-only mode — a plain
+/// `std::fs::write` would leave it world-readable (0644).
+fn write_root_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    file.write_all(bytes)?;
+    // The creation mode does not apply when the file already exists —
+    // a stale tmp from an interrupted earlier run keeps its old mode —
+    // so tighten it explicitly either way.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
     Ok(())
 }

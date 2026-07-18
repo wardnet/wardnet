@@ -148,6 +148,30 @@ fn absent_array_fields_are_rewritten_as_empty_arrays() {
     assert!(state.failed.is_empty());
 }
 
+#[cfg(unix)]
+#[test]
+fn state_file_is_written_root_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // state.json is documented root-only (0600). The rename carries
+    // the tmp file's mode, so the rewrite must end at 0600 even when
+    // the previous file — or a stale tmp from an interrupted run —
+    // was left world-readable.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("state.json");
+    std::fs::write(&path, b"{}").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let tmp = dir.path().join("state.json.tmp");
+    std::fs::write(&tmp, b"stale").unwrap();
+    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    let now = chrono::Utc::now();
+    record_verification_failure(&path, "boom", now).unwrap();
+
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "state.json must be root-only, got {mode:o}");
+}
+
 #[test]
 fn read_error_other_than_not_found_returns_err() {
     // Pass a directory as state_path. `std::fs::read` returns an
