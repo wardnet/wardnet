@@ -102,7 +102,7 @@ impl NetworkInspector for ProcNetNetworkInspector {
 /// order, but `/proc/net/route` swaps to host order first which on
 /// little-endian boxes — the only architectures we ship for — means
 /// the printed bytes are reversed relative to dotted-quad notation).
-fn read_default_gateway(path: &std::path::Path, interface: &str) -> Option<Ipv4Addr> {
+pub(crate) fn read_default_gateway(path: &std::path::Path, interface: &str) -> Option<Ipv4Addr> {
     let contents = std::fs::read_to_string(path).ok()?;
     for line in contents.lines().skip(1) {
         let mut cols = line.split_whitespace();
@@ -127,99 +127,10 @@ fn read_default_gateway(path: &std::path::Path, interface: &str) -> Option<Ipv4A
 /// signal. We deliberately don't try to parse dhcpcd state — the
 /// drop-in is the operator's intent, and matching against it tells
 /// the wizard what to surface in the remediation panel.
-fn classify_dhcp_source(dropin_path: &std::path::Path) -> DhcpSource {
+pub(crate) fn classify_dhcp_source(dropin_path: &std::path::Path) -> DhcpSource {
     if dropin_path.exists() {
         DhcpSource::Static
     } else {
         DhcpSource::Dhcp
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use tempfile::TempDir;
-
-    fn proc_route(iface: &str, gateway_hex: &str) -> String {
-        format!(
-            "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n\
-             {iface}\t00000000\t{gateway_hex}\t0003\t0\t0\t0\t00000000\t0\t0\t0\n",
-        )
-    }
-
-    fn write_route_file(dir: &TempDir, contents: &str) -> PathBuf {
-        let p = dir.path().join("route");
-        fs::write(&p, contents).unwrap();
-        p
-    }
-
-    #[test]
-    fn parses_little_endian_gateway() {
-        let dir = TempDir::new().unwrap();
-        // 192.168.1.1 → little-endian bytes 01 01 A8 C0 → "0101A8C0".
-        let route = write_route_file(&dir, &proc_route("eth0", "0101A8C0"));
-        let gw = read_default_gateway(&route, "eth0").unwrap();
-        assert_eq!(gw, Ipv4Addr::new(192, 168, 1, 1));
-    }
-
-    #[test]
-    fn returns_none_when_no_default_route() {
-        let dir = TempDir::new().unwrap();
-        let route = write_route_file(
-            &dir,
-            "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n",
-        );
-        assert!(read_default_gateway(&route, "eth0").is_none());
-    }
-
-    #[test]
-    fn returns_none_when_interface_does_not_match() {
-        let dir = TempDir::new().unwrap();
-        let route = write_route_file(&dir, &proc_route("wlan0", "0101A8C0"));
-        assert!(read_default_gateway(&route, "eth0").is_none());
-    }
-
-    #[test]
-    fn returns_none_when_gateway_is_zero() {
-        let dir = TempDir::new().unwrap();
-        let route = write_route_file(&dir, &proc_route("eth0", "00000000"));
-        assert!(read_default_gateway(&route, "eth0").is_none());
-    }
-
-    #[test]
-    fn classify_static_when_dropin_present() {
-        let dir = TempDir::new().unwrap();
-        let p = dir.path().join("wardnet.conf");
-        fs::write(&p, "static ip_address=10.0.0.2/24\n").unwrap();
-        assert_eq!(classify_dhcp_source(&p), DhcpSource::Static);
-    }
-
-    #[test]
-    fn classify_dhcp_when_dropin_missing() {
-        let dir = TempDir::new().unwrap();
-        let p = dir.path().join("wardnet.conf");
-        assert_eq!(classify_dhcp_source(&p), DhcpSource::Dhcp);
-    }
-
-    #[tokio::test]
-    async fn inspect_returns_full_snapshot() {
-        let dir = TempDir::new().unwrap();
-        let route = write_route_file(&dir, &proc_route("eth0", "0101A8C0"));
-        let dropin = dir.path().join("wardnet.conf");
-        fs::write(&dropin, "static ip_address=10.0.0.2/24\n").unwrap();
-
-        let inspector = ProcNetNetworkInspector::with_paths(
-            "eth0".to_owned(),
-            Ipv4Addr::new(10, 0, 0, 2),
-            dropin,
-            route,
-        );
-
-        let snap = inspector.inspect().await.unwrap();
-        assert_eq!(snap.interface, "eth0");
-        assert_eq!(snap.ip, Ipv4Addr::new(10, 0, 0, 2));
-        assert_eq!(snap.gateway, Some(Ipv4Addr::new(192, 168, 1, 1)));
-        assert_eq!(snap.dhcp_source, DhcpSource::Static);
     }
 }

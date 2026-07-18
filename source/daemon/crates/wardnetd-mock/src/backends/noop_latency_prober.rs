@@ -40,27 +40,9 @@ impl TunnelLatencyProber for NoopLatencyProber {
 
 /// Hash the interface name into a stable RTT in the 25–80 ms range so
 /// each tunnel gets a distinct but plausible latency value.
-fn synthetic_rtt(interface_name: &str) -> u64 {
+pub(crate) fn synthetic_rtt(interface_name: &str) -> u64 {
     let h: u64 = interface_name.bytes().fold(0_u64, |acc, b| {
         acc.wrapping_mul(131).wrapping_add(u64::from(b))
     });
     25 + (h % 56)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn synthetic_rtt_is_in_expected_range() {
-        for name in ["wg_ward0", "wg_ward1", "wg_ward2", "ifaceX"] {
-            let rtt = synthetic_rtt(name);
-            assert!((25..=80).contains(&rtt), "got {rtt} for {name}");
-        }
-    }
-
-    #[test]
-    fn synthetic_rtt_is_deterministic() {
-        assert_eq!(synthetic_rtt("wg_ward0"), synthetic_rtt("wg_ward0"));
-    }
 }

@@ -19,6 +19,9 @@ mod ping;
 mod routes;
 mod serve;
 
+#[cfg(test)]
+mod tests;
+
 use clap::{Args, Subcommand};
 use serde::Serialize;
 use tracing::warn;

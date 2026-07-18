@@ -67,10 +67,11 @@ Tests **must** live in separate files. Never put `#[test]` or `#[tokio::test]` b
 
 **Repository tests** follow the same layout under `src/repository/tests/`. The shared `test_pool()` helper lives in `src/repository/tests/mod.rs`.
 
-This rule is enforced by code review — no exceptions. (It is *not* currently
-enforced by a clippy lint, so review is the only gate. Source files that still
-carry an inline `#[cfg(test)] mod tests` block are pre-existing debt, not
-precedent.)
+This rule is enforced by code review **and by CI** — no exceptions.
+`source/daemon/build-support/check-inline-tests.sh` (run by `make
+check-daemon` and as a dedicated step in the Check Daemon job) fails the
+build on any inline `#[cfg(test)] mod ... { ... }` block outside a `tests/`
+directory. The pre-existing inline blocks were migrated in issue #847.
 
 ## Test patterns
 

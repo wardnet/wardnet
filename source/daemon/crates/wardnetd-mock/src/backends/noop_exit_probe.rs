@@ -57,30 +57,8 @@ impl TunnelExitProbe for NoopExitProbe {
 /// range (`198.51.100.0/24`). The `198.51.100.<n>` last octet stays in
 /// `1..=254` so it never collides with `.0` (network) or `.255`
 /// (broadcast).
-fn synthetic_ip(tunnel_id: &uuid::Uuid) -> String {
+pub(crate) fn synthetic_ip(tunnel_id: &uuid::Uuid) -> String {
     let bytes = tunnel_id.as_bytes();
     let last_octet = (u32::from(bytes[15]) % 254) + 1;
     format!("198.51.100.{last_octet}")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn synthetic_ip_is_in_test_net_2_range() {
-        for _ in 0..32 {
-            let id = uuid::Uuid::new_v4();
-            let ip = synthetic_ip(&id);
-            assert!(ip.starts_with("198.51.100."));
-            let last: u32 = ip.rsplit('.').next().unwrap().parse().unwrap();
-            assert!((1..=254).contains(&last));
-        }
-    }
-
-    #[test]
-    fn synthetic_ip_is_deterministic_per_id() {
-        let id = uuid::Uuid::new_v4();
-        assert_eq!(synthetic_ip(&id), synthetic_ip(&id));
-    }
 }

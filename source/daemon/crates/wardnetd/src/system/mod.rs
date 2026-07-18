@@ -11,6 +11,9 @@ pub mod pnet_network_probe;
 pub mod proc_net_inspector;
 pub mod systemctl_power_ops;
 
+#[cfg(test)]
+mod tests;
+
 pub use linux_watchdog::LinuxWatchdog;
 pub use pnet_network_probe::PnetNetworkProbe;
 pub use proc_net_inspector::ProcNetNetworkInspector;

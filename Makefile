@@ -251,6 +251,7 @@ endif
 SARIF_OUT ?=
 
 check-daemon-native:
+	$(DAEMON_DIR)/build-support/check-inline-tests.sh
 	cd $(DAEMON_DIR) && cargo fmt --check
 	@set -o pipefail; \
 	if [ -n "$(SARIF_OUT)" ]; then \
@@ -272,7 +273,7 @@ check-daemon-container:
 		-w /workspace/$(DAEMON_DIR) \
 		-e CARGO_TARGET_DIR=/workspace/.target-linux \
 		$(RUST_IMAGE) \
-		sh -c '$(BINDGEN_APT) && rustup component add clippy rustfmt 2>/dev/null; cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --workspace'
+		sh -c '$(BINDGEN_APT) && rustup component add clippy rustfmt 2>/dev/null; ./build-support/check-inline-tests.sh && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --workspace'
 
 # coverage-daemon: generate a line-coverage summary for the daemon workspace.
 # Requires cargo-llvm-cov (installed automatically in the container path).
