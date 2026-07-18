@@ -174,6 +174,29 @@ fn aggregate_three_peers_with_mixed_handshakes() {
     );
 }
 
+/// `get_stats` on an interface that does not exist must never fabricate
+/// stats: an absent-classified error yields `Ok(None)`, an unprivileged
+/// environment surfaces the real error as `Err` — `Ok(Some(_))` is wrong
+/// everywhere.
+#[tokio::test]
+async fn get_stats_nonexistent_interface_reports_no_stats() {
+    if let Ok(stats) = WireGuardTunnelInterface.get_stats("wgtest832z").await {
+        assert!(stats.is_none(), "a nonexistent interface cannot have stats");
+    }
+}
+
+/// `remove()` on a nonexistent interface never panics; where the environment
+/// surfaces an error (e.g. unprivileged), the message names the interface.
+#[tokio::test]
+async fn remove_nonexistent_interface_errors_name_the_interface() {
+    if let Err(e) = WireGuardTunnelInterface.remove("wgtest832v").await {
+        assert!(
+            e.to_string().contains("wgtest832v"),
+            "error should name the interface: {e}"
+        );
+    }
+}
+
 /// Full kernel round-trip for `remove()`: stand up a real `WireGuard` interface
 /// with a configured private key and peer, then assert `remove()` actually
 /// deletes it (not merely re-applies an empty config on top).

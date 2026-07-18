@@ -40,6 +40,36 @@ fn now_handshake_round_trips_within_a_second() {
     assert!((got - expected).num_seconds().abs() <= 1);
 }
 
+/// `peer_stats` on an interface that does not exist must never fabricate
+/// peers: an absent-classified error yields an empty list, an unprivileged
+/// environment surfaces the real error as `Err` — a non-empty `Ok` is wrong
+/// everywhere.
+#[tokio::test]
+async fn peer_stats_nonexistent_interface_reports_no_peers() {
+    if let Ok(stats) = WireGuardInboundInterface.peer_stats("wgtest832w").await {
+        assert!(
+            stats.is_empty(),
+            "a nonexistent interface cannot have peers"
+        );
+    }
+}
+
+/// `tear_down_server()` on a nonexistent interface never panics; where the
+/// environment surfaces an error (e.g. unprivileged), the message names the
+/// interface.
+#[tokio::test]
+async fn tear_down_server_nonexistent_interface_errors_name_the_interface() {
+    if let Err(e) = WireGuardInboundInterface
+        .tear_down_server("wgtest832u")
+        .await
+    {
+        assert!(
+            e.to_string().contains("wgtest832u"),
+            "error should name the interface: {e}"
+        );
+    }
+}
+
 /// Full kernel round-trip for `tear_down_server()`: stand up a real
 /// `WireGuard` interface with a configured private key, then assert the
 /// tear-down actually deletes it.

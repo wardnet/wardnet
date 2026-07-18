@@ -5,7 +5,9 @@
 //! `kernel_*` tests in `tunnel_interface_wireguard` and
 //! `inbound_wg_interface_wireguard`.
 
-use crate::wireguard_interface::{delete_wireguard_interface, is_interface_absent_error};
+use crate::wireguard_interface::{
+    delete_wireguard_interface, is_interface_absent_error, remove_stale_link,
+};
 
 #[test]
 fn absent_error_enodev_is_absent() {
@@ -48,6 +50,27 @@ fn absent_error_eperm_is_not_absent() {
 fn absent_error_other_kind_is_not_absent() {
     let err = std::io::Error::other("netlink payload mismatch");
     assert!(!is_interface_absent_error(&err));
+}
+
+/// Deleting an interface that does not exist must never report a removal.
+///
+/// The exact outcome depends on the environment — an absent-classified error
+/// (no such device, or no `WireGuard` genl family at all) yields `Ok(false)`,
+/// while an unprivileged environment surfaces a permission error as `Err` —
+/// but `Ok(true)` ("removed") is wrong everywhere.
+#[tokio::test]
+async fn delete_nonexistent_interface_is_not_a_removal() {
+    if let Ok(removed) = delete_wireguard_interface("wgtest832x", "wireguard interface") {
+        assert!(!removed, "a nonexistent interface cannot have been removed");
+    }
+}
+
+/// `remove_stale_link` on a nonexistent interface is a silent no-op: the
+/// `ip link show` probe fails (whether `ip` is missing or the link is), so
+/// no delete is attempted.
+#[tokio::test]
+async fn remove_stale_link_is_noop_when_interface_absent() {
+    remove_stale_link("wgtest832y", "wireguard interface").await;
 }
 
 /// An interface name the kernel would reject (too long) fails validation
