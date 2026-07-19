@@ -34,10 +34,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Current LAN interface state", body = NetworkStatusResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn status(
     State(state): State<AppState>,
@@ -66,10 +62,6 @@ pub async fn status(
         (status = 404, description = "ARP probe got no reply", body = wardnet_common::api::ApiError),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn discover_gateway_mac(
     State(state): State<AppState>,
@@ -93,10 +85,6 @@ pub async fn discover_gateway_mac(
     responses(
         (status = 200, description = "Probe complete", body = DhcpSelfProbeResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn dhcp_self_probe(

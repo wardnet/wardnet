@@ -62,10 +62,6 @@ const HISTORY_LIMIT_MAX: u32 = 100;
         (status = 200, description = "Current auto-update status", body = UpdateStatusResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn status(
     State(state): State<AppState>,
@@ -84,10 +80,6 @@ pub async fn status(
     responses(
         (status = 200, description = "Manifest refresh result", body = UpdateCheckResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn check(
@@ -111,10 +103,6 @@ pub async fn check(
         AuthErrors,
         BadRequest,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn install(
     State(state): State<AppState>,
@@ -135,10 +123,6 @@ pub async fn install(
     responses(
         (status = 200, description = "Rollback initiated", body = RollbackResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn rollback(
@@ -161,10 +145,6 @@ pub async fn rollback(
         AuthErrors,
         BadRequest,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn update_config(
     State(state): State<AppState>,
@@ -186,10 +166,6 @@ pub async fn update_config(
     responses(
         (status = 200, description = "Update history", body = UpdateHistoryResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn history(

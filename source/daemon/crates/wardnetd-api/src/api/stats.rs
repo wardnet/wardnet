@@ -27,10 +27,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Stats query result", body = StatsQueryResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn query(
     State(state): State<AppState>,
@@ -53,10 +49,6 @@ pub async fn query(
     responses(
         (status = 200, description = "Top-N query result", body = StatsTopResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn top(

@@ -45,10 +45,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "System status (version, uptime, counts)", body = SystemStatusResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn status(
     State(state): State<AppState>,
@@ -68,10 +64,6 @@ pub async fn status(
     responses(
         (status = 200, description = "Log file stream", content_type = "application/octet-stream", body = Vec<u8>),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn download_logs(
@@ -110,10 +102,6 @@ pub async fn download_logs(
         (status = 204, description = "Restart scheduled"),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn restart(
     State(state): State<AppState>,
@@ -142,10 +130,6 @@ pub async fn restart(
         (status = 204, description = "Reboot scheduled"),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn reboot(
     State(state): State<AppState>,
@@ -173,10 +157,6 @@ pub async fn reboot(
         (status = 204, description = "Shutdown scheduled"),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn shutdown(
     State(state): State<AppState>,
@@ -197,10 +177,6 @@ pub async fn shutdown(
     responses(
         (status = 200, description = "Current default policy", body = SetDefaultPolicyResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn get_default_policy(
@@ -225,10 +201,6 @@ pub async fn get_default_policy(
         (status = 200, description = "Default policy updated", body = SetDefaultPolicyResponse),
         (status = 400, description = "Invalid policy", body = wardnet_common::api::ApiError),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn set_default_policy(
@@ -265,10 +237,6 @@ pub async fn set_default_policy(
     responses(
         (status = 204, description = "Acknowledgement recorded"),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn acknowledge_shutdown(
@@ -320,10 +288,6 @@ pub struct RecentErrorsResponse {
     responses(
         (status = 200, description = "Recent warnings and errors", body = RecentErrorsResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn recent_errors(

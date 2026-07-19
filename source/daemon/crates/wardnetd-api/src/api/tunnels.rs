@@ -40,10 +40,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Configured tunnels", body = ListTunnelsResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn list_tunnels(
     State(state): State<AppState>,
@@ -65,10 +61,6 @@ pub async fn list_tunnels(
         (status = 201, description = "Tunnel imported", body = CreateTunnelResponse),
         AuthErrors,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn create_tunnel(
@@ -92,10 +84,6 @@ pub async fn create_tunnel(
         AuthErrors,
         NotFound,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn get_tunnel(
     State(state): State<AppState>,
@@ -117,10 +105,6 @@ pub async fn get_tunnel(
         (status = 200, description = "Devices using the tunnel", body = TunnelDevicesResponse),
         AuthErrors,
         NotFound,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn list_tunnel_devices(
@@ -144,10 +128,6 @@ pub async fn list_tunnel_devices(
         (status = 200, description = "Tunnel deleted", body = DeleteTunnelResponse),
         AuthErrors,
         NotFound,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn delete_tunnel(
@@ -175,10 +155,6 @@ pub async fn delete_tunnel(
         NotFound,
         Conflict,
         UpstreamUnavailable,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn test_tunnel(
@@ -208,10 +184,6 @@ pub async fn test_tunnel(
         NotFound,
         Conflict,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn start_speed_test(
     State(state): State<AppState>,
@@ -234,10 +206,6 @@ pub async fn start_speed_test(
         (status = 200, description = "Speed test history", body = TunnelSpeedTestHistoryResponse),
         AuthErrors,
         NotFound,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn list_speed_tests(
@@ -266,10 +234,6 @@ pub async fn list_speed_tests(
         AuthErrors,
         NotFound,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn update_tunnel_dns_override(
     State(state): State<AppState>,
@@ -296,10 +260,6 @@ pub async fn update_tunnel_dns_override(
         (status = 200, description = "Tunnel rebuild initiated", body = RebuildTunnelResponse),
         AuthErrors,
         NotFound,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn rebuild_tunnel(

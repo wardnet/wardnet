@@ -52,7 +52,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Profiles list", body = ListProfilesResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_profiles(
     State(state): State<AppState>,
@@ -72,7 +71,6 @@ pub async fn list_profiles(
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_profile(
     State(state): State<AppState>,
@@ -94,7 +92,6 @@ pub async fn create_profile(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_profile(
     State(state): State<AppState>,
@@ -119,7 +116,6 @@ pub async fn get_profile(
         NotFound,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_profile(
     State(state): State<AppState>,
@@ -149,7 +145,6 @@ pub async fn update_profile(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_profile(
     State(state): State<AppState>,
@@ -177,7 +172,6 @@ pub async fn delete_profile(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_blocklists(
     State(state): State<AppState>,
@@ -205,7 +199,6 @@ pub async fn list_blocklists(
         BadRequest,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_blocklist(
     State(state): State<AppState>,
@@ -236,7 +229,6 @@ pub async fn create_blocklist(
         NotFound,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_blocklist(
     State(state): State<AppState>,
@@ -266,7 +258,6 @@ pub async fn update_blocklist(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_blocklist(
     State(state): State<AppState>,
@@ -295,7 +286,6 @@ pub async fn delete_blocklist(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn refresh_blocklist(
     State(state): State<AppState>,
@@ -322,7 +312,6 @@ pub async fn refresh_blocklist(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_allowlist(
     State(state): State<AppState>,
@@ -350,7 +339,6 @@ pub async fn list_allowlist(
         BadRequest,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_allowlist_entry(
     State(state): State<AppState>,
@@ -379,7 +367,6 @@ pub async fn create_allowlist_entry(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_allowlist_entry(
     State(state): State<AppState>,
@@ -407,7 +394,6 @@ pub async fn delete_allowlist_entry(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_custom_rules(
     State(state): State<AppState>,
@@ -435,7 +421,6 @@ pub async fn list_custom_rules(
         BadRequest,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_custom_rule(
     State(state): State<AppState>,
@@ -466,7 +451,6 @@ pub async fn create_custom_rule(
         NotFound,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_custom_rule(
     State(state): State<AppState>,
@@ -496,7 +480,6 @@ pub async fn update_custom_rule(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_custom_rule(
     State(state): State<AppState>,
@@ -525,7 +508,6 @@ pub async fn delete_custom_rule(
         (status = 200, description = "Device settings", body = ListDeviceFilterSettingsResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_device_settings(
     State(state): State<AppState>,
@@ -552,7 +534,6 @@ pub async fn list_device_settings(
         (status = 200, description = "Device settings", body = GetDeviceFilterSettingsResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_device_settings(
     State(state): State<AppState>,
@@ -581,7 +562,6 @@ pub async fn get_device_settings(
         BadRequest,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_device_settings(
     State(state): State<AppState>,
@@ -609,7 +589,6 @@ pub async fn update_device_settings(
         (status = 200, description = "Filter config", body = DnsFilterConfigResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_filter_config(
     State(state): State<AppState>,
@@ -630,7 +609,6 @@ pub async fn get_filter_config(
         BadRequest,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_filter_config(
     State(state): State<AppState>,

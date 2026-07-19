@@ -41,7 +41,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Zones list", body = ListNetworkZonesResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_zones(
     State(state): State<AppState>,
@@ -65,7 +64,6 @@ pub async fn list_zones(
         BadRequest,
         (status = 409, description = "Name already in use", body = wardnet_common::api::ApiError),
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_zone(
     State(state): State<AppState>,
@@ -90,7 +88,6 @@ pub async fn create_zone(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_zone(
     State(state): State<AppState>,
@@ -118,7 +115,6 @@ pub async fn get_zone(
         BadRequest,
         (status = 409, description = "Name already in use", body = wardnet_common::api::ApiError),
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_zone(
     State(state): State<AppState>,
@@ -144,7 +140,6 @@ pub async fn update_zone(
         NotFound,
         (status = 409, description = "System / default / non-empty zone", body = wardnet_common::api::ApiError),
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_zone(
     State(state): State<AppState>,
@@ -167,7 +162,6 @@ pub async fn delete_zone(
         (status = 200, description = "Current toggle state", body = QuarantineNewDevicesResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_quarantine_new_devices(
     State(state): State<AppState>,
@@ -194,7 +188,6 @@ pub async fn get_quarantine_new_devices(
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn set_quarantine_new_devices(
     State(state): State<AppState>,

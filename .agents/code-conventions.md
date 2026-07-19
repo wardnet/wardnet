@@ -49,7 +49,8 @@
 
 ## OpenAPI annotations (daemon)
 
-- Every endpoint handler carries a `#[utoipa::path(...)]` attribute with `method`, `path`, `tag`, `description`, `request_body`, `responses`, `security`.
+- Every endpoint handler carries a `#[utoipa::path(...)]` attribute with `method`, `path`, `tag`, `description`, `request_body`, `responses`.
+- Authentication is declared once, document-level: `ApiDoc`'s `security(("session_cookie" = []), ("bearer_auth" = []))` default applies to every operation. Handlers do **not** repeat it — only deliberately unauthenticated endpoints add `security(())` to opt out (a forgotten annotation therefore documents the endpoint as authenticated, the safe direction).
 - Route modules expose `pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState>` that attaches routes via `utoipa_axum::routes!`.
 - DTOs in `wardnet-common::api` derive `utoipa::ToSchema`.
 - `Ipv4Addr` / `IpAddr` fields need a manual `value_type` annotation — utoipa doesn't ship `ToSchema` impls for them. Match the annotation to the field's shape, or the published schema lies about nullability:

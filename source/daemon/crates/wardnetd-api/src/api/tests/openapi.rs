@@ -157,13 +157,14 @@ fn api_doc_unauthenticated_endpoint_has_empty_security() {
 
 #[test]
 fn api_doc_authenticated_endpoint_references_both_schemes() {
-    // /api/devices is admin-gated; it should list both accepted schemes.
+    // Admin-gated endpoints accept both schemes via the document-level
+    // security default rather than per-operation annotations. Check the
+    // default lists both, then check the representative admin endpoint
+    // carries no override — absence is what makes the default apply.
     let doc = api_doc_json();
-    let security = doc["paths"]["/api/devices"]["get"]["security"]
+    let names: Vec<String> = doc["security"]
         .as_array()
-        .expect("admin-gated endpoint must declare security")
-        .clone();
-    let names: Vec<String> = security
+        .expect("document-level security default must exist")
         .iter()
         .flat_map(|entry| {
             entry
@@ -174,7 +175,13 @@ fn api_doc_authenticated_endpoint_references_both_schemes() {
         .collect();
     assert!(
         names.iter().any(|n| n == "session_cookie") && names.iter().any(|n| n == "bearer_auth"),
-        "admin-gated endpoint should reference both schemes, got {names:?}"
+        "document security default should reference both schemes, got {names:?}"
+    );
+
+    assert!(
+        doc["paths"]["/api/devices"]["get"]["security"].is_null(),
+        "admin-gated endpoint should inherit the document default, \
+         not declare its own security"
     );
 }
 
@@ -200,10 +207,16 @@ fn for_each_operation(
 
 #[test]
 fn every_security_requirement_references_a_registered_scheme() {
-    // The spot-check above only covers /api/devices. This walks the whole
-    // document: any scheme name an operation references must exist in
+    // The spot-check above only covers the document default. This walks the
+    // whole document: any scheme name referenced anywhere — the document
+    // default or a per-operation override — must exist in
     // `components.securitySchemes`, otherwise generated clients silently
     // send no credentials and validators reject the spec.
+    //
+    // Operations without a `security` key are fine by construction: they
+    // inherit the document default, so a handler that forgets an annotation
+    // is documented as authenticated (the safe direction). Only deliberate
+    // opt-outs (`security(())`) and explicit overrides appear per-operation.
     let doc = api_doc_json();
     let registered: Vec<String> = doc["components"]["securitySchemes"]
         .as_object()
@@ -212,30 +225,34 @@ fn every_security_requirement_references_a_registered_scheme() {
         .cloned()
         .collect();
 
-    for_each_operation(&doc, |path, method, op| {
-        // Every operation must declare security explicitly — a handler whose
-        // `#[utoipa::path]` omits the attribute serializes with no `security`
-        // key at all, and generated clients would send no credentials to it.
-        // Public endpoints opt out visibly with `security(())`.
-        let requirements = op["security"].as_array().unwrap_or_else(|| {
-            panic!(
-                "{method} {path} declares no security requirements; every \
-                 operation needs a security(...) attribute — use security(()) \
-                 for deliberately unauthenticated endpoints"
-            )
-        });
+    let check_requirements = |context: &str, requirements: &[serde_json::Value]| {
         for entry in requirements {
             let entry = entry.as_object().unwrap_or_else(|| {
-                panic!("{method} {path}: security requirement entry must be an object, got {entry}")
+                panic!("{context}: security requirement entry must be an object, got {entry}")
             });
             // An empty `{}` object is the no-auth marker and yields no keys.
             for name in entry.keys() {
                 assert!(
                     registered.iter().any(|r| r == name),
-                    "{method} {path} references security scheme {name:?}, \
+                    "{context} references security scheme {name:?}, \
                      which is not registered (have: {registered:?})"
                 );
             }
+        }
+    };
+
+    let default = doc["security"]
+        .as_array()
+        .expect("document-level security default must exist");
+    assert!(
+        !default.is_empty(),
+        "document-level security default must not be empty"
+    );
+    check_requirements("document security default", default);
+
+    for_each_operation(&doc, |path, method, op| {
+        if let Some(requirements) = op["security"].as_array() {
+            check_requirements(&format!("{method} {path}"), requirements);
         }
     });
 }

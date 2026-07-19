@@ -38,7 +38,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Exceptions list", body = ListZoneExceptionsResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_exceptions(
     State(state): State<AppState>,
@@ -61,7 +60,6 @@ pub async fn list_exceptions(
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_exception(
     State(state): State<AppState>,
@@ -89,7 +87,6 @@ pub async fn create_exception(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_exception(
     State(state): State<AppState>,
@@ -114,7 +111,6 @@ pub async fn get_exception(
         NotFound,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_exception(
     State(state): State<AppState>,
@@ -140,7 +136,6 @@ pub async fn update_exception(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_exception(
     State(state): State<AppState>,

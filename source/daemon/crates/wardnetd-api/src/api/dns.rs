@@ -35,10 +35,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Current DNS configuration", body = DnsConfigResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn get_config(
     State(state): State<AppState>,
@@ -58,10 +54,6 @@ pub async fn get_config(
         (status = 200, description = "Updated DNS configuration", body = DnsConfigResponse),
         AuthErrors,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn update_config(
@@ -83,10 +75,6 @@ pub async fn update_config(
         (status = 200, description = "Updated DNS configuration", body = DnsConfigResponse),
         AuthErrors,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn toggle(
@@ -125,10 +113,6 @@ pub async fn toggle(
         (status = 200, description = "DNS server status and cache stats", body = DnsStatusResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn status(
     State(state): State<AppState>,
@@ -155,10 +139,6 @@ pub async fn status(
         (status = 200, description = "Cache flushed", body = DnsCacheFlushResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn flush_cache(
     State(state): State<AppState>,
@@ -181,10 +161,6 @@ pub async fn flush_cache(
         (status = 200, description = "Page of query log entries", body = ListQueryLogResponse),
         AuthErrors,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn list_query_log(

@@ -53,10 +53,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Current backup subsystem status", body = BackupStatusResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn status(
     State(state): State<AppState>,
@@ -83,10 +79,6 @@ pub async fn status(
         ),
         AuthErrors,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn export(
@@ -130,10 +122,6 @@ pub async fn export(
         AuthErrors,
         BadRequest,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn preview_import(
     State(state): State<AppState>,
@@ -165,10 +153,6 @@ pub async fn preview_import(
         AuthErrors,
         BadRequest,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn apply_import(
     State(state): State<AppState>,
@@ -188,10 +172,6 @@ pub async fn apply_import(
     responses(
         (status = 200, description = "Retained .bak-<ts> snapshots", body = ListSnapshotsResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn list_snapshots(

@@ -49,10 +49,6 @@ const PATH_STATUS: &str = "/api/dhcp/status";
         (status = 200, description = "Current DHCP configuration", body = DhcpConfigResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn get_config(
     State(state): State<AppState>,
@@ -74,10 +70,6 @@ pub async fn get_config(
         (status = 200, description = "Updated DHCP configuration", body = DhcpConfigResponse),
         AuthErrors,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn update_config(
@@ -107,10 +99,6 @@ pub async fn update_config(
         AuthErrors,
         BadRequest,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn preview_config(
     State(state): State<AppState>,
@@ -133,10 +121,6 @@ pub async fn preview_config(
         (status = 200, description = "Updated DHCP configuration", body = DhcpConfigResponse),
         AuthErrors,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn toggle(
@@ -184,10 +168,6 @@ pub async fn toggle(
         (status = 200, description = "Active DHCP leases", body = ListDhcpLeasesResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn list_leases(
     State(state): State<AppState>,
@@ -210,10 +190,6 @@ pub async fn list_leases(
         AuthErrors,
         NotFound,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn revoke_lease(
     State(state): State<AppState>,
@@ -233,10 +209,6 @@ pub async fn revoke_lease(
     responses(
         (status = 200, description = "Static DHCP reservations", body = ListDhcpReservationsResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn list_reservations(
@@ -258,10 +230,6 @@ pub async fn list_reservations(
         (status = 201, description = "Reservation created", body = CreateDhcpReservationResponse),
         AuthErrors,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn create_reservation(
@@ -285,10 +253,6 @@ pub async fn create_reservation(
         AuthErrors,
         NotFound,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn delete_reservation(
     State(state): State<AppState>,
@@ -308,10 +272,6 @@ pub async fn delete_reservation(
     responses(
         (status = 200, description = "DHCP server status and pool usage", body = DhcpStatusResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn status(

@@ -188,10 +188,6 @@ fn enrich_device(
         (status = 200, description = "List of devices with DHCP status", body = ListDevicesResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn list_devices(
     State(state): State<AppState>,
@@ -225,10 +221,6 @@ pub async fn list_devices(
         AuthErrors,
         NotFound,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn get_device(
@@ -272,10 +264,6 @@ pub async fn get_device(
         AuthErrors,
         NotFound,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn update_device(
@@ -348,10 +336,6 @@ pub async fn update_device(
         AuthErrors,
         NotFound,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn assign_device_zone(

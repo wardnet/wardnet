@@ -19,9 +19,16 @@ use wardnetd_services::version::RELEASE_VERSION;
 /// Root `OpenAPI` document for the Wardnet daemon.
 ///
 /// Carries the document metadata (title, description, license), the tag list
-/// used to group endpoints in the generated UI, and — through
-/// [`SecurityAddon`] — the `session_cookie` and `bearer_auth` security schemes
-/// referenced by every admin-gated handler.
+/// used to group endpoints in the generated UI, the document-level security
+/// default, and — through [`SecurityAddon`] — the `session_cookie` and
+/// `bearer_auth` security schemes it references.
+///
+/// The `security(...)` block below applies to every operation that does not
+/// declare its own: admin-gated handlers need no per-operation annotation,
+/// and a handler that forgets one is documented as authenticated (the safe
+/// direction) instead of silently shipping as public. Deliberately
+/// unauthenticated endpoints opt out visibly with `security(())` in their
+/// `#[utoipa::path]` attribute.
 #[derive(OpenApi)]
 #[openapi(
     info(
@@ -38,6 +45,10 @@ use wardnetd_services::version::RELEASE_VERSION;
         license(name = "GPL-3.0-or-later")
     ),
     modifiers(&SecurityAddon),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
     tags(
         (name = "auth", description = "Session login / logout"),
         (name = "users", description = "Authenticated admin identity"),
@@ -66,14 +77,14 @@ use wardnetd_services::version::RELEASE_VERSION;
 )]
 pub struct ApiDoc;
 
-/// Declares the two authentication mechanisms every admin-gated handler
-/// references by name:
+/// Declares the two authentication mechanisms the document-level security
+/// default references by name:
 ///
 /// - `session_cookie` — the `wardnet_session` cookie issued by `POST /api/auth/login`.
 /// - `bearer_auth` — an opaque API key supplied via `Authorization: Bearer <key>`.
 ///
-/// Both are registered as reusable components so handlers only need to list
-/// the scheme name in their `security(...)` block.
+/// Both are registered as reusable components; [`ApiDoc`]'s `security(...)`
+/// block applies them to every operation that doesn't override it.
 struct SecurityAddon;
 
 /// Wardnet logo lockup (mark + WARDNET wordmark, dark-surface variant) served

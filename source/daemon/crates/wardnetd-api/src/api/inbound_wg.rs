@@ -33,10 +33,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Current inbound WireGuard config", body = InboundWgConfigResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn get_config(
     State(state): State<AppState>,
@@ -61,10 +57,6 @@ pub async fn get_config(
         (status = 200, description = "Inbound WireGuard config applied", body = InboundWgConfigResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn set_config(
     State(state): State<AppState>,
@@ -88,10 +80,6 @@ pub async fn set_config(
     responses(
         (status = 200, description = "Configured inbound peers", body = ListInboundWgPeersResponse),
         AuthErrors,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn list_peers(
@@ -120,10 +108,6 @@ pub async fn list_peers(
         AuthErrors,
         Conflict,
         NotFound,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn add_peer(
@@ -169,10 +153,6 @@ async fn build_endpoint(state: &AppState) -> Result<Option<String>, AppError> {
         AuthErrors,
         NotFound,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn remove_peer(
     State(state): State<AppState>,
@@ -198,10 +178,6 @@ pub async fn remove_peer(
         (status = 200, description = "Peer state applied", body = InboundWgPeerSummary),
         AuthErrors,
         NotFound,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn set_peer_enabled(

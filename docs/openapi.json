@@ -114,15 +114,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/backup/export": {
@@ -286,15 +278,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/backup/import/apply": {
@@ -453,15 +437,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/backup/import/preview": {
@@ -621,15 +597,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/backup/snapshots": {
@@ -746,15 +714,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/backup/status": {
@@ -871,15 +831,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/ddns": {
@@ -989,15 +941,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/ddns/check": {
@@ -1125,15 +1069,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/ddns/cloudflare": {
@@ -1292,15 +1228,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/ddns/enroll": {
@@ -1452,15 +1380,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/ddns/enrollment-code": {
@@ -1612,15 +1532,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/ddns/register": {
@@ -1779,15 +1691,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/ddns/resolution-check": {
@@ -1904,15 +1808,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/ddns/status": {
@@ -2029,15 +1925,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/devices": {
@@ -2154,15 +2042,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/devices/me": {
@@ -2720,15 +2600,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -2929,15 +2801,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/devices/{id}/dns-capture": {
@@ -2999,15 +2863,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "patch": {
         "tags": [
@@ -3087,15 +2943,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/devices/{id}/zone": {
@@ -3298,15 +3146,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dhcp/config": {
@@ -3423,15 +3263,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -3588,15 +3420,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dhcp/config/preview": {
@@ -3755,15 +3579,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dhcp/config/toggle": {
@@ -3922,15 +3738,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dhcp/leases": {
@@ -4047,15 +3855,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dhcp/leases/{id}": {
@@ -4216,15 +4016,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dhcp/reservations": {
@@ -4341,15 +4133,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -4506,15 +4290,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dhcp/reservations/{id}": {
@@ -4675,15 +4451,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dhcp/status": {
@@ -4800,15 +4568,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/cache/flush": {
@@ -4925,15 +4685,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/config": {
@@ -5050,15 +4802,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -5215,15 +4959,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/config/toggle": {
@@ -5382,15 +5118,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/config": {
@@ -5507,15 +5235,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -5704,15 +5424,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/devices": {
@@ -5843,15 +5555,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/devices/{device_id}": {
@@ -5980,15 +5684,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -6189,15 +5885,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/profiles": {
@@ -6314,15 +6002,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -6479,15 +6159,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/profiles/{profile_id}": {
@@ -6648,15 +6320,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -6857,15 +6521,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "tags": [
@@ -7027,15 +6683,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/profiles/{profile_id}/allowlist": {
@@ -7196,15 +6844,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -7405,15 +7045,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/profiles/{profile_id}/allowlist/{id}": {
@@ -7584,15 +7216,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/profiles/{profile_id}/blocklists": {
@@ -7753,15 +7377,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -7962,15 +7578,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/profiles/{profile_id}/blocklists/{id}": {
@@ -8183,15 +7791,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "tags": [
@@ -8360,15 +7960,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/profiles/{profile_id}/blocklists/{id}/refresh": {
@@ -8539,15 +8131,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/profiles/{profile_id}/rules": {
@@ -8708,15 +8292,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -8917,15 +8493,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/filter/profiles/{profile_id}/rules/{id}": {
@@ -9138,15 +8706,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "tags": [
@@ -9315,15 +8875,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/local/forwarding": {
@@ -9440,15 +8992,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -9605,15 +9149,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/local/forwarding/{id}": {
@@ -9774,15 +9310,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -9983,15 +9511,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "tags": [
@@ -10150,15 +9670,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/local/records": {
@@ -10275,15 +9787,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -10472,15 +9976,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/local/records/{id}": {
@@ -10641,15 +10137,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -10850,15 +10338,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "tags": [
@@ -11017,15 +10497,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/local/zones": {
@@ -11142,15 +10614,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -11307,15 +10771,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/local/zones/{id}": {
@@ -11476,15 +10932,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -11685,15 +11133,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "tags": [
@@ -11852,15 +11292,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/local/zones/{id}/records": {
@@ -12021,15 +11453,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/log": {
@@ -12256,15 +11680,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/dns/status": {
@@ -12381,15 +11797,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/inbound-wg/config": {
@@ -12506,15 +11914,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -12639,15 +12039,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/inbound-wg/peers": {
@@ -12764,15 +12156,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -12961,15 +12345,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/inbound-wg/peers/{id}": {
@@ -13123,15 +12499,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "patch": {
         "tags": [
@@ -13300,15 +12668,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/info": {
@@ -13503,15 +12863,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/network/dhcp-self-probe": {
@@ -13628,15 +12980,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/network/discover-gateway-mac": {
@@ -13783,15 +13127,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/network/quarantine-new-devices": {
@@ -13908,15 +13244,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -14073,15 +13401,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/network/status": {
@@ -14198,15 +13518,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/network/zones": {
@@ -14323,15 +13635,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -14498,15 +13802,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/network/zones/exceptions": {
@@ -14623,15 +13919,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -14788,15 +14076,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/network/zones/exceptions/{id}": {
@@ -14957,15 +14237,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -15166,15 +14438,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "tags": [
@@ -15333,15 +14597,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/network/zones/{id}": {
@@ -15502,15 +14758,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -15721,15 +14969,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "tags": [
@@ -15898,15 +15138,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/providers": {
@@ -16023,15 +15255,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/providers/{id}/countries": {
@@ -16191,15 +15415,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/providers/{id}/servers": {
@@ -16401,15 +15617,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/providers/{id}/setup": {
@@ -16611,15 +15819,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/providers/{id}/validate": {
@@ -16821,15 +16021,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/push/notifications": {
@@ -16940,15 +16132,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "tags": [
@@ -17041,15 +16225,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/push/subscriptions": {
@@ -17319,15 +16495,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/rule-requests/{id}": {
@@ -17529,15 +16697,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/setup": {
@@ -17738,15 +16898,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/setup/status": {
@@ -17964,15 +17116,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/stats/top": {
@@ -18148,15 +17292,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/system/default-policy": {
@@ -18273,15 +17409,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "put": {
         "tags": [
@@ -18416,15 +17544,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/system/errors": {
@@ -18541,15 +17661,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/system/logs/download": {
@@ -18671,15 +17783,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/system/reboot": {
@@ -18790,15 +17894,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/system/restart": {
@@ -18909,15 +18005,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/system/shutdown": {
@@ -19028,15 +18116,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/system/shutdown/acknowledge": {
@@ -19147,15 +18227,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/system/status": {
@@ -19272,15 +18344,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/tls/status": {
@@ -19397,15 +18461,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/tunnels": {
@@ -19522,15 +18578,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "post": {
         "tags": [
@@ -19687,15 +18735,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/tunnels/{id}": {
@@ -19856,15 +18896,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       },
       "delete": {
         "tags": [
@@ -20023,15 +19055,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/tunnels/{id}/devices": {
@@ -20192,15 +19216,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/tunnels/{id}/dns-override": {
@@ -20371,15 +19387,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/tunnels/{id}/rebuild": {
@@ -20540,15 +19548,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/tunnels/{id}/speed-test": {
@@ -20741,15 +19741,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/tunnels/{id}/speed-test/results": {
@@ -20910,15 +19902,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/tunnels/{id}/test": {
@@ -21143,15 +20127,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/update/check": {
@@ -21268,15 +20244,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/update/config": {
@@ -21435,15 +20403,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/update/history": {
@@ -21573,15 +20533,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/update/install": {
@@ -21741,15 +20693,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/update/rollback": {
@@ -21866,15 +20810,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/update/status": {
@@ -21991,15 +20927,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/api/users/me": {
@@ -22094,15 +21022,7 @@
               }
             }
           }
-        },
-        "security": [
-          {
-            "session_cookie": []
-          },
-          {
-            "bearer_auth": []
-          }
-        ]
+        }
       }
     },
     "/health": {
@@ -28301,6 +27221,14 @@
       }
     }
   },
+  "security": [
+    {
+      "session_cookie": []
+    },
+    {
+      "bearer_auth": []
+    }
+  ],
   "tags": [
     {
       "name": "auth",

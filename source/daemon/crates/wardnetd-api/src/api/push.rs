@@ -124,10 +124,6 @@ pub struct NotificationsQuery {
         AuthErrors,
         (status = 500, description = "Internal server error", body = ApiError),
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn list_notifications(
     State(state): State<AppState>,
@@ -164,10 +160,6 @@ pub async fn list_notifications(
         (status = 200, description = "Feed cleared", body = PushSubscriptionResponse),
         AuthErrors,
         (status = 500, description = "Internal server error", body = ApiError),
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn clear_notifications(
