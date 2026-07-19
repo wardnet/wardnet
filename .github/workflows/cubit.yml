@@ -1,0 +1,47 @@
+name: Cubit
+
+# Reusable leaf for performance-regression tracking via cubit
+# (github.com/wardnet/cubit). Called from pr.yml (compare + sticky PR comment)
+# and ci.yml (record the baseline on main). Mirrors how the `bulwark` coverage
+# leaf is wired.
+#
+# Advisory ONLY: cubit never fails the build, and this leaf is deliberately left
+# out of pr.yml's `all-checks-passed` aggregator so it can't gate a merge. The
+# PR comment and trend dashboard inform a human go/no-go.
+#
+# NOTE: this leaf does not run any benchmarks yet — it is wired ahead of the
+# benchmarks so the workflow already exists on `main` when the benchmarks PR
+# opens (and thus reliably runs on it). Until then, cubit finds no criterion
+# output and posts a short "no benchmark data" note; the benchmarks PR adds the
+# `cargo bench` step that produces real data.
+
+on:
+  workflow_call:
+
+# Workflow-level stays read-only; the job below elevates to the writes it needs,
+# which the caller (pr.yml / ci.yml cubit job) must grant to the same ceiling.
+permissions:
+  contents: read
+
+jobs:
+  cubit:
+    name: cubit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write # push the cubit-state baseline branch (record, on main)
+      pull-requests: write # post/update the sticky performance comment (compare, on PRs)
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      # Moving major tag: cubit advances `v0` on each 0.x release, so fixes flow
+      # here without a wardnet bump (same pattern as bulwark's @v1). Pin to an
+      # exact version once cubit reaches 1.0.
+      - uses: wardnet/cubit@v0
+        with:
+          criterion-dir: source/daemon/target/criterion

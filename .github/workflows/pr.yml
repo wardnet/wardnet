@@ -182,6 +182,27 @@ jobs:
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
 
+  cubit:
+    name: Cubit
+    needs: preflight
+    # Advisory performance-regression tracking (compare + PR comment). Gated on
+    # the same `daemon || ci` filter as build-daemon. Skip bot-authored PRs:
+    # same-repo bot branches (Dependabot etc.) get a read-only token, so the PR
+    # comment can't be posted — matching the coverage leaf's bot skip. Gate on
+    # the PR author, not github.actor, so a re-run doesn't flip it.
+    #
+    # Deliberately NOT listed in `all-checks-passed` below: cubit is a light
+    # gate and must never block a merge.
+    if: >
+      github.event.pull_request.user.type != 'Bot' && (
+        needs.preflight.outputs.daemon == 'true' ||
+        needs.preflight.outputs.ci == 'true'
+      )
+    permissions:
+      contents: write # cubit pushes/reads the cubit-state baseline branch
+      pull-requests: write # cubit posts the sticky performance comment
+    uses: ./.github/workflows/cubit.yml
+
   # Aggregator for branch protection. Lists every other job as a
   # dependency, runs unconditionally (if: always()), and passes iff
   # each dependency either succeeded or was legitimately skipped via
