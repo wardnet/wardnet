@@ -994,9 +994,13 @@ pub(super) struct TestHarness {
     pub(super) jobs: Arc<dyn JobService>,
 }
 
-pub(super) fn build_harness() -> TestHarness {
+/// Single construction point for the tunnel-service test harness; the
+/// named entry points below vary only the dependency a test cares about.
+fn build_harness_inner(
+    device_repo: Arc<dyn DeviceRepository>,
+    server_resolver: Arc<dyn ServerResolver>,
+) -> TestHarness {
     let repo = Arc::new(MockTunnelRepo::new());
-    let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepoForTunnel);
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
     let system_config = Arc::new(MockSystemConfigRepo::new());
@@ -1005,7 +1009,6 @@ pub(super) fn build_harness() -> TestHarness {
     let latency_prober = Arc::new(MockTunnelLatencyProber::new());
     let stats_buffer = StatsBuffer::new();
     let meter = Arc::new(Meter::new(stats_buffer.clone()));
-    let server_resolver: Arc<dyn ServerResolver> = Arc::new(MockServerResolver);
 
     let throughput_tester = Arc::new(MockThroughputTester::new());
     let speed_test_repo = Arc::new(MockSpeedTestRepo::new());
@@ -1042,104 +1045,21 @@ pub(super) fn build_harness() -> TestHarness {
         speed_test_repo,
         jobs,
     }
+}
+
+pub(super) fn build_harness() -> TestHarness {
+    build_harness_inner(
+        Arc::new(MockDeviceRepoForTunnel),
+        Arc::new(MockServerResolver),
+    )
 }
 
 fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> TestHarness {
-    let repo = Arc::new(MockTunnelRepo::new());
-    let tunnel_iface = Arc::new(MockTunnelInterface::new());
-    let keys = Arc::new(MockKeyStore::new());
-    let system_config = Arc::new(MockSystemConfigRepo::new());
-    let events = Arc::new(MockEventPublisher::new());
-    let exit_probe = Arc::new(MockTunnelExitProbe::new());
-    let latency_prober = Arc::new(MockTunnelLatencyProber::new());
-    let stats_buffer = StatsBuffer::new();
-    let meter = Arc::new(Meter::new(stats_buffer.clone()));
-    let server_resolver: Arc<dyn ServerResolver> = Arc::new(MockServerResolver);
-
-    let throughput_tester = Arc::new(MockThroughputTester::new());
-    let speed_test_repo = Arc::new(MockSpeedTestRepo::new());
-    let jobs: Arc<dyn JobService> = JobServiceImpl::new();
-
-    let svc = TunnelServiceImpl::with_key_store(
-        repo.clone(),
-        device_repo,
-        system_config.clone(),
-        tunnel_iface.clone(),
-        exit_probe.clone(),
-        latency_prober.clone(),
-        throughput_tester.clone(),
-        keys.clone(),
-        events.clone(),
-        meter,
-        server_resolver,
-        jobs.clone(),
-        speed_test_repo.clone(),
-        3,
-    );
-
-    TestHarness {
-        svc: Arc::new(svc),
-        tunnels: repo,
-        tunnel_iface,
-        system_config,
-        events,
-        keys,
-        stats_buffer,
-        exit_probe,
-        latency_prober,
-        throughput_tester,
-        speed_test_repo,
-        jobs,
-    }
+    build_harness_inner(device_repo, Arc::new(MockServerResolver))
 }
 
 fn build_harness_with_resolver(server_resolver: Arc<dyn ServerResolver>) -> TestHarness {
-    let repo = Arc::new(MockTunnelRepo::new());
-    let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepoForTunnel);
-    let tunnel_iface = Arc::new(MockTunnelInterface::new());
-    let keys = Arc::new(MockKeyStore::new());
-    let system_config = Arc::new(MockSystemConfigRepo::new());
-    let events = Arc::new(MockEventPublisher::new());
-    let exit_probe = Arc::new(MockTunnelExitProbe::new());
-    let latency_prober = Arc::new(MockTunnelLatencyProber::new());
-    let stats_buffer = StatsBuffer::new();
-    let meter = Arc::new(Meter::new(stats_buffer.clone()));
-
-    let throughput_tester = Arc::new(MockThroughputTester::new());
-    let speed_test_repo = Arc::new(MockSpeedTestRepo::new());
-    let jobs: Arc<dyn JobService> = JobServiceImpl::new();
-
-    let svc = TunnelServiceImpl::with_key_store(
-        repo.clone(),
-        device_repo,
-        system_config.clone(),
-        tunnel_iface.clone(),
-        exit_probe.clone(),
-        latency_prober.clone(),
-        throughput_tester.clone(),
-        keys.clone(),
-        events.clone(),
-        meter,
-        server_resolver,
-        jobs.clone(),
-        speed_test_repo.clone(),
-        3,
-    );
-
-    TestHarness {
-        svc: Arc::new(svc),
-        tunnels: repo,
-        tunnel_iface,
-        system_config,
-        events,
-        keys,
-        stats_buffer,
-        exit_probe,
-        latency_prober,
-        throughput_tester,
-        speed_test_repo,
-        jobs,
-    }
+    build_harness_inner(Arc::new(MockDeviceRepoForTunnel), server_resolver)
 }
 
 fn sample_request() -> CreateTunnelRequest {
@@ -1570,6 +1490,46 @@ async fn delete_tunnel_resets_default_policy_pointing_at_it() {
             WardnetEvent::DefaultPolicyChanged { policy, .. } if policy == "direct"
         )),
         "deletion of the default-policy tunnel must publish DefaultPolicyChanged: {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn delete_tunnel_resets_default_policy_stored_in_non_canonical_form() {
+    // set_default_policy stores the admin-supplied string verbatim and the
+    // UUID parser accepts non-canonical encodings, so the policy can
+    // reference this tunnel as e.g. an uppercase UUID. The reset must
+    // match by parsed identity, not by exact string.
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    h.system_config
+        .set_default_policy(&id.to_string().to_uppercase())
+        .await
+        .unwrap();
+
+    auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(id))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        h.system_config
+            .get_default_policy()
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("direct"),
+        "a non-canonically encoded default policy must still be reset"
+    );
+    let events = h.events.published_events();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WardnetEvent::DefaultPolicyChanged { policy, .. } if policy == "direct"
+        )),
+        "the reset must publish DefaultPolicyChanged: {events:?}"
     );
 }
 

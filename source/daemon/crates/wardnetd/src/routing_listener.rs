@@ -62,6 +62,23 @@ async fn event_loop(
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!(skipped = n, "routing listener: lagged behind event bus: skipped={n}");
+                        // The skipped events may have included a
+                        // `DefaultPolicyChanged`, which has no other
+                        // recovery path (the in-memory policy is only
+                        // written through the handler and
+                        // `set_default_policy`). Resync from the DB so a
+                        // dropped policy event cannot leave the cache
+                        // stale until the next admin change or restart.
+                        if let Err(e) = wardnetd_services::auth_context::with_context(
+                            AuthContext::Admin {
+                                admin_id: uuid::Uuid::nil(),
+                            },
+                            routing.handle_default_policy_changed(),
+                        )
+                        .await
+                        {
+                            tracing::warn!(error = %e, "failed to resync default policy after event lag: {e}");
+                        }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         tracing::info!("routing listener: event bus closed");
@@ -179,16 +196,19 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
             }
         }
 
-        WardnetEvent::DefaultPolicyChanged { policy, .. } => {
+        // The payload is only a trigger — the handler re-reads the
+        // persisted policy so stale or reordered events cannot regress
+        // the routing state.
+        WardnetEvent::DefaultPolicyChanged { .. } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
                 AuthContext::Admin {
                     admin_id: uuid::Uuid::nil(),
                 },
-                routing.handle_default_policy_changed(&policy),
+                routing.handle_default_policy_changed(),
             )
             .await
             {
-                tracing::warn!(error = %e, policy, "failed to handle default policy change to {policy}: {e}");
+                tracing::warn!(error = %e, "failed to handle default policy change: {e}");
             }
         }
 

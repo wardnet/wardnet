@@ -108,34 +108,36 @@ pub trait RoutingService: Send + Sync {
     /// Update the global default routing policy.
     ///
     /// Validates `policy` (must be `"direct"` or a tunnel UUID),
-    /// persists it to `system_config`, and updates the in-memory
-    /// state used by [`Self::apply_rule`] to resolve
-    /// [`RoutingTarget::Default`]. Devices whose stored rule is
-    /// `RoutingTarget::Default` will pick up the new policy on
-    /// their next apply or reconcile.
+    /// persists it to `system_config`, updates the in-memory state used
+    /// by [`Self::apply_rule`] to resolve [`RoutingTarget::Default`],
+    /// and publishes `DefaultPolicyChanged`. Already-routed
+    /// `Default`-ruled devices are re-applied by the routing listener
+    /// reacting to that event (via
+    /// [`Self::handle_default_policy_changed`]), not inline — new
+    /// resolves see the new policy immediately, existing kernel state
+    /// follows a moment later.
     async fn set_default_policy(&self, policy: &str) -> Result<(), AppError>;
 
     /// Read the current global default routing policy.
     async fn default_policy(&self) -> Result<String, AppError>;
 
-    /// Absorb a default-policy change that was persisted outside this
-    /// service and re-resolve `Default`-ruled devices against it.
+    /// Re-read the persisted default policy, sync the in-memory copy,
+    /// and re-apply every `Default`-ruled device against it.
     ///
-    /// [`Self::set_default_policy`] is the normal write path, but the
-    /// policy can also be rewritten by tunnel deletion (a tunnel that
-    /// *is* the default policy is reset to `"direct"` so the config
-    /// never dangles). The tunnel service persists that reset and
-    /// announces it via
+    /// This is the single mechanism that makes a policy change take
+    /// effect on already-routed devices. [`Self::set_default_policy`] is
+    /// one writer; tunnel deletion is the other (a tunnel that *is* the
+    /// default policy is reset to `"direct"` so the config never
+    /// dangles). Both persist first and then announce via
     /// [`wardnet_common::event::WardnetEvent::DefaultPolicyChanged`];
-    /// the routing listener forwards the event here so the in-memory
-    /// policy used by [`Self::apply_rule`] catches up and affected
-    /// devices re-route immediately. A no-op when the in-memory value
-    /// already matches (i.e. the change originated from
-    /// [`Self::set_default_policy`], which syncs and re-applies inline
-    /// before publishing).
+    /// the routing listener forwards every such event here, and also
+    /// calls this after a lagged event-bus receiver may have dropped
+    /// one. The persisted value is re-read rather than trusted from the
+    /// event payload so out-of-order or dropped events always converge
+    /// on the database's state.
     ///
     /// No auth guard — callers wrap this in `auth_context::with_context(...)`.
-    async fn handle_default_policy_changed(&self, policy: &str) -> Result<(), AppError>;
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError>;
 
     /// Lock-free, atomically swappable snapshot of `device_ip → UpstreamId`
     /// for the DNS server's per-query upstream selection.
@@ -288,6 +290,32 @@ impl RoutingServiceImpl {
         )
     }
 
+    /// Write `policy` into the in-memory default-policy cache, returning
+    /// whether the stored value actually changed. Shared by
+    /// [`RoutingService::set_default_policy`] and
+    /// [`RoutingService::handle_default_policy_changed`] so the
+    /// poisoned-lock handling cannot drift between the two write paths
+    /// (the read side is likewise centralized in
+    /// [`Self::current_default_policy`]).
+    fn write_cached_policy(&self, policy: &str) -> Result<bool, AppError> {
+        match self.default_policy.write() {
+            Ok(mut guard) => {
+                if *guard == policy {
+                    Ok(false)
+                } else {
+                    policy.clone_into(&mut guard);
+                    Ok(true)
+                }
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "default_policy lock poisoned during write");
+                Err(AppError::Internal(anyhow::anyhow!(
+                    "default_policy lock poisoned"
+                )))
+            }
+        }
+    }
+
     /// Re-apply every device whose *stored DB rule* is
     /// `RoutingTarget::Default`. The cached `applied` entry holds the
     /// already-resolved target (e.g. Direct) which `apply_rule`'s
@@ -303,45 +331,43 @@ impl RoutingServiceImpl {
     /// the rest. `apply_rule` already falls back to direct on its
     /// own internal failures.
     async fn reapply_default_ruled_devices(&self) -> Result<(), AppError> {
+        // Two batched queries instead of a per-device rule lookup: the
+        // rule set is loaded once and joined against the device list in
+        // memory.
         let devices = self.devices.find_all().await.map_err(AppError::Internal)?;
+        let default_ruled: HashSet<Uuid> = self
+            .devices
+            .find_all_rules()
+            .await
+            .map_err(AppError::Internal)?
+            .into_iter()
+            .filter(|rule| matches!(rule.target, RoutingTarget::Default))
+            .map(|rule| rule.device_id)
+            .collect();
         let mut reapplied = 0u32;
         for device in &devices {
-            let rule = match self
-                .devices
-                .find_rule_for_device(&device.id.to_string())
-                .await
-            {
-                Ok(Some(rule)) => rule,
-                Ok(None) => continue,
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        device_id = %device.id,
-                        "failed to load routing rule while re-applying default policy"
-                    );
-                    continue;
-                }
-            };
-            if !matches!(rule.target, RoutingTarget::Default) {
+            if !default_ruled.contains(&device.id) {
                 continue;
             }
             if let Err(e) = self
                 .apply_rule(device.id, &device.last_ip, &RoutingTarget::Default)
                 .await
             {
+                let device_id = device.id;
                 tracing::warn!(
                     error = %e,
-                    device_id = %device.id,
-                    "failed to re-apply default policy for device"
+                    device_id = %device_id,
+                    "failed to re-apply default policy for device {device_id}: {e}"
                 );
             } else {
                 reapplied += 1;
             }
         }
+        let total_devices = devices.len();
         tracing::info!(
             reapplied,
-            total_devices = devices.len(),
-            "re-applied default routing policy across devices"
+            total_devices,
+            "re-applied default routing policy across devices: {reapplied}/{total_devices}"
         );
 
         Ok(())
@@ -1514,30 +1540,27 @@ impl RoutingService for RoutingServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
-        match self.default_policy.write() {
-            Ok(mut guard) => policy.clone_into(&mut guard),
-            Err(e) => {
-                tracing::error!(error = %e, "default_policy lock poisoned during write");
-                return Err(AppError::Internal(anyhow::anyhow!(
-                    "default_policy lock poisoned"
-                )));
-            }
-        }
+        // Update the cache immediately so concurrent resolves and the
+        // policy GET never observe the old value between the DB write and
+        // the listener's reaction below.
+        self.write_cached_policy(policy)?;
 
-        tracing::info!(policy, "default routing policy updated");
+        tracing::info!(policy, "default routing policy updated to {policy}");
 
-        // Announce the change so the Network-Zone enforcer (#736) can
-        // re-validate `Default`-ruled devices against their zones and unbind
-        // any tunnel binding a device's zone now forbids. Published *before*
-        // the re-apply sweep below so the enforcer never observes a stale
-        // policy; the enforcer only reads zones + devices, so ordering against
-        // the re-apply is benign.
+        // Announce the change. Two consumers react: the Network-Zone
+        // enforcer (#736) re-validates `Default`-ruled devices against
+        // their zones and unbinds any tunnel binding a device's zone now
+        // forbids, and the routing listener re-applies `Default`-ruled
+        // devices via `handle_default_policy_changed`. The re-apply is
+        // event-driven rather than inline so this admin call returns
+        // without waiting on the kernel walk, and so both policy writers
+        // (this method and tunnel deletion) converge through one path.
         self.events.publish(WardnetEvent::DefaultPolicyChanged {
             policy: policy.to_owned(),
             timestamp: chrono::Utc::now(),
         });
 
-        self.reapply_default_ruled_devices().await
+        Ok(())
     }
 
     async fn default_policy(&self) -> Result<String, AppError> {
@@ -1545,32 +1568,37 @@ impl RoutingService for RoutingServiceImpl {
         Ok(self.current_default_policy())
     }
 
-    async fn handle_default_policy_changed(&self, policy: &str) -> Result<(), AppError> {
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError> {
         // No auth guard — invoked from the routing listener, which already
         // runs inside an `auth_context::with_context(Admin)` wrapper.
-        match self.default_policy.write() {
-            Ok(mut guard) => {
-                if *guard == policy {
-                    // Already in sync — the change came through
-                    // `set_default_policy`, which updated the cache and
-                    // re-applied devices before publishing the event.
-                    return Ok(());
-                }
-                policy.clone_into(&mut guard);
-            }
-            Err(e) => {
-                tracing::error!(error = %e, "default_policy lock poisoned during sync");
-                return Err(AppError::Internal(anyhow::anyhow!(
-                    "default_policy lock poisoned"
-                )));
-            }
+        //
+        // The persisted policy is re-read here instead of trusting the
+        // event payload: publishes are not atomic with their DB writes, so
+        // a stale payload could otherwise overwrite a newer value. Reading
+        // the source of truth makes the last handler run converge on the
+        // final persisted state regardless of event ordering or drops.
+        let Some(policy) = self
+            .system_config
+            .get_default_policy()
+            .await
+            .map_err(AppError::Internal)?
+        else {
+            // Policy key unset (pre-bootstrap) — nothing to sync against.
+            return Ok(());
+        };
+
+        if self.write_cached_policy(&policy)? {
+            tracing::info!(
+                policy,
+                "synced default routing policy from persisted change to {policy}"
+            );
         }
 
-        tracing::info!(
-            policy,
-            "absorbed externally persisted default routing policy change"
-        );
-
+        // Always sweep, even when the cache was already current: for
+        // changes originating in `set_default_policy` the cache is updated
+        // inline before the event is published, so an in-sync cache says
+        // nothing about whether devices have been re-applied yet.
+        // `apply_rule`'s short-circuit makes a redundant sweep cheap.
         self.reapply_default_ruled_devices().await
     }
 

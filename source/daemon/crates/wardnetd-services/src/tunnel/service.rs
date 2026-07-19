@@ -1198,28 +1198,48 @@ impl TunnelService for TunnelServiceImpl {
         // above, so `Default`-ruled devices degrade the same way at the
         // same time — instead of the config keeping a dangling tunnel UUID
         // that silently resolves to direct on each later lookup.
+        //
+        // The stored policy is matched through `from_default_policy` — the
+        // same interpreter the routing engine resolves with — not raw string
+        // equality: `set_default_policy` stores the admin-supplied string
+        // verbatim, and the UUID parser accepts non-canonical forms
+        // (uppercase, braced, un-hyphenated) that would defeat an exact
+        // compare while still routing through this tunnel.
         let default_policy = self
             .system_config
             .get_default_policy()
             .await
             .map_err(AppError::Internal)?;
-        if default_policy.as_deref() == Some(id.to_string().as_str()) {
-            self.system_config
-                .set_default_policy("direct")
+        let policy_targets_tunnel = default_policy.as_deref().is_some_and(|p| {
+            matches!(
+                wardnet_common::routing::RoutingTarget::from_default_policy(p),
+                wardnet_common::routing::RoutingTarget::Tunnel { tunnel_id } if tunnel_id == id
+            )
+        });
+        if policy_targets_tunnel {
+            // Conditional on the exact stored value so a concurrent
+            // `set_default_policy` write is never clobbered: if it lands
+            // in between, the compare-and-set misses and that writer's own
+            // event covers the change.
+            let reset = self
+                .system_config
+                .reset_default_policy_from(default_policy.as_deref().unwrap_or_default())
                 .await
                 .map_err(AppError::Internal)?;
-            tracing::info!(
-                tunnel_id = %id,
-                "deleted tunnel was the default routing policy, reset policy to direct"
-            );
-            // Announce the reset so the routing engine re-resolves
-            // `Default`-ruled devices immediately and the Network-Zone
-            // enforcer (#736) re-clamps them, rather than each device
-            // degrading lazily on its next resolve.
-            self.events.publish(WardnetEvent::DefaultPolicyChanged {
-                policy: "direct".to_owned(),
-                timestamp: chrono::Utc::now(),
-            });
+            if reset {
+                tracing::info!(
+                    tunnel_id = %id,
+                    "deleted tunnel {id} was the default routing policy, reset policy to direct"
+                );
+                // Announce the reset so the routing engine re-resolves
+                // `Default`-ruled devices immediately and the Network-Zone
+                // enforcer (#736) re-clamps them, rather than each device
+                // degrading lazily on its next resolve.
+                self.events.publish(WardnetEvent::DefaultPolicyChanged {
+                    policy: "direct".to_owned(),
+                    timestamp: chrono::Utc::now(),
+                });
+            }
         }
 
         // If the kernel interface is configured, tear it down first.

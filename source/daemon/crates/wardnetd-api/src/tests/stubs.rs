@@ -731,7 +731,7 @@ impl RoutingService for StubRoutingService {
     async fn default_policy(&self) -> Result<String, AppError> {
         Ok("direct".to_owned())
     }
-    async fn handle_default_policy_changed(&self, _policy: &str) -> Result<(), AppError> {
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError> {
         Ok(())
     }
     fn dns_upstream_snapshot(

@@ -161,6 +161,25 @@ pub trait SystemConfigRepository: Send + Sync {
         self.set("default_policy", policy).await
     }
 
+    /// Reset the global default routing policy to `"direct"`, but only if
+    /// it still holds `expected`. Returns whether the reset was applied.
+    ///
+    /// Used by tunnel deletion to clear a policy that points at the tunnel
+    /// being removed without clobbering a concurrent
+    /// [`Self::set_default_policy`] write: if the stored value no longer
+    /// matches `expected`, another writer won and the reset is skipped.
+    /// This default implementation is a non-atomic read-compare-write for
+    /// in-memory test doubles; the `SQLite` implementation overrides it with
+    /// a single conditional `UPDATE` so the compare-and-set is atomic.
+    async fn reset_default_policy_from(&self, expected: &str) -> anyhow::Result<bool> {
+        if self.get("default_policy").await?.as_deref() == Some(expected) {
+            self.set("default_policy", "direct").await?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
     /// Read the current setup-wizard step.
     ///
     /// One of: `admin`, `network`, `dhcp`, `router_mac`, `tunnel`,

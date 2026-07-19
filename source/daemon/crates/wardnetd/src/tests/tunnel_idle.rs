@@ -238,7 +238,7 @@ impl RoutingService for MockRoutingService {
         Ok("direct".to_owned())
     }
 
-    async fn handle_default_policy_changed(&self, _policy: &str) -> Result<(), AppError> {
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError> {
         Ok(())
     }
 

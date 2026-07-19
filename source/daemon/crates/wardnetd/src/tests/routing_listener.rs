@@ -57,9 +57,7 @@ enum RoutingCall {
     HandleRouteTableLost {
         table: u32,
     },
-    HandleDefaultPolicyChanged {
-        policy: String,
-    },
+    HandleDefaultPolicyChanged,
     RebuildDnsUpstreamSnapshot,
 }
 
@@ -196,13 +194,11 @@ impl RoutingService for MockRoutingService {
         Ok("direct".to_owned())
     }
 
-    async fn handle_default_policy_changed(&self, policy: &str) -> Result<(), AppError> {
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError> {
         self.calls
             .lock()
             .unwrap()
-            .push(RoutingCall::HandleDefaultPolicyChanged {
-                policy: policy.to_owned(),
-            });
+            .push(RoutingCall::HandleDefaultPolicyChanged);
         Ok(())
     }
 
@@ -313,7 +309,7 @@ impl RoutingService for FailingRoutingService {
         Err(AppError::Internal(anyhow::anyhow!("default_policy failed")))
     }
 
-    async fn handle_default_policy_changed(&self, _policy: &str) -> Result<(), AppError> {
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError> {
         Err(AppError::Internal(anyhow::anyhow!(
             "handle_default_policy_changed failed"
         )))
@@ -781,12 +777,7 @@ async fn default_policy_changed_triggers_handle_default_policy_changed() {
 
     let calls = routing.take_calls();
     assert_eq!(calls.len(), 1);
-    assert_eq!(
-        calls[0],
-        RoutingCall::HandleDefaultPolicyChanged {
-            policy: "direct".to_owned(),
-        }
-    );
+    assert_eq!(calls[0], RoutingCall::HandleDefaultPolicyChanged);
 }
 
 #[tokio::test]
