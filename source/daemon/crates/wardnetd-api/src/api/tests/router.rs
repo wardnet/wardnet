@@ -72,6 +72,7 @@ async fn all_api_routes_are_reachable() {
 
     let routes: Vec<(&str, String)> = vec![
         ("POST", "/api/auth/login".to_owned()),
+        ("POST", "/api/auth/logout".to_owned()),
         ("GET", "/api/devices".to_owned()),
         ("GET", "/api/devices/me".to_owned()),
         ("PUT", "/api/devices/me/rule".to_owned()),

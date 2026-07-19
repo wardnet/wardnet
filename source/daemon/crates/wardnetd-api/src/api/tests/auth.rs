@@ -1,7 +1,8 @@
 //! Tests for the authentication API endpoints (POST /api/auth/login).
 
+use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use axum::Router;
@@ -80,6 +81,9 @@ impl AuthService for MockAuthService {
     ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
         unimplemented!()
     }
+    async fn logout_session(&self, _token: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
@@ -127,6 +131,9 @@ impl AuthService for MockRefreshAuthService {
     ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
         unimplemented!()
     }
+    async fn logout_session(&self, _token: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         match self.refresh_result {
             Ok(()) => Ok(LoginResult {
@@ -143,13 +150,83 @@ impl AuthService for MockRefreshAuthService {
     }
 }
 
+/// Stateful auth service for logout tests: tracks valid session tokens (and
+/// optionally API keys) in memory so the login → logout → replay sequence can
+/// be driven end-to-end through the real handlers and extractors.
+struct InMemorySessionAuthService {
+    tokens: Mutex<HashSet<String>>,
+    api_keys: Mutex<HashSet<String>>,
+}
+
+impl InMemorySessionAuthService {
+    fn new() -> Self {
+        Self {
+            tokens: Mutex::new(HashSet::new()),
+            api_keys: Mutex::new(HashSet::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl AuthService for InMemorySessionAuthService {
+    async fn current_admin_username(&self) -> Result<String, AppError> {
+        Ok("admin".to_owned())
+    }
+    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+        let token = "integration-session-token".to_owned();
+        self.tokens.lock().unwrap().insert(token.clone());
+        Ok(LoginResult {
+            token,
+            max_age_seconds: 86400,
+        })
+    }
+    async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError> {
+        Ok(self.tokens.lock().unwrap().contains(token).then(Uuid::nil))
+    }
+    async fn validate_api_key(&self, key: &str) -> Result<Option<Uuid>, AppError> {
+        Ok(self.api_keys.lock().unwrap().contains(key).then(Uuid::nil))
+    }
+    async fn logout_session(&self, token: &str) -> Result<(), AppError> {
+        self.tokens.lock().unwrap().remove(token);
+        Ok(())
+    }
+    async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+    async fn wizard_state(
+        &self,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn advance_wizard(
+        &self,
+        _to_step: wardnet_common::api::WizardStep,
+        _mode: Option<wardnet_common::api::WizardMode>,
+    ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
+    async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 fn make_state(auth: impl AuthService + 'static) -> AppState {
+    make_state_from_arc(Arc::new(auth))
+}
+
+fn make_state_from_arc(auth: Arc<dyn AuthService>) -> AppState {
     AppState::new(
-        Arc::new(auth),
+        auth,
         Arc::new(crate::tests::stubs::StubBackupService),
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),
@@ -185,6 +262,13 @@ fn login_app(state: AppState) -> Router {
 fn refresh_app(state: AppState) -> Router {
     Router::new()
         .route("/api/auth/refresh", post(crate::api::auth::refresh))
+        .with_state(state)
+}
+
+fn auth_app(state: AppState) -> Router {
+    Router::new()
+        .route("/api/auth/login", post(crate::api::auth::login))
+        .route("/api/auth/logout", post(crate::api::auth::logout))
         .with_state(state)
 }
 
@@ -502,6 +586,218 @@ async fn refresh_via_bearer_token_returns_204() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     assert!(resp.headers().contains_key("set-cookie"));
+}
+
+#[tokio::test]
+async fn logout_returns_204_and_clears_the_session_cookie() {
+    let auth = Arc::new(InMemorySessionAuthService::new());
+    auth.tokens.lock().unwrap().insert("live-token".to_owned());
+    let app = auth_app(make_state_from_arc(auth));
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/logout")
+        .header("Cookie", "wardnet_session=live-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .expect("Set-Cookie expected")
+        .to_str()
+        .unwrap();
+    assert!(
+        cookie.starts_with("wardnet_session=;"),
+        "cookie value must be emptied, got: {cookie}"
+    );
+    assert!(cookie.contains("Max-Age=0"), "got: {cookie}");
+    assert!(cookie.contains("HttpOnly"));
+    assert!(cookie.contains("SameSite=Strict"));
+    assert!(cookie.contains("Path=/"));
+    assert!(
+        !cookie.contains("Secure"),
+        "plain-HTTP clear cookie must not be Secure, got: {cookie}"
+    );
+}
+
+#[tokio::test]
+async fn logout_over_tls_clears_cookie_with_secure_attribute() {
+    let auth = Arc::new(InMemorySessionAuthService::new());
+    auth.tokens.lock().unwrap().insert("tls-token".to_owned());
+    let app = auth_app(make_state_from_arc(auth));
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/logout")
+        .header("Cookie", "wardnet_session=tls-token")
+        .extension(connect_info_ext())
+        .extension(crate::api::middleware::SecureTransport)
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+
+    let cookie = resp
+        .headers()
+        .get("set-cookie")
+        .expect("Set-Cookie expected")
+        .to_str()
+        .unwrap();
+    assert!(cookie.contains("Max-Age=0"), "got: {cookie}");
+    assert!(
+        cookie.contains("Secure"),
+        "TLS clear cookie must be Secure, got: {cookie}"
+    );
+}
+
+#[tokio::test]
+async fn logout_via_bearer_token_returns_204() {
+    let auth = Arc::new(InMemorySessionAuthService::new());
+    auth.tokens
+        .lock()
+        .unwrap()
+        .insert("bearer-token".to_owned());
+    let app = auth_app(make_state_from_arc(auth.clone()));
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/logout")
+        .header("Authorization", "Bearer bearer-token")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(auth.tokens.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn logout_revokes_the_authenticating_bearer_session_not_a_stale_cookie() {
+    // A request can carry a stale cookie alongside the valid bearer token
+    // that actually authenticates it. Logout must revoke the bearer session
+    // — deleting the stale cookie's (nonexistent) session and reporting 204
+    // would leave the live session valid while claiming it was revoked.
+    let auth = Arc::new(InMemorySessionAuthService::new());
+    auth.tokens.lock().unwrap().insert("live-bearer".to_owned());
+    let app = auth_app(make_state_from_arc(auth.clone()));
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/logout")
+        .header("Cookie", "wardnet_session=stale-cookie-token")
+        .header("Authorization", "Bearer live-bearer")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(
+        auth.tokens.lock().unwrap().is_empty(),
+        "the bearer session that authenticated the request must be revoked"
+    );
+}
+
+#[tokio::test]
+async fn logout_via_api_key_returns_401_without_touching_sessions() {
+    // API keys authenticate but are not sessions: there is nothing to log
+    // out, so the handler must refuse rather than report a bogus 204.
+    let auth = Arc::new(InMemorySessionAuthService::new());
+    auth.api_keys
+        .lock()
+        .unwrap()
+        .insert("my-api-key".to_owned());
+    auth.tokens
+        .lock()
+        .unwrap()
+        .insert("someone-elses-session".to_owned());
+    let app = auth_app(make_state_from_arc(auth.clone()));
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/logout")
+        .header("Authorization", "Bearer my-api-key")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    // The API key still works and no session was collateral damage.
+    assert!(auth.api_keys.lock().unwrap().contains("my-api-key"));
+    assert_eq!(auth.tokens.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn logout_without_session_returns_401() {
+    let auth = Arc::new(InMemorySessionAuthService::new());
+    let app = auth_app(make_state_from_arc(auth));
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/logout")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+/// End-to-end session-revocation flow through the real handlers and the
+/// `AdminAuth` extractor: login issues a cookie, logout revokes it server-side,
+/// and replaying the old cookie afterwards is rejected with 401.
+#[tokio::test]
+async fn login_then_logout_then_old_cookie_is_rejected() {
+    let auth = Arc::new(InMemorySessionAuthService::new());
+    let app = auth_app(make_state_from_arc(auth.clone()));
+
+    // 1. Login → session cookie issued, session exists server-side.
+    let body = serde_json::json!({ "username": "admin", "password": "password123" });
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/login")
+        .header("Content-Type", "application/json")
+        .extension(connect_info_ext())
+        .body(Body::from(serde_json::to_vec(&body).unwrap()))
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let cookie_header = "wardnet_session=integration-session-token";
+    assert_eq!(auth.tokens.lock().unwrap().len(), 1);
+
+    // 2. Logout with that cookie → 204, session removed from the store.
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/logout")
+        .header("Cookie", cookie_header)
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.clone().oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(
+        auth.tokens.lock().unwrap().is_empty(),
+        "session must be deleted server-side"
+    );
+
+    // 3. Replaying the old cookie is rejected by the auth extractor.
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/logout")
+        .header("Cookie", cookie_header)
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]

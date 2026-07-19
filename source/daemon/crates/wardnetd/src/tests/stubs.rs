@@ -121,6 +121,9 @@ impl AuthService for StubAuthService {
     ) -> Result<WizardState, AppError> {
         unimplemented!()
     }
+    async fn logout_session(&self, _token: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
@@ -515,6 +518,9 @@ impl RoutingService for StubRoutingService {
         unimplemented!()
     }
     async fn default_policy(&self) -> Result<String, AppError> {
+        unimplemented!()
+    }
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError> {
         unimplemented!()
     }
     fn dns_upstream_snapshot(

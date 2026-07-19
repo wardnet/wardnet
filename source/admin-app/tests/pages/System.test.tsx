@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -314,9 +314,33 @@ describe("System page", () => {
   });
 
   it("logs out, clears biometrics on the logout action", async () => {
+    h.logout.mockResolvedValue(true);
     renderWithProviders(<System />);
     await userEvent.click(screen.getByTestId("system-logout"));
     expect(h.logout).toHaveBeenCalledOnce();
+    await waitFor(() => expect(h.unregister).toHaveBeenCalledOnce());
+    expect(h.toastError).not.toHaveBeenCalled();
+  });
+
+  it("keeps the biometric gate until the session revoke settles", async () => {
+    let resolveLogout!: (revoked: boolean) => void;
+    h.logout.mockImplementation(
+      () => new Promise<boolean>((resolve) => (resolveLogout = resolve)),
+    );
+    renderWithProviders(<System />);
+    await userEvent.click(screen.getByTestId("system-logout"));
+    expect(h.logout).toHaveBeenCalledOnce();
+    // The local gate must not drop while the server-side logout is pending.
+    expect(h.unregister).not.toHaveBeenCalled();
+    resolveLogout(true);
+    await waitFor(() => expect(h.unregister).toHaveBeenCalledOnce());
+  });
+
+  it("warns but still signs out when the server-side revoke fails", async () => {
+    h.logout.mockResolvedValue(false);
+    renderWithProviders(<System />);
+    await userEvent.click(screen.getByTestId("system-logout"));
+    await waitFor(() => expect(h.toastError).toHaveBeenCalledOnce());
     expect(h.unregister).toHaveBeenCalledOnce();
   });
 

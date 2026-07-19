@@ -80,6 +80,9 @@ impl AuthService for MockAuthService {
     ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
         unimplemented!()
     }
+    async fn logout_session(&self, _token: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
@@ -214,6 +217,30 @@ async fn admin_auth_rejected_without_credentials() {
     let app = admin_app(state);
     let req = Request::builder()
         .uri("/test")
+        .extension(ConnectInfo(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            1234,
+        )))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn admin_auth_rejected_when_bearer_is_neither_session_nor_api_key() {
+    // A bearer that fails both the session and API-key validators must fall
+    // through to the 401, not authenticate.
+    let state = make_state(MockAuthService {
+        session_result: None,
+        api_key_result: None,
+    });
+
+    let app = admin_app(state);
+    let req = Request::builder()
+        .uri("/test")
+        .header("Authorization", "Bearer bogus-token")
         .extension(ConnectInfo(SocketAddr::new(
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             1234,
@@ -560,6 +587,70 @@ async fn resolve_auth_context_admin_session() {
     assert!(
         body_str.contains(&admin_id.to_string()),
         "expected admin_id in context, got: {body_str}"
+    );
+}
+
+/// A bearer session token (no cookie) produces `AuthContext::Admin`.
+#[tokio::test]
+async fn resolve_auth_context_admin_from_bearer_session_token() {
+    let admin_id = Uuid::new_v4();
+    let state = make_state_with_device(
+        MockAuthService {
+            session_result: Some(admin_id),
+            api_key_result: None,
+        },
+        MockDeviceService { device: None },
+    );
+
+    let app = auth_context_app(state);
+    let req = Request::builder()
+        .uri("/test")
+        .header("Authorization", "Bearer session-tok")
+        .extension(ConnectInfo(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            1234,
+        )))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(
+        body_str.contains("Admin"),
+        "expected Admin context, got: {body_str}"
+    );
+}
+
+/// A bearer API key (session validation misses) produces `AuthContext::Admin`.
+#[tokio::test]
+async fn resolve_auth_context_admin_from_bearer_api_key() {
+    let admin_id = Uuid::new_v4();
+    let state = make_state_with_device(
+        MockAuthService {
+            session_result: None,
+            api_key_result: Some(admin_id),
+        },
+        MockDeviceService { device: None },
+    );
+
+    let app = auth_context_app(state);
+    let req = Request::builder()
+        .uri("/test")
+        .header("Authorization", "Bearer api-key")
+        .extension(ConnectInfo(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            1234,
+        )))
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(
+        body_str.contains("Admin"),
+        "expected Admin context, got: {body_str}"
     );
 }
 

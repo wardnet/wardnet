@@ -60,6 +60,13 @@ interface AbortSignal {
   aborted: boolean;
 }
 
+/** AbortController — available natively in browsers and Node 15+. */
+declare class AbortController {
+  readonly signal: AbortSignal;
+  constructor();
+  abort(): void;
+}
+
 /** WebSocket — available natively in browsers and Node 22+. */
 declare class WebSocket {
   static readonly OPEN: number;

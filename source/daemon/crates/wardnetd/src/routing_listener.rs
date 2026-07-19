@@ -62,6 +62,23 @@ async fn event_loop(
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
                         tracing::warn!(skipped = n, "routing listener: lagged behind event bus: skipped={n}");
+                        // The skipped events may have included a
+                        // `DefaultPolicyChanged`, which has no other
+                        // recovery path (the in-memory policy is only
+                        // written through the handler and
+                        // `set_default_policy`). Resync from the DB so a
+                        // dropped policy event cannot leave the cache
+                        // stale until the next admin change or restart.
+                        if let Err(e) = wardnetd_services::auth_context::with_context(
+                            AuthContext::Admin {
+                                admin_id: uuid::Uuid::nil(),
+                            },
+                            routing.handle_default_policy_changed(),
+                        )
+                        .await
+                        {
+                            tracing::warn!(error = %e, "failed to resync default policy after event lag: {e}");
+                        }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                         tracing::info!("routing listener: event bus closed");
@@ -179,6 +196,22 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
             }
         }
 
+        // The payload is only a trigger — the handler re-reads the
+        // persisted policy so stale or reordered events cannot regress
+        // the routing state.
+        WardnetEvent::DefaultPolicyChanged { .. } => {
+            if let Err(e) = wardnetd_services::auth_context::with_context(
+                AuthContext::Admin {
+                    admin_id: uuid::Uuid::nil(),
+                },
+                routing.handle_default_policy_changed(),
+            )
+            .await
+            {
+                tracing::warn!(error = %e, "failed to handle default policy change: {e}");
+            }
+        }
+
         WardnetEvent::TunnelDnsOverrideChanged { tunnel_id, .. } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
                 AuthContext::Admin {
@@ -224,9 +257,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::DnsEventInserted { .. }
         // Network Zones (#735) record intent only in Phase 1; the routing
         // listener does not react to zone changes. The CI-2/CI-3 enforcers
-        // (#736/#737) subscribe separately. `DefaultPolicyChanged` is likewise
-        // consumed by the zone enforcer (#736), not here — the routing engine
-        // already re-applies `Default`-ruled devices inside `set_default_policy`.
+        // (#736/#737) subscribe separately.
         | WardnetEvent::NetworkZoneChanged { .. }
         | WardnetEvent::DeviceZoneChanged { .. }
         | WardnetEvent::ZoneExceptionsChanged { .. }
@@ -238,7 +269,6 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::EntitlementChanged { .. }
         // Private DNS (#912) is the DoT runner's concern.
         | WardnetEvent::PrivateDnsChanged { .. }
-        | WardnetEvent::PrivateDnsGrantRevoked { .. }
-        | WardnetEvent::DefaultPolicyChanged { .. } => {}
+        | WardnetEvent::PrivateDnsGrantRevoked { .. } => {}
     }
 }

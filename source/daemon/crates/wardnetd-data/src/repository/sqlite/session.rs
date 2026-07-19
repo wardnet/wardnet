@@ -72,6 +72,14 @@ impl SessionRepository for SqliteSessionRepository {
         Ok(result.rows_affected())
     }
 
+    async fn delete_by_token_hash(&self, token_hash: &str) -> anyhow::Result<u64> {
+        let result = sqlx::query("DELETE FROM sessions WHERE token_hash = ?")
+            .bind(token_hash)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
     async fn extend_expiry(&self, token_hash: &str, new_expires_at: &str) -> anyhow::Result<()> {
         sqlx::query("UPDATE sessions SET expires_at = ? WHERE token_hash = ?")
             .bind(new_expires_at)

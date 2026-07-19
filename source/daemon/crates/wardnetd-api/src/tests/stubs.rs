@@ -73,6 +73,9 @@ impl AuthService for StubAuthService {
     ) -> Result<WizardState, AppError> {
         unimplemented!()
     }
+    async fn logout_session(&self, _token: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
@@ -116,6 +119,9 @@ impl AuthService for AlwaysAdminAuth {
         _to_step: WizardStep,
         _mode: Option<WizardMode>,
     ) -> Result<WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn logout_session(&self, _token: &str) -> Result<(), AppError> {
         unimplemented!()
     }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
@@ -730,6 +736,9 @@ impl RoutingService for StubRoutingService {
     }
     async fn default_policy(&self) -> Result<String, AppError> {
         Ok("direct".to_owned())
+    }
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError> {
+        Ok(())
     }
     fn dns_upstream_snapshot(
         &self,

@@ -99,6 +99,55 @@ async fn delete_expired_removes_only_old_sessions() {
 }
 
 #[tokio::test]
+async fn delete_by_token_hash_removes_only_the_matching_session() {
+    let pool = test_pool().await;
+    seed_admin(&pool).await;
+    let repo = SqliteSessionRepository::new(pool);
+
+    repo.create(
+        "s1",
+        "admin-1",
+        "hash-a",
+        "2026-01-01T00:00:00Z",
+        "2099-01-01T00:00:00Z",
+        true,
+    )
+    .await
+    .unwrap();
+    repo.create(
+        "s2",
+        "admin-1",
+        "hash-b",
+        "2026-01-01T00:00:00Z",
+        "2099-01-01T00:00:00Z",
+        false,
+    )
+    .await
+    .unwrap();
+
+    let deleted = repo.delete_by_token_hash("hash-a").await.unwrap();
+    assert_eq!(deleted, 1);
+
+    // The deleted session no longer resolves; the other one is untouched.
+    assert!(
+        repo.find_admin_id_by_token_hash("hash-a", "2026-06-01T00:00:00Z")
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(
+        repo.find_admin_id_by_token_hash("hash-b", "2026-06-01T00:00:00Z")
+            .await
+            .unwrap(),
+        Some("admin-1".to_owned())
+    );
+
+    // Deleting an unknown hash is a no-op, not an error.
+    let deleted = repo.delete_by_token_hash("no-such-hash").await.unwrap();
+    assert_eq!(deleted, 0);
+}
+
+#[tokio::test]
 async fn find_session_for_refresh_returns_admin_id_and_flag() {
     let pool = test_pool().await;
     seed_admin(&pool).await;

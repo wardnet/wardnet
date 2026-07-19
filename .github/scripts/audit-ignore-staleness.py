@@ -26,7 +26,12 @@ from pathlib import Path
 
 DAEMON = Path(__file__).resolve().parents[2] / "source" / "daemon"
 AUDIT_TOML = DAEMON / ".cargo" / "audit.toml"
-OSV_TOML = DAEMON / "osv-scanner.toml"
+# osv-scanner resolves its config per lockfile directory, so the fuzz
+# workspace carries its own copy of the ignores relevant to fuzz/Cargo.lock.
+OSV_TOMLS = [
+    (DAEMON / "osv-scanner.toml", "osv-scanner.toml"),
+    (DAEMON / "fuzz" / "osv-scanner.toml", "fuzz/osv-scanner.toml"),
+]
 # Every Cargo.lock osv-scanner walks; a crate lingering in any of them keeps
 # the advisory reachable, so union them for the presence check.
 LOCKFILES = [DAEMON / "Cargo.lock", DAEMON / "fuzz" / "Cargo.lock"]
@@ -39,11 +44,12 @@ def ignored_ids() -> dict[str, list[str]]:
         cfg = tomllib.loads(AUDIT_TOML.read_text())
         for adv in cfg.get("advisories", {}).get("ignore", []):
             ids.setdefault(adv, []).append(".cargo/audit.toml")
-    if OSV_TOML.exists():
-        cfg = tomllib.loads(OSV_TOML.read_text())
-        for entry in cfg.get("IgnoredVulns", []):
-            if "id" in entry:
-                ids.setdefault(entry["id"], []).append("osv-scanner.toml")
+    for path, label in OSV_TOMLS:
+        if path.exists():
+            cfg = tomllib.loads(path.read_text())
+            for entry in cfg.get("IgnoredVulns", []):
+                if "id" in entry:
+                    ids.setdefault(entry["id"], []).append(label)
     return ids
 
 

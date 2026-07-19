@@ -62,6 +62,9 @@ impl AuthService for AlwaysAuthService {
     ) -> Result<wardnetd_services::auth::service::WizardState, AppError> {
         unimplemented!()
     }
+    async fn logout_session(&self, _token: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }

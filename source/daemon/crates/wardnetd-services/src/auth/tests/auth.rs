@@ -38,11 +38,14 @@ impl AdminRepository for MockAdminRepo {
 }
 
 /// Mock session repo that captures created sessions and returns preconfigured lookup results.
+#[derive(Default)]
 struct MockSessionRepo {
     /// Returned by `find_admin_id_by_token_hash` (drives `validate_session`).
     find_result: Mutex<Option<String>>,
     /// Returned by `find_session_for_refresh` (drives `refresh_session`).
     session_for_refresh: Mutex<Option<(String, bool, String)>>,
+    /// Token hashes passed to `delete_by_token_hash` (drives `logout_session` assertions).
+    deleted_hashes: Mutex<Vec<String>>,
 }
 
 #[async_trait]
@@ -67,6 +70,16 @@ impl SessionRepository for MockSessionRepo {
     }
     async fn delete_expired(&self, _now: &str) -> anyhow::Result<u64> {
         Ok(0)
+    }
+    async fn delete_by_token_hash(&self, token_hash: &str) -> anyhow::Result<u64> {
+        // Report one row removed when a session is configured, zero otherwise,
+        // mirroring the real repository's rows_affected semantics.
+        let existed = self.find_result.lock().unwrap().take().is_some();
+        self.deleted_hashes
+            .lock()
+            .unwrap()
+            .push(token_hash.to_owned());
+        Ok(u64::from(existed))
     }
     async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
         Ok(())
@@ -160,6 +173,7 @@ fn make_auth_service(
         Arc::new(MockSessionRepo {
             find_result: Mutex::new(session_find),
             session_for_refresh: Mutex::new(session_for_refresh),
+            ..Default::default()
         }),
         Arc::new(MockApiKeyRepo {
             hashes: api_key_hashes,
@@ -197,6 +211,21 @@ async fn login_success_with_remember_me() {
 }
 
 #[tokio::test]
+async fn login_with_malformed_stored_hash_returns_internal() {
+    // A corrupt password hash in the admins table must surface as Internal,
+    // not masquerade as bad credentials.
+    let svc = make_auth_service(
+        Some(("admin-1".to_owned(), "not-an-argon2-hash".to_owned())),
+        None,
+        None,
+        vec![],
+    );
+
+    let result = svc.login("admin", "any-password", false).await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+}
+
+#[tokio::test]
 async fn login_wrong_password() {
     let hash = argon2_hash("correct-password");
     let svc = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
@@ -221,6 +250,16 @@ async fn validate_session_valid() {
     let result = svc.validate_session("any-token").await.unwrap();
     assert!(result.is_some());
     assert_eq!(result.unwrap().to_string(), admin_uuid);
+}
+
+#[tokio::test]
+async fn validate_session_with_malformed_admin_id_returns_internal() {
+    // A session row whose admin_id is not a UUID must error rather than
+    // silently authenticate or deny.
+    let svc = make_auth_service(None, None, Some("not-a-uuid".to_owned()), vec![]);
+
+    let result = svc.validate_session("any-token").await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
 }
 
 #[tokio::test]
@@ -376,6 +415,7 @@ async fn refresh_session_not_remember_me_returns_forbidden() {
                 false,
                 (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339(),
             ))),
+            ..Default::default()
         }),
         Arc::new(MockApiKeyRepo { hashes: vec![] }),
         Arc::new(MockSystemConfigRepo),
@@ -390,6 +430,122 @@ async fn refresh_session_not_remember_me_returns_forbidden() {
     )
     .await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+/// Build a service whose session row for refresh is exactly `row`.
+fn make_refresh_service(row: (String, bool, String)) -> AuthServiceImpl {
+    AuthServiceImpl::new(
+        Arc::new(MockAdminRepo {
+            find_result: Mutex::new(None),
+            first_id: Mutex::new(None),
+        }),
+        Arc::new(MockSessionRepo {
+            session_for_refresh: Mutex::new(Some(row)),
+            ..Default::default()
+        }),
+        Arc::new(MockApiKeyRepo { hashes: vec![] }),
+        Arc::new(MockSystemConfigRepo),
+        24,
+        720,
+    )
+}
+
+#[tokio::test]
+async fn refresh_session_with_malformed_admin_id_returns_internal() {
+    // A session row whose admin_id is not a UUID must error out, not refresh.
+    let svc = make_refresh_service((
+        "not-a-uuid".to_owned(),
+        true,
+        (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339(),
+    ));
+    let result = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        async { svc.refresh_session("any-token").await },
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+}
+
+#[tokio::test]
+async fn refresh_session_with_malformed_created_at_returns_internal() {
+    // A session row whose created_at is not RFC 3339 must error out — the
+    // absolute-lifetime cap cannot be enforced without it.
+    let admin_uuid = "00000000-0000-0000-0000-000000000001";
+    let svc = make_refresh_service((admin_uuid.to_owned(), true, "not-a-timestamp".to_owned()));
+    let result = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::parse_str(admin_uuid).unwrap(),
+        },
+        async { svc.refresh_session("any-token").await },
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+}
+
+#[tokio::test]
+async fn logout_session_requires_admin() {
+    // No auth context → require_admin rejects before touching the repo.
+    let svc = make_auth_service(None, None, None, vec![]);
+    let result = svc.logout_session("any-token").await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn logout_session_deletes_the_sessions_row_by_token_hash() {
+    let admin_uuid = "00000000-0000-0000-0000-000000000001";
+    let sessions = Arc::new(MockSessionRepo {
+        find_result: Mutex::new(Some(admin_uuid.to_owned())),
+        ..Default::default()
+    });
+    let svc = AuthServiceImpl::new(
+        Arc::new(MockAdminRepo {
+            find_result: Mutex::new(None),
+            first_id: Mutex::new(None),
+        }),
+        Arc::clone(&sessions) as Arc<dyn SessionRepository>,
+        Arc::new(MockApiKeyRepo { hashes: vec![] }),
+        Arc::new(MockSystemConfigRepo),
+        24,
+        720,
+    );
+
+    let result = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::parse_str(admin_uuid).unwrap(),
+        },
+        async { svc.logout_session("raw-token").await },
+    )
+    .await;
+    assert!(result.is_ok());
+
+    // The repo receives the SHA-256 hash of the raw token, never the token itself.
+    let deleted = sessions.deleted_hashes.lock().unwrap().clone();
+    let expected_hash = {
+        use sha2::{Digest, Sha256};
+        hex::encode(Sha256::digest("raw-token".as_bytes()))
+    };
+    assert_eq!(deleted, vec![expected_hash]);
+
+    // The session no longer resolves afterwards.
+    let after = svc.validate_session("raw-token").await.unwrap();
+    assert!(after.is_none());
+}
+
+#[tokio::test]
+async fn logout_session_is_idempotent_when_session_already_gone() {
+    // No session row exists (delete affects 0 rows) → still Ok, the desired
+    // end state (no server-side session) already holds.
+    let svc = make_auth_service(None, None, None, vec![]);
+    let result = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        async { svc.logout_session("any-token").await },
+    )
+    .await;
+    assert!(result.is_ok());
 }
 
 #[tokio::test]

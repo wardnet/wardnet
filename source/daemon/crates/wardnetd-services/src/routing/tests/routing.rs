@@ -714,6 +714,9 @@ impl FirewallManager for MockNftables {
 #[allow(dead_code)]
 struct TestSetup {
     routing: RoutingServiceImpl,
+    /// Exposed so tests can persist a policy change behind the routing
+    /// service's back, simulating the tunnel-deletion write path.
+    system_config: Arc<MockSystemConfigRepo>,
     netlink_calls: Arc<Mutex<Vec<String>>>,
     nftables_calls: Arc<Mutex<Vec<String>>>,
     bring_ups: Arc<Mutex<Vec<Uuid>>>,
@@ -860,7 +863,7 @@ fn setup_with_devices_and_tunnel(
         add_tcp_reset_reject_fail: add_tcp_reset_reject_fail.clone(),
     });
 
-    let system_config: Arc<dyn SystemConfigRepository> = Arc::new(MockSystemConfigRepo::new(&[(
+    let system_config = Arc::new(MockSystemConfigRepo::new(&[(
         "default_policy",
         &default_policy,
     )]));
@@ -871,7 +874,7 @@ fn setup_with_devices_and_tunnel(
         tunnel_svc,
         netlink,
         nftables,
-        system_config,
+        system_config.clone(),
         Arc::new(crate::event::BroadcastEventBus::new(16)),
         default_policy,
         "eth0".to_owned(),
@@ -879,6 +882,7 @@ fn setup_with_devices_and_tunnel(
 
     TestSetup {
         routing,
+        system_config,
         netlink_calls,
         nftables_calls,
         bring_ups,
@@ -936,8 +940,7 @@ fn setup_with_orphaned_rules(
         add_tcp_reset_reject_fail: add_tcp_reset_reject_fail.clone(),
     });
 
-    let system_config: Arc<dyn SystemConfigRepository> =
-        Arc::new(MockSystemConfigRepo::new(&[("default_policy", "direct")]));
+    let system_config = Arc::new(MockSystemConfigRepo::new(&[("default_policy", "direct")]));
 
     let routing = RoutingServiceImpl::new(
         device_repo,
@@ -945,7 +948,7 @@ fn setup_with_orphaned_rules(
         tunnel_svc,
         netlink,
         nftables,
-        system_config,
+        system_config.clone(),
         Arc::new(crate::event::BroadcastEventBus::new(16)),
         "direct".to_owned(),
         "eth0".to_owned(),
@@ -953,6 +956,7 @@ fn setup_with_orphaned_rules(
 
     TestSetup {
         routing,
+        system_config,
         netlink_calls,
         nftables_calls,
         bring_ups,
@@ -1001,8 +1005,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         add_tcp_reset_reject_fail: add_tcp_reset_reject_fail.clone(),
     });
 
-    let system_config: Arc<dyn SystemConfigRepository> =
-        Arc::new(MockSystemConfigRepo::new(&[("default_policy", "direct")]));
+    let system_config = Arc::new(MockSystemConfigRepo::new(&[("default_policy", "direct")]));
 
     let routing = RoutingServiceImpl::new(
         device_repo,
@@ -1010,7 +1013,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         tunnel_svc,
         netlink,
         nftables,
-        system_config,
+        system_config.clone(),
         Arc::new(crate::event::BroadcastEventBus::new(16)),
         "direct".to_owned(),
         "eth0".to_owned(),
@@ -1018,6 +1021,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
 
     TestSetup {
         routing,
+        system_config,
         netlink_calls,
         nftables_calls,
         bring_ups,
@@ -2266,9 +2270,13 @@ async fn set_default_policy_reapplies_already_routed_default_devices() {
         );
     }
 
-    // Flip the policy. Internally this should walk devices with a
-    // Default DB rule and re-apply, picking up the new tunnel.
+    // Flip the policy, then run the handler the routing listener invokes
+    // on the resulting DefaultPolicyChanged event — the re-apply of
+    // already-routed devices is event-driven, not inline in the setter.
     as_admin(ts.routing.set_default_policy(&tunnel_id_1().to_string()))
+        .await
+        .unwrap();
+    as_admin(ts.routing.handle_default_policy_changed())
         .await
         .unwrap();
 
@@ -2313,9 +2321,12 @@ async fn set_default_policy_does_not_touch_explicit_targets() {
     let baseline = ts.netlink_calls.lock().await.len();
     drop(ts.netlink_calls.lock().await);
 
-    // Flip the default policy — should NOT re-apply explicit-Direct
-    // devices.
+    // Flip the default policy and run the event-driven re-apply — it
+    // should NOT touch explicit-Direct devices.
     as_admin(ts.routing.set_default_policy(&tunnel_id_1().to_string()))
+        .await
+        .unwrap();
+    as_admin(ts.routing.handle_default_policy_changed())
         .await
         .unwrap();
 
@@ -2329,5 +2340,139 @@ async fn set_default_policy_does_not_touch_explicit_targets() {
     assert!(
         new_rules.is_empty(),
         "policy change must not re-apply devices with explicit targets: {nl:?}"
+    );
+}
+
+#[tokio::test]
+async fn handle_default_policy_changed_syncs_and_reapplies_default_ruled_devices() {
+    // Mirrors the tunnel-deletion path: the default policy points at a
+    // tunnel, a Default-ruled device routes through it, and then the
+    // policy is reset to "direct" *behind the routing service's back*
+    // (persisted by the tunnel service, announced via
+    // DefaultPolicyChanged). The handler must re-read the persisted
+    // policy, update the in-memory copy, and re-route the device —
+    // without it, the cache keeps the deleted tunnel's UUID and every
+    // later resolve falls back to direct only via the NotFound path.
+    let d1 = sample_device(device_id_1(), "192.168.1.10");
+    let mut rules = HashMap::new();
+    rules.insert(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Default,
+            created_by: RuleCreator::User,
+        },
+    );
+    let ts = setup_with_devices_and_tunnel(
+        vec![d1],
+        rules,
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["1.1.1.1".to_owned()])),
+        tunnel_id_1().to_string(),
+    );
+
+    // Initial apply under policy=tunnel → device routes through it.
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.1.10", &RoutingTarget::Default),
+    )
+    .await
+    .unwrap();
+    {
+        let nl = ts.netlink_calls.lock().await;
+        assert!(
+            nl.iter().any(|c| c.starts_with("add_ip_rule:192.168.1.10")),
+            "Default → Tunnel should add an ip rule: {nl:?}"
+        );
+    }
+
+    // Persist the reset outside the routing service, then deliver the
+    // event trigger.
+    ts.system_config.set_default_policy("direct").await.unwrap();
+    as_admin(ts.routing.handle_default_policy_changed())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        as_admin(ts.routing.default_policy()).await.unwrap(),
+        "direct",
+        "in-memory policy must catch up with the persisted change"
+    );
+    let nl = ts.netlink_calls.lock().await;
+    assert!(
+        nl.iter()
+            .any(|c| c.starts_with("remove_ip_rule:192.168.1.10")),
+        "Default-ruled device must be re-routed off the removed policy tunnel: {nl:?}"
+    );
+}
+
+#[tokio::test]
+async fn handle_default_policy_changed_noops_when_policy_unset() {
+    // Pre-bootstrap state: the default_policy key does not exist yet.
+    // The handler has nothing to sync against and must leave the
+    // in-memory policy and kernel state untouched.
+    let ts = setup_with_devices_and_tunnel(vec![], HashMap::new(), None, None, "direct".to_owned());
+    ts.system_config.delete("default_policy").await.unwrap();
+
+    as_admin(ts.routing.handle_default_policy_changed())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        as_admin(ts.routing.default_policy()).await.unwrap(),
+        "direct",
+        "an unset persisted policy must not disturb the in-memory value"
+    );
+    assert!(
+        ts.netlink_calls.lock().await.is_empty(),
+        "an unset persisted policy must not trigger a sweep"
+    );
+}
+
+#[tokio::test]
+async fn handle_default_policy_changed_is_idempotent_when_policy_unchanged() {
+    // A redundant trigger (set_default_policy's own event after the
+    // cache was updated inline, or the listener's resync after event
+    // lag) must not disturb kernel state: the sweep re-runs but
+    // apply_rule's short-circuit sees the already-applied target and
+    // makes no kernel calls.
+    let d1 = sample_device(device_id_1(), "192.168.1.10");
+    let mut rules = HashMap::new();
+    rules.insert(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Default,
+            created_by: RuleCreator::User,
+        },
+    );
+    let ts = setup_with_devices_and_tunnel(
+        vec![d1],
+        rules,
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["1.1.1.1".to_owned()])),
+        tunnel_id_1().to_string(),
+    );
+
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.1.10", &RoutingTarget::Default),
+    )
+    .await
+    .unwrap();
+    let baseline = ts.netlink_calls.lock().await.len();
+
+    as_admin(ts.routing.handle_default_policy_changed())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        ts.netlink_calls.lock().await.len(),
+        baseline,
+        "a redundant policy trigger must not touch kernel state"
+    );
+    assert_eq!(
+        as_admin(ts.routing.default_policy()).await.unwrap(),
+        tunnel_id_1().to_string(),
     );
 }

@@ -57,9 +57,12 @@ pub struct SecureTransport;
 /// no SQL or hashing happens here.
 pub struct AdminAuth {
     pub admin_id: Uuid,
-    /// The raw session token (cookie or Bearer) extracted from the request headers.
-    /// `None` when authenticated via API key (no session token is present).
-    /// Provided to downstream handlers so they do not need to re-parse headers.
+    /// The raw session token that authenticated this request — the cookie or
+    /// Bearer value that `validate_session` actually accepted, never a
+    /// credential that merely rode along in the headers. `None` when the
+    /// request authenticated via API key (no session exists to act on).
+    /// Provided to downstream handlers (refresh, logout) so they operate on
+    /// the same session that authorized them.
     pub session_token: Option<String>,
 }
 
@@ -72,22 +75,36 @@ impl FromRequestParts<AppState> for AdminAuth {
     ) -> Result<Self, Self::Rejection> {
         let headers = &parts.headers;
 
-        // Extract the raw token once (cheap header parse, no DB call) so it is
-        // available to handlers without a second header traversal.
-        let session_token = extract_raw_session_token(headers);
-
-        if let Some(admin_id) = try_session_cookie(headers, state).await? {
+        // Cookie first. If the cookie validates, it is the authenticating
+        // session token.
+        if let Some(token) = extract_cookie_token(headers)
+            && let Some(admin_id) = state.auth_service().validate_session(&token).await?
+        {
             return Ok(Self {
                 admin_id,
-                session_token,
+                session_token: Some(token),
             });
         }
 
-        if let Some(admin_id) = try_bearer(headers, state).await? {
-            return Ok(Self {
-                admin_id,
-                session_token,
-            });
+        // Then the Bearer value: a session token or an API key. The
+        // distinction matters downstream — `session_token` must only carry a
+        // value that names an actual session row, so refresh/logout act on
+        // the session that authorized the request (a request can carry a
+        // stale cookie alongside a valid bearer, and an API key is not a
+        // session at all).
+        if let Some(bearer) = extract_bearer_token(headers) {
+            if let Some(admin_id) = state.auth_service().validate_session(&bearer).await? {
+                return Ok(Self {
+                    admin_id,
+                    session_token: Some(bearer),
+                });
+            }
+            if let Some(admin_id) = state.auth_service().validate_api_key(&bearer).await? {
+                return Ok(Self {
+                    admin_id,
+                    session_token: None,
+                });
+            }
         }
 
         Err(AppError::Unauthorized(
@@ -96,12 +113,12 @@ impl FromRequestParts<AppState> for AdminAuth {
     }
 }
 
-/// Extract the raw session token from the `wardnet_session` cookie or an
-/// `Authorization: Bearer` header without performing any validation.
-/// Cookie takes precedence.
-fn extract_raw_session_token(headers: &HeaderMap) -> Option<String> {
-    if let Some(v) = headers.get(axum::http::header::COOKIE)
-        && let Some(token) = v.to_str().ok().and_then(|s| {
+/// Extract the raw `wardnet_session` cookie value without validating it.
+fn extract_cookie_token(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(axum::http::header::COOKIE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| {
             s.split(';').find_map(|pair| {
                 let mut parts = pair.trim().splitn(2, '=');
                 let name = parts.next()?.trim();
@@ -113,9 +130,10 @@ fn extract_raw_session_token(headers: &HeaderMap) -> Option<String> {
                 }
             })
         })
-    {
-        return Some(token);
-    }
+}
+
+/// Extract the raw `Authorization: Bearer` value without validating it.
+fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
     headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|v| v.to_str().ok())
@@ -129,25 +147,8 @@ async fn try_session_cookie(
     headers: &HeaderMap,
     state: &AppState,
 ) -> Result<Option<Uuid>, AppError> {
-    let cookie_header = match headers.get(axum::http::header::COOKIE) {
-        Some(v) => v.to_str().unwrap_or_default(),
-        None => return Ok(None),
-    };
-
-    let token = cookie_header.split(';').find_map(|pair| {
-        let mut parts = pair.trim().splitn(2, '=');
-        let name = parts.next()?.trim();
-        let value = parts.next()?.trim();
-        if name == "wardnet_session" {
-            Some(value.to_owned())
-        } else {
-            None
-        }
-    });
-
-    let token = match token {
-        Some(t) if !t.is_empty() => t,
-        _ => return Ok(None),
+    let Some(token) = extract_cookie_token(headers) else {
+        return Ok(None);
     };
 
     state.auth_service().validate_session(&token).await
@@ -163,21 +164,15 @@ async fn try_session_cookie(
 /// path if that fails. Returns the authenticated admin's id, or `None` if
 /// neither validator accepts the bearer.
 async fn try_bearer(headers: &HeaderMap, state: &AppState) -> Result<Option<Uuid>, AppError> {
-    let auth_header = match headers.get(axum::http::header::AUTHORIZATION) {
-        Some(v) => v.to_str().unwrap_or_default(),
-        None => return Ok(None),
+    let Some(bearer_token) = extract_bearer_token(headers) else {
+        return Ok(None);
     };
 
-    let bearer_token = match auth_header.strip_prefix("Bearer ") {
-        Some(t) if !t.is_empty() => t,
-        _ => return Ok(None),
-    };
-
-    if let Some(id) = state.auth_service().validate_session(bearer_token).await? {
+    if let Some(id) = state.auth_service().validate_session(&bearer_token).await? {
         return Ok(Some(id));
     }
 
-    state.auth_service().validate_api_key(bearer_token).await
+    state.auth_service().validate_api_key(&bearer_token).await
 }
 
 /// Axum middleware that resolves the [`AuthContext`] for every request.

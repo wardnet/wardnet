@@ -3,7 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "../test-utils";
 
 const { authService, systemService } = vi.hoisted(() => ({
-  authService: { me: vi.fn(), login: vi.fn(), refresh: vi.fn() },
+  authService: {
+    me: vi.fn(),
+    login: vi.fn(),
+    logout: vi.fn(),
+    refresh: vi.fn(),
+  },
   systemService: { getStatus: vi.fn() },
 }));
 vi.mock("../../src/lib/sdk", () => ({ authService, systemService }));
