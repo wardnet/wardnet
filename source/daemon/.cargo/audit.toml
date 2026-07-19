@@ -2,10 +2,6 @@
 # https://github.com/rustsec/rustsec/tree/main/cargo-audit
 
 [advisories]
-# RUSTSEC-2023-0071: rsa timing sidechannel (Marvin Attack)
-# Transitive via sqlx-mysql. We compile sqlx with SQLite only, so the
-# vulnerable rsa path isn't linked into wardnetd. No upstream fix.
-#
 # RUSTSEC-2024-0436: paste crate unmaintained
 # Compile-time proc-macro pulled in via netlink-packet-core (used by
 # rtnetlink for kernel policy routing). Not a CVE — the author stopped
@@ -38,12 +34,12 @@
 # reachable. No 0.25.x backport. Re-evaluate when dhcproto upgrades.
 #
 # RUSTSEC-2026-0173: proc-macro-error2 unmaintained.
-# Compile-time proc-macro pulled in via i18n-embed-fl (through age) and
-# tabled_derive (through wctl's tabled). Not a CVE — the author stopped
-# publishing updates. Zero runtime footprint. Blocked on age →
-# i18n-embed-fl migrating off proc-macro-error2 (the tabled/wctl path is
-# removable but not sufficient alone). Tracked in wardnet/wardnet#758;
-# remove this entry when `cargo tree -i proc-macro-error2` returns nothing.
+# Compile-time proc-macro pulled in via i18n-embed-fl (through age).
+# Not a CVE — the author stopped publishing updates. Zero runtime
+# footprint. Blocked on age → i18n-embed-fl migrating off
+# proc-macro-error2 (even latest i18n-embed-fl 0.10 still depends on
+# it). Tracked in wardnet/wardnet#758; remove this entry when
+# `cargo tree -i proc-macro-error2` returns nothing.
 #
 # RUSTSEC-2026-0186: memmap2 unchecked pointer offset.
 # Transitive via pyroscope (continuous-profiling client) and
@@ -52,7 +48,6 @@
 # in-bounds offsets, so the unchecked path isn't reachable in our usage.
 # No fixed release yet. Re-evaluate when pyroscope bumps memmap2.
 ignore = [
-    "RUSTSEC-2023-0071",
     "RUSTSEC-2024-0436",
     "RUSTSEC-2026-0097",
     "RUSTSEC-2026-0118",
