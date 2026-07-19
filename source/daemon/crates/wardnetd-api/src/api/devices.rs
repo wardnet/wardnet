@@ -234,10 +234,10 @@ pub async fn get_device(
     let device = state.discovery_service().get_device_by_id(uuid).await?;
     let rule = state
         .device_service()
-        .get_device_for_ip(&device.last_ip)
+        .get_rule_for_device(&device.id.to_string())
         .await
         .ok()
-        .and_then(|r| r.current_rule);
+        .flatten();
     let dhcp_map = build_dhcp_status_map(&state).await?;
     let device = enrich_device(device, &dhcp_map, rule.clone());
     Ok(Json(DeviceDetailResponse {
@@ -309,10 +309,10 @@ pub async fn update_device(
     // Fetch current rule for the response.
     let rule = state
         .device_service()
-        .get_device_for_ip(&device.last_ip)
+        .get_rule_for_device(&device_id_str)
         .await
         .ok()
-        .and_then(|r| r.current_rule);
+        .flatten();
 
     let dhcp_map = build_dhcp_status_map(&state).await?;
     let device = enrich_device(device, &dhcp_map, rule.clone());
@@ -355,10 +355,10 @@ pub async fn assign_device_zone(
     let device = state.discovery_service().get_device_by_id(uuid).await?;
     let rule = state
         .device_service()
-        .get_device_for_ip(&device.last_ip)
+        .get_rule_for_device(&device.id.to_string())
         .await
         .ok()
-        .and_then(|r| r.current_rule);
+        .flatten();
     let dhcp_map = build_dhcp_status_map(&state).await?;
     let device = enrich_device(device, &dhcp_map, rule.clone());
     Ok(Json(DeviceDetailResponse {

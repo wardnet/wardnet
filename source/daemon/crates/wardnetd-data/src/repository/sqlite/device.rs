@@ -94,6 +94,15 @@ const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, f
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
+        // Empty string is the "no known address" sentinel written to departed
+        // devices (see `clear_last_ip` / discovery `restore_devices`), not a
+        // real address. Never match on it: every departed device shares it, so
+        // an empty lookup would otherwise resolve to an arbitrary departed row
+        // (mirrors the `is_empty` guard in `DeviceIpSnapshot`).
+        if ip.is_empty() {
+            return Ok(None);
+        }
+
         // `last_ip` is not unique: departed devices keep their row, so DHCP
         // recycling an address to a new device leaves two rows sharing an IP.
         // Order by `last_seen DESC` so the lookup always resolves to the most

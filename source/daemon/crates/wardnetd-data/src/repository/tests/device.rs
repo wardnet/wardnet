@@ -128,6 +128,23 @@ async fn clear_last_ip_removes_row_from_ip_lookup() {
     assert!(repo.find_by_ip("192.168.1.10").await.unwrap().is_none());
 }
 
+// Regression for issue #831: empty string is the "no known address" sentinel
+// written to departed devices, not a real address. Every departed device shares
+// it, so an empty lookup must never match — otherwise it would resolve to an
+// arbitrary departed row (and, via `get_device_for_ip(&device.last_ip)`, surface
+// another device's routing rule).
+#[tokio::test]
+async fn find_by_ip_empty_returns_none() {
+    let pool = test_pool().await;
+    // Two departed devices, both with their address cleared to the empty
+    // sentinel and distinct last_seen timestamps.
+    insert_device_seen_at(&pool, DEV1, "aa:bb:cc:dd:ee:01", "", "2026-03-07T00:00:00Z").await;
+    insert_device_seen_at(&pool, DEV2, "aa:bb:cc:dd:ee:02", "", "2026-03-08T00:00:00Z").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    assert!(repo.find_by_ip("").await.unwrap().is_none());
+}
+
 #[tokio::test]
 async fn find_by_id_found() {
     let pool = test_pool().await;

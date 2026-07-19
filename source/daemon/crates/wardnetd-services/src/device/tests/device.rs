@@ -704,6 +704,40 @@ async fn current_rules_anonymous_forbidden() {
     assert!(result.is_err());
 }
 
+// -- Tests: get_rule_for_device ------------------------------------------
+
+#[tokio::test]
+async fn get_rule_for_device_returns_target() {
+    let svc = make_svc(false, Some(sample_rule()));
+
+    let rule = auth_context::with_context(admin_ctx(), svc.get_rule_for_device("dev-id"))
+        .await
+        .unwrap();
+
+    assert_eq!(rule, Some(RoutingTarget::Direct));
+}
+
+#[tokio::test]
+async fn get_rule_for_device_none_when_no_rule() {
+    let svc = make_svc(false, None);
+
+    let rule = auth_context::with_context(admin_ctx(), svc.get_rule_for_device("dev-id"))
+        .await
+        .unwrap();
+
+    assert_eq!(rule, None);
+}
+
+#[tokio::test]
+async fn get_rule_for_device_anonymous_forbidden() {
+    let svc = make_svc(false, Some(sample_rule()));
+
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, svc.get_rule_for_device("dev-id")).await;
+
+    assert!(result.is_err());
+}
+
 // -- Tests: get_dns_capture_settings -------------------------------------
 
 #[tokio::test]

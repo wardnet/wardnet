@@ -268,6 +268,13 @@ impl DeviceService for MockDeviceService {
         Ok(self.current_rules.clone())
     }
 
+    async fn get_rule_for_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<RoutingTarget>, AppError> {
+        Ok(self.rule.clone())
+    }
+
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
         Ok(())
     }
@@ -610,6 +617,10 @@ fn device_router(state: AppState) -> Router {
         .route(
             "/api/devices/{id}",
             get(crate::api::devices::get_device).put(crate::api::devices::update_device),
+        )
+        .route(
+            "/api/devices/{id}/zone",
+            put(crate::api::devices::assign_device_zone),
         )
         .with_state(state)
 }
@@ -1003,6 +1014,32 @@ async fn get_device_by_id_invalid_uuid() {
 // ---------------------------------------------------------------------------
 // PUT /api/devices/:id (admin, update)
 // ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn assign_device_zone_success() {
+    let device = sample_device();
+    let state = build_state_with_dhcp(
+        MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct)),
+        MockDiscoveryService {
+            devices: vec![device],
+        },
+        MockDhcpService::empty(),
+    );
+    let app = device_router(state);
+
+    // The handler resolves the device's current rule by device ID (not by its
+    // last_ip, which is cleared on departure — issue #831), so the response
+    // still carries the correct rule for the reassigned device.
+    let (status, json) = put_json(
+        app,
+        "/api/devices/00000000-0000-0000-0000-000000000001/zone",
+        r#"{"zone_id":"00000000-0000-0000-0000-000000000201"}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["device"]["mac"], "aa:bb:cc:dd:ee:01");
+    assert_eq!(json["current_rule"]["type"], "direct");
+}
 
 #[tokio::test]
 async fn update_device_success() {

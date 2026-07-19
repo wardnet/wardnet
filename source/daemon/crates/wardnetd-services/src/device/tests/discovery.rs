@@ -1057,6 +1057,33 @@ async fn scan_departures_does_not_clear_ip_of_reconnected_device() {
     );
 }
 
+// Regression for issue #831: the WireGuard handshake-staleness departure path
+// (`mark_peer_gone`) must clear `last_ip` too, mirroring the timeout sweep, so a
+// stale remote peer's row can't collide with a live device's source IP.
+#[tokio::test]
+async fn mark_peer_gone_clears_departed_last_ip() {
+    let h = build_harness();
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
+    h.svc.process_observation(&obs).await.unwrap();
+    let device_id = h.repo.find_by_ip("192.168.1.10").await.unwrap().unwrap().id;
+
+    // A zero timeout marks the peer gone once its last_seen has elapsed.
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    let gone = h
+        .svc
+        .mark_peer_gone(device_id, std::time::Duration::from_secs(0))
+        .await
+        .unwrap();
+    assert_eq!(gone, Some(device_id));
+
+    // The departed peer's IP is cleared, closing the same collision window the
+    // timeout sweep does.
+    assert!(
+        h.repo.find_by_ip("192.168.1.10").await.unwrap().is_none(),
+        "gone peer must no longer be resolvable by its old IP"
+    );
+}
+
 #[tokio::test]
 async fn scan_departures_ignores_recent() {
     let h = build_harness();

@@ -349,15 +349,14 @@ impl DeviceDiscoveryServiceImpl {
         let mac_lock = self.lock_for_mac(mac).await;
         let _guard = mac_lock.lock_owned().await;
 
+        // Skip the clear if the device reappeared between the sweep flipping
+        // `gone` and this acquiring the lock — its observation has already
+        // written the live IP under this same lock, which we must not clobber.
         let still_gone = {
             let state = self.state.read().await;
             state.get(mac).is_none_or(|entry| entry.gone)
         };
-        if !still_gone {
-            return;
-        }
-
-        if let Err(e) = self.devices.clear_last_ip(&device_id.to_string()).await {
+        if still_gone && let Err(e) = self.devices.clear_last_ip(&device_id.to_string()).await {
             tracing::warn!(
                 error = %e,
                 device_id = %device_id,
