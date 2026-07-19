@@ -31,9 +31,15 @@ pub trait StatsService: Send + Sync {
     async fn top(&self, q: StatsTopQuery) -> Result<StatsTopResponse, AppError>;
 
     /// Flush a batch of pre-drained buffer rows into `stats_intraday`.
+    ///
+    /// Requires an admin [`AuthContext`](wardnet_common::auth::AuthContext);
+    /// background callers must wrap the call in `auth_context::with_context`.
     async fn run_flush(&self, rows: Vec<IntradayStatRow>) -> anyhow::Result<()>;
 
     /// Rollup intraday → hourly → daily and trim past-retention rows.
+    ///
+    /// Requires an admin [`AuthContext`](wardnet_common::auth::AuthContext);
+    /// background callers must wrap the call in `auth_context::with_context`.
     async fn run_maintenance(&self) -> anyhow::Result<()>;
 }
 

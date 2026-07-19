@@ -147,18 +147,16 @@ async fn perform_flush(buffer: &Arc<StatsBuffer>, service: &Arc<dyn StatsService
     // takes the rows by value, so each attempt clones them — fine,
     // batches are bounded and the clone is only paid on retry, which
     // should be rare under the 30 s `busy_timeout`.
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
     let result = retry_on_busy(
         FLUSH_OPERATION,
         FLUSH_BUSY_RETRIES,
         FLUSH_BUSY_BACKOFF,
         || {
             let rows = rows.clone();
-            auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: Uuid::nil(),
-                },
-                service.run_flush(rows),
-            )
+            auth_context::with_context(admin_ctx.clone(), service.run_flush(rows))
         },
     )
     .await;

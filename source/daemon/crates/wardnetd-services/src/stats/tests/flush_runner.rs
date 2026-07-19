@@ -15,30 +15,14 @@ use crate::stats::service::StatsService;
 struct SpyService {
     flush_calls: Mutex<u32>,
     maintenance_calls: Mutex<u32>,
-    /// Whether every call so far arrived with an admin `AuthContext` set —
-    /// mirrors what the real service's `require_admin()` guard checks.
-    admin_ctx_on_every_call: Mutex<bool>,
 }
 
 impl SpyService {
-    fn new() -> Self {
-        Self {
-            admin_ctx_on_every_call: Mutex::new(true),
-            ..Self::default()
-        }
-    }
     fn flush_count(&self) -> u32 {
         *self.flush_calls.lock().unwrap()
     }
     fn maintenance_count(&self) -> u32 {
         *self.maintenance_calls.lock().unwrap()
-    }
-    fn saw_admin_ctx_on_every_call(&self) -> bool {
-        *self.admin_ctx_on_every_call.lock().unwrap()
-    }
-    fn record_ctx(&self) {
-        let is_admin = auth_context::try_current().is_some_and(|c| c.is_admin());
-        *self.admin_ctx_on_every_call.lock().unwrap() &= is_admin;
     }
 }
 
@@ -56,15 +40,18 @@ impl StatsService for SpyService {
     ) -> Result<StatsTopResponse, AppError> {
         unimplemented!()
     }
+    // The spy guards like the real StatsServiceImpl, so the count
+    // assertions below also fail if the runner ever stops establishing
+    // an admin AuthContext around its calls.
     async fn run_flush(&self, rows: Vec<IntradayStatRow>) -> anyhow::Result<()> {
-        self.record_ctx();
+        auth_context::require_admin()?;
         if !rows.is_empty() {
             *self.flush_calls.lock().unwrap() += 1;
         }
         Ok(())
     }
     async fn run_maintenance(&self) -> anyhow::Result<()> {
-        self.record_ctx();
+        auth_context::require_admin()?;
         *self.maintenance_calls.lock().unwrap() += 1;
         Ok(())
     }
@@ -73,7 +60,7 @@ impl StatsService for SpyService {
 #[tokio::test(start_paused = true)]
 async fn startup_runs_maintenance_immediately() {
     let buffer = StatsBuffer::new();
-    let service = Arc::new(SpyService::new());
+    let service = Arc::new(SpyService::default());
     let runner = StatsFlushRunner::start_with_intervals(
         buffer,
         service.clone() as Arc<dyn StatsService>,
@@ -91,18 +78,14 @@ async fn startup_runs_maintenance_immediately() {
     runner.shutdown().await;
     assert!(
         service.maintenance_count() >= 1,
-        "maintenance must run immediately on startup"
-    );
-    assert!(
-        service.saw_admin_ctx_on_every_call(),
-        "runner must establish an admin AuthContext before calling run_maintenance"
+        "maintenance must run immediately on startup (with an admin AuthContext established)"
     );
 }
 
 #[tokio::test]
 async fn shutdown_flushes_non_empty_buffer() {
     let buffer = StatsBuffer::new();
-    let service = Arc::new(SpyService::new());
+    let service = Arc::new(SpyService::default());
     let runner = StatsFlushRunner::start_with_intervals(
         buffer.clone(),
         service.clone() as Arc<dyn StatsService>,
@@ -116,18 +99,14 @@ async fn shutdown_flushes_non_empty_buffer() {
     runner.shutdown().await;
     assert!(
         service.flush_count() >= 1,
-        "shutdown must trigger a final flush of any buffered rows"
-    );
-    assert!(
-        service.saw_admin_ctx_on_every_call(),
-        "runner must establish an admin AuthContext before calling run_flush"
+        "shutdown must trigger a final flush of any buffered rows (with an admin AuthContext established)"
     );
 }
 
 #[tokio::test]
 async fn periodic_flush_drains_buffer() {
     let buffer = StatsBuffer::new();
-    let service = Arc::new(SpyService::new());
+    let service = Arc::new(SpyService::default());
     let runner = StatsFlushRunner::start_with_intervals(
         buffer.clone(),
         service.clone() as Arc<dyn StatsService>,
@@ -148,7 +127,7 @@ async fn periodic_flush_drains_buffer() {
 #[tokio::test]
 async fn empty_buffer_is_not_flushed() {
     let buffer = StatsBuffer::new();
-    let service = Arc::new(SpyService::new());
+    let service = Arc::new(SpyService::default());
     let runner = StatsFlushRunner::start_with_intervals(
         buffer,
         service.clone() as Arc<dyn StatsService>,

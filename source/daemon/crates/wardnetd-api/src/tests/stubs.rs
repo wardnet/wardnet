@@ -1015,10 +1015,10 @@ impl TunnelService for StubTunnelService {
 pub struct StubLogService;
 #[async_trait]
 impl LogService for StubLogService {
-    fn subscribe(&self) -> broadcast::Receiver<LogEntry> {
+    fn subscribe(&self) -> Result<broadcast::Receiver<LogEntry>, AppError> {
         let (tx, rx) = broadcast::channel(1);
         drop(tx);
-        rx
+        Ok(rx)
     }
     fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
         Ok(Vec::new())

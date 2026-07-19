@@ -31,7 +31,7 @@ pub struct LogFileInfo {
 #[async_trait]
 pub trait LogService: Send + Sync {
     /// Subscribe to receive live log entries over WebSocket.
-    fn subscribe(&self) -> broadcast::Receiver<LogEntry>;
+    fn subscribe(&self) -> Result<broadcast::Receiver<LogEntry>, AppError>;
 
     /// Return the most recent errors and warnings.
     fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError>;
@@ -46,12 +46,17 @@ pub trait LogService: Send + Sync {
     /// Collect tracing layers from all log components.
     ///
     /// Called once during startup to compose layers into the subscriber.
+    /// No auth guard — runs before the HTTP surface exists.
     fn tracing_layers(&self) -> Vec<BoxedLayer>;
 
     /// Start all log components (begin capturing events).
+    /// No auth guard — called from the startup/shutdown lifecycle, not on
+    /// behalf of a request.
     fn start_all(&self);
 
     /// Stop all log components.
+    /// No auth guard — called from the startup/shutdown lifecycle, not on
+    /// behalf of a request.
     fn stop_all(&self);
 }
 
@@ -89,8 +94,9 @@ impl LogServiceImpl {
 
 #[async_trait]
 impl LogService for LogServiceImpl {
-    fn subscribe(&self) -> broadcast::Receiver<LogEntry> {
-        self.stream.subscribe()
+    fn subscribe(&self) -> Result<broadcast::Receiver<LogEntry>, AppError> {
+        auth_context::require_admin()?;
+        Ok(self.stream.subscribe())
     }
 
     fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {

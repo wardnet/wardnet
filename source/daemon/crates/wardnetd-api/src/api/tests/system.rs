@@ -570,10 +570,10 @@ async fn recent_errors_returns_populated_errors() {
 
     #[async_trait]
     impl LogService for MockLogServiceWithErrors {
-        fn subscribe(&self) -> tokio::sync::broadcast::Receiver<LogEntry> {
+        fn subscribe(&self) -> Result<tokio::sync::broadcast::Receiver<LogEntry>, AppError> {
             let (tx, rx) = tokio::sync::broadcast::channel(1);
             drop(tx);
-            rx
+            Ok(rx)
         }
         fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
             Ok(vec![
@@ -712,10 +712,10 @@ async fn download_logs_returns_text_when_log_exists() {
 
     #[async_trait]
     impl LogService for MockLogServiceWithContent {
-        fn subscribe(&self) -> tokio::sync::broadcast::Receiver<LogEntry> {
+        fn subscribe(&self) -> Result<tokio::sync::broadcast::Receiver<LogEntry>, AppError> {
             let (tx, rx) = tokio::sync::broadcast::channel(1);
             drop(tx);
-            rx
+            Ok(rx)
         }
         fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
             Ok(Vec::new())
@@ -810,10 +810,10 @@ async fn download_logs_formats_non_json_lines_as_is() {
 
     #[async_trait]
     impl LogService for MockLogServicePlainText {
-        fn subscribe(&self) -> tokio::sync::broadcast::Receiver<LogEntry> {
+        fn subscribe(&self) -> Result<tokio::sync::broadcast::Receiver<LogEntry>, AppError> {
             let (tx, rx) = tokio::sync::broadcast::channel(1);
             drop(tx);
-            rx
+            Ok(rx)
         }
         fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
             Ok(Vec::new())
@@ -892,10 +892,10 @@ async fn download_logs_finds_dated_file() {
 
     #[async_trait]
     impl LogService for MockLogServiceDated {
-        fn subscribe(&self) -> tokio::sync::broadcast::Receiver<LogEntry> {
+        fn subscribe(&self) -> Result<tokio::sync::broadcast::Receiver<LogEntry>, AppError> {
             let (tx, rx) = tokio::sync::broadcast::channel(1);
             drop(tx);
-            rx
+            Ok(rx)
         }
         fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
             Ok(Vec::new())
@@ -974,10 +974,10 @@ async fn download_logs_no_file_returns_500() {
 
     #[async_trait]
     impl LogService for MockLogServiceNoFile {
-        fn subscribe(&self) -> tokio::sync::broadcast::Receiver<LogEntry> {
+        fn subscribe(&self) -> Result<tokio::sync::broadcast::Receiver<LogEntry>, AppError> {
             let (tx, rx) = tokio::sync::broadcast::channel(1);
             drop(tx);
-            rx
+            Ok(rx)
         }
         fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
             Ok(Vec::new())

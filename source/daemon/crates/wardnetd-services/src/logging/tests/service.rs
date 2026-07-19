@@ -55,12 +55,14 @@ fn start_all_then_stop_all_is_idempotent() {
     svc.stop_all();
 }
 
-#[test]
-fn subscribe_returns_receiver() {
+#[tokio::test]
+async fn subscribe_returns_receiver() {
     let (svc, _dir) = build_service();
     // Ensure the service is active so events flow.
     svc.start_all();
-    let _rx = svc.subscribe();
+    let _rx = auth_context::with_context(admin_ctx(), async { svc.subscribe() })
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -81,30 +83,23 @@ async fn get_recent_errors_forbidden_without_admin_context() {
 
 #[tokio::test]
 async fn list_log_files_forbidden_without_admin_context() {
-    let (svc, dir) = build_service();
-    tokio::fs::create_dir_all(&dir).await.unwrap();
-    tokio::fs::write(dir.join("wardnetd.log"), b"secret")
-        .await
-        .unwrap();
-
+    let (svc, _dir) = build_service();
     let res = svc.list_log_files().await;
     assert!(matches!(res, Err(AppError::Forbidden(_))));
-
-    let _ = tokio::fs::remove_dir_all(&dir).await;
 }
 
 #[tokio::test]
 async fn download_log_file_forbidden_without_admin_context() {
-    let (svc, dir) = build_service();
-    tokio::fs::create_dir_all(&dir).await.unwrap();
-    tokio::fs::write(dir.join("wardnetd.log"), b"secret")
-        .await
-        .unwrap();
-
+    let (svc, _dir) = build_service();
     let res = svc.download_log_file(None).await;
     assert!(matches!(res, Err(AppError::Forbidden(_))));
+}
 
-    let _ = tokio::fs::remove_dir_all(&dir).await;
+#[tokio::test]
+async fn subscribe_forbidden_without_admin_context() {
+    let (svc, _dir) = build_service();
+    let res = svc.subscribe();
+    assert!(matches!(res, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
@@ -171,7 +166,9 @@ async fn download_log_file_rejects_path_traversal() {
 async fn layers_published_via_service_capture_events() {
     let (svc, _dir) = build_service();
     svc.start_all();
-    let mut rx = svc.subscribe();
+    let mut rx = auth_context::with_context(admin_ctx(), async { svc.subscribe() })
+        .await
+        .unwrap();
 
     // The subscriber type would be awkward to spell with two boxed layers, so
     // compose the Vec<BoxedLayer> directly — `Vec<L>` implements `Layer<S>`.
