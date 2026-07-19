@@ -57,9 +57,18 @@ pub struct PortSpec {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ServiceSet {
-    /// mDNS + SSDP/DLNA + Chromecast/Cast + `AirPlay` — the ports a phone needs
-    /// to discover and stream to a TV across a zone boundary.
+    /// mDNS + SSDP/DLNA + Chromecast/Cast (8008/8009/8443/9000) + `AirPlay`
+    /// (7000/7100) — the ports a phone needs to discover and stream to a TV
+    /// across a zone boundary. 8443 is the Google Home app's TLS device-listing
+    /// port; without it the app won't list discovered receivers.
     Casting,
+    /// Screen/desktop mirroring and local-file casting — the SENDER is the live
+    /// media source over dynamically-negotiated ports (Cast tab-mirroring
+    /// UDP 32768-61000, `AirPlay` mirroring 49152-65535, VLC HTTP, etc.), so it
+    /// opens all ports between the two endpoints. Device-to-device only (enforced
+    /// in the service); requires the cross-zone NAT exemption so the receiver
+    /// reaches the sender's real IP.
+    Mirroring,
 }
 
 impl ServiceSet {
@@ -91,6 +100,11 @@ impl ServiceSet {
                 }, // Chromecast / Cast
                 PortSpec {
                     proto: Proto::Tcp,
+                    from: 8443,
+                    to: 8443,
+                }, // Google Home app device listing (TLS)
+                PortSpec {
+                    proto: Proto::Tcp,
                     from: 9000,
                     to: 9000,
                 }, // Chromecast / Cast
@@ -104,6 +118,20 @@ impl ServiceSet {
                     from: 7100,
                     to: 7100,
                 }, // AirPlay
+            ],
+            // Mirroring negotiates media ports dynamically, so the exemption
+            // spans the full range on both protocols between the two devices.
+            Self::Mirroring => vec![
+                PortSpec {
+                    proto: Proto::Tcp,
+                    from: 1,
+                    to: 65535,
+                },
+                PortSpec {
+                    proto: Proto::Udp,
+                    from: 1,
+                    to: 65535,
+                },
             ],
         }
     }

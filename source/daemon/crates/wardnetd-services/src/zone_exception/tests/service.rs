@@ -284,6 +284,63 @@ async fn create_rejects_zero_port() {
 }
 
 #[tokio::test]
+async fn create_rejects_mirroring_with_zone_endpoint() {
+    // The mirroring preset opens the full port range, so a zone endpoint (which
+    // would expose every device in the zone) is refused.
+    let h = build().await;
+    let device_id = Uuid::new_v4();
+    insert_device(&h.devices, device_id).await;
+    let req = CreateZoneExceptionRequest {
+        from: ExceptionEndpoint {
+            kind: ExceptionEndpointKind::Device,
+            id: device_id,
+        },
+        to: ExceptionEndpoint {
+            kind: ExceptionEndpointKind::Zone,
+            id: IOT.parse().unwrap(),
+        },
+        service: ServiceSpec::Preset {
+            set: ServiceSet::Mirroring,
+        },
+        bidirectional: true,
+    };
+    assert!(matches!(
+        as_admin(h.svc.create_exception(req)).await,
+        Err(AppError::BadRequest(_))
+    ));
+}
+
+#[tokio::test]
+async fn create_accepts_mirroring_device_to_device() {
+    let h = build().await;
+    let from_id = Uuid::new_v4();
+    let to_id = Uuid::new_v4();
+    insert_device(&h.devices, from_id).await;
+    insert_device(&h.devices, to_id).await;
+    let req = CreateZoneExceptionRequest {
+        from: ExceptionEndpoint {
+            kind: ExceptionEndpointKind::Device,
+            id: from_id,
+        },
+        to: ExceptionEndpoint {
+            kind: ExceptionEndpointKind::Device,
+            id: to_id,
+        },
+        service: ServiceSpec::Preset {
+            set: ServiceSet::Mirroring,
+        },
+        bidirectional: true,
+    };
+    let created = as_admin(h.svc.create_exception(req)).await.unwrap();
+    assert!(matches!(
+        created.service,
+        ServiceSpec::Preset {
+            set: ServiceSet::Mirroring
+        }
+    ));
+}
+
+#[tokio::test]
 async fn create_accepts_explicit_ports() {
     let h = build().await;
     let mut req = valid_req(&h.devices).await;

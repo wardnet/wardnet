@@ -651,11 +651,22 @@ impl ZoneEnforcementServiceImpl {
                 }
             }
 
+            // NAT-exemption pairs: one `(from, to)` per exception (the firewall
+            // renders both directions). The per-port allow expansion produces
+            // duplicate CIDR pairs, so collapse to a unique set.
+            let nat_exempt_pairs: Vec<(String, String)> = allows
+                .iter()
+                .map(|a| (a.from_cidr.clone(), a.to_cidr.clone()))
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect();
+
             member_isolation_present = !member_isolation_subnets.is_empty();
             rules = ZoneIsolationRules {
                 allows,
                 deny_pairs,
                 member_isolation_subnets,
+                nat_exempt_pairs,
             };
 
             // Gateway aliases: the `.1` of each zone subnet.
@@ -674,6 +685,7 @@ impl ZoneEnforcementServiceImpl {
         rules.allows.sort();
         rules.deny_pairs.sort();
         rules.member_isolation_subnets.sort();
+        rules.nat_exempt_pairs.sort();
 
         // Canonical string form of the desired gateway-alias set, used both for
         // the skip check and (kept as a set) for stale-alias removal.

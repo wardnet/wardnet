@@ -106,3 +106,51 @@ tunnel-egress gate and the `input` admin-UI gate are untouched.
   inter-zone LAN traffic is a separate, deliberately deferred concern.
 - The routing service now holds per-device switchback target state and prunes
   orphaned priority-1000 rules on reconcile.
+
+## Update (2026-07-19): screen mirroring, and un-NATing cross-zone exception traffic
+
+Verified research into how consumer casting protocols actually behave on the
+wire (Google's own Cast enterprise doc, RFC 6762, and prosumer consensus across
+UniFi/pfSense/OpenWrt/Firewalla) settled two things the initial switchback work
+left open:
+
+1. **There is no socket-level "same-subnet" requirement.** The widely-repeated
+   claim that Chromecast/Cast refuses cross-subnet senders is false at the socket
+   layer — the real cross-subnet barrier is *discovery* (link-local mDNS/SSDP),
+   which our flat-L2 / IP-aliasing design already crosses without a reflector.
+   So the base masquerade that made a sender look like the gateway was never
+   load-bearing for casting.
+2. **Protocols split by traffic model.** *Receiver-pull* casting (YouTube,
+   Netflix, AirPlay-from-cloud, DLNA, Spotify Connect) only needs the sender's
+   control channel and tolerates source-NAT. *Sender-push* flows (screen/desktop
+   mirroring, local-file casting) make the sender the live media source, so the
+   receiver must reach the sender's **real IP** — source-NAT breaks them.
+
+Decisions:
+
+- **Un-NAT cross-zone exception traffic.** Add a `zone_natexempt` regular chain,
+  jumped from postrouting *before* the base masquerade, with an `accept`
+  (terminal → skips masquerade) per exception `from_cidr ↔ to_cidr` pair, both
+  directions. Scoped to exception pairs, matching switchback; safe because
+  non-exception cross-zone traffic is dropped by the forward-chain isolation
+  regardless, so un-NATing costs nothing. This is strictly better even for
+  receiver-pull casting (real source IPs, honest logs) and is the prerequisite
+  that makes sender-push flows possible.
+- **Two presets, by traffic model.** The **Casting** preset stays the short
+  control/discovery port list (adding TCP 8443 so the Google Home app lists
+  receivers) for the receiver-pull majority. A new **Mirroring** preset opens
+  **all ports, TCP+UDP** for the sender-push case, because those media ports are
+  dynamically negotiated and vary by protocol/firmware. Because all-ports is a
+  wide surface, the Mirroring preset is **restricted to device-to-device
+  exceptions** (validated at create time), bounding it to the two devices that
+  actually mirror rather than two whole zones.
+- **Miracast/Wi-Fi Direct is out of scope** — it forms its own radio link
+  outside the routed LAN and cannot be made to cross zones; those devices must
+  share a zone.
+
+Considered and rejected: a *global* inter-zone masquerade exemption (simpler,
+but needs a maintained local-subnet set and un-NATs traffic that's dropped
+anyway — no benefit over per-exception scoping); and enumerating the documented
+mirroring port ranges instead of all-ports (tighter, but silently misses
+firmware-specific ports — the community evidence is that mirroring needs the
+firewall wide open between the pair).

@@ -1310,3 +1310,50 @@ async fn device_scoped_exception_pushes_switchback_slash32() {
         "TV must get the phone /32: {sw:?}"
     );
 }
+
+#[tokio::test]
+async fn casting_exception_populates_deduped_nat_exempt_pairs() {
+    // The cross-zone exception's (from, to) CIDR pair must appear ONCE in
+    // nat_exempt_pairs even though the casting preset expands to many ports
+    // (each of which produces an allow with the same CIDR pair).
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Entertainment", "192.168.201.0/24", false).await;
+    let phone = insert_device(&h.devices, "192.168.200.10", ZONE_A).await;
+    let tv = insert_device(&h.devices, "192.168.201.20", ZONE_B).await;
+    let now = chrono::Utc::now();
+    h.exceptions
+        .insert(&ZoneException {
+            id: Uuid::new_v4(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: phone,
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: tv,
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+
+    as_admin(h.svc.handle_exceptions_changed()).await.unwrap();
+
+    let rules = isolation(&h).await;
+    assert_eq!(
+        rules.nat_exempt_pairs,
+        vec![(
+            "192.168.200.10/32".to_owned(),
+            "192.168.201.20/32".to_owned()
+        )],
+        "the (from, to) pair must appear exactly once despite many casting ports: {:?}",
+        rules.nat_exempt_pairs
+    );
+}
