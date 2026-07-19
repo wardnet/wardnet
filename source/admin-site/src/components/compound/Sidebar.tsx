@@ -145,9 +145,13 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const sections = isAdmin ? adminSections : [];
 
   function handleLogout() {
-    logout();
-    onNavigate?.();
-    navigate("/");
+    // Revoke the server session before leaving the page. logout() clears
+    // local auth state even when the network call fails, so the redirect
+    // always happens.
+    void logout().then(() => {
+      onNavigate?.();
+      navigate("/");
+    });
   }
 
   return (

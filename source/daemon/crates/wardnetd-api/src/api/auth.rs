@@ -24,10 +24,25 @@ fn session_cookie(token: &str, max_age_seconds: u64, secure: bool) -> String {
     )
 }
 
+/// Build a `Set-Cookie` value that expires the `wardnet_session` cookie.
+///
+/// `Max-Age=0` tells the browser to drop the cookie immediately — the only
+/// way to clear it, since it is `HttpOnly` and unreachable from client JS.
+/// Delegates to [`session_cookie`] with an empty token so the attribute list
+/// can never drift from the cookie set at login; a mismatched name/Path would
+/// make the browser treat this as a different cookie and leave the real one
+/// alive.
+fn clear_session_cookie(secure: bool) -> String {
+    session_cookie("", 0, secure)
+}
+
 /// Register auth routes onto the given [`OpenApiRouter`]. Each module owns its
 /// own route list so `api::mod::router` stays a simple composition point.
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
-    router.routes(routes!(login)).routes(routes!(refresh))
+    router
+        .routes(routes!(login))
+        .routes(routes!(refresh))
+        .routes(routes!(logout))
 }
 
 #[utoipa::path(
@@ -107,6 +122,40 @@ pub async fn refresh(
         result.max_age_seconds,
         secure_transport.is_some(),
     );
+
+    Ok((StatusCode::NO_CONTENT, [(SET_COOKIE, cookie_value)]))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/auth/logout",
+    tag = "auth",
+    description = "End the current session. Deletes the session server-side \
+                   so the token can never authenticate again, and clears the \
+                   `wardnet_session` cookie in the response. Requires a valid \
+                   session cookie or a `Authorization: Bearer <session token>` \
+                   header; only the session that authenticated this request is \
+                   affected. Callers authenticated with an API key get a 401 — \
+                   API keys are not sessions and cannot be logged out here.",
+    responses(
+        (status = 204, description = "Session invalidated; session cookie cleared"),
+        (status = 401, description = "No valid session", body = ApiError),
+        (status = 403, description = "Caller lacks an admin auth context", body = ApiError),
+        (status = 500, description = "Internal server error", body = ApiError),
+    ),
+)]
+pub async fn logout(
+    State(state): State<AppState>,
+    secure_transport: Option<Extension<SecureTransport>>,
+    auth: AdminAuth,
+) -> Result<impl IntoResponse, AppError> {
+    let token = auth
+        .session_token
+        .ok_or_else(|| AppError::Unauthorized("no session token in request".to_owned()))?;
+
+    state.auth_service().logout_session(&token).await?;
+
+    let cookie_value = clear_session_cookie(secure_transport.is_some());
 
     Ok((StatusCode::NO_CONTENT, [(SET_COOKIE, cookie_value)]))
 }

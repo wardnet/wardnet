@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Sidebar } from "@/components/compound/Sidebar";
@@ -22,7 +22,8 @@ const mockUpdate = vi.mocked(useUpdateStatus);
 const logout = vi.fn();
 
 beforeEach(() => {
-  logout.mockClear();
+  logout.mockReset();
+  logout.mockResolvedValue(true);
   mockAuth.mockReturnValue({ isAdmin: true, logout } as never);
   mockDaemon.mockReturnValue({
     data: { version: "1.2.3", reachable: true },
@@ -57,7 +58,7 @@ describe("Sidebar", () => {
     renderWithProviders(<Sidebar onNavigate={onNavigate} />);
     await user.click(screen.getByText("Sign out"));
     expect(logout).toHaveBeenCalledOnce();
-    expect(onNavigate).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledOnce());
   });
 
   it("renders the sign-in link and no nav for non-admins", () => {

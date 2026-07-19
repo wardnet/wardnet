@@ -38,7 +38,7 @@ export default function Backups() {
   const onRestartSignIn = () => {
     // Session cookie was invalidated by the restart (e.g. in-memory
     // session store). Clear local admin flag and route to login.
-    logout();
+    void logout();
     restart.reset();
     void navigate("/login");
   };

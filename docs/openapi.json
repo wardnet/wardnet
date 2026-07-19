@@ -73,6 +73,50 @@
         ]
       }
     },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "description": "End the current session. Deletes the session server-side so the token can never authenticate again, and clears the `wardnet_session` cookie in the response. Requires a valid session cookie or a `Authorization: Bearer <session token>` header; only the session that authenticated this request is affected. Callers authenticated with an API key get a 401 — API keys are not sessions and cannot be logged out here.",
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "Session invalidated; session cookie cleared"
+          },
+          "401": {
+            "description": "No valid session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Caller lacks an admin auth context",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/refresh": {
       "post": {
         "tags": [

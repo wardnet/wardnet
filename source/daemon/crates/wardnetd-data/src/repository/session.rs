@@ -27,6 +27,11 @@ pub trait SessionRepository: Send + Sync {
     /// Delete all sessions whose `expires_at` is in the past. Returns the number of rows removed.
     async fn delete_expired(&self, now: &str) -> anyhow::Result<u64>;
 
+    /// Delete the session with the given token hash (used by the logout
+    /// endpoint). Returns the number of rows removed (0 when the session was
+    /// already gone, 1 when it existed).
+    async fn delete_by_token_hash(&self, token_hash: &str) -> anyhow::Result<u64>;
+
     /// Slide the expiry forward for an existing session (used by the refresh endpoint).
     async fn extend_expiry(&self, token_hash: &str, new_expires_at: &str) -> anyhow::Result<()>;
 

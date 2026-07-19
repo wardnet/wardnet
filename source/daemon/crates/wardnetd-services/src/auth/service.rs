@@ -65,6 +65,15 @@ pub trait AuthService: Send + Sync {
     /// `max_age_seconds`.
     async fn refresh_session(&self, token: &str) -> Result<LoginResult, AppError>;
 
+    /// Invalidate the session identified by the given raw token (logout).
+    ///
+    /// Backs `POST /api/auth/logout`. Callers must pass the token that
+    /// authenticated the request (the API layer's `AdminAuth` guarantees
+    /// this), so deleting it can only ever end the caller's own session.
+    /// Idempotent: a token whose session row is already gone still succeeds,
+    /// because the desired end state (no server-side session) already holds.
+    async fn logout_session(&self, token: &str) -> Result<(), AppError>;
+
     /// Validate a raw session token. Returns the admin UUID if valid and not expired.
     async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError>;
 
@@ -122,6 +131,15 @@ pub trait AuthService: Send + Sync {
 
 /// Maximum lifetime of a `remember_me` session regardless of sliding-window refreshes.
 const MAX_SESSION_DAYS: i64 = 90;
+
+/// Derive the storage key for a raw session token.
+///
+/// Single definition on purpose: every write, lookup, and delete must derive
+/// the key identically, or a session created under one scheme becomes
+/// unreachable (and undeletable) under another.
+fn hash_token(token: &str) -> String {
+    hex::encode(Sha256::digest(token.as_bytes()))
+}
 
 /// Default implementation of [`AuthService`] backed by repository traits.
 pub struct AuthServiceImpl {
@@ -184,7 +202,7 @@ impl AuthService for AuthServiceImpl {
         // Generate random 32-byte token, base64url-encode, SHA-256 hash for storage.
         let token_bytes: [u8; 32] = rand::random();
         let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token_bytes);
-        let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
+        let token_hash = hash_token(&token);
 
         let session_id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
@@ -227,7 +245,7 @@ impl AuthService for AuthServiceImpl {
             ));
         };
 
-        let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
+        let token_hash = hash_token(token);
         let now = chrono::Utc::now();
         let now_str = now.to_rfc3339();
 
@@ -277,7 +295,7 @@ impl AuthService for AuthServiceImpl {
         // Rotate token: generate a fresh secret so a captured token cannot be re-used.
         let new_token_bytes: [u8; 32] = rand::random();
         let new_token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(new_token_bytes);
-        let new_token_hash = hex::encode(Sha256::digest(new_token.as_bytes()));
+        let new_token_hash = hash_token(&new_token);
 
         self.sessions
             .rotate_token(&token_hash, &new_token_hash, &new_expires_at.to_rfc3339())
@@ -290,8 +308,23 @@ impl AuthService for AuthServiceImpl {
         })
     }
 
+    async fn logout_session(&self, token: &str) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        let token_hash = hash_token(token);
+        let removed = self
+            .sessions
+            .delete_by_token_hash(&token_hash)
+            .await
+            .map_err(AppError::Internal)?;
+
+        tracing::info!(removed, "session logged out: removed={removed}");
+
+        Ok(())
+    }
+
     async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError> {
-        let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
+        let token_hash = hash_token(token);
         let now = chrono::Utc::now().to_rfc3339();
 
         let admin_id_str = self
