@@ -108,8 +108,11 @@ impl DnsLocalServiceImpl {
         });
     }
 
-    /// FQDN-style validation for record / forwarding domains (requires a dot).
-    /// Mirrors `DnsFilterServiceImpl::validate_domain`.
+    /// FQDN-style validation for a plain (non-wildcard) domain: requires a
+    /// dot, no `*`. Mirrors `DnsFilterServiceImpl::validate_domain`. Used for
+    /// conditional-forwarding rules, whose matcher is literal — a `*.x` rule
+    /// would be stored enabled yet never match a real query name, silently
+    /// leaking internal names upstream, so wildcards are rejected here.
     fn validate_domain(domain: &str) -> Result<(), AppError> {
         if domain.is_empty() {
             return Err(AppError::BadRequest("domain must not be empty".to_owned()));
@@ -125,6 +128,16 @@ impl DnsLocalServiceImpl {
             ));
         }
         Self::validate_charset(domain)
+    }
+
+    /// Validation for a custom-record domain: like [`Self::validate_domain`]
+    /// but a single leading `*.` label is permitted (a left-most wildcard,
+    /// e.g. `*.abc.my.wardnet.services`) — the authoritative view answers any
+    /// name one-or-more labels below the suffix (issue #912). `*` anywhere
+    /// else is still rejected by the charset check. Only records support
+    /// wildcards; forwarding rules use the strict [`Self::validate_domain`].
+    fn validate_record_domain(domain: &str) -> Result<(), AppError> {
+        Self::validate_domain(domain.strip_prefix("*.").unwrap_or(domain))
     }
 
     /// Zone names are single labels (e.g. `lan`, `home`) so, unlike record
@@ -325,7 +338,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
         req: CreateRecordRequest,
     ) -> Result<CreateRecordResponse, AppError> {
         auth_context::require_admin()?;
-        Self::validate_domain(&req.domain)?;
+        Self::validate_record_domain(&req.domain)?;
         Self::require_non_empty("value", &req.value)?;
         if let Some(zone_id) = req.zone_id {
             self.ensure_zone(zone_id).await?;
@@ -359,7 +372,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
         // Capture the pre-update record to detect domain renames for cache eviction.
         let old_record = self.ensure_record(id).await?;
         if let Some(domain) = req.domain.as_deref() {
-            Self::validate_domain(domain)?;
+            Self::validate_record_domain(domain)?;
         }
         if let Some(value) = req.value.as_deref() {
             Self::require_non_empty("value", value)?;
@@ -419,7 +432,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
         req: UpsertRecordRequest,
     ) -> Result<UpsertRecordResponse, AppError> {
         auth_context::require_admin()?;
-        Self::validate_domain(&req.domain)?;
+        Self::validate_record_domain(&req.domain)?;
         Self::require_non_empty("value", &req.value)?;
         if let Some(zone_id) = req.zone_id {
             self.ensure_zone(zone_id).await?;

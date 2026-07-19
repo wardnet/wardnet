@@ -9,6 +9,7 @@ mod dns_local;
 mod inbound_wg;
 mod network_zone;
 mod notification;
+mod private_dns;
 mod push;
 mod rule_request;
 mod session;

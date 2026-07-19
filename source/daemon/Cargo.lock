@@ -5905,6 +5905,7 @@ dependencies = [
  "sysinfo",
  "tempfile",
  "tokio",
+ "tokio-rustls",
  "tokio-util",
  "toml 1.1.2+spec-1.1.0",
  "tower",

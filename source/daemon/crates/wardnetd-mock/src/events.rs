@@ -245,6 +245,7 @@ fn emit_fake_dns_queries(
             // Attribute to the real device so the per-device capture pipeline
             // can pick up queries for capture-enabled devices.
             device_id: Some(client.0.clone()),
+            protocol: "udp".to_owned(),
         });
     }
 }

@@ -172,6 +172,23 @@ pub enum WardnetEvent {
         domain: Option<String>,
         timestamp: DateTime<Utc>,
     },
+    /// Private DNS state changed: the feature was enabled or disabled, or a
+    /// per-device grant was created or revoked (issue #912). `enabled` is the
+    /// feature's post-change state. The `DoT` runner reacts by starting or
+    /// stopping the `:853` listener; grant mutations re-emit it (with the
+    /// unchanged `enabled`) so listeners holding token-derived state refresh.
+    PrivateDnsChanged {
+        enabled: bool,
+        timestamp: DateTime<Utc>,
+    },
+    /// A device's Private DNS grant was revoked (issue #912). The `DoT`
+    /// listener reacts by terminating that device's live `:853` connections,
+    /// so revocation is enforced on established sessions rather than only at
+    /// the next handshake. Carries the device id (never the secret token).
+    PrivateDnsGrantRevoked {
+        device_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
     UpdateAvailable {
         current_version: String,
         latest_version: String,

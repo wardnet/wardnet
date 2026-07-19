@@ -18,6 +18,7 @@ fn sample_row(client_ip: &str, domain: &str, result: &str) -> QueryLogRow {
         upstream: Some("8.8.8.8".to_owned()),
         latency_ms: 1.5,
         device_id: None,
+        protocol: "udp".to_owned(),
     }
 }
 
@@ -221,6 +222,7 @@ async fn cleanup_query_log() {
             upstream: None,
             latency_ms: 1.0,
             device_id: None,
+            protocol: "udp".to_owned(),
         },
         QueryLogRow {
             timestamp: old_ts,
@@ -231,6 +233,7 @@ async fn cleanup_query_log() {
             upstream: None,
             latency_ms: 2.0,
             device_id: None,
+            protocol: "udp".to_owned(),
         },
         QueryLogRow {
             timestamp: recent_ts,
@@ -241,6 +244,7 @@ async fn cleanup_query_log() {
             upstream: Some("1.1.1.1".to_owned()),
             latency_ms: 0.5,
             device_id: None,
+            protocol: "dot".to_owned(),
         },
     ];
     repo.insert_query_log_batch(&entries).await.unwrap();

@@ -1728,3 +1728,114 @@ async fn filter_config_reports_fail_open_until_lists_are_imported() {
     })
     .await;
 }
+
+// ---------------------------------------------------------------------------
+// Device-keyed lookup (issue #912) — `check_for_device` resolves the granted
+// device's own context even when the source IP is one the per-IP map does
+// not cover (a DoT connection arriving via a relay).
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn check_for_device_uses_the_device_context_for_an_uncovered_ip() {
+    let h = build().await;
+    let device_id = Uuid::new_v4();
+    h.add_device(device_id, "10.0.0.7").await;
+
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let bl = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "dot-test".into(),
+                    url: "http://example.test/list.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+        h.repo
+            .replace_blocklist_domains(bl.blocklist.id, &["ads.test".to_owned()])
+            .await
+            .unwrap();
+
+        // Kill-switch the device off — the distinguishing signal: its own
+        // context passes where the default context would block.
+        h.service
+            .update_device_settings(
+                device_id,
+                UpdateDeviceFilterSettingsRequest {
+                    enabled: false,
+                    profile_ids: vec![],
+                },
+            )
+            .await
+            .unwrap();
+        h.service.rebuild_all().await.unwrap();
+    })
+    .await;
+
+    // A relay-style source IP the per-IP map has never seen.
+    let relay_ip: IpAddr = "127.0.0.1".parse().unwrap();
+
+    let by_device = h
+        .service
+        .check_for_device("ads.test", RecordType::A, device_id, relay_ip)
+        .await;
+    assert_eq!(
+        by_device.action,
+        FilterAction::Pass,
+        "the device's own (killed) context must apply"
+    );
+    assert!(by_device.would_have_blocked);
+
+    // The same query attributed only by that IP falls to the default
+    // context and blocks — proving the device key changed the outcome.
+    let by_ip = h.service.check("ads.test", RecordType::A, relay_ip).await;
+    assert_eq!(by_ip.action, FilterAction::Block);
+}
+
+#[tokio::test]
+async fn check_for_device_falls_back_to_the_default_context_for_unknown_devices() {
+    let h = build().await;
+
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let bl = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "fallback-test".into(),
+                    url: "http://example.test/f.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+        h.repo
+            .replace_blocklist_domains(bl.blocklist.id, &["ads.test".to_owned()])
+            .await
+            .unwrap();
+        h.service.rebuild_all().await.unwrap();
+    })
+    .await;
+
+    let outcome = h
+        .service
+        .check_for_device(
+            "ads.test",
+            RecordType::A,
+            Uuid::new_v4(),
+            "10.99.99.99".parse().unwrap(),
+        )
+        .await;
+    assert_eq!(
+        outcome.action,
+        FilterAction::Block,
+        "unknown device + unknown IP resolve through the default context"
+    );
+}

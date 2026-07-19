@@ -254,6 +254,38 @@ async fn create_record_rejects_domain_without_dot() {
 }
 
 #[tokio::test]
+async fn create_record_accepts_a_leading_wildcard() {
+    // Records support a single left-most `*.` label (the Private-DNS
+    // split-horizon record, #912).
+    let svc = build().await;
+    as_admin(async {
+        svc.create_record(create_record_req(None, "*.abc.my.wardnet.services"))
+            .await
+            .expect("wildcard record must be accepted");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn create_forwarding_rule_rejects_a_wildcard() {
+    // Forwarding rules match literally, so a stored `*.x` rule would never
+    // fire and would silently leak internal names upstream — reject it at
+    // validation (#912 review fix).
+    let svc = build().await;
+    as_admin(async {
+        let err = svc
+            .create_forwarding_rule(create_rule_req("*.corp.example"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, AppError::BadRequest(_)),
+            "a wildcard forwarding rule must be rejected, got: {err:?}"
+        );
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn create_record_with_unknown_zone_is_not_found() {
     let svc = build().await;
     as_admin(async {

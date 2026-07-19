@@ -35,7 +35,7 @@ use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::log_sink::DnsLogSink;
 use wardnetd_services::dns::server::DnsSocket;
 
-use crate::dns::pipeline::{ClientIdentity, QueryPipeline};
+use crate::dns::pipeline::{ClientIdentity, QueryPipeline, TransportProtocol};
 use crate::dns::rate_limit::RateLimiter;
 use crate::dns::reply_capture::ReplyCapture;
 use crate::dns::server::build_forwarding_resolver;
@@ -45,7 +45,7 @@ fn src() -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], 5353))
 }
 
-fn stub_tunnel_repo() -> Arc<dyn TunnelRepository> {
+pub(super) fn stub_tunnel_repo() -> Arc<dyn TunnelRepository> {
     struct Stub;
     #[async_trait]
     impl TunnelRepository for Stub {
@@ -106,7 +106,7 @@ fn stub_tunnel_repo() -> Arc<dyn TunnelRepository> {
 /// view and routing snapshot start empty; tests that need them populated
 /// store into the returned pipeline's `ArcSwap` fields directly (the
 /// same way the server's `update_authoritative_view` does).
-fn build_pipeline(cfg: DnsConfig, sink: Option<Arc<DnsLogSink>>) -> Arc<QueryPipeline> {
+pub(super) fn build_pipeline(cfg: DnsConfig, sink: Option<Arc<DnsLogSink>>) -> Arc<QueryPipeline> {
     let resolver = Arc::new(RwLock::new(build_forwarding_resolver(&cfg)));
     let rate_limiter = Arc::new(RateLimiter::new(cfg.rate_limit_per_second));
     let cache = Arc::new(RwLock::new(DnsCache::new(cfg.cache_size as usize)));
@@ -140,7 +140,7 @@ fn config_with_upstream(addr: SocketAddr) -> DnsConfig {
 }
 
 /// Wire-encode a one-question query.
-fn query_bytes(id: u16, name: &str, rtype: RecordType) -> Vec<u8> {
+pub(super) fn query_bytes(id: u16, name: &str, rtype: RecordType) -> Vec<u8> {
     use hickory_proto::op::Query;
     use hickory_proto::rr::Name;
 
@@ -166,7 +166,7 @@ async fn ask(
     let (capture, mut rx) = ReplyCapture::channel();
     let reply: Arc<dyn DnsSocket> = Arc::new(capture);
     pipeline
-        .handle(packet, src(), &reply, client)
+        .handle(packet, src(), &reply, client, TransportProtocol::Udp)
         .await
         .expect("handle");
     drop(reply);
@@ -259,7 +259,7 @@ async fn next_row(
         .expect("sink open")
 }
 
-fn manual_record(domain: &str, rt: DnsRecordType, value: &str) -> CustomDnsRecord {
+pub(super) fn manual_record(domain: &str, rt: DnsRecordType, value: &str) -> CustomDnsRecord {
     CustomDnsRecord {
         id: Uuid::new_v4(),
         zone_id: None,
@@ -355,7 +355,13 @@ async fn unparseable_packet_errors_without_a_reply() {
     let reply: Arc<dyn DnsSocket> = Arc::new(capture);
 
     let result = pipeline
-        .handle(&[0xFF, 0x00, 0x01], src(), &reply, ip_client())
+        .handle(
+            &[0xFF, 0x00, 0x01],
+            src(),
+            &reply,
+            ip_client(),
+            TransportProtocol::Udp,
+        )
         .await;
     assert!(
         result.is_err(),

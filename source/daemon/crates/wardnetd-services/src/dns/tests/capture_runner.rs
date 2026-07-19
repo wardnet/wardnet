@@ -296,6 +296,7 @@ fn sample_row(device_id: Option<&str>, domain: &str) -> QueryLogRow {
         upstream: None,
         latency_ms: 1.0,
         device_id: device_id.map(str::to_owned),
+        protocol: "udp".to_owned(),
     }
 }
 

@@ -27,6 +27,7 @@ pub mod inbound_wg;
 pub mod logging;
 pub mod maintenance;
 pub mod network_zone;
+pub mod private_dns;
 pub mod push;
 pub mod routing;
 pub mod rule_request;
@@ -69,6 +70,7 @@ use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::inbound_wg::InboundWgServiceImpl;
 use crate::jobs::JobServiceImpl;
 use crate::network_zone::NetworkZoneServiceImpl;
+use crate::private_dns::PrivateDnsServiceImpl;
 use crate::routing::RoutingServiceImpl;
 use crate::rule_request::RuleRequestServiceImpl;
 use crate::system::SystemServiceImpl;
@@ -98,6 +100,7 @@ pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::maintenance::{MaintenanceService, MaintenanceServiceImpl};
 pub use crate::network_zone::NetworkZoneService;
+pub use crate::private_dns::{PrivateDnsGrant, PrivateDnsService, PrivateDnsStatus};
 pub use crate::push::PushService;
 pub use crate::routing::RoutingService;
 pub use crate::rule_request::RuleRequestService;
@@ -241,6 +244,9 @@ pub struct Services {
     /// Inbound (multi-peer) `WireGuard` server (issue #809). Manages the
     /// `wg_wardin0` server interface, its keypair, and the peer data model.
     pub inbound_wg: Arc<dyn InboundWgService>,
+    /// Private DNS (issue #912): per-device grants + enable state for the
+    /// `DoT` `:853` listener. Driven by the `DoT` runner in `wardnetd`.
+    pub private_dns: Arc<dyn PrivateDnsService>,
     /// Reverse-tunnel connector (issue #809): dependencies for the persistent WS
     /// client to wardnet-cloud's Tunneller. Handed to `TunnelerRunner::start` in
     /// `wardnetd`'s `main`; the mock binary leaves it unspawned, exactly as it does
@@ -673,6 +679,21 @@ fn create_services(
         entitlement.clone(),
     ));
 
+    // Private DNS (#912): per-device DoT grants + enable state. Shares the
+    // entitlement handle with the other Premium features and the local-DNS
+    // service for the split-horizon wildcard record.
+    let private_dns_service: Arc<dyn PrivateDnsService> = Arc::new(PrivateDnsServiceImpl::new(
+        repo_factory.private_dns_grants(),
+        repo_factory.system_config(),
+        device_service.clone(),
+        ddns.clone(),
+        tls.clone(),
+        dns_local_service.clone(),
+        entitlement.clone(),
+        event_publisher.clone(),
+        lan_ip,
+    ));
+
     let discovery_service = build_discovery_service(
         device_repo.clone(),
         network_zone_repo.clone(),
@@ -754,6 +775,7 @@ fn create_services(
         system: system_service,
         tunnel: tunnel_service,
         inbound_wg: inbound_wg_service,
+        private_dns: private_dns_service,
         tunneler,
         update: update_service,
         event_publisher,

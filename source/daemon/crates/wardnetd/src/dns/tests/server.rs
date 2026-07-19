@@ -31,6 +31,7 @@ use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 
+use crate::dns::pipeline::{QueryAttribution, TransportProtocol};
 use crate::dns::server::{
     LATENCY_PROBE_INTERVAL, TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver,
     duration_to_ms, effective_upstreams, fold_probe_outcomes, forwarder_ordering,
@@ -614,7 +615,10 @@ fn record_query_with_no_sink_is_a_noop() {
         "example.com",
         RecordType::A,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Udp,
+        },
         "blocked",
         None,
         Duration::from_millis(2),
@@ -634,7 +638,10 @@ async fn record_query_with_sink_pushes_a_row_with_normalized_domain() {
         "example.com.",
         RecordType::AAAA,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Dot,
+        },
         "passed",
         Some("1.1.1.1".into()),
         Duration::from_millis(7),
@@ -650,6 +657,7 @@ async fn record_query_with_sink_pushes_a_row_with_normalized_domain() {
     assert_eq!(row.upstream.as_deref(), Some("1.1.1.1"));
     assert_eq!(row.client_ip, "127.0.0.1");
     assert!(row.device_id.is_none());
+    assert_eq!(row.protocol, "dot");
     // Latency conversion: 7ms = 7000us = 7.0
     assert!((row.latency_ms - 7.0).abs() < 1e-6);
 }
@@ -2397,7 +2405,10 @@ async fn recursor_unavailable_falls_back_to_forwarding_when_upstreams_set() {
         foo_com_request(),
         0xCAFE,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Udp,
+        },
         "foo.com",
         RecordType::A,
         std::time::Instant::now(),
@@ -2453,7 +2464,10 @@ async fn recursor_unavailable_servfails_when_no_upstreams() {
         foo_com_request(),
         0xCAFE,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Udp,
+        },
         "foo.com",
         RecordType::A,
         std::time::Instant::now(),
@@ -2555,7 +2569,10 @@ async fn run_recursor_outcome(
         request,
         0xCAFE,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Udp,
+        },
         "foo.com",
         rtype,
         std::time::Instant::now(),
@@ -2806,7 +2823,10 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
         request,
         0xABCD,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Udp,
+        },
         "",
         RecordType::A,
         std::time::Instant::now(),

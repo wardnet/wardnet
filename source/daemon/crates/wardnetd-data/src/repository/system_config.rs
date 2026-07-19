@@ -245,6 +245,21 @@ pub trait SystemConfigRepository: Send + Sync {
         self.set("inbound_wg_listen_port", &port.to_string()).await
     }
 
+    /// Whether Private DNS (the `DoT` `:853` listener) is enabled (issue #912).
+    ///
+    /// Reads the `private_dns_enabled` key; returns `false` if the key is
+    /// missing or set to any value other than `"true"` (off by default).
+    async fn private_dns_enabled(&self) -> anyhow::Result<bool> {
+        let value = self.get("private_dns_enabled").await?;
+        Ok(value.as_deref() == Some("true"))
+    }
+
+    /// Enable or disable Private DNS (issue #912).
+    async fn set_private_dns_enabled(&self, enabled: bool) -> anyhow::Result<()> {
+        let value = if enabled { "true" } else { "false" };
+        self.set("private_dns_enabled", value).await
+    }
+
     /// The inbound-WireGuard server's public key (issue #809), if generated.
     ///
     /// Stored as a plain base64 string; `None` when the server has never been

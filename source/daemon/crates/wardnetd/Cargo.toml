@@ -104,6 +104,8 @@ axum-server.workspace = true
 rcgen.workspace = true
 # https://crates.io/crates/rustls — install the aws-lc-rs crypto provider as process default
 rustls.workspace = true
+# https://crates.io/crates/tokio-rustls — TLS acceptor for the DoT :853 listener (issue #912)
+tokio-rustls.workspace = true
 # https://crates.io/crates/libc — WDIOC_* ioctls for the /dev/watchdog backstop (issue #214)
 libc.workspace = true
 # https://crates.io/crates/sd-notify — READY=1 + health-gated WATCHDOG=1 (issue #214)
