@@ -492,26 +492,26 @@ impl QueryPipeline {
         // 1. Cache, keyed by upstream so a tunneled device's answer doesn't
         //    bleed into a LAN device's lookup of the same domain (or vice
         //    versa).
-        {
-            let mut cache_guard = self.cache.write().await;
-            if let Some(cached) = cache_guard.get(upstream_id, &domain, rtype) {
-                let mut response = cached.clone();
-                response.metadata.id = id;
-                let bytes = response.to_bytes()?;
-                reply.send_to(&bytes, src).await?;
-                tracing::trace!(%domain, ?rtype, ?upstream_id, "cache hit");
-                record_query(
-                    log_sink,
-                    &domain,
-                    rtype,
-                    src,
-                    device_id,
-                    DnsQueryResult::CacheHit.as_str(),
-                    None,
-                    start.elapsed(),
-                );
-                return Ok(());
-            }
+        let cached = {
+            let cache_guard = self.cache.read().await;
+            cache_guard.get(upstream_id, &domain, rtype)
+        };
+        if let Some(mut response) = cached {
+            response.metadata.id = id;
+            let bytes = response.to_bytes()?;
+            reply.send_to(&bytes, src).await?;
+            tracing::trace!(%domain, ?rtype, ?upstream_id, "cache hit");
+            record_query(
+                log_sink,
+                &domain,
+                rtype,
+                src,
+                device_id,
+                DnsQueryResult::CacheHit.as_str(),
+                None,
+                start.elapsed(),
+            );
+            return Ok(());
         }
 
         // 2. Filter.
