@@ -39,6 +39,9 @@ jobs:
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
 
-      - uses: wardnet/cubit@v0.0.1
+      # Moving major tag: cubit advances `v0` on each 0.x release, so fixes flow
+      # here without a wardnet bump (same pattern as bulwark's @v1). Pin to an
+      # exact version once cubit reaches 1.0.
+      - uses: wardnet/cubit@v0
         with:
           criterion-dir: source/daemon/target/criterion
