@@ -1,0 +1,22 @@
+# osv-scanner config for the fuzz workspace's own lockfile.
+#
+# osv-scanner (and OpenSSF Scorecard's Vulnerabilities check, which runs
+# it) resolves config per lockfile *directory* — the parent
+# source/daemon/osv-scanner.toml does NOT apply to fuzz/Cargo.lock. The
+# fuzz targets link the production crates via path deps, so any advisory
+# that is transitively unavoidable in the daemon workspace shows up here
+# too and needs its ignore duplicated. Keep the reasoning in sync with
+# ../osv-scanner.toml.
+#
+# Format: https://google.github.io/osv-scanner/configuration/
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2026-0173"
+reason = """
+proc-macro-error2 unmaintained. Compile-time proc-macro pulled in via
+i18n-embed-fl (through wardnetd-services' age dependency). Not a CVE —
+the author stopped publishing updates. Zero runtime footprint. Blocked
+on age → i18n-embed-fl migrating off proc-macro-error2. Tracked in
+wardnet/wardnet#758; remove this entry when `cargo tree -i
+proc-macro-error2` returns nothing.
+"""
