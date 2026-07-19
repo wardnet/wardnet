@@ -25296,7 +25296,8 @@
         "type": "string",
         "description": "A named, curated bundle of ports for a common cross-zone use case. Presets\nkeep the wire format compact and let the daemon evolve the underlying ports\nwithout a data migration.",
         "enum": [
-          "casting"
+          "casting",
+          "mirroring"
         ]
       },
       "ServiceSpec": {
