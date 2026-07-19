@@ -335,6 +335,38 @@ impl DeviceDiscoveryServiceImpl {
             .clone()
     }
 
+    /// Clear a departed device's stored `last_ip` so its row can no longer be
+    /// resolved by a live device's source IP in `find_by_ip` (the IP-keyed
+    /// self-service auth path) once DHCP recycles the departed address.
+    ///
+    /// Taken under the per-mac lock and gated on the device still being `gone`:
+    /// a device that reappears in the same instant as the departure sweep has
+    /// already had the live IP written to its row by its own observation, so we
+    /// must not clobber that back to empty. Holding the same lock the
+    /// observation path holds serialises the two; the re-check closes the window
+    /// between the sweep flipping `gone` and this acquiring the lock.
+    async fn clear_departed_ip(&self, device_id: Uuid, mac: &str) {
+        let mac_lock = self.lock_for_mac(mac).await;
+        let _guard = mac_lock.lock_owned().await;
+
+        let still_gone = {
+            let state = self.state.read().await;
+            state.get(mac).is_none_or(|entry| entry.gone)
+        };
+        if !still_gone {
+            return;
+        }
+
+        if let Err(e) = self.devices.clear_last_ip(&device_id.to_string()).await {
+            tracing::warn!(
+                error = %e,
+                device_id = %device_id,
+                mac = %mac,
+                "device discovery: failed to clear departed device's last_ip"
+            );
+        }
+    }
+
     /// Handle a device not found in the in-memory map.
     ///
     /// Checks the database for a previous record, and either reappears the device
@@ -832,6 +864,7 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         let ids: Vec<Uuid> = departed.iter().map(|(id, _, _)| *id).collect();
 
         for (device_id, mac, last_ip) in departed {
+            self.clear_departed_ip(device_id, &mac).await;
             self.publish_device_gone(device_id, mac, last_ip);
         }
 
@@ -1125,6 +1158,7 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
 
         match gone {
             Some((id, mac, last_ip)) => {
+                self.clear_departed_ip(id, &mac).await;
                 self.publish_device_gone(id, mac, last_ip);
                 Ok(Some(id))
             }

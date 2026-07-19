@@ -74,6 +74,10 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(())
     }
 
+    async fn clear_last_ip(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn update_last_seen_and_ip(
         &self,
         _id: &str,

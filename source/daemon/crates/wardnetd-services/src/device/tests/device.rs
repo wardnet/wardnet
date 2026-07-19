@@ -42,6 +42,9 @@ impl DeviceRepository for MockDeviceRepo {
     async fn insert(&self, _device: &DeviceRow) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn clear_last_ip(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn update_last_seen_and_ip(
         &self,
         _id: &str,
@@ -798,6 +801,9 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
             Ok(vec![])
         }
         async fn insert(&self, _device: &DeviceRow) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn clear_last_ip(&self, _id: &str) -> anyhow::Result<()> {
             Ok(())
         }
         async fn update_last_seen_and_ip(

@@ -132,6 +132,9 @@ impl DeviceRepository for MemoryDeviceRepository {
     async fn insert(&self, _row: &DeviceRow) -> anyhow::Result<()> {
         unimplemented!()
     }
+    async fn clear_last_ip(&self, _id: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
     async fn update_last_seen_and_ip(
         &self,
         _id: &str,

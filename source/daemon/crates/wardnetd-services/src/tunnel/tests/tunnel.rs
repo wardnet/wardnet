@@ -756,6 +756,9 @@ impl DeviceRepository for MockDeviceRepoForTunnel {
     ) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn clear_last_ip(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn update_last_seen_and_ip(
         &self,
         _id: &str,
@@ -850,6 +853,9 @@ impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
         &self,
         _d: &wardnetd_data::repository::device::DeviceRow,
     ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn clear_last_ip(&self, _id: &str) -> anyhow::Result<()> {
         Ok(())
     }
     async fn update_last_seen_and_ip(

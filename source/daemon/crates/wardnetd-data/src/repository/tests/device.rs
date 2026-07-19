@@ -24,7 +24,16 @@ fn sample_device_row(id: &str, mac: &str, ip: &str) -> DeviceRow {
 }
 
 async fn insert_device(pool: &sqlx::SqlitePool, id: &str, mac: &str, ip: &str) {
-    let now = "2026-03-07T00:00:00Z";
+    insert_device_seen_at(pool, id, mac, ip, "2026-03-07T00:00:00Z").await;
+}
+
+async fn insert_device_seen_at(
+    pool: &sqlx::SqlitePool,
+    id: &str,
+    mac: &str,
+    ip: &str,
+    last_seen: &str,
+) {
     sqlx::query(
         "INSERT INTO devices (id, mac, last_ip, device_type, first_seen, last_seen, zone_id) \
          VALUES (?, ?, ?, 'unknown', ?, ?, '00000000-0000-0000-0000-000000000201')",
@@ -32,8 +41,8 @@ async fn insert_device(pool: &sqlx::SqlitePool, id: &str, mac: &str, ip: &str) {
     .bind(id)
     .bind(mac)
     .bind(ip)
-    .bind(now)
-    .bind(now)
+    .bind("2026-03-07T00:00:00Z")
+    .bind(last_seen)
     .execute(pool)
     .await
     .unwrap();
@@ -60,6 +69,63 @@ async fn find_by_ip_not_found() {
 
     let result = repo.find_by_ip("10.0.0.99").await.unwrap();
     assert!(result.is_none());
+}
+
+// Regression for issue #831: `last_ip` is not unique (departed devices keep
+// their row), so DHCP recycling an address leaves two rows sharing it. The
+// lookup must resolve to the most recently seen (live) device, not an arbitrary
+// rowid-ordered (stale) one — the IP-keyed self-service auth path depends on it.
+#[tokio::test]
+async fn find_by_ip_returns_most_recently_seen_on_collision() {
+    let pool = test_pool().await;
+    // DEV1 is the older, departed occupant of the address; DEV2 is the live
+    // device DHCP later handed the same IP to. DEV1 is inserted first so it wins
+    // the rowid ordering that the un-ordered query used to return.
+    insert_device_seen_at(
+        &pool,
+        DEV1,
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.10",
+        "2026-03-07T00:00:00Z",
+    )
+    .await;
+    insert_device_seen_at(
+        &pool,
+        DEV2,
+        "aa:bb:cc:dd:ee:02",
+        "192.168.1.10",
+        "2026-03-08T00:00:00Z",
+    )
+    .await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    let device = repo.find_by_ip("192.168.1.10").await.unwrap().unwrap();
+    assert_eq!(
+        device.id.to_string(),
+        DEV2,
+        "collision must resolve to the more recently seen device"
+    );
+}
+
+// Regression for issue #831: clearing a departed device's `last_ip` must make
+// its row unresolvable by that IP so it can never again be returned for a live
+// device's source address.
+#[tokio::test]
+async fn clear_last_ip_removes_row_from_ip_lookup() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    // Precondition: the device resolves by its IP.
+    assert!(repo.find_by_ip("192.168.1.10").await.unwrap().is_some());
+
+    repo.clear_last_ip(DEV1).await.unwrap();
+
+    // The row still exists but no longer carries the address...
+    let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
+    assert_eq!(device.last_ip, "");
+    // ...so a lookup for that IP no longer returns the departed device.
+    assert!(repo.find_by_ip("192.168.1.10").await.unwrap().is_none());
 }
 
 #[tokio::test]

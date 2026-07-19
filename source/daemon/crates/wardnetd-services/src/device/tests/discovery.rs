@@ -52,6 +52,9 @@ struct MockDeviceRepo {
     batch_updates: Mutex<Vec<(String, String)>>,
     hostname_updates: Mutex<Vec<(String, String)>>,
     name_type_updates: Mutex<Vec<(String, Option<String>, String)>>,
+    /// When set, `clear_last_ip` returns an error, exercising the departure
+    /// sweep's failure-tolerant path.
+    fail_clear_last_ip: std::sync::atomic::AtomicBool,
 }
 
 impl MockDeviceRepo {
@@ -72,6 +75,7 @@ impl MockDeviceRepo {
             batch_updates: Mutex::new(Vec::new()),
             hostname_updates: Mutex::new(Vec::new()),
             name_type_updates: Mutex::new(Vec::new()),
+            fail_clear_last_ip: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
@@ -152,6 +156,32 @@ impl DeviceRepository for MockDeviceRepo {
             last_seen.to_owned(),
             mode,
         ));
+
+        // Mirror the SQLite repo so an observation's IP write is reflected in
+        // subsequent lookups (e.g. a reappearance restoring an IP the departure
+        // sweep had cleared).
+        let mut devices = self.devices.lock().unwrap();
+        if let Some(d) = devices.iter_mut().find(|d| d.id.to_string() == id) {
+            d.last_ip = ip.to_owned();
+            d.connection_mode = mode;
+            if let Ok(ts) = last_seen.parse() {
+                d.last_seen = ts;
+            }
+        }
+        Ok(())
+    }
+
+    async fn clear_last_ip(&self, id: &str) -> anyhow::Result<()> {
+        if self
+            .fail_clear_last_ip
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("simulated clear_last_ip failure");
+        }
+        let mut devices = self.devices.lock().unwrap();
+        if let Some(d) = devices.iter_mut().find(|d| d.id.to_string() == id) {
+            d.last_ip = String::new();
+        }
         Ok(())
     }
 
@@ -940,6 +970,91 @@ async fn scan_departures_emits_device_gone() {
             mac, last_ip, ..
         } if mac == "aa:bb:cc:dd:ee:01" && last_ip == "192.168.1.10"
     ));
+}
+
+// Regression for issue #831: when the sweep marks a device gone it must clear
+// the device's stored `last_ip`, so a departed device's row can no longer be
+// resolved by a live device's source IP in `find_by_ip` once DHCP recycles the
+// address.
+#[tokio::test]
+async fn scan_departures_clears_departed_last_ip() {
+    let h = build_harness();
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
+    h.svc.process_observation(&obs).await.unwrap();
+
+    // Precondition: the freshly discovered device resolves by its IP.
+    assert!(h.repo.find_by_ip("192.168.1.10").await.unwrap().is_some());
+
+    // Force the departure sweep.
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    let departed = h.svc.scan_departures(0).await.unwrap();
+    assert_eq!(departed.len(), 1);
+
+    // The departed device's IP is cleared: its row no longer resolves by that
+    // address, closing the collision window against a device DHCP later hands
+    // the same IP.
+    assert!(
+        h.repo.find_by_ip("192.168.1.10").await.unwrap().is_none(),
+        "departed device must no longer be resolvable by its old IP"
+    );
+    let device = h
+        .repo
+        .find_by_id(&departed[0].to_string())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(device.last_ip, "");
+}
+
+// A failure clearing the departed device's IP must not abort the sweep: the
+// device is still reported departed (so downstream listeners run) and the
+// failure is logged rather than propagated.
+#[tokio::test]
+async fn scan_departures_tolerates_clear_last_ip_failure() {
+    let h = build_harness();
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
+    h.svc.process_observation(&obs).await.unwrap();
+    h.repo
+        .fail_clear_last_ip
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    let departed = h.svc.scan_departures(0).await.unwrap();
+    assert_eq!(departed.len(), 1);
+
+    // The clear failed, so the IP is left in place — but the sweep still
+    // completed and emitted the departure event.
+    let events = h.events.published_events();
+    assert!(
+        events
+            .iter()
+            .any(|e| matches!(e, WardnetEvent::DeviceGone { .. }))
+    );
+}
+
+// Regression for issue #831: a device that reconnects in the same instant as
+// the departure sweep must keep the live IP its observation just wrote — the
+// sweep's IP clear must not clobber it back to empty.
+#[tokio::test]
+async fn scan_departures_does_not_clear_ip_of_reconnected_device() {
+    let h = build_harness();
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
+    h.svc.process_observation(&obs).await.unwrap();
+
+    // Depart, then immediately reconnect at the same address before asserting.
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    h.svc.scan_departures(0).await.unwrap();
+    let result = h.svc.process_observation(&obs).await.unwrap();
+    assert!(
+        matches!(result, ObservationResult::Reappeared(_)),
+        "expected Reappeared, got {result:?}"
+    );
+
+    // The reconnect re-established the address; it must still be resolvable.
+    assert!(
+        h.repo.find_by_ip("192.168.1.10").await.unwrap().is_some(),
+        "reconnected device must remain resolvable by its IP"
+    );
 }
 
 #[tokio::test]

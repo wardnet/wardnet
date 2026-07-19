@@ -94,7 +94,15 @@ const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, f
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
-        let query = format!("SELECT {SELECT_COLS} FROM devices WHERE last_ip = ?");
+        // `last_ip` is not unique: departed devices keep their row, so DHCP
+        // recycling an address to a new device leaves two rows sharing an IP.
+        // Order by `last_seen DESC` so the lookup always resolves to the most
+        // recently seen (live) device rather than an arbitrary rowid-ordered
+        // (stale) one — the IP-keyed self-service auth path relies on this to
+        // identify the caller's own device.
+        let query = format!(
+            "SELECT {SELECT_COLS} FROM devices WHERE last_ip = ? ORDER BY last_seen DESC LIMIT 1"
+        );
         let row = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
             .bind(ip)
             .fetch_optional(&self.pools.read)
@@ -168,6 +176,19 @@ impl DeviceRepository for SqliteDeviceRepository {
         .bind(id)
         .execute(&self.pools.write)
         .await?;
+        Ok(())
+    }
+
+    async fn clear_last_ip(&self, id: &str) -> anyhow::Result<()> {
+        // Empty the address rather than deleting the row: the device history is
+        // still wanted, but a departed row must never again match a live
+        // request's source IP in `find_by_ip`. Empty string is the established
+        // "no known address" sentinel (see discovery `restore_devices`); the
+        // NOT NULL column forbids a true NULL.
+        sqlx::query("UPDATE devices SET last_ip = '' WHERE id = ?")
+            .bind(id)
+            .execute(&self.pools.write)
+            .await?;
         Ok(())
     }
 
