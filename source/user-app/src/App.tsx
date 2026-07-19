@@ -12,8 +12,8 @@ import { useDnsEventsSync } from "@/hooks/useDnsEventsSync";
  * The User PWA is the device-keyed, non-admin self-service surface (see
  * CONTEXT.md). Identity is the device on the LAN — there is no login or admin
  * session, so the shell wires only the React Query client, the online-status
- * context, and the mobile layout. Each tab is a placeholder until its feature
- * stage (#590–#594) fills it in.
+ * context, and the mobile layout. Routing mounts the Home, Stats and Settings
+ * tabs, with any unknown path redirected back to Home.
  */
 function DnsSync() {
   useDnsEventsSync();
