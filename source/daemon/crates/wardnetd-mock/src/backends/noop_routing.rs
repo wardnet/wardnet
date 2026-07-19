@@ -169,6 +169,40 @@ impl PolicyRouter for NoopPolicyRouter {
         Ok(Vec::new())
     }
 
+    async fn add_switchback_rule(
+        &self,
+        src_ip: &str,
+        dst_cidr: &str,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            src_ip,
+            dst_cidr,
+            priority,
+            "mock policy add_switchback_rule: src_ip={src_ip}, dst_cidr={dst_cidr}, priority={priority}",
+        );
+        Ok(())
+    }
+
+    async fn remove_switchback_rule(
+        &self,
+        src_ip: &str,
+        dst_cidr: &str,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            src_ip,
+            dst_cidr,
+            priority,
+            "mock policy remove_switchback_rule: src_ip={src_ip}, dst_cidr={dst_cidr}, priority={priority}",
+        );
+        Ok(())
+    }
+
+    async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>> {
+        Ok(Vec::new())
+    }
+
     async fn flush_conntrack(&self, src_ip: &str) -> anyhow::Result<()> {
         tracing::debug!(src_ip, "mock policy flush_conntrack: src_ip={src_ip}",);
         Ok(())

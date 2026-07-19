@@ -6,8 +6,11 @@
 //! UDATA TLV codec that drives restart-survivable rule identification.
 
 use crate::firewall_netlink::{
-    IFNAMSIZ, comment_udata, inbound_wg_iface_exact_value, parse_comment_udata, zone_rule_ip,
+    IFNAMSIZ, ZONE_ESTABLISHED_COMMENT, ZONE_ISOLATION, build_zone_isolation_batch, chain_ref,
+    comment_udata, inbound_wg_iface_exact_value, parse_comment_udata, wardnet_table, zone_rule_ip,
 };
+use rustables::Batch;
+use wardnetd_services::routing::firewall::{ExceptionAllow, ZoneIsolationRules};
 
 #[test]
 fn comment_udata_encodes_type_len_value_nul() {
@@ -138,6 +141,54 @@ fn isojump_only_table_produces_no_orphans_and_survives_removal() {
             "remove_zone_rules({device_ip}) must not match the isojump jump rule"
         );
     }
+}
+
+#[test]
+fn zone_isolation_established_return_accept_is_first_rule() {
+    // The stateful cross-zone return-accept (`ct state established,related
+    // accept`) must be the FIRST rule in the rebuilt `zone_isolation` chain so a
+    // Chromecast reply stream (sport=8009) is accepted before the stateless
+    // dport allows and the cross-subnet deny below it. Building the batch is pure
+    // (no socket I/O), so we can assert on the emitted rule order host-independently.
+    let table = wardnet_table();
+    let iso = chain_ref(&table, ZONE_ISOLATION);
+    let mut batch = Batch::new();
+
+    let rules = ZoneIsolationRules {
+        allows: vec![ExceptionAllow {
+            from_cidr: "192.168.200.0/24".to_owned(),
+            to_cidr: "192.168.201.0/24".to_owned(),
+            proto: "tcp".to_owned(),
+            port_start: 8009,
+            port_end: 8009,
+            bidirectional: true,
+        }],
+        deny_pairs: vec![("192.168.200.0/24".to_owned(), "192.168.201.0/24".to_owned())],
+        member_isolation_subnets: vec!["192.168.200.0/24".to_owned()],
+    };
+
+    let order = build_zone_isolation_batch(&iso, &rules, &mut batch)
+        .expect("building the zone_isolation batch must succeed");
+
+    // The established return-accept is present and sits at the very top.
+    assert_eq!(
+        order.first().copied(),
+        Some(ZONE_ESTABLISHED_COMMENT),
+        "established return-accept must be the first rule: {order:?}"
+    );
+    assert_eq!(
+        order
+            .iter()
+            .filter(|c| **c == ZONE_ESTABLISHED_COMMENT)
+            .count(),
+        1,
+        "exactly one established return-accept rule expected: {order:?}"
+    );
+    // A bidirectional allow expands to two ACCEPTs, both after the established rule.
+    assert!(
+        order[1..].iter().all(|c| *c != ZONE_ESTABLISHED_COMMENT),
+        "established rule must not repeat after the first slot: {order:?}"
+    );
 }
 
 #[test]

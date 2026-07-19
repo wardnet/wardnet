@@ -31,7 +31,7 @@
 //!
 //! [`WardnetEvent::DefaultPolicyChanged`]: wardnet_common::event::WardnetEvent::DefaultPolicyChanged
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 
@@ -546,6 +546,17 @@ impl ZoneEnforcementServiceImpl {
     async fn reconcile_isolation(&self) -> Result<(), AppError> {
         let base_cidr = self.base_cidr().await;
 
+        // All managed devices, loaded once. Used to enumerate the source devices
+        // of each cross-zone exception (for the switchback carve-outs) and to
+        // push every device its (possibly empty) target set at the end.
+        let all_devices = self.devices.find_all().await.map_err(AppError::Internal)?;
+
+        // Cross-zone switchback carve-outs accumulated from the exception set:
+        // `device_id → (device_ip, target CIDRs)`. A tunnel-bound source device
+        // of a casting exception must reach the other endpoint's CIDR directly,
+        // bypassing its per-tunnel table (see `RoutingService::set_switchback_targets`).
+        let mut switchback_acc: HashMap<Uuid, (String, BTreeSet<String>)> = HashMap::new();
+
         // Compute the FULL desired state first (rules + gateway aliases), then
         // diff it against the last-applied state so a startup burst of identical
         // device events collapses to one real rebuild + (N-1) no-ops (FIX 6).
@@ -623,6 +634,21 @@ impl ZoneEnforcementServiceImpl {
                         bidirectional: exc.bidirectional,
                     });
                 }
+
+                // Switchback carve-outs: every source DEVICE of this exception's
+                // FROM endpoint must reach the TO endpoint's CIDR directly. A
+                // bidirectional exception additionally lets the TO endpoint's
+                // devices reach the FROM CIDR. A device is a source of a Zone
+                // endpoint when its `zone_id` matches; of a Device endpoint when
+                // its `id` matches.
+                for dev in endpoint_source_devices(&exc.from, &all_devices) {
+                    add_switchback_target(&mut switchback_acc, dev, &to_cidr);
+                }
+                if exc.bidirectional {
+                    for dev in endpoint_source_devices(&exc.to, &all_devices) {
+                        add_switchback_target(&mut switchback_acc, dev, &from_cidr);
+                    }
+                }
             }
 
             member_isolation_present = !member_isolation_subnets.is_empty();
@@ -655,6 +681,31 @@ impl ZoneEnforcementServiceImpl {
             .keys()
             .map(std::string::ToString::to_string)
             .collect();
+
+        // Push each device its (possibly empty) cross-zone switchback target set.
+        // This runs on EVERY reconcile — BEFORE the FIX-6 isolation skip below —
+        // because a device changing zone alters switchback membership without
+        // necessarily changing the isolation `rules` (zone endpoints resolve to a
+        // stable subnet CIDR). The routing service diffs internally, so pushing
+        // for every device each call is idempotent and cheap. A device that ends
+        // up with no targets is passed an empty set, which removes its carve-outs.
+        for device in &all_devices {
+            let targets: Vec<String> = switchback_acc
+                .get(&device.id)
+                .map(|(_, cidrs)| cidrs.iter().cloned().collect())
+                .unwrap_or_default();
+            if let Err(e) = self
+                .routing
+                .set_switchback_targets(device.id, device.last_ip.clone(), targets)
+                .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    device_id = %device.id,
+                    "zone enforcer: failed to push switchback targets"
+                );
+            }
+        }
 
         // Skip the expensive kernel work when nothing changed (FIX 6).
         {
@@ -1009,4 +1060,37 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         tracing::debug!("zone enforcer: handle_exceptions_changed");
         self.reconcile_isolation().await
     }
+}
+
+/// The devices that are a SOURCE of a cross-zone exception endpoint: the single
+/// device for a `Device` endpoint, or every device in the zone for a `Zone`
+/// endpoint.
+fn endpoint_source_devices<'a>(
+    endpoint: &ExceptionEndpoint,
+    devices: &'a [Device],
+) -> Vec<&'a Device> {
+    match endpoint.kind {
+        ExceptionEndpointKind::Device => devices.iter().filter(|d| d.id == endpoint.id).collect(),
+        ExceptionEndpointKind::Zone => devices
+            .iter()
+            .filter(|d| d.zone_id == endpoint.id)
+            .collect(),
+    }
+}
+
+/// Record that `device` must reach `target_cidr` directly across zones, keyed by
+/// the device's id and remembering its IP. A target equal to the device's own
+/// `/32` is skipped (a device never needs a carve-out to itself).
+fn add_switchback_target(
+    acc: &mut HashMap<Uuid, (String, BTreeSet<String>)>,
+    device: &Device,
+    target_cidr: &str,
+) {
+    if target_cidr == format!("{}/32", device.last_ip) {
+        return;
+    }
+    acc.entry(device.id)
+        .or_insert_with(|| (device.last_ip.clone(), BTreeSet::new()))
+        .1
+        .insert(target_cidr.to_owned());
 }

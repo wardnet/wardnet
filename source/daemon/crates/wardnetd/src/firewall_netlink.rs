@@ -21,8 +21,8 @@ use std::net::{IpAddr, Ipv4Addr};
 use async_trait::async_trait;
 use ipnetwork::IpNetwork;
 use rustables::expr::{
-    Bitwise, Cmp, CmpOp, Immediate, Meta, MetaType, Payload, Register, Reject, RejectType,
-    VerdictKind,
+    Bitwise, Cmp, CmpOp, ConnTrackState, Conntrack, ConntrackKey, Immediate, Meta, MetaType,
+    Payload, Register, Reject, RejectType, VerdictKind,
 };
 use rustables::{
     Batch, Chain, ChainPolicy, ChainType, Hook, HookClass, MsgType, Protocol, ProtocolFamily, Rule,
@@ -72,10 +72,25 @@ const INBOUND_WG_LISTEN_COMMENT: &str = "wardnet:inbound-wg:listen";
 /// isolation rules (issue #737): cross-subnet allows/denies + member isolation.
 /// The base `forward` chain jumps to it. The enforcer owns the whole chain and
 /// rebuilds it atomically (flush + re-add) on every relevant change.
-const ZONE_ISOLATION: &str = "zone_isolation";
+pub(crate) const ZONE_ISOLATION: &str = "zone_isolation";
 
 /// Comment on the base-forward jump into the `zone_isolation` chain.
 const ZONE_ISOJUMP_COMMENT: &str = "wardnet:zone:isojump";
+
+/// Comment on the stateful cross-zone return-accept rule that sits at the TOP of
+/// the `zone_isolation` chain. Cross-zone reply streams (e.g. a Chromecast
+/// `sport=8009` return) are `ct state established,related` and would otherwise
+/// match no stateless dport allow and be dropped by the cross-subnet deny.
+pub(crate) const ZONE_ESTABLISHED_COMMENT: &str = "wardnet:zone:established";
+
+/// Comment on an `wardnet:zone:allow` cross-subnet service ACCEPT rule.
+const ZONE_ALLOW_COMMENT: &str = "wardnet:zone:allow";
+
+/// Comment on a `wardnet:zone:xdeny` cross-subnet DROP rule.
+const ZONE_XDENY_COMMENT: &str = "wardnet:zone:xdeny";
+
+/// Comment on a `wardnet:zone:memberiso` intra-subnet peer DROP rule.
+const ZONE_MEMBERISO_COMMENT: &str = "wardnet:zone:memberiso";
 
 /// Destination-port field offset within the transport header (both TCP and UDP
 /// carry `dport` at bytes 2..4), for rendering a port *range* match that the
@@ -110,7 +125,7 @@ impl NetlinkFirewallManager {
 
 /// Build the `inet wardnet` table descriptor (sets family + name; carried into
 /// every chain/rule so they address the right object).
-fn wardnet_table() -> Table {
+pub(crate) fn wardnet_table() -> Table {
     Table::new(ProtocolFamily::Inet).with_name(TABLE_NAME)
 }
 
@@ -125,7 +140,7 @@ fn base_chain(table: &Table, name: &str, hook: HookClass, priority: i32, ty: Cha
 
 /// A lightweight chain descriptor used to address an existing chain when
 /// adding or listing rules (name + family only; no hook needed).
-fn chain_ref(table: &Table, name: &str) -> Chain {
+pub(crate) fn chain_ref(table: &Table, name: &str) -> Chain {
     Chain::new(table).with_name(name)
 }
 
@@ -321,9 +336,105 @@ fn add_allow_rule(chain: &Chain, allow: &ExceptionAllow, batch: &mut Batch) -> a
     }
 
     rule.accept()
-        .with_userdata(comment_udata("wardnet:zone:allow"))
+        .with_userdata(comment_udata(ZONE_ALLOW_COMMENT))
         .add_to_batch(batch);
     Ok(())
+}
+
+/// Append the stateful cross-zone return-accept rule to `batch`. Renders as
+/// `ct state established,related accept`:
+///
+/// ```text
+/// [ ct load state => reg 1 ]
+/// [ bitwise reg 1 = ( reg 1 & 0x00000006 ) ^ 0x00000000 ]
+/// [ cmp neq reg 1 0x00000000 ]
+/// ```
+///
+/// It MUST be added first (top of the `zone_isolation` chain) so a cross-zone
+/// reply stream is accepted before the stateless dport allows and the
+/// cross-subnet deny below it. The mask `0x06` is `ESTABLISHED | RELATED`; the
+/// register holds the ct state in native (little-endian) byte order, matching
+/// the daemon's x86/ARM targets.
+fn add_established_rule(chain: &Chain, batch: &mut Batch) -> anyhow::Result<()> {
+    let mask = (ConnTrackState::ESTABLISHED | ConnTrackState::RELATED).bits();
+    Rule::new(chain)?
+        .with_expr(Conntrack::new(ConntrackKey::State))
+        .with_expr(Bitwise::new(mask.to_le_bytes(), 0u32.to_le_bytes())?)
+        .with_expr(Cmp::new(CmpOp::Neq, 0u32.to_le_bytes()))
+        .accept()
+        .with_userdata(comment_udata(ZONE_ESTABLISHED_COMMENT))
+        .add_to_batch(batch);
+    Ok(())
+}
+
+/// Populate `batch` with the full desired `zone_isolation` chain in order and
+/// return the ordered comment tags of the rules added. The order is:
+///
+/// 1. the stateful return-accept (`wardnet:zone:established`) — first;
+/// 2. the cross-subnet service allows (`wardnet:zone:allow`);
+/// 3. the cross-subnet denies (`wardnet:zone:xdeny`);
+/// 4. the member-isolation intra-subnet peer denies (`wardnet:zone:memberiso`).
+///
+/// Pure aside from `batch` mutation (no socket I/O until [`Batch::send`]), so it
+/// is unit-testable for both content and ordering.
+pub(crate) fn build_zone_isolation_batch(
+    iso: &Chain,
+    rules: &ZoneIsolationRules,
+    batch: &mut Batch,
+) -> anyhow::Result<Vec<&'static str>> {
+    let mut order: Vec<&'static str> = Vec::new();
+
+    // 1. Stateful return-accept first: cross-zone reply streams
+    //    (established,related) bypass the stateless dport allows and the
+    //    cross-subnet deny below.
+    add_established_rule(iso, batch)?;
+    order.push(ZONE_ESTABLISHED_COMMENT);
+
+    // 2. Allows (ACCEPT) so a curated cross-subnet service beats the
+    //    cross-subnet deny that follows.
+    for allow in &rules.allows {
+        add_allow_rule(iso, allow, batch)?;
+        order.push(ZONE_ALLOW_COMMENT);
+        if allow.bidirectional {
+            // The swapped direction on the same ports carries the
+            // return/handshake traffic.
+            let reverse = ExceptionAllow {
+                from_cidr: allow.to_cidr.clone(),
+                to_cidr: allow.from_cidr.clone(),
+                ..allow.clone()
+            };
+            add_allow_rule(iso, &reverse, batch)?;
+            order.push(ZONE_ALLOW_COMMENT);
+        }
+    }
+
+    // 3. Cross-subnet denies (DROP).
+    for (src, dst) in &rules.deny_pairs {
+        let src_net = parse_cidr(src)?;
+        let dst_net = parse_cidr(dst)?;
+        Rule::new(iso)?
+            .snetwork(src_net)?
+            .dnetwork(dst_net)?
+            .drop()
+            .with_userdata(comment_udata(ZONE_XDENY_COMMENT))
+            .add_to_batch(batch);
+        order.push(ZONE_XDENY_COMMENT);
+    }
+
+    // 4. Member-isolation intra-subnet peer denies (DROP). Peer↔peer only:
+    //    device→gateway is INPUT, not forward, so the gateway stays reachable.
+    for net in &rules.member_isolation_subnets {
+        let n = parse_cidr(net)?;
+        Rule::new(iso)?
+            .snetwork(n)?
+            .dnetwork(n)?
+            .drop()
+            .with_userdata(comment_udata(ZONE_MEMBERISO_COMMENT))
+            .add_to_batch(batch);
+        order.push(ZONE_MEMBERISO_COMMENT);
+    }
+
+    Ok(order)
 }
 
 #[async_trait]
@@ -809,46 +920,9 @@ impl FirewallManager for NetlinkFirewallManager {
                 }
             }
 
-            // 2. Allows first (ACCEPT) so a curated cross-subnet service beats
-            //    the cross-subnet deny that follows.
-            for allow in &rules.allows {
-                add_allow_rule(&iso, allow, &mut batch)?;
-                if allow.bidirectional {
-                    // The swapped direction on the same ports carries the
-                    // return/handshake traffic.
-                    let reverse = ExceptionAllow {
-                        from_cidr: allow.to_cidr.clone(),
-                        to_cidr: allow.from_cidr.clone(),
-                        ..allow.clone()
-                    };
-                    add_allow_rule(&iso, &reverse, &mut batch)?;
-                }
-            }
-
-            // 3. Cross-subnet denies (DROP).
-            for (src, dst) in &rules.deny_pairs {
-                let src_net = parse_cidr(src)?;
-                let dst_net = parse_cidr(dst)?;
-                Rule::new(&iso)?
-                    .snetwork(src_net)?
-                    .dnetwork(dst_net)?
-                    .drop()
-                    .with_userdata(comment_udata("wardnet:zone:xdeny"))
-                    .add_to_batch(&mut batch);
-            }
-
-            // 4. Member-isolation intra-subnet peer denies (DROP). Peer↔peer
-            //    only: device→gateway is INPUT, not forward, so the gateway
-            //    stays reachable.
-            for net in &rules.member_isolation_subnets {
-                let n = parse_cidr(net)?;
-                Rule::new(&iso)?
-                    .snetwork(n)?
-                    .dnetwork(n)?
-                    .drop()
-                    .with_userdata(comment_udata("wardnet:zone:memberiso"))
-                    .add_to_batch(&mut batch);
-            }
+            // 2. Rebuild the desired chain: stateful return-accept first, then
+            //    allows, cross-subnet denies, and member-isolation denies.
+            build_zone_isolation_batch(&iso, &rules, &mut batch)?;
 
             batch
                 .send()

@@ -185,6 +185,15 @@ impl RoutingService for MockRoutingService {
         Ok(())
     }
 
+    async fn set_switchback_targets(
+        &self,
+        _device_id: Uuid,
+        _device_ip: String,
+        _target_cidrs: Vec<String>,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+
     async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
         Ok(())
     }
@@ -288,6 +297,15 @@ impl RoutingService for FailingRoutingService {
         Err(AppError::Internal(anyhow::anyhow!(
             "apply_rule_for_discovered_device failed"
         )))
+    }
+
+    async fn set_switchback_targets(
+        &self,
+        _device_id: Uuid,
+        _device_ip: String,
+        _target_cidrs: Vec<String>,
+    ) -> Result<(), AppError> {
+        Ok(())
     }
 
     async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
