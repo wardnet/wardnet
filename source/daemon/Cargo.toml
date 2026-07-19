@@ -184,6 +184,14 @@ tokio-stream = { version = "0.1", features = ["sync"] }
 # https://crates.io/crates/cron
 cron = "0.16"
 
+# https://crates.io/crates/criterion — benchmark harness (dev-only). We disable
+# default features (plotters/gnuplot/rayon) and keep only cargo_bench_support:
+# criterion still writes target/criterion/**/estimates.json, which the `cubit`
+# tool ingests, without pulling the plotting stack into the dev build.
+criterion = { version = "0.8", default-features = false, features = [
+    "cargo_bench_support",
+] }
+
 # https://crates.io/crates/hickory-proto
 hickory-proto = { version = "0.26", features = ["dnssec-ring"] }
 # https://crates.io/crates/hickory-resolver

@@ -9,11 +9,12 @@ name: Cubit
 # out of pr.yml's `all-checks-passed` aggregator so it can't gate a merge. The
 # PR comment and trend dashboard inform a human go/no-go.
 #
-# NOTE: this leaf does not run any benchmarks yet — it is wired ahead of the
-# benchmarks so the workflow already exists on `main` when the benchmarks PR
-# opens (and thus reliably runs on it). Until then, cubit finds no criterion
-# output and posts a short "no benchmark data" note; the benchmarks PR adds the
-# `cargo bench` step that produces real data.
+# Runs the daemon micro-benchmarks (criterion) and hands their output to cubit.
+# The bench step is `continue-on-error` so a bench that fails to build stays
+# visible in the UI without failing the job — cubit then posts its "no data"
+# fallback. Short criterion windows keep CI fast; the numbers are noisy on shared
+# runners by design (the trend dashboard's variance band is how a human reads
+# them).
 
 on:
   workflow_call:
@@ -27,7 +28,7 @@ jobs:
   cubit:
     name: cubit
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     permissions:
       contents: write # push the cubit-state baseline branch (record, on main)
       pull-requests: write # post/update the sticky performance comment (compare, on PRs)
@@ -38,6 +39,16 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: ./.github/actions/setup-rust
+
+      - name: Run daemon micro-benchmarks
+        # continue-on-error: a bench that fails to compile shows as failed in the
+        # UI but does not fail this advisory job — cubit falls back to a "no data"
+        # comment. Short criterion windows keep the leaf fast.
+        continue-on-error: true
+        working-directory: source/daemon
+        run: cargo bench -p wardnetd-services --bench dns_components -- --warm-up-time 1 --measurement-time 2
 
       # Moving major tag: cubit advances `v0` on each 0.x release, so fixes flow
       # here without a wardnet bump (same pattern as bulwark's @v1). Pin to an
