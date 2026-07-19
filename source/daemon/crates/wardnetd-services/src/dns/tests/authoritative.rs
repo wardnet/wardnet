@@ -259,3 +259,139 @@ fn build_soa_record_shape() {
         "authority record must carry SOA rdata"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Wildcard records (issue #912) — `*.suffix` matches names below the suffix,
+// exact records shadow, the apex never matches its own wildcard.
+// ---------------------------------------------------------------------------
+
+const WILDCARD: &str = "*.casa.my.wardnet.services";
+
+fn wildcard_view() -> AuthoritativeView {
+    AuthoritativeView::build(
+        &[],
+        vec![record(
+            WILDCARD,
+            DnsRecordType::A,
+            "192.168.1.1",
+            None,
+            true,
+        )],
+        vec![],
+    )
+}
+
+#[test]
+fn wildcard_matches_one_label_below_the_suffix() {
+    let view = wildcard_view();
+    let recs = view
+        .lookup(
+            "mgrmzsc2ytemzsg4.casa.my.wardnet.services",
+            DnsRecordType::A,
+        )
+        .expect("token hostname must match the wildcard");
+    assert_eq!(recs.len(), 1);
+    assert_eq!(recs[0].value, "192.168.1.1");
+}
+
+#[test]
+fn wildcard_matches_deeper_names_too() {
+    let view = wildcard_view();
+    assert!(
+        view.lookup_all("a.b.casa.my.wardnet.services").is_some(),
+        "left-most wildcard covers multi-label prefixes"
+    );
+}
+
+#[test]
+fn wildcard_never_matches_the_bare_suffix() {
+    let view = wildcard_view();
+    assert!(
+        view.lookup("casa.my.wardnet.services", DnsRecordType::A)
+            .is_none(),
+        "the apex resolves through its own records, not the wildcard"
+    );
+}
+
+#[test]
+fn wildcard_requires_a_label_boundary() {
+    let view = wildcard_view();
+    assert!(
+        view.lookup("evilcasa.my.wardnet.services", DnsRecordType::A)
+            .is_none(),
+        "a name merely ending in the suffix string must not match"
+    );
+}
+
+#[test]
+fn wildcard_yields_nodata_for_other_types() {
+    let view = wildcard_view();
+    let recs = view
+        .lookup("token.casa.my.wardnet.services", DnsRecordType::Aaaa)
+        .expect("the name exists under the wildcard");
+    assert!(recs.is_empty(), "no AAAA record -> NODATA, not NXDOMAIN");
+}
+
+#[test]
+fn explicit_record_shadows_the_wildcard() {
+    let view = AuthoritativeView::build(
+        &[],
+        vec![
+            record(WILDCARD, DnsRecordType::A, "192.168.1.1", None, true),
+            record(
+                "pinned.casa.my.wardnet.services",
+                DnsRecordType::A,
+                "10.0.0.9",
+                None,
+                true,
+            ),
+        ],
+        vec![],
+    );
+    let recs = view
+        .lookup("pinned.casa.my.wardnet.services", DnsRecordType::A)
+        .expect("explicit record resolves");
+    assert_eq!(recs.len(), 1);
+    assert_eq!(recs[0].value, "10.0.0.9", "exact match beats the wildcard");
+}
+
+#[test]
+fn longest_wildcard_suffix_wins() {
+    let view = AuthoritativeView::build(
+        &[],
+        vec![
+            record("*.example.com", DnsRecordType::A, "1.1.1.1", None, true),
+            record(
+                "*.deep.example.com",
+                DnsRecordType::A,
+                "2.2.2.2",
+                None,
+                true,
+            ),
+        ],
+        vec![],
+    );
+    let recs = view
+        .lookup("host.deep.example.com", DnsRecordType::A)
+        .expect("wildcard match");
+    assert_eq!(recs[0].value, "2.2.2.2", "most specific wildcard wins");
+}
+
+#[test]
+fn disabled_wildcard_is_ignored() {
+    let view = AuthoritativeView::build(
+        &[],
+        vec![record(
+            WILDCARD,
+            DnsRecordType::A,
+            "192.168.1.1",
+            None,
+            false,
+        )],
+        vec![],
+    );
+    assert!(
+        view.lookup("token.casa.my.wardnet.services", DnsRecordType::A)
+            .is_none()
+    );
+}

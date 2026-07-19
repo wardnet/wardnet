@@ -823,6 +823,7 @@ fn generate_dns_query_log(
                 upstream,
                 latency_ms,
                 device_id: device_id.clone(),
+                protocol: "udp".to_owned(),
             });
         }
     }

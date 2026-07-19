@@ -38,6 +38,7 @@ struct DbQueryLogRow {
     upstream: Option<String>,
     latency_ms: f64,
     device_id: Option<String>,
+    protocol: String,
 }
 
 impl DbQueryLogRow {
@@ -51,6 +52,7 @@ impl DbQueryLogRow {
             upstream: self.upstream,
             latency_ms: self.latency_ms,
             device_id: self.device_id,
+            protocol: self.protocol,
         }
     }
 }
@@ -62,8 +64,9 @@ impl DnsRepository for SqliteDnsRepository {
         for entry in entries {
             sqlx::query(
                 "INSERT INTO dns_query_log \
-                 (timestamp, client_ip, domain, query_type, result, upstream, latency_ms, device_id) \
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                 (timestamp, client_ip, domain, query_type, result, upstream, latency_ms, \
+                 device_id, protocol) \
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&entry.timestamp)
             .bind(&entry.client_ip)
@@ -73,6 +76,7 @@ impl DnsRepository for SqliteDnsRepository {
             .bind(&entry.upstream)
             .bind(entry.latency_ms)
             .bind(&entry.device_id)
+            .bind(&entry.protocol)
             .execute(&mut *tx)
             .await?;
         }
@@ -88,7 +92,8 @@ impl DnsRepository for SqliteDnsRepository {
     ) -> anyhow::Result<Vec<QueryLogRow>> {
         let (where_clause, binds) = build_where(filter);
         let sql = format!(
-            "SELECT timestamp, client_ip, domain, query_type, result, upstream, latency_ms, device_id \
+            "SELECT timestamp, client_ip, domain, query_type, result, upstream, latency_ms, \
+             device_id, protocol \
              FROM dns_query_log {where_clause} \
              ORDER BY id DESC LIMIT ? OFFSET ?"
         );

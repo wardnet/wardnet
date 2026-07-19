@@ -171,6 +171,7 @@ async fn handle_event(event: WardnetEvent, enforcer: &dyn ZoneEnforcementService
         | WardnetEvent::DnsFilterChanged { .. }
         | WardnetEvent::DnsFilterRebuilt { .. }
         | WardnetEvent::DnsLocalChanged { .. }
+        | WardnetEvent::PrivateDnsChanged { .. }
         | WardnetEvent::UpdateAvailable { .. }
         | WardnetEvent::UpdateProgress { .. }
         | WardnetEvent::UpdateCompleted { .. }

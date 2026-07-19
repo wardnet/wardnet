@@ -105,6 +105,36 @@ impl std::fmt::Debug for ClientIdentity {
     }
 }
 
+/// Which transport delivered a query. Stamped on every log row (the
+/// `protocol` column, issue #912) so `DoT`-served queries stay attributable
+/// after the fact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportProtocol {
+    /// Classic cleartext UDP on `:53`.
+    Udp,
+    /// DNS-over-TLS on `:853` (RFC 7858).
+    Dot,
+}
+
+impl TransportProtocol {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Udp => "udp",
+            Self::Dot => "dot",
+        }
+    }
+}
+
+/// Write-time attribution stamped on every log row for one query: the
+/// resolved device (if any) plus the transport it arrived over. `Copy`, so
+/// the forwarding helpers can pass it along without threading two
+/// parameters.
+#[derive(Clone, Copy)]
+pub(crate) struct QueryAttribution {
+    pub(crate) device_id: Option<Uuid>,
+    pub(crate) protocol: TransportProtocol,
+}
+
 /// Cached metadata required to forward a query to a specific tunnel's
 /// DNS server with `SO_BINDTODEVICE` set so the upstream packet egresses
 /// via the tunnel interface (see issue #342 — without this, the packet
@@ -220,10 +250,12 @@ impl QueryPipeline {
     /// always arriving.
     ///
     /// `src` is the transport-level peer address — it keys the rate
-    /// limiter, the per-client upstream selection, and the filter-policy
-    /// lookup, and is stamped on log rows. `client` carries the
-    /// attribution identity (see [`ClientIdentity`]); the UDP listener
-    /// passes `Ip(src.ip())`.
+    /// limiter and the per-client upstream selection, and is stamped on
+    /// log rows. `client` carries the attribution identity (see
+    /// [`ClientIdentity`]); the UDP listener passes `Ip(src.ip())`, and a
+    /// device-authenticated client's filter policy resolves through its
+    /// device context rather than the per-IP map. `protocol` names the
+    /// transport for the log row's `protocol` column.
     #[allow(clippy::too_many_lines)]
     pub async fn handle(
         &self,
@@ -231,6 +263,7 @@ impl QueryPipeline {
         src: SocketAddr,
         reply: &Arc<dyn DnsSocket>,
         client: ClientIdentity,
+        protocol: TransportProtocol,
     ) -> anyhow::Result<()> {
         use hickory_proto::rr::{Name, Record};
 
@@ -255,6 +288,10 @@ impl QueryPipeline {
             ClientIdentity::Ip(ip) => self.device_snapshot.load().get(ip).copied(),
             ClientIdentity::Device { device_id, .. } => Some(*device_id),
         };
+        let attribution = QueryAttribution {
+            device_id,
+            protocol,
+        };
         let log_sink = self.log_sink.as_deref();
 
         // 1. Rate limit (per-client token bucket). 0 disables; shed flooding
@@ -267,7 +304,7 @@ impl QueryPipeline {
                 &domain,
                 rtype,
                 src,
-                device_id,
+                attribution,
                 DnsQueryResult::RateLimited.as_str(),
                 None,
                 start.elapsed(),
@@ -403,7 +440,7 @@ impl QueryPipeline {
                 &domain,
                 rtype,
                 src,
-                device_id,
+                attribution,
                 DnsQueryResult::Authoritative.as_str(),
                 None,
                 start.elapsed(),
@@ -481,7 +518,7 @@ impl QueryPipeline {
                 &domain,
                 rtype,
                 src,
-                device_id,
+                attribution,
                 result,
                 None,
                 start.elapsed(),
@@ -506,7 +543,7 @@ impl QueryPipeline {
                 &domain,
                 rtype,
                 src,
-                device_id,
+                attribution,
                 DnsQueryResult::CacheHit.as_str(),
                 None,
                 start.elapsed(),
@@ -514,8 +551,18 @@ impl QueryPipeline {
             return Ok(());
         }
 
-        // 2. Filter.
-        let outcome = self.dns_filter.check(&domain_lower, rtype, src.ip()).await;
+        // 2. Filter. An IP-attributed client resolves its policy through the
+        //    per-IP map; a device-authenticated client (DoT SNI token) gets
+        //    its own device-keyed context, so its profiles apply even when
+        //    `src` is an address the per-IP map doesn't cover.
+        let outcome = match &client {
+            ClientIdentity::Ip(_) => self.dns_filter.check(&domain_lower, rtype, src.ip()).await,
+            ClientIdentity::Device { device_id, .. } => {
+                self.dns_filter
+                    .check_for_device(&domain_lower, rtype, *device_id, src.ip())
+                    .await
+            }
+        };
 
         match outcome.action {
             FilterAction::Block => {
@@ -532,7 +579,7 @@ impl QueryPipeline {
                     &domain,
                     rtype,
                     src,
-                    device_id,
+                    attribution,
                     DnsQueryResult::Blocked.as_str(),
                     None,
                     start.elapsed(),
@@ -569,7 +616,7 @@ impl QueryPipeline {
                     &domain,
                     rtype,
                     src,
-                    device_id,
+                    attribution,
                     DnsQueryResult::Rewritten.as_str(),
                     None,
                     start.elapsed(),
@@ -597,7 +644,7 @@ impl QueryPipeline {
                 &request,
                 id,
                 src,
-                device_id,
+                attribution,
                 &domain,
                 rtype,
                 start,
@@ -619,7 +666,7 @@ impl QueryPipeline {
                     &domain,
                     rtype,
                     src,
-                    device_id,
+                    attribution,
                     DnsQueryResult::UpstreamError.as_str(),
                     Some(cond_upstream.ip().to_string()),
                     start.elapsed(),
@@ -643,7 +690,7 @@ impl QueryPipeline {
                         request,
                         id,
                         src,
-                        device_id,
+                        attribution,
                         &domain,
                         rtype,
                         start,
@@ -661,7 +708,7 @@ impl QueryPipeline {
                         request,
                         id,
                         src,
-                        device_id,
+                        attribution,
                         &domain,
                         rtype,
                         start,
@@ -690,7 +737,7 @@ impl QueryPipeline {
                             &request,
                             id,
                             src,
-                            device_id,
+                            attribution,
                             &domain,
                             rtype,
                             start,
@@ -711,7 +758,7 @@ impl QueryPipeline {
                                 &domain,
                                 rtype,
                                 src,
-                                device_id,
+                                attribution,
                                 DnsQueryResult::UpstreamError.as_str(),
                                 Some(forwarder.upstream.ip().to_string()),
                                 start.elapsed(),
@@ -730,7 +777,7 @@ impl QueryPipeline {
                             &domain,
                             rtype,
                             src,
-                            device_id,
+                            attribution,
                             DnsQueryResult::UpstreamError.as_str(),
                             None,
                             start.elapsed(),
@@ -754,7 +801,7 @@ async fn forward_via_default_resolver(
     request: Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -776,7 +823,7 @@ async fn forward_via_default_resolver(
                 &request,
                 id,
                 src,
-                device_id,
+                attribution,
                 domain,
                 rtype,
                 start,
@@ -802,7 +849,7 @@ async fn forward_via_default_resolver(
                 &request,
                 id,
                 src,
-                device_id,
+                attribution,
                 domain,
                 rtype,
                 start,
@@ -825,7 +872,7 @@ async fn forward_via_default_resolver(
                 domain,
                 rtype,
                 src,
-                device_id,
+                attribution,
                 DnsQueryResult::UpstreamError.as_str(),
                 upstream,
                 elapsed,
@@ -847,7 +894,7 @@ async fn send_resolved(
     request: &Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -880,7 +927,7 @@ async fn send_resolved(
             domain,
             rtype,
             src,
-            device_id,
+            attribution,
             DnsQueryResult::RebindingBlocked.as_str(),
             upstream_label,
             start.elapsed(),
@@ -923,7 +970,7 @@ async fn send_resolved(
         domain,
         rtype,
         src,
-        device_id,
+        attribution,
         pass_result,
         upstream_label,
         elapsed,
@@ -947,7 +994,7 @@ pub(crate) async fn resolve_via_recursor(
     request: Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -982,7 +1029,7 @@ pub(crate) async fn resolve_via_recursor(
         request,
         id,
         src,
-        device_id,
+        attribution,
         domain,
         rtype,
         start,
@@ -1007,7 +1054,7 @@ pub(crate) async fn handle_recursor_outcome(
     request: Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1033,7 +1080,7 @@ pub(crate) async fn handle_recursor_outcome(
                 &request,
                 id,
                 src,
-                device_id,
+                attribution,
                 domain,
                 rtype,
                 start,
@@ -1060,7 +1107,7 @@ pub(crate) async fn handle_recursor_outcome(
                 &request,
                 id,
                 src,
-                device_id,
+                attribution,
                 domain,
                 rtype,
                 start,
@@ -1090,7 +1137,7 @@ pub(crate) async fn handle_recursor_outcome(
                     request,
                     id,
                     src,
-                    device_id,
+                    attribution,
                     domain,
                     rtype,
                     start,
@@ -1105,7 +1152,7 @@ pub(crate) async fn handle_recursor_outcome(
                     domain,
                     rtype,
                     src,
-                    device_id,
+                    attribution,
                     DnsQueryResult::RecursorFailed.as_str(),
                     None,
                     start.elapsed(),
@@ -1127,7 +1174,7 @@ async fn forward_via_tunnel(
     _request: &Message,
     _id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1199,7 +1246,7 @@ async fn forward_via_tunnel(
         domain,
         rtype,
         src,
-        device_id,
+        attribution,
         result,
         Some(forwarder.upstream.ip().to_string()),
         elapsed,
@@ -1287,7 +1334,7 @@ async fn relay_negative(
     request: &Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1348,7 +1395,7 @@ async fn relay_negative(
         domain,
         rtype,
         src,
-        device_id,
+        attribution,
         result,
         upstream_label,
         start.elapsed(),
@@ -1461,7 +1508,7 @@ pub(crate) fn record_query(
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     result: &str,
     upstream: Option<String>,
     latency: std::time::Duration,
@@ -1476,7 +1523,8 @@ pub(crate) fn record_query(
         result: result.to_owned(),
         upstream,
         latency_ms: duration_to_ms(latency),
-        device_id: device_id.map(|id| id.to_string()),
+        device_id: attribution.device_id.map(|id| id.to_string()),
+        protocol: attribution.protocol.as_str().to_owned(),
     };
     sink.record(row);
 }
@@ -1591,7 +1639,7 @@ async fn forward_via_conditional(
     request: &Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1684,7 +1732,7 @@ async fn forward_via_conditional(
         domain,
         rtype,
         src,
-        device_id,
+        attribution,
         result,
         Some(upstream.ip().to_string()),
         elapsed,

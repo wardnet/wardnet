@@ -31,7 +31,9 @@ use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::EventPublisher;
 
-use crate::dns::pipeline::{ClientIdentity, QueryPipeline, TokioRecursor, TokioResolver};
+use crate::dns::pipeline::{
+    ClientIdentity, QueryPipeline, TokioRecursor, TokioResolver, TransportProtocol,
+};
 use crate::dns::rate_limit::RateLimiter;
 
 // The per-query hot path — `QueryPipeline::handle` and its helpers — lives
@@ -249,6 +251,15 @@ impl UdpDnsServer {
         self
     }
 
+    /// The shared resolve core, for a second transport (the `DoT` `:853`
+    /// listener) to serve queries through. Must be taken **after**
+    /// [`Self::with_log_sink`] — the builder mutates the pipeline through
+    /// `Arc::get_mut` and panics once a clone exists.
+    #[must_use]
+    pub fn pipeline(&self) -> Arc<QueryPipeline> {
+        Arc::clone(&self.pipeline)
+    }
+
     /// Return the local address the server is bound to, if `start()` has
     /// run. Tests use this to discover the ephemeral port the kernel
     /// picked for a `127.0.0.1:0` bind so they can fire UDP traffic at
@@ -454,7 +465,13 @@ async fn server_loop(
                         // the tracker before returning.
                         tracker.spawn(async move {
                             if let Err(e) = pipeline
-                                .handle(&packet, src, &socket, ClientIdentity::Ip(src.ip()))
+                                .handle(
+                                    &packet,
+                                    src,
+                                    &socket,
+                                    ClientIdentity::Ip(src.ip()),
+                                    TransportProtocol::Udp,
+                                )
                                 .await
                             {
                                 tracing::debug!(error = %e, %src, "failed to handle DNS query from {src}: {e}");

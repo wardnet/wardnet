@@ -25,6 +25,8 @@ wardnetd{version=0.1.1-dev.5+gabc1234}       # root span in main.rs
   ├── stats_flush_runner{}                     # background task (10s buffer flush + 1h rollup/trim)
   ├── ddns_update_runner{}                      # background task (keeps the public A record current)
   ├── tls_renewal_runner{}                      # background task (ACME issuance/renewal of the :443 cert)
+  ├── dot_runner{}                              # background task (starts/stops the :853 DoT listener)
+  │     └── dot_server{}                        # DoT accept loop (while Private DNS enabled + cert live)
   ├── health{}                                 # background task (HealthMonitor refresh loop — issue #214)
   ├── watchdog{layer=soft}                     # background task (health-gated sd_notify WATCHDOG=1)
   ├── watchdog{layer=hard}                     # background task (ungated /dev/watchdog pet)

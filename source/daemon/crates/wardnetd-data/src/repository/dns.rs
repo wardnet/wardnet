@@ -46,6 +46,9 @@ pub struct QueryLogRow {
     pub upstream: Option<String>,
     pub latency_ms: f64,
     pub device_id: Option<String>,
+    /// Transport the query arrived over: `"udp"` (classic `:53`) or `"dot"`
+    /// (the `:853` DNS-over-TLS listener, issue #912).
+    pub protocol: String,
 }
 
 /// Filters for query log pagination.

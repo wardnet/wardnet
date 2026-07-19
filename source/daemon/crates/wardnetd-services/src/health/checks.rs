@@ -31,6 +31,8 @@ use crate::dhcp::DhcpService;
 use crate::dhcp::server::DhcpServer;
 use crate::dns::DnsService;
 use crate::dns::server::DnsServer;
+use crate::private_dns::{DotServer, PrivateDnsService, cert_ready};
+use crate::tls::TlsService;
 use wardnetd_data::repository::MaintenanceRepository;
 
 /// Admin context used by the desired-vs-actual probes to read config through
@@ -124,6 +126,63 @@ impl HealthCheck for DnsServerHealthCheck {
             Err(e) => {
                 tracing::warn!(error = %e, "dns health probe: config read failed: {e}");
                 CheckOutcome::down("dns status unavailable")
+            }
+        }
+    }
+}
+
+/// `DoT` (`:853`) server health probe — DOWN only when Private DNS is
+/// configured-enabled, an issued certificate is live (the runner's two
+/// preconditions), and the listener is still not running (a crash). A
+/// disabled feature — or one whose certificate hasn't been issued yet, a
+/// normal state right after enrollment — is UP, not a failure. See the
+/// module docs.
+pub struct DotServerHealthCheck {
+    service: Arc<dyn PrivateDnsService>,
+    tls: Arc<dyn TlsService>,
+    server: Arc<dyn DotServer>,
+}
+
+impl DotServerHealthCheck {
+    #[must_use]
+    pub fn new(
+        service: Arc<dyn PrivateDnsService>,
+        tls: Arc<dyn TlsService>,
+        server: Arc<dyn DotServer>,
+    ) -> Self {
+        Self {
+            service,
+            tls,
+            server,
+        }
+    }
+}
+
+#[async_trait]
+impl HealthCheck for DotServerHealthCheck {
+    fn name(&self) -> &'static str {
+        "dot"
+    }
+
+    async fn check(&self) -> CheckOutcome {
+        let enabled = match auth_context::with_context(admin_ctx(), self.service.status()).await {
+            Ok(status) => status.enabled,
+            Err(e) => {
+                tracing::warn!(error = %e, "dot health probe: status read failed: {e}");
+                return CheckOutcome::down("dot status unavailable");
+            }
+        };
+        if !enabled {
+            return CheckOutcome::Up;
+        }
+        match auth_context::with_context(admin_ctx(), self.tls.status()).await {
+            Ok(tls_status) if cert_ready(&tls_status) && !self.server.is_running() => {
+                CheckOutcome::down("private dns enabled but dot server not running")
+            }
+            Ok(_) => CheckOutcome::Up,
+            Err(e) => {
+                tracing::warn!(error = %e, "dot health probe: tls status read failed: {e}");
+                CheckOutcome::down("dot status unavailable")
             }
         }
     }

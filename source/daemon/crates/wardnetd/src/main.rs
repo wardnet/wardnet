@@ -65,11 +65,13 @@ use wardnetd_services::dns::runner::DnsRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
 use wardnetd_services::dns_filter::runner::DnsFilterRunner;
 use wardnetd_services::health::checks::{
-    DbHealthCheck, DhcpServerHealthCheck, DnsServerHealthCheck, LivenessHealthCheck,
+    DbHealthCheck, DhcpServerHealthCheck, DnsServerHealthCheck, DotServerHealthCheck,
+    LivenessHealthCheck,
 };
 use wardnetd_services::logging::{
     ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
 };
+use wardnetd_services::private_dns::runner::DotRunner;
 use wardnetd_services::push::listener::PushNotificationListener;
 use wardnetd_services::secret_store::build_secret_store;
 use wardnetd_services::system::WatchdogOps;
@@ -449,6 +451,14 @@ async fn run(
         tracing::warn!(error = %e, "inbound wireguard reconcile failed on startup: {e}");
     }
 
+    // Reconcile Private DNS (#912): persist a disable if the entitlement lapsed
+    // while the daemon was down, so the DoT runner never stands the listener up
+    // for a lapsed box. Best-effort and auth-exempt, like the inbound-WG
+    // reconcile above.
+    if let Err(e) = services.private_dns.reconcile().await {
+        tracing::warn!(error = %e, "private dns reconcile failed on startup: {e}");
+    }
+
     // Seed the convenience `wardnet.lan -> <lan_ip>` system record so LAN clients
     // can reach the Pi by a friendly name. Bare `wardnet` resolves to the same
     // record via the resolver's local search-domain hop (see `LOCAL_ZONE_SUFFIX`
@@ -561,6 +571,7 @@ async fn run(
     let entitlement_listener = EntitlementListener::start(
         &services.event_publisher,
         services.inbound_wg.clone(),
+        services.private_dns.clone(),
         &root_span,
     );
     let push_listener = PushNotificationListener::start(
@@ -651,7 +662,7 @@ async fn run(
     // Build and start DNS server, the slim DnsRunner (server lifecycle
     // only), and the new DnsFilterRunner (blocklist cron + filter rebuilds
     // driven by `WardnetEvent::DnsFilterChanged` / `DeviceIpChanged`).
-    let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> = Arc::new(
+    let udp_dns_server = Arc::new(
         wardnetd::dns::server::UdpDnsServer::new(
             wardnet_common::dns::DnsConfig::default(),
             services.dns_filter.clone(),
@@ -662,6 +673,10 @@ async fn run(
         )
         .with_log_sink(services.dns_log_sink.clone()),
     );
+    // The DoT `:853` listener (#912) serves through the same resolve core;
+    // the pipeline clone must come after `with_log_sink` (see `pipeline()`).
+    let dns_pipeline = udp_dns_server.pipeline();
+    let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> = udp_dns_server;
     let dns_runner = DnsRunner::start(
         services.dns.clone(),
         dns_server.clone(),
@@ -831,10 +846,30 @@ async fn run(
         &root_span,
     );
 
-    // Health monitor (issue #214): register the four startup probes — DB
+    // DoT `:853` listener (#912): serves granted devices' encrypted DNS through
+    // the shared pipeline, deriving its TLS config from the live `:443` cert
+    // (`rustls_config` clone shares the hot-reload cell). The runner starts it
+    // only while Private DNS is enabled and an issued cert is live.
+    let dot_server: Arc<dyn wardnetd_services::private_dns::DotServer> =
+        Arc::new(wardnetd::dns::dot::DotDnsServer::new(
+            dns_pipeline,
+            rustls_config.clone(),
+            serving_control.clone(),
+            services.private_dns.clone(),
+        ));
+    let dot_runner = DotRunner::start(
+        services.private_dns.clone(),
+        services.tls.clone(),
+        dot_server.clone(),
+        services.event_publisher.as_ref(),
+        &root_span,
+    );
+
+    // Health monitor (issue #214): register the startup probes — DB
     // connectivity, liveness (a fresh snapshot containing it proves the
-    // refresh loop schedules), and the two always-on core LAN services (DNS,
-    // DHCP). Refresh once synchronously so the first published snapshot
+    // refresh loop schedules), the two always-on core LAN services (DNS,
+    // DHCP), and the DoT listener (#912, desired-vs-actual like the other
+    // two). Refresh once synchronously so the first published snapshot
     // reflects real checks before READY=1 is sent and the soft watchdog reads
     // it.
     let mut health_monitor = HealthMonitor::new(
@@ -850,6 +885,11 @@ async fn run(
     health_monitor.register(Arc::new(DhcpServerHealthCheck::new(
         services.dhcp.clone(),
         dhcp_server.clone(),
+    )));
+    health_monitor.register(Arc::new(DotServerHealthCheck::new(
+        services.private_dns.clone(),
+        services.tls.clone(),
+        dot_server.clone(),
     )));
     let health_monitor = Arc::new(health_monitor);
     health_monitor.refresh().await;
@@ -1102,6 +1142,8 @@ async fn run(
     stats_flush_runner.shutdown().await;
     ddns_update_runner.shutdown().await;
     tunneler_runner.shutdown().await;
+    // The DoT runner stops the :853 listener itself on cancellation.
+    dot_runner.shutdown().await;
     tls_renewal_runner.shutdown().await;
     heartbeat_runner.shutdown().await;
     if let Some(advertiser) = mdns_advertiser {

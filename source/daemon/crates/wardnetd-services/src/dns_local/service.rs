@@ -109,7 +109,12 @@ impl DnsLocalServiceImpl {
     }
 
     /// FQDN-style validation for record / forwarding domains (requires a dot).
-    /// Mirrors `DnsFilterServiceImpl::validate_domain`.
+    /// Mirrors `DnsFilterServiceImpl::validate_domain`, plus one extension:
+    /// a record domain may carry a single leading `*.` label (a left-most
+    /// wildcard, e.g. `*.abc.my.wardnet.services`) — the authoritative view
+    /// answers any name one-or-more labels below the suffix. Used by the
+    /// Private-DNS split-horizon record (issue #912); `*` anywhere else is
+    /// still rejected by the charset check.
     fn validate_domain(domain: &str) -> Result<(), AppError> {
         if domain.is_empty() {
             return Err(AppError::BadRequest("domain must not be empty".to_owned()));
@@ -119,12 +124,13 @@ impl DnsLocalServiceImpl {
                 "domain must be <= 253 characters".to_owned(),
             ));
         }
-        if !domain.contains('.') {
+        let rest = domain.strip_prefix("*.").unwrap_or(domain);
+        if !rest.contains('.') {
             return Err(AppError::BadRequest(
                 "domain must contain at least one '.'".to_owned(),
             ));
         }
-        Self::validate_charset(domain)
+        Self::validate_charset(rest)
     }
 
     /// Zone names are single labels (e.g. `lan`, `home`) so, unlike record

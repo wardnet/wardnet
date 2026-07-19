@@ -148,6 +148,7 @@ fn sample_row() -> QueryLogRow {
         upstream: None,
         latency_ms: 1.0,
         device_id: None,
+        protocol: "udp".to_owned(),
     }
 }
 
