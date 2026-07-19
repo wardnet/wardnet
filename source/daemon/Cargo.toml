@@ -120,12 +120,14 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std"] }
 # free function + base-point constant, so no `static_secrets` feature is needed;
 # clamping is applied to match `wg genkey`.
 x25519-dalek = { version = "3", default-features = false }
-# https://crates.io/crates/web-push-native — HTTP-agnostic Web Push: VAPID JWT
-# (ES256) + RFC8291/RFC8188 payload encryption via RustCrypto, no OpenSSL/isahc.
-# Returns request headers + encrypted body; we POST with the workspace `reqwest`.
-# Re-exports `jwt_simple` (VAPID ES256 keygen/sign) and `p256` (subscription key
-# parsing), so no separate p256/jwt dependency is needed.
-web-push-native = "0.4"
+# https://crates.io/crates/web-push-native — HTTP-agnostic Web Push: RFC 8291 /
+# RFC 8188 payload encryption via RustCrypto, no OpenSSL/isahc. Returns request
+# headers + encrypted body; we POST with the workspace `reqwest`. The default
+# `vapid` feature stays OFF: it drags in jwt-simple → superboring → `rsa`
+# (RUSTSEC-2023-0071, Marvin timing sidechannel) just to mint a two-claim ES256
+# token, so push/sender.rs signs the VAPID JWT directly with the re-exported
+# `p256` instead.
+web-push-native = { version = "0.4", default-features = false }
 # https://crates.io/crates/http — name the `http::Request` web-push-native emits
 # so we can marshal it onto the reqwest client. Same version reqwest 0.12 uses.
 http = "1"
