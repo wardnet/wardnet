@@ -10,7 +10,7 @@ interface AuthState {
     password: string,
     rememberMe?: boolean,
   ) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -30,8 +30,17 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isAdmin: true });
   },
 
-  logout: () => {
-    set({ isAdmin: false });
+  logout: async () => {
+    try {
+      // Revoke the session server-side and clear the HttpOnly cookie — the
+      // cookie is unreachable from JS, so only the daemon can drop it.
+      await authService.logout();
+    } catch {
+      // Even if revocation fails (daemon restarting, flaky network), the UI
+      // must still sign out locally — never trap the user in a logged-in UI.
+    } finally {
+      set({ isAdmin: false });
+    }
   },
 
   checkAuth: async () => {

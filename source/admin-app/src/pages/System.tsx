@@ -221,7 +221,10 @@ export default function System() {
       return () => clearTimeout(t);
     }
     if (phase === "ready_signed_out") {
-      logout();
+      // The reboot already invalidated the session server-side; logout() is
+      // fire-and-forget here — it clears local auth state regardless of
+      // whether the (already-dead) session revoke round-trip succeeds.
+      void logout();
       biometric.unregister();
       active.reset();
       navigate("/login");
@@ -568,9 +571,14 @@ export default function System() {
           <button
             data-testid="system-logout"
             onClick={() => {
-              logout();
-              biometric.unregister();
-              navigate("/login", { replace: true });
+              // Revoke the server session first; only once that settles is
+              // the biometric credential (the last local gate) dropped and
+              // the user routed away. logout() clears local auth state even
+              // when the revoke call fails, so this never strands the UI.
+              void logout().then(() => {
+                biometric.unregister();
+                navigate("/login", { replace: true });
+              });
             }}
             className="flex w-full items-center gap-3 rounded-xl border border-line bg-card px-4 py-3.5 text-left active:bg-sunken"
           >

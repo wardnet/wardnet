@@ -73,6 +73,9 @@ impl AuthService for StubAuthService {
     ) -> Result<WizardState, AppError> {
         unimplemented!()
     }
+    async fn logout_session(&self, _token: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
@@ -116,6 +119,9 @@ impl AuthService for AlwaysAdminAuth {
         _to_step: WizardStep,
         _mode: Option<WizardMode>,
     ) -> Result<WizardState, AppError> {
+        unimplemented!()
+    }
+    async fn logout_session(&self, _token: &str) -> Result<(), AppError> {
         unimplemented!()
     }
     async fn refresh_session(&self, _token: &str) -> Result<LoginResult, AppError> {

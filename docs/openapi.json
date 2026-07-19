@@ -73,6 +73,40 @@
         ]
       }
     },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "description": "End the current session. Deletes the session server-side so the token can never authenticate again, and clears the `wardnet_session` cookie in the response. Requires a valid session cookie or `Authorization: Bearer <token>` header; only the caller's own session is affected.",
+        "operationId": "logout",
+        "responses": {
+          "204": {
+            "description": "Session invalidated; session cookie cleared"
+          },
+          "401": {
+            "description": "No valid session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/refresh": {
       "post": {
         "tags": [

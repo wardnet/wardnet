@@ -23,6 +23,17 @@ export class AuthService {
     await this.client.request<void>("/auth/refresh", { method: "POST" });
   }
 
+  /**
+   * End the current session.
+   *
+   * The daemon deletes the session server-side (the token can never
+   * authenticate again) and clears the `wardnet_session` cookie in the
+   * response. No body — the daemon reads the token from the request cookie.
+   */
+  async logout(): Promise<void> {
+    await this.client.request<void>("/auth/logout", { method: "POST" });
+  }
+
   /** Return the authenticated admin's identity. */
   async me(): Promise<MeResponse> {
     return this.client.request<MeResponse>("/users/me");

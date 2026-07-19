@@ -65,6 +65,15 @@ pub trait AuthService: Send + Sync {
     /// `max_age_seconds`.
     async fn refresh_session(&self, token: &str) -> Result<LoginResult, AppError>;
 
+    /// Invalidate the session identified by the given raw token (logout).
+    ///
+    /// Backs `POST /api/auth/logout`. The token is the caller's own — it comes
+    /// straight from the authenticated request's cookie/bearer header — so
+    /// deleting it can only ever end the caller's session. Idempotent: a
+    /// token whose session row is already gone still succeeds, because the
+    /// desired end state (no server-side session) already holds.
+    async fn logout_session(&self, token: &str) -> Result<(), AppError>;
+
     /// Validate a raw session token. Returns the admin UUID if valid and not expired.
     async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError>;
 
@@ -288,6 +297,21 @@ impl AuthService for AuthServiceImpl {
             token: new_token,
             max_age_seconds: self.remember_me_expiry_hours * 3600,
         })
+    }
+
+    async fn logout_session(&self, token: &str) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        let token_hash = hex::encode(Sha256::digest(token.as_bytes()));
+        let removed = self
+            .sessions
+            .delete_by_token_hash(&token_hash)
+            .await
+            .map_err(AppError::Internal)?;
+
+        tracing::info!(removed, "session logged out");
+
+        Ok(())
     }
 
     async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError> {

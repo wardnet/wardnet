@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WardnetApiError } from "@wardnet/js";
 
 const { authService, systemService } = vi.hoisted(() => ({
-  authService: { login: vi.fn(), refresh: vi.fn() },
+  authService: { login: vi.fn(), logout: vi.fn(), refresh: vi.fn() },
   systemService: { getStatus: vi.fn() },
 }));
 vi.mock("../../src/lib/sdk", () => ({ authService, systemService }));
@@ -40,9 +40,18 @@ describe("authStore", () => {
     });
   });
 
-  it("logout clears isAdmin", () => {
+  it("logout revokes the server session and clears isAdmin", async () => {
+    authService.logout.mockResolvedValue(undefined);
     useAuthStore.setState({ isAdmin: true });
-    useAuthStore.getState().logout();
+    await useAuthStore.getState().logout();
+    expect(authService.logout).toHaveBeenCalledOnce();
+    expect(useAuthStore.getState().isAdmin).toBe(false);
+  });
+
+  it("logout clears isAdmin even when the network call fails", async () => {
+    authService.logout.mockRejectedValue(new Error("network down"));
+    useAuthStore.setState({ isAdmin: true });
+    await expect(useAuthStore.getState().logout()).resolves.toBeUndefined();
     expect(useAuthStore.getState().isAdmin).toBe(false);
   });
 
