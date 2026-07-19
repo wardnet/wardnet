@@ -33,7 +33,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "TLS provisioning status", body = TlsStatusResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn tls_status(
     State(state): State<AppState>,

@@ -27,10 +27,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         AuthErrors,
         (status = 500, description = "Internal server error", body = ApiError),
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn me(
     State(state): State<AppState>,

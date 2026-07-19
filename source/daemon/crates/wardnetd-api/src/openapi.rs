@@ -19,9 +19,16 @@ use wardnetd_services::version::RELEASE_VERSION;
 /// Root `OpenAPI` document for the Wardnet daemon.
 ///
 /// Carries the document metadata (title, description, license), the tag list
-/// used to group endpoints in the generated UI, and — through
-/// [`SecurityAddon`] — the `session_cookie` and `bearer_auth` security schemes
-/// referenced by every admin-gated handler.
+/// used to group endpoints in the generated UI, the document-level security
+/// default, and — through [`SecurityAddon`] — the `session_cookie` and
+/// `bearer_auth` security schemes it references.
+///
+/// The `security(...)` block below applies to every operation that does not
+/// declare its own: admin-gated handlers need no per-operation annotation,
+/// and a handler that forgets one is documented as authenticated (the safe
+/// direction) instead of silently shipping as public. Deliberately
+/// unauthenticated endpoints opt out visibly with `security(())` in their
+/// `#[utoipa::path]` attribute.
 #[derive(OpenApi)]
 #[openapi(
     info(
@@ -38,14 +45,23 @@ use wardnetd_services::version::RELEASE_VERSION;
         license(name = "GPL-3.0-or-later")
     ),
     modifiers(&SecurityAddon),
+    security(
+        ("session_cookie" = []),
+        ("bearer_auth" = []),
+    ),
     tags(
         (name = "auth", description = "Session login / logout"),
         (name = "users", description = "Authenticated admin identity"),
         (name = "setup", description = "First-run setup wizard"),
         (name = "info", description = "Unauthenticated daemon info"),
+        (name = "health", description = "Unauthenticated liveness/readiness probe"),
         (name = "devices", description = "Device discovery and routing"),
-        (name = "network_zones", description = "Network Zones: device policy buckets"),
+        (name = "network", description = "LAN interface status and gateway discovery"),
+        (name = "network-zones", description = "Network Zones: device policy buckets"),
+        (name = "zone-exceptions", description = "Cross-zone exceptions: admin-granted allowances between isolated zones"),
+        (name = "rule-requests", description = "Device-initiated firewall rule requests and admin decisions"),
         (name = "tunnels", description = "WireGuard tunnel lifecycle"),
+        (name = "inbound-wg", description = "Inbound WireGuard remote-access server and peers"),
         (name = "providers", description = "VPN provider integration"),
         (name = "dhcp", description = "DHCP server configuration, leases, and reservations"),
         (name = "dns", description = "DNS resolver, ad-blocking, filters"),
@@ -56,18 +72,19 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "stats", description = "Generic pre-aggregating time-series and top-N stats"),
         (name = "update", description = "Auto-update and rollback"),
         (name = "push", description = "Web Push subscriptions and VAPID key"),
+        (name = "backup", description = "Encrypted configuration export / import and snapshots"),
     )
 )]
 pub struct ApiDoc;
 
-/// Declares the two authentication mechanisms every admin-gated handler
-/// references by name:
+/// Declares the two authentication mechanisms the document-level security
+/// default references by name:
 ///
 /// - `session_cookie` — the `wardnet_session` cookie issued by `POST /api/auth/login`.
 /// - `bearer_auth` — an opaque API key supplied via `Authorization: Bearer <key>`.
 ///
-/// Both are registered as reusable components so handlers only need to list
-/// the scheme name in their `security(...)` block.
+/// Both are registered as reusable components; [`ApiDoc`]'s `security(...)`
+/// block applies them to every operation that doesn't override it.
 struct SecurityAddon;
 
 /// Wardnet logo lockup (mark + WARDNET wordmark, dark-surface variant) served

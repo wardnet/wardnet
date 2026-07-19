@@ -90,10 +90,6 @@ pub async fn login(
         (status = 403, description = "Session was not created with remember_me", body = ApiError),
         (status = 500, description = "Internal server error", body = ApiError),
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn refresh(
     State(state): State<AppState>,

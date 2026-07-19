@@ -34,14 +34,13 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 #[utoipa::path(
     get,
     path = "/api/network/zones",
-    tag = "network_zones",
+    tag = "network-zones",
     description = "List every Network Zone with its current member count. \
                    Admin only.",
     responses(
         (status = 200, description = "Zones list", body = ListNetworkZonesResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_zones(
     State(state): State<AppState>,
@@ -54,7 +53,7 @@ pub async fn list_zones(
 #[utoipa::path(
     post,
     path = "/api/network/zones",
-    tag = "network_zones",
+    tag = "network-zones",
     description = "Create a Network Zone. `provenance` is forced to manual and \
                    default flags are never set on create (use PUT to promote). \
                    Admin only.",
@@ -65,7 +64,6 @@ pub async fn list_zones(
         BadRequest,
         (status = 409, description = "Name already in use", body = wardnet_common::api::ApiError),
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_zone(
     State(state): State<AppState>,
@@ -82,7 +80,7 @@ pub async fn create_zone(
 #[utoipa::path(
     get,
     path = "/api/network/zones/{id}",
-    tag = "network_zones",
+    tag = "network-zones",
     description = "Fetch a single Network Zone with its member count. Admin only.",
     params(("id" = Uuid, Path, description = "Zone id")),
     responses(
@@ -90,7 +88,6 @@ pub async fn create_zone(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_zone(
     State(state): State<AppState>,
@@ -104,7 +101,7 @@ pub async fn get_zone(
 #[utoipa::path(
     put,
     path = "/api/network/zones/{id}",
-    tag = "network_zones",
+    tag = "network-zones",
     description = "Partially update a Network Zone. Setting `is_default` or \
                    `is_default_for_new` to true promotes this zone; false is \
                    rejected (flags only move by promoting another zone). System \
@@ -118,7 +115,6 @@ pub async fn get_zone(
         BadRequest,
         (status = 409, description = "Name already in use", body = wardnet_common::api::ApiError),
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_zone(
     State(state): State<AppState>,
@@ -133,7 +129,7 @@ pub async fn update_zone(
 #[utoipa::path(
     delete,
     path = "/api/network/zones/{id}",
-    tag = "network_zones",
+    tag = "network-zones",
     description = "Delete a Network Zone. Rejected for system zones, the anchor \
                    (default) zone, or zones that still have member devices. \
                    Admin only.",
@@ -144,7 +140,6 @@ pub async fn update_zone(
         NotFound,
         (status = 409, description = "System / default / non-empty zone", body = wardnet_common::api::ApiError),
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_zone(
     State(state): State<AppState>,
@@ -158,7 +153,7 @@ pub async fn delete_zone(
 #[utoipa::path(
     get,
     path = "/api/network/quarantine-new-devices",
-    tag = "network_zones",
+    tag = "network-zones",
     description = "Read the new-device quarantine toggle (issue #738). When on, a \
                    freshly-discovered device lands in the default-for-new zone (as \
                    always) and admins get a push to approve it. Off by default. \
@@ -167,7 +162,6 @@ pub async fn delete_zone(
         (status = 200, description = "Current toggle state", body = QuarantineNewDevicesResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_quarantine_new_devices(
     State(state): State<AppState>,
@@ -183,7 +177,7 @@ pub async fn get_quarantine_new_devices(
 #[utoipa::path(
     put,
     path = "/api/network/quarantine-new-devices",
-    tag = "network_zones",
+    tag = "network-zones",
     description = "Enable or disable new-device quarantine (issue #738). Placement \
                    is unchanged either way (new devices always land in the \
                    default-for-new zone); the toggle only controls whether admins \
@@ -194,7 +188,6 @@ pub async fn get_quarantine_new_devices(
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn set_quarantine_new_devices(
     State(state): State<AppState>,

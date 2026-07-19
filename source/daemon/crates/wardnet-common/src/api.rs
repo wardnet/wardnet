@@ -811,7 +811,10 @@ pub struct NetworkStatusResponse {
     pub interface: String,
     #[schema(value_type = String)]
     pub ip: std::net::Ipv4Addr,
-    #[schema(value_type = String)]
+    // `required` keeps the key in the schema's `required` list: serde always
+    // serializes this field (as `null` when unset), so the accurate contract
+    // is required-but-nullable, not optional.
+    #[schema(required, value_type = Option<String>)]
     pub gateway: Option<std::net::Ipv4Addr>,
     pub dhcp_source: DhcpSource,
     /// Upstream router MAC persisted by the wizard's discover step, if
@@ -839,7 +842,7 @@ pub enum RouterMacSource {
 #[derive(Debug, Default, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DiscoverGatewayMacRequest {
     pub mac: Option<String>,
-    #[schema(value_type = String)]
+    #[schema(value_type = Option<String>)]
     pub target_ip: Option<std::net::Ipv4Addr>,
 }
 
@@ -864,7 +867,8 @@ pub struct DiscoverGatewayMacResponse {
 pub struct DhcpSelfProbeResponse {
     pub wardnet_responded: bool,
     pub foreign_responded: bool,
-    #[schema(value_type = String)]
+    // Required-but-nullable, same reasoning as `NetworkStatusResponse::gateway`.
+    #[schema(required, value_type = Option<String>)]
     pub foreign_server_ip: Option<std::net::Ipv4Addr>,
 }
 

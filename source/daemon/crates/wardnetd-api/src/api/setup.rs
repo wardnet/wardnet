@@ -99,10 +99,6 @@ pub async fn setup(
         (status = 400, description = "Invalid transition", body = ApiError),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn setup_advance(
     State(state): State<AppState>,

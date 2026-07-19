@@ -97,7 +97,6 @@ pub async fn list_my_rule_requests(
         AuthErrors,
         (status = 500, description = "Internal server error", body = ApiError),
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_rule_requests(
     State(state): State<AppState>,
@@ -123,7 +122,6 @@ pub async fn list_rule_requests(
         BadRequest,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn decide_rule_request(
     State(state): State<AppState>,

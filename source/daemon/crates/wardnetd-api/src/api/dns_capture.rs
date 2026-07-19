@@ -38,7 +38,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 404, description = "Device not found", body = ApiError),
         (status = 500, description = "Internal server error", body = ApiError),
     ),
-    security(("admin_auth" = [])),
 )]
 pub async fn get_dns_capture_settings(
     State(state): State<AppState>,
@@ -65,7 +64,6 @@ pub async fn get_dns_capture_settings(
         (status = 404, description = "Device not found", body = ApiError),
         (status = 500, description = "Internal server error", body = ApiError),
     ),
-    security(("admin_auth" = [])),
 )]
 pub async fn update_dns_capture_settings(
     State(state): State<AppState>,

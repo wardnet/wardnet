@@ -32,13 +32,12 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 #[utoipa::path(
     get,
     path = "/api/network/zones/exceptions",
-    tag = "zone_exceptions",
+    tag = "zone-exceptions",
     description = "List every cross-zone exception. Admin only.",
     responses(
         (status = 200, description = "Exceptions list", body = ListZoneExceptionsResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_exceptions(
     State(state): State<AppState>,
@@ -51,7 +50,7 @@ pub async fn list_exceptions(
 #[utoipa::path(
     post,
     path = "/api/network/zones/exceptions",
-    tag = "zone_exceptions",
+    tag = "zone-exceptions",
     description = "Create a cross-zone exception. Both endpoints must exist and \
                    differ; a custom port list must be non-empty with valid \
                    ranges. Admin only.",
@@ -61,7 +60,6 @@ pub async fn list_exceptions(
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_exception(
     State(state): State<AppState>,
@@ -81,7 +79,7 @@ pub async fn create_exception(
 #[utoipa::path(
     get,
     path = "/api/network/zones/exceptions/{id}",
-    tag = "zone_exceptions",
+    tag = "zone-exceptions",
     description = "Fetch a single cross-zone exception. Admin only.",
     params(("id" = Uuid, Path, description = "Exception id")),
     responses(
@@ -89,7 +87,6 @@ pub async fn create_exception(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_exception(
     State(state): State<AppState>,
@@ -103,7 +100,7 @@ pub async fn get_exception(
 #[utoipa::path(
     put,
     path = "/api/network/zones/exceptions/{id}",
-    tag = "zone_exceptions",
+    tag = "zone-exceptions",
     description = "Partially update a cross-zone exception. Every field is \
                    optional; the resolved exception is re-validated. Admin only.",
     params(("id" = Uuid, Path, description = "Exception id")),
@@ -114,7 +111,6 @@ pub async fn get_exception(
         NotFound,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_exception(
     State(state): State<AppState>,
@@ -132,7 +128,7 @@ pub async fn update_exception(
 #[utoipa::path(
     delete,
     path = "/api/network/zones/exceptions/{id}",
-    tag = "zone_exceptions",
+    tag = "zone-exceptions",
     description = "Delete a cross-zone exception. Admin only.",
     params(("id" = Uuid, Path, description = "Exception id")),
     responses(
@@ -140,7 +136,6 @@ pub async fn update_exception(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_exception(
     State(state): State<AppState>,

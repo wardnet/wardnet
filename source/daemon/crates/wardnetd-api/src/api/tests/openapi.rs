@@ -157,13 +157,14 @@ fn api_doc_unauthenticated_endpoint_has_empty_security() {
 
 #[test]
 fn api_doc_authenticated_endpoint_references_both_schemes() {
-    // /api/devices is admin-gated; it should list both accepted schemes.
+    // Admin-gated endpoints accept both schemes via the document-level
+    // security default rather than per-operation annotations. Check the
+    // default lists both, then check the representative admin endpoint
+    // carries no override — absence is what makes the default apply.
     let doc = api_doc_json();
-    let security = doc["paths"]["/api/devices"]["get"]["security"]
+    let names: Vec<String> = doc["security"]
         .as_array()
-        .expect("admin-gated endpoint must declare security")
-        .clone();
-    let names: Vec<String> = security
+        .expect("document-level security default must exist")
         .iter()
         .flat_map(|entry| {
             entry
@@ -174,8 +175,158 @@ fn api_doc_authenticated_endpoint_references_both_schemes() {
         .collect();
     assert!(
         names.iter().any(|n| n == "session_cookie") && names.iter().any(|n| n == "bearer_auth"),
-        "admin-gated endpoint should reference both schemes, got {names:?}"
+        "document security default should reference both schemes, got {names:?}"
     );
+
+    assert!(
+        doc["paths"]["/api/devices"]["get"]["security"].is_null(),
+        "admin-gated endpoint should inherit the document default, \
+         not declare its own security"
+    );
+}
+
+/// Visit every operation in the serialized spec, yielding
+/// `(path, method, operation)` for each HTTP-method entry under `paths`.
+fn for_each_operation(
+    doc: &serde_json::Value,
+    mut visit: impl FnMut(&str, &str, &serde_json::Value),
+) {
+    const METHODS: [&str; 8] = [
+        "get", "put", "post", "delete", "patch", "head", "options", "trace",
+    ];
+    let paths = doc["paths"].as_object().expect("paths block must exist");
+    for (path, item) in paths {
+        for method in METHODS {
+            let op = &item[method];
+            if !op.is_null() {
+                visit(path, method, op);
+            }
+        }
+    }
+}
+
+#[test]
+fn every_security_requirement_references_a_registered_scheme() {
+    // The spot-check above only covers the document default. This walks the
+    // whole document: any scheme name referenced anywhere — the document
+    // default or a per-operation override — must exist in
+    // `components.securitySchemes`, otherwise generated clients silently
+    // send no credentials and validators reject the spec.
+    //
+    // Operations without a `security` key are fine by construction: they
+    // inherit the document default, so a handler that forgets an annotation
+    // is documented as authenticated (the safe direction). Only deliberate
+    // opt-outs (`security(())`) and explicit overrides appear per-operation.
+    let doc = api_doc_json();
+    let registered: Vec<String> = doc["components"]["securitySchemes"]
+        .as_object()
+        .expect("securitySchemes block must exist")
+        .keys()
+        .cloned()
+        .collect();
+
+    let check_requirements = |context: &str, requirements: &[serde_json::Value]| {
+        for entry in requirements {
+            let entry = entry.as_object().unwrap_or_else(|| {
+                panic!("{context}: security requirement entry must be an object, got {entry}")
+            });
+            // An empty `{}` object is the no-auth marker and yields no keys.
+            for name in entry.keys() {
+                assert!(
+                    registered.iter().any(|r| r == name),
+                    "{context} references security scheme {name:?}, \
+                     which is not registered (have: {registered:?})"
+                );
+            }
+        }
+    };
+
+    let default = doc["security"]
+        .as_array()
+        .expect("document-level security default must exist");
+    assert!(
+        !default.is_empty(),
+        "document-level security default must not be empty"
+    );
+    check_requirements("document security default", default);
+
+    for_each_operation(&doc, |path, method, op| {
+        if let Some(requirements) = op["security"].as_array() {
+            check_requirements(&format!("{method} {path}"), requirements);
+        }
+    });
+}
+
+#[test]
+fn operation_tags_match_the_declared_tag_list() {
+    // Two-way check: every tag an operation uses must be declared on ApiDoc
+    // (otherwise it renders undescribed in Scalar), and every declared tag
+    // must be used by at least one operation (otherwise it's dead weight).
+    let doc = api_doc_json();
+    let declared: std::collections::BTreeSet<String> = doc["tags"]
+        .as_array()
+        .expect("top-level tags block must exist")
+        .iter()
+        .map(|t| t["name"].as_str().expect("tag name is a string").to_owned())
+        .collect();
+
+    let mut used = std::collections::BTreeSet::new();
+    for_each_operation(&doc, |_, _, op| {
+        for tag in op["tags"].as_array().into_iter().flatten() {
+            used.insert(tag.as_str().expect("operation tag is a string").to_owned());
+        }
+    });
+
+    assert_eq!(
+        used,
+        declared,
+        "operation tags and ApiDoc's declared tags have drifted apart \
+         (missing declarations: {:?}; declared but unused: {:?})",
+        used.difference(&declared).collect::<Vec<_>>(),
+        declared.difference(&used).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn optional_ip_fields_are_nullable_with_accurate_presence() {
+    // `Option<Ipv4Addr>` fields carry a manual `value_type` annotation
+    // (utoipa has no ToSchema for Ipv4Addr), which makes it easy to copy the
+    // non-nullable `String` form from a neighbouring non-Option field and
+    // silently publish a client-breaking schema. Pin the contract for the
+    // three fields that have already drifted once:
+    //
+    // - response fields (`gateway`, `foreign_server_ip`) are serialized on
+    //   every response (as explicit `null` when unset) → required + nullable;
+    // - the request field (`target_ip`) may be omitted by callers entirely
+    //   → not required + nullable.
+    let doc = api_doc_json();
+    let schemas = &doc["components"]["schemas"];
+
+    let is_nullable = |schema: &str, field: &str| {
+        let ty = &schemas[schema]["properties"][field]["type"];
+        ty.as_array().is_some_and(|t| t.iter().any(|v| v == "null"))
+    };
+    let is_required = |schema: &str, field: &str| {
+        schemas[schema]["required"]
+            .as_array()
+            .is_some_and(|r| r.iter().any(|v| v == field))
+    };
+
+    for (schema, field, required) in [
+        ("NetworkStatusResponse", "gateway", true),
+        ("DhcpSelfProbeResponse", "foreign_server_ip", true),
+        ("DiscoverGatewayMacRequest", "target_ip", false),
+    ] {
+        assert!(
+            is_nullable(schema, field),
+            "{schema}.{field} must be nullable in the published schema"
+        );
+        assert_eq!(
+            is_required(schema, field),
+            required,
+            "{schema}.{field} presence contract drifted: expected required = {required}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -50,7 +50,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Zones list", body = ListZonesResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_zones(
     State(state): State<AppState>,
@@ -70,7 +69,6 @@ pub async fn list_zones(
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_zone(
     State(state): State<AppState>,
@@ -92,7 +90,6 @@ pub async fn create_zone(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_zone(
     State(state): State<AppState>,
@@ -115,7 +112,6 @@ pub async fn get_zone(
         NotFound,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_zone(
     State(state): State<AppState>,
@@ -138,7 +134,6 @@ pub async fn update_zone(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_zone(
     State(state): State<AppState>,
@@ -159,7 +154,6 @@ pub async fn delete_zone(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_zone_records(
     State(state): State<AppState>,
@@ -180,7 +174,6 @@ pub async fn list_zone_records(
         (status = 200, description = "Records list", body = ListRecordsResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_records(
     State(state): State<AppState>,
@@ -201,7 +194,6 @@ pub async fn list_records(
         NotFound,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_record(
     State(state): State<AppState>,
@@ -223,7 +215,6 @@ pub async fn create_record(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_record(
     State(state): State<AppState>,
@@ -246,7 +237,6 @@ pub async fn get_record(
         NotFound,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_record(
     State(state): State<AppState>,
@@ -270,7 +260,6 @@ pub async fn update_record(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_record(
     State(state): State<AppState>,
@@ -292,7 +281,6 @@ pub async fn delete_record(
         (status = 200, description = "Forwarding rules list", body = ListForwardingRulesResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn list_forwarding_rules(
     State(state): State<AppState>,
@@ -314,7 +302,6 @@ pub async fn list_forwarding_rules(
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn create_forwarding_rule(
     State(state): State<AppState>,
@@ -339,7 +326,6 @@ pub async fn create_forwarding_rule(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn get_forwarding_rule(
     State(state): State<AppState>,
@@ -364,7 +350,6 @@ pub async fn get_forwarding_rule(
         NotFound,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn update_forwarding_rule(
     State(state): State<AppState>,
@@ -391,7 +376,6 @@ pub async fn update_forwarding_rule(
         AuthErrors,
         NotFound,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn delete_forwarding_rule(
     State(state): State<AppState>,

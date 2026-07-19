@@ -34,10 +34,6 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Registered VPN providers", body = ListProvidersResponse),
         AuthErrors,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn list_providers(
     State(state): State<AppState>,
@@ -61,10 +57,6 @@ pub async fn list_providers(
         AuthErrors,
         NotFound,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn validate_credentials(
@@ -92,10 +84,6 @@ pub async fn validate_credentials(
         AuthErrors,
         NotFound,
     ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
-    ),
 )]
 pub async fn list_countries(
     State(state): State<AppState>,
@@ -121,10 +109,6 @@ pub async fn list_countries(
         AuthErrors,
         NotFound,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn list_servers(
@@ -152,10 +136,6 @@ pub async fn list_servers(
         AuthErrors,
         NotFound,
         BadRequest,
-    ),
-    security(
-        ("session_cookie" = []),
-        ("bearer_auth" = []),
     ),
 )]
 pub async fn setup_tunnel(

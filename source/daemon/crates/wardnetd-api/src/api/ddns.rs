@@ -107,7 +107,6 @@ fn spawn_provisioning(state: &AppState, admin_id: Uuid) {
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn ddns_enrollment_code(
     State(state): State<AppState>,
@@ -135,7 +134,6 @@ pub async fn ddns_enrollment_code(
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn ddns_enroll(
     State(state): State<AppState>,
@@ -158,7 +156,6 @@ pub async fn ddns_enroll(
         (status = 200, description = "Availability result", body = DdnsCheckResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn ddns_check(
     State(state): State<AppState>,
@@ -184,7 +181,6 @@ pub async fn ddns_check(
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn ddns_register(
     State(state): State<AppState>,
@@ -220,7 +216,6 @@ pub async fn ddns_register(
         AuthErrors,
         BadRequest,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn ddns_cloudflare(
     State(state): State<AppState>,
@@ -251,7 +246,6 @@ pub async fn ddns_cloudflare(
         (status = 200, description = "DDNS status", body = DdnsStatusResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn ddns_status(
     State(state): State<AppState>,
@@ -279,7 +273,6 @@ pub async fn ddns_status(
         (status = 200, description = "Resolution-check result", body = DdnsResolutionCheckResponse),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn ddns_resolution_check(
     State(state): State<AppState>,
@@ -301,7 +294,6 @@ pub async fn ddns_resolution_check(
         (status = 204, description = "Remote access torn down (or already absent)"),
         AuthErrors,
     ),
-    security(("session_cookie" = []), ("bearer_auth" = [])),
 )]
 pub async fn ddns_teardown(
     State(state): State<AppState>,
