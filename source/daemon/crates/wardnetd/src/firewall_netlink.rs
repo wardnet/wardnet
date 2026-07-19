@@ -82,7 +82,7 @@ pub(crate) const ZONE_ISOLATION: &str = "zone_isolation";
 pub(crate) const ZONE_NATEXEMPT: &str = "zone_natexempt";
 
 /// Comment on the base-forward jump into the `zone_isolation` chain.
-const ZONE_ISOJUMP_COMMENT: &str = "wardnet:zone:isojump";
+pub(crate) const ZONE_ISOJUMP_COMMENT: &str = "wardnet:zone:isojump";
 
 /// Comment on the base-postrouting jump into the `zone_natexempt` chain.
 pub(crate) const ZONE_NATEXEMPT_JUMP_COMMENT: &str = "wardnet:zone:natexemptjump";
@@ -450,11 +450,63 @@ pub(crate) fn build_zone_isolation_batch(
     Ok(order)
 }
 
+/// Establish (idempotently) the two base-chain jumps into the owned sub-chains:
+/// FORWARD→`zone_isolation` and POSTROUTING→`zone_natexempt`. Each is guarded by
+/// its comment so a re-run is a no-op — unlike chains, a duplicate rule would
+/// stack.
+///
+/// Called both at init AND (crucially) by
+/// [`FirewallManager::ensure_isolation_jumps`] which `RoutingService::reconcile`
+/// invokes AFTER `flush_wardnet_table` and BEFORE `add_masquerade`. That makes
+/// the natexempt jump independent of whether the flush removed it: it is
+/// re-added to the (post-flush, empty) postrouting chain as rule #0, so the
+/// subsequent masquerade appends after it — the ordering the un-NAT relies on.
+fn ensure_isolation_jumps_blocking(table: &Table) -> anyhow::Result<()> {
+    // FORWARD → zone_isolation. Guard on the comment (a duplicate rule stacks).
+    let forward = chain_ref(table, FORWARD);
+    let forward_rules =
+        list_rules_for_chain(&forward).map_err(|e| anyhow::anyhow!("list forward chain: {e}"))?;
+    if !chain_has_comment(&forward_rules, ZONE_ISOJUMP_COMMENT) {
+        let mut jump_batch = Batch::new();
+        Rule::new(&forward)?
+            .with_expr(Immediate::new_verdict(VerdictKind::Jump {
+                chain: ZONE_ISOLATION.to_owned(),
+            }))
+            .with_userdata(comment_udata(ZONE_ISOJUMP_COMMENT))
+            .add_to_batch(&mut jump_batch);
+        jump_batch
+            .send()
+            .map_err(|e| anyhow::anyhow!("add zone_isolation jump: {e}"))?;
+    }
+
+    // POSTROUTING → zone_natexempt.
+    let postrouting = chain_ref(table, POSTROUTING);
+    let postrouting_rules = list_rules_for_chain(&postrouting)
+        .map_err(|e| anyhow::anyhow!("list postrouting chain: {e}"))?;
+    if !chain_has_comment(&postrouting_rules, ZONE_NATEXEMPT_JUMP_COMMENT) {
+        let mut jump_batch = Batch::new();
+        natexempt_jump_rule(&postrouting)?.add_to_batch(&mut jump_batch);
+        jump_batch
+            .send()
+            .map_err(|e| anyhow::anyhow!("add zone_natexempt jump: {e}"))?;
+    }
+    Ok(())
+}
+
+/// True if any rule in `rules` carries the given wardnet comment. This is the
+/// idempotence guard for the base-chain jumps: present ⇒ skip the add (a
+/// duplicate rule would stack); absent ⇒ add it. Pure, so unit-testable.
+pub(crate) fn chain_has_comment(rules: &[Rule], comment: &str) -> bool {
+    rules
+        .iter()
+        .any(|r| rule_comment(r).as_deref() == Some(comment))
+}
+
 /// The `jump zone_natexempt` rule for the base `postrouting` chain, tagged
-/// `wardnet:zone:natexemptjump`. Added by [`init_wardnet_table`] BEFORE any
-/// masquerade rule (which [`add_masquerade`] appends later), so an `accept`
-/// inside `zone_natexempt` — terminal for the postrouting hook — pre-empts the
-/// masquerade and leaves the sender's source IP intact.
+/// `wardnet:zone:natexemptjump`. Added by [`ensure_isolation_jumps_blocking`]
+/// BEFORE any masquerade rule (which [`add_masquerade`] appends later), so an
+/// `accept` inside `zone_natexempt` — terminal for the postrouting hook —
+/// pre-empts the masquerade and leaves the sender's source IP intact.
 pub(crate) fn natexempt_jump_rule(postrouting: &Chain) -> anyhow::Result<Rule> {
     Ok(Rule::new(postrouting)?
         .with_expr(Immediate::new_verdict(VerdictKind::Jump {
@@ -558,50 +610,25 @@ impl FirewallManager for NetlinkFirewallManager {
                 .send()
                 .map_err(|e| anyhow::anyhow!("init wardnet table: {e}"))?;
 
-            // Add the base-forward jump into `zone_isolation` only if it is not
-            // already present — unlike chains, a duplicate rule would stack, so
-            // guard on the comment (mirrors the other base-rule guards).
-            let forward = chain_ref(&table, FORWARD);
-            let have_jump = list_rules_for_chain(&forward)
-                .map_err(|e| anyhow::anyhow!("list forward chain: {e}"))?
-                .iter()
-                .any(|r| rule_comment(r).as_deref() == Some(ZONE_ISOJUMP_COMMENT));
-            if !have_jump {
-                let mut jump_batch = Batch::new();
-                Rule::new(&forward)?
-                    .with_expr(Immediate::new_verdict(VerdictKind::Jump {
-                        chain: ZONE_ISOLATION.to_owned(),
-                    }))
-                    .with_userdata(comment_udata(ZONE_ISOJUMP_COMMENT))
-                    .add_to_batch(&mut jump_batch);
-                jump_batch
-                    .send()
-                    .map_err(|e| anyhow::anyhow!("add zone_isolation jump: {e}"))?;
-            }
-
-            // Add the base-postrouting jump into `zone_natexempt`, guarded by its
-            // comment. CRITICAL ORDERING: this runs during init, before
-            // `add_masquerade` appends any masquerade rule, so on the fresh table
-            // the jump is postrouting rule #0 and every masquerade lands after it
-            // (rustables always appends — there is no insert-at-index). An
-            // `accept` reached through this jump is therefore evaluated before
-            // masquerade and un-NATs the exempted flow.
-            let postrouting = chain_ref(&table, POSTROUTING);
-            let have_natexempt_jump = list_rules_for_chain(&postrouting)
-                .map_err(|e| anyhow::anyhow!("list postrouting chain: {e}"))?
-                .iter()
-                .any(|r| rule_comment(r).as_deref() == Some(ZONE_NATEXEMPT_JUMP_COMMENT));
-            if !have_natexempt_jump {
-                let mut jump_batch = Batch::new();
-                natexempt_jump_rule(&postrouting)?.add_to_batch(&mut jump_batch);
-                jump_batch
-                    .send()
-                    .map_err(|e| anyhow::anyhow!("add zone_natexempt jump: {e}"))?;
-            }
+            // Establish the FORWARD→zone_isolation and POSTROUTING→zone_natexempt
+            // jumps. Shared with `ensure_isolation_jumps` (which `reconcile` calls
+            // after the flush) so the logic lives in one place; the comment guards
+            // make it idempotent.
+            ensure_isolation_jumps_blocking(&table)?;
             Ok(())
         })
         .await?;
         tracing::info!("nftables: wardnet table initialised");
+        Ok(())
+    }
+
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
+        run_blocking(|| {
+            let table = wardnet_table();
+            ensure_isolation_jumps_blocking(&table)
+        })
+        .await?;
+        tracing::debug!("nftables: isolation jumps ensured");
         Ok(())
     }
 

@@ -85,6 +85,16 @@ pub trait FirewallManager: Send + Sync {
     /// Initialize the firewall table and base chains (idempotent).
     async fn init_wardnet_table(&self) -> anyhow::Result<()>;
 
+    /// (Re)establish the base-chain jumps into the owned Network-Zone sub-chains
+    /// — FORWARD→`zone_isolation` and POSTROUTING→`zone_natexempt` — idempotently
+    /// (guarded on their comments).
+    ///
+    /// `RoutingService::reconcile` calls this AFTER `flush_wardnet_table` and
+    /// BEFORE `add_masquerade`, so the postrouting NAT-exemption jump is restored
+    /// as rule #0 of the (post-flush) postrouting chain regardless of whether the
+    /// flush removed it — guaranteeing every masquerade appends after it.
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()>;
+
     /// Flush all Wardnet-managed rules (keeps the table and chains intact).
     async fn flush_wardnet_table(&self) -> anyhow::Result<()>;
 

@@ -16,6 +16,11 @@ impl FirewallManager for NoopFirewallManager {
         Ok(())
     }
 
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
+        tracing::debug!("mock firewall ensure_isolation_jumps");
+        Ok(())
+    }
+
     async fn flush_wardnet_table(&self) -> anyhow::Result<()> {
         tracing::debug!("mock firewall flush_wardnet_table");
         Ok(())

@@ -342,6 +342,9 @@ impl FirewallManager for MockFirewall {
     async fn init_wardnet_table(&self) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn flush_wardnet_table(&self) -> anyhow::Result<()> {
         Ok(())
     }

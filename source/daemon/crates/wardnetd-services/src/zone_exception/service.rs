@@ -5,7 +5,7 @@ use uuid::Uuid;
 use wardnet_common::api::{CreateZoneExceptionRequest, UpdateZoneExceptionRequest};
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::zone_exception::{
-    ExceptionEndpoint, ExceptionEndpointKind, ServiceSet, ServiceSpec, ZoneException,
+    ExceptionEndpoint, ExceptionEndpointKind, ServiceSpec, ZoneException,
 };
 use wardnetd_data::repository::{DeviceRepository, NetworkZoneRepository, ZoneExceptionRepository};
 
@@ -120,18 +120,21 @@ impl ZoneExceptionServiceImpl {
                 "an exception's from and to endpoints must differ".to_owned(),
             ));
         }
-        // The mirroring preset opens the full port range, so it is only safe
-        // between two specific devices — never a whole zone.
-        if matches!(
-            service,
-            ServiceSpec::Preset {
-                set: ServiceSet::Mirroring
-            }
-        ) && (from.kind != ExceptionEndpointKind::Device
-            || to.kind != ExceptionEndpointKind::Device)
+        // A full-range (all-ports) exception opens the entire port space, so it
+        // is only safe between two specific devices — never a whole zone. Keyed
+        // on the RESOLVED ports so it covers the Mirroring preset (which resolves
+        // to 1-65535) AND an explicit `Ports { [1-65535] }` spec that would
+        // otherwise slip past a preset-only guard.
+        let wide_open = service
+            .resolve_ports()
+            .iter()
+            .any(|p| p.from <= 1 && p.to == u16::MAX);
+        if wide_open
+            && (from.kind != ExceptionEndpointKind::Device
+                || to.kind != ExceptionEndpointKind::Device)
         {
             return Err(AppError::BadRequest(
-                "the mirroring preset requires device-to-device endpoints".to_owned(),
+                "a full-range (all-ports) exception requires device-to-device endpoints".to_owned(),
             ));
         }
         self.assert_endpoint_exists(from).await?;

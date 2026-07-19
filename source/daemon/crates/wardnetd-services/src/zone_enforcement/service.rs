@@ -111,6 +111,11 @@ pub trait ZoneEnforcementService: Send + Sync {
 /// the shared [`FirewallManager`], flushes conntrack via the shared
 /// [`PolicyRouter`], and calls back into the [`RoutingService`] to unbind
 /// forbidden default-policy bindings.
+/// A canonical cross-zone switchback snapshot: `(device_id, device_ip, sorted
+/// target CIDRs)` over all managed devices, sorted by id. Compared against the
+/// last-pushed value to debounce the per-device push loop.
+type SwitchbackSnapshot = Vec<(Uuid, String, Vec<String>)>;
+
 pub struct ZoneEnforcementServiceImpl {
     zones: Arc<dyn NetworkZoneRepository>,
     devices: Arc<dyn DeviceRepository>,
@@ -137,6 +142,14 @@ pub struct ZoneEnforcementServiceImpl {
     /// rebuild + (N-1) cheap no-ops (issue #737, FIX 6).
     last_isolation:
         tokio::sync::Mutex<Option<(ZoneIsolationRules, std::collections::BTreeSet<String>)>>,
+    /// The last cross-zone switchback state pushed to the routing service: a
+    /// canonical `(device_id, device_ip, sorted target CIDRs)` snapshot over ALL
+    /// managed devices, sorted by id. A device-zone change alters switchback
+    /// membership without changing the isolation `rules`, so this is tracked
+    /// separately from [`Self::last_isolation`]; comparing against it lets the
+    /// per-device push loop run only when the desired switchback set actually
+    /// changed (avoiding an O(N²) push over a startup burst).
+    last_switchback: tokio::sync::Mutex<Option<SwitchbackSnapshot>>,
 }
 
 impl ZoneEnforcementServiceImpl {
@@ -168,6 +181,7 @@ impl ZoneEnforcementServiceImpl {
             lan_interface,
             lan_ip,
             last_isolation: tokio::sync::Mutex::new(None),
+            last_switchback: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -694,83 +708,106 @@ impl ZoneEnforcementServiceImpl {
             .map(std::string::ToString::to_string)
             .collect();
 
-        // Push each device its (possibly empty) cross-zone switchback target set.
-        // This runs on EVERY reconcile — BEFORE the FIX-6 isolation skip below —
-        // because a device changing zone alters switchback membership without
-        // necessarily changing the isolation `rules` (zone endpoints resolve to a
-        // stable subnet CIDR). The routing service diffs internally, so pushing
-        // for every device each call is idempotent and cheap. A device that ends
-        // up with no targets is passed an empty set, which removes its carve-outs.
-        for device in &all_devices {
-            let targets: Vec<String> = switchback_acc
-                .get(&device.id)
-                .map(|(_, cidrs)| cidrs.iter().cloned().collect())
-                .unwrap_or_default();
-            if let Err(e) = self
-                .routing
-                .set_switchback_targets(device.id, device.last_ip.clone(), targets)
-                .await
-            {
-                tracing::warn!(
-                    error = %e,
-                    device_id = %device.id,
-                    "zone enforcer: failed to push switchback targets"
-                );
+        // Canonical switchback snapshot over ALL managed devices: each device's
+        // (id, ip, sorted desired CIDRs — empty when it has none), sorted by id.
+        // This is BOTH the change key and the push list. Including every device
+        // (not just those with targets) makes a device dropping to empty a
+        // detectable change.
+        let mut switchback_snapshot: SwitchbackSnapshot = all_devices
+            .iter()
+            .map(|d| {
+                let targets: Vec<String> = switchback_acc
+                    .get(&d.id)
+                    .map(|(_, cidrs)| cidrs.iter().cloned().collect())
+                    .unwrap_or_default();
+                (d.id, d.last_ip.clone(), targets)
+            })
+            .collect();
+        switchback_snapshot.sort_by_key(|e| e.0);
+
+        // Compute both change flags up front. The isolation state and the
+        // switchback state change independently: a device-zone move alters
+        // switchback membership without changing the isolation `rules` (zone
+        // endpoints resolve to a stable subnet CIDR), while a subnet/exception
+        // edit changes the rules. Debounce each against its own last-applied
+        // snapshot so a startup burst collapses to one push + one rebuild.
+        let switchback_changed =
+            self.last_switchback.lock().await.as_ref() != Some(&switchback_snapshot);
+        let iso_changed = self.last_isolation.lock().await.as_ref()
+            != Some(&(rules.clone(), desired_alias_strings.clone()));
+
+        // Nothing to do when neither changed (FIX 6, extended to switchback).
+        if !iso_changed && !switchback_changed {
+            tracing::debug!("zone enforcer: isolation + switchback unchanged, skipping");
+            return Ok(());
+        }
+
+        // Push switchback carve-out targets only when they changed. A device with
+        // no targets is passed an empty set, which removes its carve-outs.
+        if switchback_changed {
+            for (device_id, device_ip, targets) in &switchback_snapshot {
+                if let Err(e) = self
+                    .routing
+                    .set_switchback_targets(*device_id, device_ip.clone(), targets.clone())
+                    .await
+                {
+                    tracing::warn!(
+                        error = %e,
+                        device_id = %device_id,
+                        "zone enforcer: failed to push switchback targets"
+                    );
+                }
             }
+            *self.last_switchback.lock().await = Some(switchback_snapshot);
         }
 
-        // Skip the expensive kernel work when nothing changed (FIX 6).
-        {
-            let last = self.last_isolation.lock().await;
-            if last.as_ref() == Some(&(rules.clone(), desired_alias_strings.clone())) {
-                tracing::debug!("zone enforcer: L3 isolation unchanged, skipping rebuild");
-                return Ok(());
+        // The expensive nftables/alias/proxy-arp kernel work only runs when the
+        // isolation state itself changed.
+        if iso_changed {
+            let summary = (
+                rules.allows.len(),
+                rules.deny_pairs.len(),
+                rules.member_isolation_subnets.len(),
+            );
+
+            if let Err(e) = self.firewall.apply_zone_isolation(rules.clone()).await {
+                tracing::warn!(error = %e, "zone enforcer: failed to apply zone isolation");
             }
-        }
 
-        let summary = (
-            rules.allows.len(),
-            rules.deny_pairs.len(),
-            rules.member_isolation_subnets.len(),
-        );
+            // Add desired gateway aliases, then drop any no longer backed by a zone.
+            let desired_gateways: HashSet<Ipv4Addr> = desired_alias_map.keys().copied().collect();
+            for (gw, prefix) in &desired_alias_map {
+                if let Err(e) = self
+                    .policy_router
+                    .add_interface_alias(&self.lan_interface, &gw.to_string(), *prefix)
+                    .await
+                {
+                    tracing::warn!(error = %e, gateway = %gw, "zone enforcer: failed to add gateway alias");
+                }
+            }
+            self.remove_stale_gateway_aliases(&desired_gateways, &base_cidr)
+                .await;
 
-        if let Err(e) = self.firewall.apply_zone_isolation(rules.clone()).await {
-            tracing::warn!(error = %e, "zone enforcer: failed to apply zone isolation");
-        }
-
-        // Add desired gateway aliases, then drop any no longer backed by a zone.
-        let desired_gateways: HashSet<Ipv4Addr> = desired_alias_map.keys().copied().collect();
-        for (gw, prefix) in &desired_alias_map {
+            // proxy-ARP is only needed when at least one zone isolates members.
             if let Err(e) = self
                 .policy_router
-                .add_interface_alias(&self.lan_interface, &gw.to_string(), *prefix)
+                .set_proxy_arp(&self.lan_interface, member_isolation_present)
                 .await
             {
-                tracing::warn!(error = %e, gateway = %gw, "zone enforcer: failed to add gateway alias");
+                tracing::warn!(error = %e, "zone enforcer: failed to set proxy-arp");
             }
+
+            // Record the applied state so the next identical reconcile is a no-op.
+            *self.last_isolation.lock().await = Some((rules, desired_alias_strings));
+
+            tracing::info!(
+                allows = summary.0,
+                deny_pairs = summary.1,
+                member_subnets = summary.2,
+                gateways = desired_gateways.len(),
+                "zone enforcer: L3 isolation reconciled"
+            );
         }
-        self.remove_stale_gateway_aliases(&desired_gateways, &base_cidr)
-            .await;
-
-        // proxy-ARP is only needed when at least one zone isolates members.
-        if let Err(e) = self
-            .policy_router
-            .set_proxy_arp(&self.lan_interface, member_isolation_present)
-            .await
-        {
-            tracing::warn!(error = %e, "zone enforcer: failed to set proxy-arp");
-        }
-
-        // Record the applied state so the next identical reconcile is a no-op.
-        *self.last_isolation.lock().await = Some((rules, desired_alias_strings));
-
-        tracing::info!(
-            allows = summary.0,
-            deny_pairs = summary.1,
-            member_subnets = summary.2,
-            gateways = desired_gateways.len(),
-            "zone enforcer: L3 isolation reconciled"
-        );
         Ok(())
     }
 

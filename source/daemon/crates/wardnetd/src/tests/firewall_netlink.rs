@@ -6,12 +6,13 @@
 //! UDATA TLV codec that drives restart-survivable rule identification.
 
 use crate::firewall_netlink::{
-    IFNAMSIZ, ZONE_ESTABLISHED_COMMENT, ZONE_ISOLATION, ZONE_NATEXEMPT, ZONE_NATEXEMPT_COMMENT,
-    ZONE_NATEXEMPT_JUMP_COMMENT, build_natexempt_batch, build_zone_isolation_batch, chain_ref,
-    comment_udata, inbound_wg_iface_exact_value, masquerade_rule, natexempt_jump_rule,
-    parse_comment_udata, rule_comment, wardnet_table, zone_rule_ip,
+    IFNAMSIZ, ZONE_ESTABLISHED_COMMENT, ZONE_ISOJUMP_COMMENT, ZONE_ISOLATION, ZONE_NATEXEMPT,
+    ZONE_NATEXEMPT_COMMENT, ZONE_NATEXEMPT_JUMP_COMMENT, build_natexempt_batch,
+    build_zone_isolation_batch, chain_has_comment, chain_ref, comment_udata,
+    inbound_wg_iface_exact_value, masquerade_rule, natexempt_jump_rule, parse_comment_udata,
+    rule_comment, wardnet_table, zone_rule_ip,
 };
-use rustables::Batch;
+use rustables::{Batch, Rule};
 use wardnetd_services::routing::firewall::{ExceptionAllow, ZoneIsolationRules};
 
 #[test]
@@ -229,6 +230,33 @@ fn zone_natexempt_chain_has_accept_for_pair_in_both_directions() {
         order2.iter().all(|c| *c == ZONE_NATEXEMPT_COMMENT),
         "every emitted rule is a NAT-exempt accept: {order2:?}"
     );
+}
+
+#[test]
+fn chain_has_comment_drives_jump_idempotence() {
+    // `ensure_isolation_jumps` adds a base-chain jump only when its comment is
+    // ABSENT (present ⇒ skip, so re-runs don't stack duplicates). Exercise that
+    // guard predicate directly: building rules with a comment is pure (no socket).
+    let table = wardnet_table();
+    let forward = chain_ref(&table, ZONE_ISOLATION);
+    let iso_rule = Rule::new(&forward)
+        .unwrap()
+        .with_userdata(comment_udata(ZONE_ISOJUMP_COMMENT));
+    let rules = vec![iso_rule];
+
+    // Present → guard reports true → the add is skipped.
+    assert!(
+        chain_has_comment(&rules, ZONE_ISOJUMP_COMMENT),
+        "isojump comment must be detected as present"
+    );
+    // A different jump comment is absent from the same chain → its add proceeds.
+    assert!(
+        !chain_has_comment(&rules, ZONE_NATEXEMPT_JUMP_COMMENT),
+        "natexempt jump must read as absent when only the isojump is present"
+    );
+    // An empty chain (post-flush / fresh table) reports neither → both jumps add.
+    assert!(!chain_has_comment(&[], ZONE_ISOJUMP_COMMENT));
+    assert!(!chain_has_comment(&[], ZONE_NATEXEMPT_JUMP_COMMENT));
 }
 
 #[test]

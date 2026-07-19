@@ -1315,6 +1315,17 @@ impl RoutingService for RoutingServiceImpl {
             .map_err(AppError::Internal)?;
         tracing::debug!("nftables table flushed");
 
+        // Re-establish the Network-Zone base-chain jumps that the flush above may
+        // have removed. This MUST run before `add_masquerade`: it restores the
+        // POSTROUTING→zone_natexempt jump as rule #0 of the now-empty postrouting
+        // chain, so the LAN masquerade appended next lands after it and NAT-exempt
+        // cross-zone flows are accepted before masquerade can rewrite them.
+        tracing::debug!("ensuring Network-Zone isolation jumps");
+        self.nftables
+            .ensure_isolation_jumps()
+            .await
+            .map_err(AppError::Internal)?;
+
         // Add base LAN masquerade rule so forwarded traffic from devices using
         // the Pi as their gateway gets NAT'd for the upstream router.
         tracing::debug!(interface = %self.lan_interface, "adding LAN masquerade rule");

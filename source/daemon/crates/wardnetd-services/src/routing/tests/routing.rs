@@ -626,6 +626,14 @@ impl FirewallManager for MockNftables {
         Ok(())
     }
 
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push("ensure_isolation_jumps".to_owned());
+        Ok(())
+    }
+
     async fn flush_wardnet_table(&self) -> anyhow::Result<()> {
         self.calls
             .lock()
@@ -1670,6 +1678,23 @@ async fn reconcile_enables_forwarding_and_inits_nftables() {
     assert!(
         nf.contains(&"flush_wardnet_table".to_owned()),
         "expected flush_wardnet_table: {nf:?}"
+    );
+
+    // The isolation jumps must be re-established AFTER the flush and BEFORE the
+    // base LAN masquerade, so the POSTROUTING→zone_natexempt jump is restored as
+    // rule #0 and the masquerade appends after it (the un-NAT ordering).
+    let pos = |needle: &str| {
+        nf.iter()
+            .position(|c| c == needle)
+            .unwrap_or_else(|| panic!("expected {needle} in nftables calls: {nf:?}"))
+    };
+    let flush_idx = pos("flush_wardnet_table");
+    let ensure_idx = pos("ensure_isolation_jumps");
+    let masq_idx = pos("add_masquerade:eth0");
+    assert!(
+        flush_idx < ensure_idx && ensure_idx < masq_idx,
+        "expected order flush({flush_idx}) < ensure_isolation_jumps({ensure_idx}) < \
+         add_masquerade({masq_idx}): {nf:?}"
     );
 }
 

@@ -56,6 +56,20 @@ pub(crate) fn route_table(route: &RouteMessage) -> u32 {
         .unwrap_or_else(|| u32::from(route.header.table))
 }
 
+/// The routing table an `ip rule` targets. Mirrors [`route_table`]: a table
+/// above 255 rides a `RuleAttribute::Table` attribute, otherwise the number is
+/// in `header.table`; the attribute wins so a wide table can't alias onto a
+/// small one.
+pub(crate) fn rule_table(rule: &RuleMessage) -> u32 {
+    rule.attributes
+        .iter()
+        .find_map(|a| match a {
+            RuleAttribute::Table(t) => Some(*t),
+            _ => None,
+        })
+        .unwrap_or_else(|| u32::from(rule.header.table))
+}
+
 /// Production [`PolicyRouter`] backed by Linux netlink sockets.
 ///
 /// Route and rule operations go through [`rtnetlink`]; conntrack flushing still
@@ -405,6 +419,13 @@ impl PolicyRouter for NetlinkPolicyRouter {
         let mut result = Vec::new();
 
         while let Some(rule) = rules_stream.try_next().await? {
+            // A switchback carve-out always looks up `main` (254). Skip anything
+            // targeting another table so the reconcile prune can never delete an
+            // unrelated priority-matched from/to rule that points elsewhere.
+            if rule_table(&rule) != u32::from(RT_TABLE_MAIN) {
+                continue;
+            }
+
             // Priority lives only in an attribute; a rule without one is not a
             // wardnet switchback carve-out (which always sets it explicitly).
             let Some(priority) = rule.attributes.iter().find_map(|a| match a {

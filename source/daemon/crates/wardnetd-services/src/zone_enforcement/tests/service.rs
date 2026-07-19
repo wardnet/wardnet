@@ -66,6 +66,9 @@ impl FirewallManager for RecordingFirewall {
     async fn init_wardnet_table(&self) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn flush_wardnet_table(&self) -> anyhow::Result<()> {
         Ok(())
     }
@@ -1355,5 +1358,89 @@ async fn casting_exception_populates_deduped_nat_exempt_pairs() {
         )],
         "the (from, to) pair must appear exactly once despite many casting ports: {:?}",
         rules.nat_exempt_pairs
+    );
+}
+
+/// Insert a bidirectional casting exception between `ZONE_A` and `ZONE_B`.
+async fn insert_zone_casting_exception(h: &Harness) {
+    let now = chrono::Utc::now();
+    h.exceptions
+        .insert(&ZoneException {
+            id: Uuid::new_v4(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_A.parse().unwrap(),
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_B.parse().unwrap(),
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn identical_reconcile_pushes_switchback_once() {
+    // A startup burst of identical reconciles must push switchback exactly once
+    // per device — the per-device push loop is debounced against last_switchback,
+    // not re-run on every reconcile (avoiding O(N^2) over the burst).
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Entertainment", "192.168.201.0/24", false).await;
+    let family = insert_device(&h.devices, "192.168.200.10", ZONE_A).await;
+    let _tv = insert_device(&h.devices, "192.168.201.20", ZONE_B).await;
+    insert_zone_casting_exception(&h).await;
+
+    as_admin(h.svc.apply_device(family)).await.unwrap();
+    let after_first = h.switchback.lock().await.len();
+    as_admin(h.svc.apply_device(family)).await.unwrap();
+    as_admin(h.svc.apply_device(family)).await.unwrap();
+    let after_repeats = h.switchback.lock().await.len();
+
+    assert_eq!(
+        after_first, 2,
+        "first reconcile pushes once per device (2 devices)"
+    );
+    assert_eq!(
+        after_first, after_repeats,
+        "identical reconciles must not re-push switchback: {after_first} vs {after_repeats}"
+    );
+}
+
+#[tokio::test]
+async fn device_zone_change_repushes_switchback() {
+    // A device changing zone alters switchback membership without changing the
+    // isolation `rules`, so it must still trigger a fresh push.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Entertainment", "192.168.201.0/24", false).await;
+    let family = insert_device(&h.devices, "192.168.200.10", ZONE_A).await;
+    let _tv = insert_device(&h.devices, "192.168.201.20", ZONE_B).await;
+    insert_zone_casting_exception(&h).await;
+
+    as_admin(h.svc.apply_device(family)).await.unwrap();
+    let baseline = h.switchback.lock().await.len();
+
+    // Move the family device into ZONE_B: its target CIDR flips (Family subnet
+    // instead of Entertainment subnet), so the snapshot changes.
+    h.devices
+        .assign_zone(&family.to_string(), ZONE_B)
+        .await
+        .unwrap();
+    as_admin(h.svc.handle_zone_change(family)).await.unwrap();
+
+    let after = h.switchback.lock().await.len();
+    assert!(
+        after > baseline,
+        "a device-zone change must re-push switchback: {after} vs {baseline}"
     );
 }

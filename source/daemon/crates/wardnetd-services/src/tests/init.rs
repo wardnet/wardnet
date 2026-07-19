@@ -202,6 +202,9 @@ impl FirewallManager for StubFirewall {
     async fn init_wardnet_table(&self) -> anyhow::Result<()> {
         unimplemented!()
     }
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
+        unimplemented!()
+    }
     async fn flush_wardnet_table(&self) -> anyhow::Result<()> {
         unimplemented!()
     }

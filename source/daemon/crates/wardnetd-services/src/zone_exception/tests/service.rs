@@ -341,6 +341,45 @@ async fn create_accepts_mirroring_device_to_device() {
 }
 
 #[tokio::test]
+async fn create_rejects_full_range_ports_with_zone_endpoint() {
+    // The device-to-device requirement is keyed on the RESOLVED ports, not the
+    // preset name, so an explicit 1-65535 Ports spec (the same all-ports surface
+    // as Mirroring) is refused zone-to-zone just like the preset.
+    let h = build().await;
+    let device_id = Uuid::new_v4();
+    insert_device(&h.devices, device_id).await;
+    let req = CreateZoneExceptionRequest {
+        from: ExceptionEndpoint {
+            kind: ExceptionEndpointKind::Device,
+            id: device_id,
+        },
+        to: ExceptionEndpoint {
+            kind: ExceptionEndpointKind::Zone,
+            id: IOT.parse().unwrap(),
+        },
+        service: ServiceSpec::Ports {
+            ports: vec![
+                PortSpec {
+                    proto: Proto::Tcp,
+                    from: 1,
+                    to: 65535,
+                },
+                PortSpec {
+                    proto: Proto::Udp,
+                    from: 1,
+                    to: 65535,
+                },
+            ],
+        },
+        bidirectional: true,
+    };
+    assert!(matches!(
+        as_admin(h.svc.create_exception(req)).await,
+        Err(AppError::BadRequest(_))
+    ));
+}
+
+#[tokio::test]
 async fn create_accepts_explicit_ports() {
     let h = build().await;
     let mut req = valid_req(&h.devices).await;
