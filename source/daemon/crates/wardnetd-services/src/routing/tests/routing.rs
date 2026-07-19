@@ -2331,3 +2331,112 @@ async fn set_default_policy_does_not_touch_explicit_targets() {
         "policy change must not re-apply devices with explicit targets: {nl:?}"
     );
 }
+
+#[tokio::test]
+async fn handle_default_policy_changed_syncs_and_reapplies_default_ruled_devices() {
+    // Mirrors the tunnel-deletion path: the default policy points at a
+    // tunnel, a Default-ruled device routes through it, and then the
+    // policy is reset to "direct" *outside* this service (persisted by
+    // the tunnel service, announced via DefaultPolicyChanged). The
+    // handler must update the in-memory policy and re-route the device
+    // — without it, the cache keeps the deleted tunnel's UUID and every
+    // later resolve falls back to direct only via the NotFound path.
+    let d1 = sample_device(device_id_1(), "192.168.1.10");
+    let mut rules = HashMap::new();
+    rules.insert(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Default,
+            created_by: RuleCreator::User,
+        },
+    );
+    let ts = setup_with_devices_and_tunnel(
+        vec![d1],
+        rules,
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["1.1.1.1".to_owned()])),
+        tunnel_id_1().to_string(),
+    );
+
+    // Initial apply under policy=tunnel → device routes through it.
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.1.10", &RoutingTarget::Default),
+    )
+    .await
+    .unwrap();
+    {
+        let nl = ts.netlink_calls.lock().await;
+        assert!(
+            nl.iter().any(|c| c.starts_with("add_ip_rule:192.168.1.10")),
+            "Default → Tunnel should add an ip rule: {nl:?}"
+        );
+    }
+
+    // Absorb the externally persisted reset to "direct".
+    as_admin(ts.routing.handle_default_policy_changed("direct"))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        as_admin(ts.routing.default_policy()).await.unwrap(),
+        "direct",
+        "in-memory policy must catch up with the external change"
+    );
+    let nl = ts.netlink_calls.lock().await;
+    assert!(
+        nl.iter()
+            .any(|c| c.starts_with("remove_ip_rule:192.168.1.10")),
+        "Default-ruled device must be re-routed off the removed policy tunnel: {nl:?}"
+    );
+}
+
+#[tokio::test]
+async fn handle_default_policy_changed_noop_when_already_in_sync() {
+    // When the in-memory policy already matches, the event originated
+    // from set_default_policy (which re-applies devices inline before
+    // publishing) — the handler must not run a second sweep.
+    let d1 = sample_device(device_id_1(), "192.168.1.10");
+    let mut rules = HashMap::new();
+    rules.insert(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Default,
+            created_by: RuleCreator::User,
+        },
+    );
+    let ts = setup_with_devices_and_tunnel(
+        vec![d1],
+        rules,
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["1.1.1.1".to_owned()])),
+        tunnel_id_1().to_string(),
+    );
+
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.1.10", &RoutingTarget::Default),
+    )
+    .await
+    .unwrap();
+    let baseline = ts.netlink_calls.lock().await.len();
+
+    as_admin(
+        ts.routing
+            .handle_default_policy_changed(&tunnel_id_1().to_string()),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        ts.netlink_calls.lock().await.len(),
+        baseline,
+        "an in-sync policy event must not touch kernel state"
+    );
+    assert_eq!(
+        as_admin(ts.routing.default_policy()).await.unwrap(),
+        tunnel_id_1().to_string(),
+    );
+}

@@ -179,6 +179,19 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
             }
         }
 
+        WardnetEvent::DefaultPolicyChanged { policy, .. } => {
+            if let Err(e) = wardnetd_services::auth_context::with_context(
+                AuthContext::Admin {
+                    admin_id: uuid::Uuid::nil(),
+                },
+                routing.handle_default_policy_changed(&policy),
+            )
+            .await
+            {
+                tracing::warn!(error = %e, policy, "failed to handle default policy change to {policy}: {e}");
+            }
+        }
+
         WardnetEvent::TunnelDnsOverrideChanged { tunnel_id, .. } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
                 AuthContext::Admin {
@@ -224,9 +237,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::DnsEventInserted { .. }
         // Network Zones (#735) record intent only in Phase 1; the routing
         // listener does not react to zone changes. The CI-2/CI-3 enforcers
-        // (#736/#737) subscribe separately. `DefaultPolicyChanged` is likewise
-        // consumed by the zone enforcer (#736), not here — the routing engine
-        // already re-applies `Default`-ruled devices inside `set_default_policy`.
+        // (#736/#737) subscribe separately.
         | WardnetEvent::NetworkZoneChanged { .. }
         | WardnetEvent::DeviceZoneChanged { .. }
         | WardnetEvent::ZoneExceptionsChanged { .. }
@@ -235,7 +246,6 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::NewDeviceQuarantined { .. }
         | WardnetEvent::RuleRequestCreated { .. }
         // Entitlement changes are handled by the dedicated `entitlement_listener`.
-        | WardnetEvent::EntitlementChanged { .. }
-        | WardnetEvent::DefaultPolicyChanged { .. } => {}
+        | WardnetEvent::EntitlementChanged { .. } => {}
     }
 }

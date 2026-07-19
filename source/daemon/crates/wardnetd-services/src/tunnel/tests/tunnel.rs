@@ -31,7 +31,7 @@ use wardnet_common::speed_test::TunnelSpeedTestResult;
 use wardnet_common::tunnel::BestServerSelector;
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::repository::tunnel_speed_test::{SpeedTestRow, TunnelSpeedTestRepository};
-use wardnetd_data::repository::{DeviceRepository, TunnelRepository};
+use wardnetd_data::repository::{DeviceRepository, SystemConfigRepository, TunnelRepository};
 
 /// Helper to create an admin auth context for tests.
 pub(super) fn admin_ctx() -> AuthContext {
@@ -641,6 +641,54 @@ impl TunnelSpeedTestRepository for MockSpeedTestRepo {
     }
 }
 
+// -- Mock SystemConfigRepository -------------------------------------------
+
+/// In-memory key-value mock backing the `default_policy` check that
+/// `delete_tunnel` performs before tearing a tunnel down.
+pub(super) struct MockSystemConfigRepo {
+    store: Mutex<std::collections::HashMap<String, String>>,
+}
+
+impl MockSystemConfigRepo {
+    fn new() -> Self {
+        Self {
+            store: Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+}
+
+#[async_trait]
+impl SystemConfigRepository for MockSystemConfigRepo {
+    async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
+        Ok(self.store.lock().unwrap().get(key).cloned())
+    }
+
+    async fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
+        self.store
+            .lock()
+            .unwrap()
+            .insert(key.to_owned(), value.to_owned());
+        Ok(())
+    }
+
+    async fn delete(&self, key: &str) -> anyhow::Result<()> {
+        self.store.lock().unwrap().remove(key);
+        Ok(())
+    }
+
+    async fn device_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+
+    async fn tunnel_count(&self) -> anyhow::Result<i64> {
+        Ok(0)
+    }
+
+    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+}
+
 // -- Mock EventPublisher --------------------------------------------------
 
 /// Records published events for assertion.
@@ -935,6 +983,7 @@ pub(super) struct TestHarness {
     pub(super) svc: Arc<TunnelServiceImpl>,
     pub(super) tunnels: Arc<MockTunnelRepo>,
     pub(super) tunnel_iface: Arc<MockTunnelInterface>,
+    pub(super) system_config: Arc<MockSystemConfigRepo>,
     events: Arc<MockEventPublisher>,
     keys: Arc<MockKeyStore>,
     stats_buffer: Arc<StatsBuffer>,
@@ -950,6 +999,7 @@ pub(super) fn build_harness() -> TestHarness {
     let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepoForTunnel);
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
+    let system_config = Arc::new(MockSystemConfigRepo::new());
     let events = Arc::new(MockEventPublisher::new());
     let exit_probe = Arc::new(MockTunnelExitProbe::new());
     let latency_prober = Arc::new(MockTunnelLatencyProber::new());
@@ -964,6 +1014,7 @@ pub(super) fn build_harness() -> TestHarness {
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
         device_repo,
+        system_config.clone(),
         tunnel_iface.clone(),
         exit_probe.clone(),
         latency_prober.clone(),
@@ -981,6 +1032,7 @@ pub(super) fn build_harness() -> TestHarness {
         svc: Arc::new(svc),
         tunnels: repo,
         tunnel_iface,
+        system_config,
         events,
         keys,
         stats_buffer,
@@ -996,6 +1048,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
     let repo = Arc::new(MockTunnelRepo::new());
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
+    let system_config = Arc::new(MockSystemConfigRepo::new());
     let events = Arc::new(MockEventPublisher::new());
     let exit_probe = Arc::new(MockTunnelExitProbe::new());
     let latency_prober = Arc::new(MockTunnelLatencyProber::new());
@@ -1010,6 +1063,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
         device_repo,
+        system_config.clone(),
         tunnel_iface.clone(),
         exit_probe.clone(),
         latency_prober.clone(),
@@ -1027,6 +1081,7 @@ fn build_harness_with_device_repo(device_repo: Arc<dyn DeviceRepository>) -> Tes
         svc: Arc::new(svc),
         tunnels: repo,
         tunnel_iface,
+        system_config,
         events,
         keys,
         stats_buffer,
@@ -1043,6 +1098,7 @@ fn build_harness_with_resolver(server_resolver: Arc<dyn ServerResolver>) -> Test
     let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepoForTunnel);
     let tunnel_iface = Arc::new(MockTunnelInterface::new());
     let keys = Arc::new(MockKeyStore::new());
+    let system_config = Arc::new(MockSystemConfigRepo::new());
     let events = Arc::new(MockEventPublisher::new());
     let exit_probe = Arc::new(MockTunnelExitProbe::new());
     let latency_prober = Arc::new(MockTunnelLatencyProber::new());
@@ -1056,6 +1112,7 @@ fn build_harness_with_resolver(server_resolver: Arc<dyn ServerResolver>) -> Test
     let svc = TunnelServiceImpl::with_key_store(
         repo.clone(),
         device_repo,
+        system_config.clone(),
         tunnel_iface.clone(),
         exit_probe.clone(),
         latency_prober.clone(),
@@ -1073,6 +1130,7 @@ fn build_harness_with_resolver(server_resolver: Arc<dyn ServerResolver>) -> Test
         svc: Arc::new(svc),
         tunnels: repo,
         tunnel_iface,
+        system_config,
         events,
         keys,
         stats_buffer,
@@ -1473,6 +1531,84 @@ async fn delete_tunnel_not_found() {
     let result = auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(Uuid::new_v4())).await;
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), AppError::NotFound(_)));
+}
+
+#[tokio::test]
+async fn delete_tunnel_resets_default_policy_pointing_at_it() {
+    // Deleting the tunnel that *is* the global default policy must reset
+    // the policy to "direct" and announce the change — otherwise the
+    // config keeps a dangling tunnel UUID and every `Default`-ruled
+    // device silently degrades to direct on its next resolve.
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    h.system_config
+        .set_default_policy(&id.to_string())
+        .await
+        .unwrap();
+
+    auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(id))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        h.system_config
+            .get_default_policy()
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("direct"),
+        "default policy must be reset to direct when its tunnel is deleted"
+    );
+    let events = h.events.published_events();
+    assert!(
+        events.iter().any(|e| matches!(
+            e,
+            WardnetEvent::DefaultPolicyChanged { policy, .. } if policy == "direct"
+        )),
+        "deletion of the default-policy tunnel must publish DefaultPolicyChanged: {events:?}"
+    );
+}
+
+#[tokio::test]
+async fn delete_tunnel_leaves_unrelated_default_policy_untouched() {
+    // Deleting a tunnel that is NOT the default policy must not rewrite
+    // the policy or publish a policy-change event.
+    let h = build_harness();
+    let resp = auth_context::with_context(admin_ctx(), h.svc.import_tunnel(sample_request()))
+        .await
+        .unwrap();
+    let id = resp.tunnel.id;
+
+    let other_tunnel = Uuid::new_v4().to_string();
+    h.system_config
+        .set_default_policy(&other_tunnel)
+        .await
+        .unwrap();
+
+    auth_context::with_context(admin_ctx(), h.svc.delete_tunnel(id))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        h.system_config
+            .get_default_policy()
+            .await
+            .unwrap()
+            .as_deref(),
+        Some(other_tunnel.as_str()),
+        "an unrelated default policy must survive tunnel deletion"
+    );
+    let events = h.events.published_events();
+    assert!(
+        !events
+            .iter()
+            .any(|e| matches!(e, WardnetEvent::DefaultPolicyChanged { .. })),
+        "deleting a non-default-policy tunnel must not publish DefaultPolicyChanged: {events:?}"
+    );
 }
 
 #[tokio::test]

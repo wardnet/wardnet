@@ -118,6 +118,25 @@ pub trait RoutingService: Send + Sync {
     /// Read the current global default routing policy.
     async fn default_policy(&self) -> Result<String, AppError>;
 
+    /// Absorb a default-policy change that was persisted outside this
+    /// service and re-resolve `Default`-ruled devices against it.
+    ///
+    /// [`Self::set_default_policy`] is the normal write path, but the
+    /// policy can also be rewritten by tunnel deletion (a tunnel that
+    /// *is* the default policy is reset to `"direct"` so the config
+    /// never dangles). The tunnel service persists that reset and
+    /// announces it via
+    /// [`wardnet_common::event::WardnetEvent::DefaultPolicyChanged`];
+    /// the routing listener forwards the event here so the in-memory
+    /// policy used by [`Self::apply_rule`] catches up and affected
+    /// devices re-route immediately. A no-op when the in-memory value
+    /// already matches (i.e. the change originated from
+    /// [`Self::set_default_policy`], which syncs and re-applies inline
+    /// before publishing).
+    ///
+    /// No auth guard — callers wrap this in `auth_context::with_context(...)`.
+    async fn handle_default_policy_changed(&self, policy: &str) -> Result<(), AppError>;
+
     /// Lock-free, atomically swappable snapshot of `device_ip → UpstreamId`
     /// for the DNS server's per-query upstream selection.
     ///
@@ -267,6 +286,65 @@ impl RoutingServiceImpl {
             },
             |guard| guard.clone(),
         )
+    }
+
+    /// Re-apply every device whose *stored DB rule* is
+    /// `RoutingTarget::Default`. The cached `applied` entry holds the
+    /// already-resolved target (e.g. Direct) which `apply_rule`'s
+    /// phase-1 short-circuit compares against — without this walk,
+    /// already-routed devices keep flowing through the *previous*
+    /// policy until something else (IP change, tunnel up/down)
+    /// triggers a re-apply. A policy switch is supposed to take
+    /// effect immediately, not "next time something happens to the
+    /// device", so iterate now.
+    ///
+    /// Errors per device are logged and swallowed — one device
+    /// failing to re-route shouldn't abort the policy change for
+    /// the rest. `apply_rule` already falls back to direct on its
+    /// own internal failures.
+    async fn reapply_default_ruled_devices(&self) -> Result<(), AppError> {
+        let devices = self.devices.find_all().await.map_err(AppError::Internal)?;
+        let mut reapplied = 0u32;
+        for device in &devices {
+            let rule = match self
+                .devices
+                .find_rule_for_device(&device.id.to_string())
+                .await
+            {
+                Ok(Some(rule)) => rule,
+                Ok(None) => continue,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        device_id = %device.id,
+                        "failed to load routing rule while re-applying default policy"
+                    );
+                    continue;
+                }
+            };
+            if !matches!(rule.target, RoutingTarget::Default) {
+                continue;
+            }
+            if let Err(e) = self
+                .apply_rule(device.id, &device.last_ip, &RoutingTarget::Default)
+                .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    device_id = %device.id,
+                    "failed to re-apply default policy for device"
+                );
+            } else {
+                reapplied += 1;
+            }
+        }
+        tracing::info!(
+            reapplied,
+            total_devices = devices.len(),
+            "re-applied default routing policy across devices"
+        );
+
+        Ok(())
     }
 
     /// Resolve `RoutingTarget::Default` into a concrete target based on the
@@ -1459,67 +1537,41 @@ impl RoutingService for RoutingServiceImpl {
             timestamp: chrono::Utc::now(),
         });
 
-        // Re-apply every device whose *stored DB rule* is
-        // RoutingTarget::Default. The cached `applied` entry holds the
-        // already-resolved target (e.g. Direct) which apply_rule's
-        // phase-1 short-circuit compares against — without this walk,
-        // already-routed devices keep flowing through the *previous*
-        // policy until something else (IP change, tunnel up/down)
-        // triggers a re-apply. The policy switch is supposed to take
-        // effect immediately, not "next time something happens to the
-        // device", so iterate now.
-        //
-        // Errors per device are logged and swallowed — one device
-        // failing to re-route shouldn't abort the policy change for
-        // the rest. apply_rule already falls back to direct on its
-        // own internal failures.
-        let devices = self.devices.find_all().await.map_err(AppError::Internal)?;
-        let mut reapplied = 0u32;
-        for device in &devices {
-            let rule = match self
-                .devices
-                .find_rule_for_device(&device.id.to_string())
-                .await
-            {
-                Ok(Some(rule)) => rule,
-                Ok(None) => continue,
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        device_id = %device.id,
-                        "failed to load routing rule while re-applying default policy"
-                    );
-                    continue;
-                }
-            };
-            if !matches!(rule.target, RoutingTarget::Default) {
-                continue;
-            }
-            if let Err(e) = self
-                .apply_rule(device.id, &device.last_ip, &RoutingTarget::Default)
-                .await
-            {
-                tracing::warn!(
-                    error = %e,
-                    device_id = %device.id,
-                    "failed to re-apply default policy for device"
-                );
-            } else {
-                reapplied += 1;
-            }
-        }
-        tracing::info!(
-            reapplied,
-            total_devices = devices.len(),
-            "re-applied default routing policy across devices"
-        );
-
-        Ok(())
+        self.reapply_default_ruled_devices().await
     }
 
     async fn default_policy(&self) -> Result<String, AppError> {
         auth_context::require_admin()?;
         Ok(self.current_default_policy())
+    }
+
+    async fn handle_default_policy_changed(&self, policy: &str) -> Result<(), AppError> {
+        // No auth guard — invoked from the routing listener, which already
+        // runs inside an `auth_context::with_context(Admin)` wrapper.
+        match self.default_policy.write() {
+            Ok(mut guard) => {
+                if *guard == policy {
+                    // Already in sync — the change came through
+                    // `set_default_policy`, which updated the cache and
+                    // re-applied devices before publishing the event.
+                    return Ok(());
+                }
+                policy.clone_into(&mut guard);
+            }
+            Err(e) => {
+                tracing::error!(error = %e, "default_policy lock poisoned during sync");
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "default_policy lock poisoned"
+                )));
+            }
+        }
+
+        tracing::info!(
+            policy,
+            "absorbed externally persisted default routing policy change"
+        );
+
+        self.reapply_default_ruled_devices().await
     }
 
     fn dns_upstream_snapshot(&self) -> Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>> {

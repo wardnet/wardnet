@@ -57,6 +57,9 @@ enum RoutingCall {
     HandleRouteTableLost {
         table: u32,
     },
+    HandleDefaultPolicyChanged {
+        policy: String,
+    },
     RebuildDnsUpstreamSnapshot,
 }
 
@@ -193,6 +196,16 @@ impl RoutingService for MockRoutingService {
         Ok("direct".to_owned())
     }
 
+    async fn handle_default_policy_changed(&self, policy: &str) -> Result<(), AppError> {
+        self.calls
+            .lock()
+            .unwrap()
+            .push(RoutingCall::HandleDefaultPolicyChanged {
+                policy: policy.to_owned(),
+            });
+        Ok(())
+    }
+
     fn dns_upstream_snapshot(
         &self,
     ) -> std::sync::Arc<
@@ -298,6 +311,12 @@ impl RoutingService for FailingRoutingService {
 
     async fn default_policy(&self) -> Result<String, AppError> {
         Err(AppError::Internal(anyhow::anyhow!("default_policy failed")))
+    }
+
+    async fn handle_default_policy_changed(&self, _policy: &str) -> Result<(), AppError> {
+        Err(AppError::Internal(anyhow::anyhow!(
+            "handle_default_policy_changed failed"
+        )))
     }
 
     fn dns_upstream_snapshot(
@@ -738,6 +757,53 @@ async fn tunnel_dns_override_changed_triggers_rebuild_dns_upstream_snapshot() {
     let calls = routing.take_calls();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0], RoutingCall::RebuildDnsUpstreamSnapshot);
+}
+
+#[tokio::test]
+async fn default_policy_changed_triggers_handle_default_policy_changed() {
+    // The default policy can be rewritten outside the routing service —
+    // deleting the tunnel it points at resets it to "direct". The
+    // listener must forward the event so the routing engine's in-memory
+    // policy catches up and Default-ruled devices re-resolve immediately.
+    let bus: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+    let routing = Arc::new(MockRoutingService::new());
+
+    let parent = tracing::info_span!("test");
+    let listener = RoutingListener::start(&bus, routing.clone(), &parent);
+
+    bus.publish(WardnetEvent::DefaultPolicyChanged {
+        policy: "direct".to_owned(),
+        timestamp: Utc::now(),
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    listener.shutdown().await;
+
+    let calls = routing.take_calls();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        calls[0],
+        RoutingCall::HandleDefaultPolicyChanged {
+            policy: "direct".to_owned(),
+        }
+    );
+}
+
+#[tokio::test]
+async fn default_policy_changed_error_does_not_panic() {
+    let bus: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+    let routing: Arc<dyn RoutingService> = Arc::new(FailingRoutingService);
+
+    let parent = tracing::info_span!("test");
+    let listener = RoutingListener::start(&bus, routing, &parent);
+
+    bus.publish(WardnetEvent::DefaultPolicyChanged {
+        policy: "direct".to_owned(),
+        timestamp: Utc::now(),
+    });
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+    listener.shutdown().await;
 }
 
 #[tokio::test]

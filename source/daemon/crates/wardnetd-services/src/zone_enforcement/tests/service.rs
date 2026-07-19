@@ -286,6 +286,9 @@ impl RoutingService for RecordingRouting {
     async fn default_policy(&self) -> Result<String, AppError> {
         unimplemented!()
     }
+    async fn handle_default_policy_changed(&self, _policy: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     fn dns_upstream_snapshot(&self) -> Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>> {
         unimplemented!()
     }

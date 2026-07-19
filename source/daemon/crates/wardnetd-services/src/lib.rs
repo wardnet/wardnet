@@ -641,6 +641,7 @@ fn create_services(
     let tunnel_service: Arc<dyn TunnelService> = Arc::new(TunnelServiceImpl::new(
         tunnel_repo.clone(),
         device_repo.clone(),
+        system_config_repo.clone(),
         backends.tunnel_interface.clone(),
         backends.tunnel_exit_probe.clone(),
         backends.tunnel_latency_prober.clone(),
