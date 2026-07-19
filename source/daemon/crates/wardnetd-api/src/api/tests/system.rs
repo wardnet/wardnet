@@ -223,6 +223,16 @@ impl MockRoutingService {
 #[async_trait]
 #[allow(clippy::similar_names)] // matches the RoutingService trait's own argument names.
 impl RoutingService for MockRoutingService {
+    async fn set_switchback_targets(
+        &self,
+        device_id: Uuid,
+        device_ip: String,
+        target_cidrs: Vec<String>,
+    ) -> Result<(), AppError> {
+        self.inner
+            .set_switchback_targets(device_id, device_ip, target_cidrs)
+            .await
+    }
     async fn apply_rule(
         &self,
         device_id: Uuid,

@@ -148,6 +148,25 @@ impl PolicyRouter for StubPolicyRouter {
     async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
         unimplemented!()
     }
+    async fn add_switchback_rule(
+        &self,
+        _src_ip: &str,
+        _dst_cidr: &str,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn remove_switchback_rule(
+        &self,
+        _src_ip: &str,
+        _dst_cidr: &str,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>> {
+        unimplemented!()
+    }
     async fn flush_conntrack(&self, _src_ip: &str) -> anyhow::Result<()> {
         unimplemented!()
     }
@@ -181,6 +200,9 @@ struct StubFirewall;
 #[async_trait]
 impl FirewallManager for StubFirewall {
     async fn init_wardnet_table(&self) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
         unimplemented!()
     }
     async fn flush_wardnet_table(&self) -> anyhow::Result<()> {

@@ -14,6 +14,33 @@ use rtnetlink::packet_route::route::{RouteHeader, RouteMessage};
 use wardnetd_services::command::{CommandExecutor, CommandOutput};
 use wardnetd_services::routing::policy_router::PolicyRouter;
 
+/// The kernel `main` routing table id (254). Switchback carve-outs re-assert it
+/// for specific cross-zone destinations so a tunnel-bound device delivers that
+/// LAN traffic locally instead of over its per-tunnel table.
+const RT_TABLE_MAIN: u8 = 254;
+
+/// Parse an IPv4 `a.b.c.d/p` CIDR into `(address, prefix_length)`. A bare
+/// address (no `/p`) is treated as a `/32` host route.
+fn parse_ipv4_cidr(cidr: &str) -> anyhow::Result<(Ipv4Addr, u8)> {
+    let Some((addr, prefix)) = cidr.split_once('/') else {
+        // A bare address is a `/32` host route.
+        let ip: Ipv4Addr = cidr
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid CIDR {cidr}: {e}"))?;
+        return Ok((ip, 32));
+    };
+    let ip: Ipv4Addr = addr
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid CIDR address {cidr}: {e}"))?;
+    let len: u8 = prefix
+        .parse()
+        .map_err(|e| anyhow::anyhow!("invalid CIDR prefix {cidr}: {e}"))?;
+    if len > 32 {
+        anyhow::bail!("invalid CIDR prefix {cidr}: prefix > 32");
+    }
+    Ok((ip, len))
+}
+
 /// The routing table a route belongs to. For tables > 255 the number lives in
 /// an attribute; otherwise in the header. The attribute wins so a wide table
 /// can't alias onto a small one. Shared with `route_monitor`, which watches
@@ -27,6 +54,20 @@ pub(crate) fn route_table(route: &RouteMessage) -> u32 {
             _ => None,
         })
         .unwrap_or_else(|| u32::from(route.header.table))
+}
+
+/// The routing table an `ip rule` targets. Mirrors [`route_table`]: a table
+/// above 255 rides a `RuleAttribute::Table` attribute, otherwise the number is
+/// in `header.table`; the attribute wins so a wide table can't alias onto a
+/// small one.
+pub(crate) fn rule_table(rule: &RuleMessage) -> u32 {
+    rule.attributes
+        .iter()
+        .find_map(|a| match a {
+            RuleAttribute::Table(t) => Some(*t),
+            _ => None,
+        })
+        .unwrap_or_else(|| u32::from(rule.header.table))
 }
 
 /// Production [`PolicyRouter`] backed by Linux netlink sockets.
@@ -268,6 +309,145 @@ impl PolicyRouter for NetlinkPolicyRouter {
 
             if let Some(ip) = src_ip {
                 result.push((ip, table));
+            }
+        }
+
+        Ok(result)
+    }
+
+    async fn add_switchback_rule(
+        &self,
+        src_ip: &str,
+        dst_cidr: &str,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        let src: Ipv4Addr = src_ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid switchback src IP {src_ip}: {e}"))?;
+        let (dst, dst_len) = parse_ipv4_cidr(dst_cidr)?;
+
+        // `ip rule from <src>/32 to <dst_cidr> lookup main priority <priority>`.
+        // The `main` table (254) already delivers cross-zone LAN traffic locally,
+        // so this pulls the exception's destination back off the per-tunnel table.
+        let result = self
+            .handle
+            .rule()
+            .add()
+            .v4()
+            .source_prefix(src, 32)
+            .destination_prefix(dst, dst_len)
+            .table_id(u32::from(RT_TABLE_MAIN))
+            .priority(priority)
+            .action(RuleAction::ToTable)
+            .execute()
+            .await;
+
+        match result {
+            Ok(()) => Ok(()),
+            Err(rtnetlink::Error::NetlinkError(msg)) if msg.to_string().contains("File exists") => {
+                tracing::debug!(
+                    src_ip,
+                    dst_cidr,
+                    priority,
+                    "switchback rule already exists, skipping"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                anyhow::bail!(
+                    "failed to add switchback rule from {src_ip} to {dst_cidr} \
+                     lookup main priority {priority}: {e}"
+                )
+            }
+        }
+    }
+
+    async fn remove_switchback_rule(
+        &self,
+        src_ip: &str,
+        dst_cidr: &str,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        let src: Ipv4Addr = src_ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid switchback src IP {src_ip}: {e}"))?;
+        let (dst, dst_len) = parse_ipv4_cidr(dst_cidr)?;
+
+        // Match the rule precisely: src/32 + dst/dst_len + main table + priority.
+        // The priority is what disambiguates a carve-out from any other
+        // `to <dst> lookup main` rule the box might carry.
+        let mut rule_msg = RuleMessage::default();
+        rule_msg.header.family = AddressFamily::Inet;
+        rule_msg.header.src_len = 32;
+        rule_msg.header.dst_len = dst_len;
+        rule_msg.header.action = RuleAction::ToTable;
+        rule_msg.header.table = RT_TABLE_MAIN;
+        rule_msg.attributes.push(RuleAttribute::Source(src.into()));
+        rule_msg
+            .attributes
+            .push(RuleAttribute::Destination(dst.into()));
+        rule_msg.attributes.push(RuleAttribute::Priority(priority));
+
+        let result = self.handle.rule().del(rule_msg).execute().await;
+        match result {
+            Ok(()) => Ok(()),
+            Err(rtnetlink::Error::NetlinkError(msg))
+                if {
+                    let s = msg.to_string();
+                    s.contains("No such file or directory") || s.contains("No such process")
+                } =>
+            {
+                tracing::debug!(
+                    src_ip,
+                    dst_cidr,
+                    priority,
+                    "switchback rule not present, nothing to remove"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                anyhow::bail!(
+                    "failed to remove switchback rule from {src_ip} to {dst_cidr} \
+                     lookup main priority {priority}: {e}"
+                )
+            }
+        }
+    }
+
+    async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>> {
+        let mut rules_stream = self.handle.rule().get(rtnetlink::IpVersion::V4).execute();
+        let mut result = Vec::new();
+
+        while let Some(rule) = rules_stream.try_next().await? {
+            // A switchback carve-out always looks up `main` (254). Skip anything
+            // targeting another table so the reconcile prune can never delete an
+            // unrelated priority-matched from/to rule that points elsewhere.
+            if rule_table(&rule) != u32::from(RT_TABLE_MAIN) {
+                continue;
+            }
+
+            // Priority lives only in an attribute; a rule without one is not a
+            // wardnet switchback carve-out (which always sets it explicitly).
+            let Some(priority) = rule.attributes.iter().find_map(|a| match a {
+                RuleAttribute::Priority(p) => Some(*p),
+                _ => None,
+            }) else {
+                continue;
+            };
+
+            let src = rule.attributes.iter().find_map(|a| match a {
+                RuleAttribute::Source(addr) => Some(format!("{addr}")),
+                _ => None,
+            });
+            let dst = rule.attributes.iter().find_map(|a| match a {
+                RuleAttribute::Destination(addr) => Some(format!("{addr}")),
+                _ => None,
+            });
+
+            if let (Some(src), Some(dst)) = (src, dst) {
+                // Re-form the destination as `a.b.c.d/p` from the header prefix.
+                let dst_cidr = format!("{dst}/{}", rule.header.dst_len);
+                result.push((src, dst_cidr, priority));
             }
         }
 

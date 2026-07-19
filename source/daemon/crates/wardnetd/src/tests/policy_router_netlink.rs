@@ -11,8 +11,9 @@ use rtnetlink::packet_route::AddressFamily;
 use rtnetlink::packet_route::route::{
     RouteAddress, RouteAttribute, RouteHeader, RouteMessage, RouteScope, RouteType,
 };
+use rtnetlink::packet_route::rule::{RuleAttribute, RuleMessage};
 
-use crate::policy_router_netlink::is_removable_host_route;
+use crate::policy_router_netlink::{is_removable_host_route, rule_table};
 
 /// `main` (254) is where `add_host_route` files our routes; `local` (255) is
 /// the kernel-owned table holding the `scope host` route that delivers each of
@@ -115,4 +116,28 @@ fn non_host_prefix_is_not_removable() {
     let mut route = our_host_route(DEVICE_IP);
     route.header.destination_prefix_length = 24;
     assert!(!is_removable_host_route(&route, DEVICE_IP, OIF));
+}
+
+// -- rule_table: switchback prune must only see `main`-table rules ------------
+
+#[test]
+fn rule_table_reads_small_table_from_header() {
+    // main (254) fits in the u8 header, so `add_switchback_rule` files it there.
+    let mut rule = RuleMessage::default();
+    rule.header.family = AddressFamily::Inet;
+    rule.header.table = RT_TABLE_MAIN;
+    assert_eq!(rule_table(&rule), u32::from(RT_TABLE_MAIN));
+}
+
+#[test]
+fn rule_table_prefers_wide_table_attribute_over_header() {
+    // A table > 255 rides an attribute; it must win over the header so a wide
+    // table can't alias onto a small one — and so the switchback prune (which
+    // filters on `== main`) never mistakes it for a carve-out.
+    let mut rule = RuleMessage::default();
+    rule.header.family = AddressFamily::Inet;
+    rule.header.table = 0; // RT_TABLE_UNSPEC placeholder for a wide table
+    rule.attributes.push(RuleAttribute::Table(300));
+    assert_eq!(rule_table(&rule), 300);
+    assert_ne!(rule_table(&rule), u32::from(RT_TABLE_MAIN));
 }

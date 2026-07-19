@@ -30,6 +30,40 @@ pub trait PolicyRouter: Send + Sync {
     /// Returns tuples of (`source_ip`, `table_number`).
     async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>>;
 
+    // --- Cross-zone switchback carve-outs (pass-switchback) ---
+    //
+    // A tunnel-bound device carries an `ip rule from <ip> lookup <tunnelTable>`
+    // that captures ALL its traffic — including cross-zone LAN traffic that a
+    // casting exception is meant to allow. These carve-out rules re-assert the
+    // `main` table for specific cross-zone destinations at a priority band
+    // ABOVE the kernel's per-tunnel source rules, so the cast packet reaches the
+    // forward chain (and the zone_isolation allows) instead of the tunnel.
+
+    /// Install `ip rule from <src_ip> to <dst_cidr> lookup main priority
+    /// <priority>` so `src_ip`'s traffic to `dst_cidr` uses the `main` table
+    /// (254) instead of its per-tunnel table. Idempotent: an already-present
+    /// rule is treated as success.
+    async fn add_switchback_rule(
+        &self,
+        src_ip: &str,
+        dst_cidr: &str,
+        priority: u32,
+    ) -> anyhow::Result<()>;
+
+    /// Remove the switchback rule for `(src_ip, dst_cidr, priority)`. Idempotent:
+    /// a missing rule is treated as success.
+    async fn remove_switchback_rule(
+        &self,
+        src_ip: &str,
+        dst_cidr: &str,
+        priority: u32,
+    ) -> anyhow::Result<()>;
+
+    /// List every rule at the switchback priority band as
+    /// `(src_ip, dst_cidr, priority)`, so the routing service can prune stale
+    /// carve-outs on reconcile.
+    async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>>;
+
     /// Flush conntrack entries whose original source matches `src_ip`.
     ///
     /// Changing an `ip rule` only affects *new* flows — existing connections

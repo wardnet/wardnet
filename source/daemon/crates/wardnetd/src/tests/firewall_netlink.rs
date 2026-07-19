@@ -6,8 +6,14 @@
 //! UDATA TLV codec that drives restart-survivable rule identification.
 
 use crate::firewall_netlink::{
-    IFNAMSIZ, comment_udata, inbound_wg_iface_exact_value, parse_comment_udata, zone_rule_ip,
+    IFNAMSIZ, ZONE_ESTABLISHED_COMMENT, ZONE_ISOJUMP_COMMENT, ZONE_ISOLATION, ZONE_NATEXEMPT,
+    ZONE_NATEXEMPT_COMMENT, ZONE_NATEXEMPT_JUMP_COMMENT, build_natexempt_batch,
+    build_zone_isolation_batch, chain_has_comment, chain_ref, comment_udata,
+    inbound_wg_iface_exact_value, masquerade_rule, natexempt_jump_rule, parse_comment_udata,
+    rule_comment, wardnet_table, zone_rule_ip,
 };
+use rustables::{Batch, Rule};
+use wardnetd_services::routing::firewall::{ExceptionAllow, ZoneIsolationRules};
 
 #[test]
 fn comment_udata_encodes_type_len_value_nul() {
@@ -138,6 +144,160 @@ fn isojump_only_table_produces_no_orphans_and_survives_removal() {
             "remove_zone_rules({device_ip}) must not match the isojump jump rule"
         );
     }
+}
+
+#[test]
+fn zone_isolation_established_return_accept_is_first_rule() {
+    // The stateful cross-zone return-accept (`ct state established,related
+    // accept`) must be the FIRST rule in the rebuilt `zone_isolation` chain so a
+    // Chromecast reply stream (sport=8009) is accepted before the stateless
+    // dport allows and the cross-subnet deny below it. Building the batch is pure
+    // (no socket I/O), so we can assert on the emitted rule order host-independently.
+    let table = wardnet_table();
+    let iso = chain_ref(&table, ZONE_ISOLATION);
+    let mut batch = Batch::new();
+
+    let rules = ZoneIsolationRules {
+        allows: vec![ExceptionAllow {
+            from_cidr: "192.168.200.0/24".to_owned(),
+            to_cidr: "192.168.201.0/24".to_owned(),
+            proto: "tcp".to_owned(),
+            port_start: 8009,
+            port_end: 8009,
+            bidirectional: true,
+        }],
+        deny_pairs: vec![("192.168.200.0/24".to_owned(), "192.168.201.0/24".to_owned())],
+        member_isolation_subnets: vec!["192.168.200.0/24".to_owned()],
+        nat_exempt_pairs: vec![("192.168.200.0/24".to_owned(), "192.168.201.0/24".to_owned())],
+    };
+
+    let order = build_zone_isolation_batch(&iso, &rules, &mut batch)
+        .expect("building the zone_isolation batch must succeed");
+
+    // The established return-accept is present and sits at the very top.
+    assert_eq!(
+        order.first().copied(),
+        Some(ZONE_ESTABLISHED_COMMENT),
+        "established return-accept must be the first rule: {order:?}"
+    );
+    assert_eq!(
+        order
+            .iter()
+            .filter(|c| **c == ZONE_ESTABLISHED_COMMENT)
+            .count(),
+        1,
+        "exactly one established return-accept rule expected: {order:?}"
+    );
+    // A bidirectional allow expands to two ACCEPTs, both after the established rule.
+    assert!(
+        order[1..].iter().all(|c| *c != ZONE_ESTABLISHED_COMMENT),
+        "established rule must not repeat after the first slot: {order:?}"
+    );
+}
+
+#[test]
+fn zone_natexempt_chain_has_accept_for_pair_in_both_directions() {
+    // Each exception pair yields TWO accept rules in `zone_natexempt` — the
+    // forward and the reverse direction — so the un-NAT applies to both the
+    // sender→receiver and receiver→sender legs. Building the batch is pure.
+    let table = wardnet_table();
+    let natexempt = chain_ref(&table, ZONE_NATEXEMPT);
+    let mut batch = Batch::new();
+
+    let pairs = vec![("192.168.200.0/24".to_owned(), "192.168.201.0/24".to_owned())];
+    let order = build_natexempt_batch(&natexempt, &pairs, &mut batch)
+        .expect("building the zone_natexempt batch must succeed");
+
+    assert_eq!(
+        order,
+        vec![ZONE_NATEXEMPT_COMMENT, ZONE_NATEXEMPT_COMMENT],
+        "one pair must emit two accepts (both directions): {order:?}"
+    );
+
+    // Two distinct pairs → four accepts (two per pair).
+    let two_pairs = vec![
+        ("10.0.1.0/24".to_owned(), "10.0.2.0/24".to_owned()),
+        ("10.0.3.5/32".to_owned(), "10.0.4.6/32".to_owned()),
+    ];
+    let mut batch2 = Batch::new();
+    let order2 = build_natexempt_batch(&natexempt, &two_pairs, &mut batch2).unwrap();
+    assert_eq!(
+        order2.len(),
+        4,
+        "two pairs must emit four accepts: {order2:?}"
+    );
+    assert!(
+        order2.iter().all(|c| *c == ZONE_NATEXEMPT_COMMENT),
+        "every emitted rule is a NAT-exempt accept: {order2:?}"
+    );
+}
+
+#[test]
+fn chain_has_comment_drives_jump_idempotence() {
+    // `ensure_isolation_jumps` adds a base-chain jump only when its comment is
+    // ABSENT (present ⇒ skip, so re-runs don't stack duplicates). Exercise that
+    // guard predicate directly: building rules with a comment is pure (no socket).
+    let table = wardnet_table();
+    let forward = chain_ref(&table, ZONE_ISOLATION);
+    let iso_rule = Rule::new(&forward)
+        .unwrap()
+        .with_userdata(comment_udata(ZONE_ISOJUMP_COMMENT));
+    let rules = vec![iso_rule];
+
+    // Present → guard reports true → the add is skipped.
+    assert!(
+        chain_has_comment(&rules, ZONE_ISOJUMP_COMMENT),
+        "isojump comment must be detected as present"
+    );
+    // A different jump comment is absent from the same chain → its add proceeds.
+    assert!(
+        !chain_has_comment(&rules, ZONE_NATEXEMPT_JUMP_COMMENT),
+        "natexempt jump must read as absent when only the isojump is present"
+    );
+    // An empty chain (post-flush / fresh table) reports neither → both jumps add.
+    assert!(!chain_has_comment(&[], ZONE_ISOJUMP_COMMENT));
+    assert!(!chain_has_comment(&[], ZONE_NATEXEMPT_JUMP_COMMENT));
+}
+
+#[test]
+fn postrouting_natexempt_jump_precedes_masquerade() {
+    // `init_wardnet_table` adds the `jump zone_natexempt` rule to postrouting
+    // before `add_masquerade` appends any masquerade (rustables always appends —
+    // there is no insert-at-index), so the jump is evaluated first and NAT-exempt
+    // flows are accepted before masquerade can rewrite their source. Model that
+    // exact emission order with the real rule builders and assert the ordering.
+    let table = wardnet_table();
+    let postrouting = chain_ref(&table, "postrouting");
+
+    let jump = natexempt_jump_rule(&postrouting).expect("jump rule builds");
+    let masq = masquerade_rule(&postrouting, "eth0").expect("masquerade rule builds");
+
+    let order: Vec<String> = [&jump, &masq]
+        .iter()
+        .filter_map(|r| rule_comment(r))
+        .collect();
+
+    assert_eq!(
+        order,
+        vec![
+            ZONE_NATEXEMPT_JUMP_COMMENT.to_owned(),
+            "wardnet:eth0".to_owned()
+        ],
+        "the natexempt jump must be emitted before the masquerade: {order:?}"
+    );
+
+    let jump_idx = order
+        .iter()
+        .position(|c| c == ZONE_NATEXEMPT_JUMP_COMMENT)
+        .expect("jump present");
+    let masq_idx = order
+        .iter()
+        .position(|c| c == "wardnet:eth0")
+        .expect("masquerade present");
+    assert!(
+        jump_idx < masq_idx,
+        "jump ({jump_idx}) must precede masquerade ({masq_idx})"
+    );
 }
 
 #[test]

@@ -105,6 +105,32 @@ pub trait RoutingService: Send + Sync {
         ip: &str,
     ) -> Result<(), AppError>;
 
+    /// Set the desired cross-zone switchback targets for a device.
+    ///
+    /// The zone enforcer calls this (from `reconcile_isolation`) with the CIDRs a
+    /// device must reach directly across zones (its casting-exception targets).
+    /// The targets are stored per device and materialized into kernel
+    /// `ip rule ... lookup main priority` rules (at
+    /// [`SWITCHBACK_RULE_PRIORITY`]) **only while the device is
+    /// tunnel-bound** — a tunnel-bound device otherwise sends all its traffic
+    /// (including cross-zone LAN) up its per-tunnel table, so the cast packet
+    /// never reaches the forward chain where the zone allow-rules live. A direct
+    /// or unmanaged device stores the targets but installs no rules (the `main`
+    /// table already delivers LAN traffic locally).
+    ///
+    /// Passing an empty `target_cidrs` clears the device's carve-outs. Idempotent.
+    ///
+    /// No auth guard beyond `require_admin` (matches
+    /// [`apply_rule_for_device`](Self::apply_rule_for_device)) — this is an
+    /// internal service-to-service callback, not an API surface; callers run it
+    /// inside an established admin `auth_context`.
+    async fn set_switchback_targets(
+        &self,
+        device_id: Uuid,
+        device_ip: String,
+        target_cidrs: Vec<String>,
+    ) -> Result<(), AppError>;
+
     /// Update the global default routing policy.
     ///
     /// Validates `policy` (must be `"direct"` or a tunnel UUID),
@@ -156,6 +182,15 @@ pub trait RoutingService: Send + Sync {
     async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError>;
 }
 
+/// Priority of the cross-zone switchback carve-out `ip rule`s.
+///
+/// Must be numerically LOWER (evaluated earlier) than the kernel's per-tunnel
+/// source rules — which the `rule().add()` builder lets the kernel auto-assign
+/// around 32764/32765 — so a carve-out to a cross-zone LAN destination wins over
+/// the `from <device_ip> lookup <tunnelTable>` rule. It is higher than the
+/// `local` table rule (priority 0), so on-box delivery is unaffected.
+pub const SWITCHBACK_RULE_PRIORITY: u32 = 1000;
+
 /// Tracks kernel state that has been applied for a single device.
 struct AppliedRule {
     /// The device's IP address for which kernel rules are configured.
@@ -179,6 +214,15 @@ struct RoutingState {
     applied: HashMap<Uuid, AppliedRule>,
     /// Routing tables that have been configured with default route + masquerade.
     tunnel_tables: HashSet<u32>,
+    /// Desired cross-zone switchback targets per device: `device_id → (device_ip,
+    /// sorted target CIDRs)`. Pushed by the zone enforcer via
+    /// [`RoutingService::set_switchback_targets`]. Materialized into kernel
+    /// `ip rule`s only while the device is tunnel-bound.
+    switchback_targets: HashMap<Uuid, (String, Vec<String>)>,
+    /// Carve-out CIDRs currently installed in the kernel per device, so the diff
+    /// on the next reconcile knows what to add/remove. Present only for
+    /// tunnel-bound devices with a non-empty desired set.
+    applied_switchback: HashMap<Uuid, Vec<String>>,
 }
 
 /// Default implementation of [`RoutingService`].
@@ -238,6 +282,8 @@ impl RoutingServiceImpl {
             state: Mutex::new(RoutingState {
                 applied: HashMap::new(),
                 tunnel_tables: HashSet::new(),
+                switchback_targets: HashMap::new(),
+                applied_switchback: HashMap::new(),
             }),
             dns_upstream_snapshot: Arc::new(ArcSwap::from_pointee(HashMap::new())),
         }
@@ -397,6 +443,7 @@ impl RoutingServiceImpl {
     ///
     /// Removes ip rules and DNS redirects. Errors are logged but not propagated
     /// — partial cleanup is better than none.
+    #[allow(clippy::similar_names)]
     async fn remove_device_kernel_state(&self, state: &mut RoutingState, device_id: Uuid) {
         if let Some(rule) = state.applied.remove(&device_id) {
             tracing::debug!(
@@ -407,6 +454,14 @@ impl RoutingServiceImpl {
                 tunnel_id = ?rule.tunnel_id,
                 "removing kernel state for device"
             );
+            // Drop any cross-zone switchback carve-outs installed under this
+            // device's IP: the binding is being torn down (going direct, tunnel
+            // down, IP change, or removal), so the tunnel-capture problem the
+            // carve-outs work around no longer applies. The desired target set
+            // is left intact so a later re-bind re-materializes them.
+            let device_ip = rule.device_ip.clone();
+            self.remove_switchback_for_device(state, device_id, &device_ip)
+                .await;
             if let Some(table) = rule.table {
                 tracing::debug!(
                     device_ip = %rule.device_ip,
@@ -453,6 +508,133 @@ impl RoutingServiceImpl {
                 device_id = %device_id,
                 "no kernel state to remove for device"
             );
+        }
+    }
+
+    /// The `/32` CIDR for a device's own IP, used to skip a self-referential
+    /// switchback carve-out target.
+    fn self_cidr(device_ip: &str) -> String {
+        format!("{device_ip}/32")
+    }
+
+    /// Reconcile the installed switchback carve-outs for one device against its
+    /// stored desired target set.
+    ///
+    /// Carve-outs are materialized only while the device is **tunnel-bound**
+    /// (its [`AppliedRule::table`] is `Some`); a direct/unmanaged device keeps
+    /// the stored targets but holds no kernel rules. Diffs against
+    /// [`RoutingState::applied_switchback`] so the operation is idempotent.
+    /// Errors are warn-logged, never fatal. Caller holds the state lock.
+    #[allow(clippy::similar_names)]
+    async fn reconcile_switchback_for_device(&self, state: &mut RoutingState, device_id: Uuid) {
+        let Some((device_ip, desired)) = state.switchback_targets.get(&device_id).cloned() else {
+            // No desired targets — ensure nothing is installed.
+            let ip = state
+                .applied
+                .get(&device_id)
+                .map(|r| r.device_ip.clone())
+                .unwrap_or_default();
+            self.remove_switchback_for_device(state, device_id, &ip)
+                .await;
+            return;
+        };
+
+        let tunnel_bound = state
+            .applied
+            .get(&device_id)
+            .is_some_and(|r| r.table.is_some());
+
+        // Desired kernel carve-out set: empty unless tunnel-bound; never a
+        // self-referential `/32`.
+        let desired_set: Vec<String> = if tunnel_bound {
+            let own = Self::self_cidr(&device_ip);
+            desired.into_iter().filter(|c| *c != own).collect()
+        } else {
+            Vec::new()
+        };
+
+        let applied = state
+            .applied_switchback
+            .get(&device_id)
+            .cloned()
+            .unwrap_or_default();
+
+        // Remove stale carve-outs.
+        for cidr in &applied {
+            if !desired_set.contains(cidr)
+                && let Err(e) = self
+                    .netlink
+                    .remove_switchback_rule(&device_ip, cidr, SWITCHBACK_RULE_PRIORITY)
+                    .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    device_id = %device_id,
+                    device_ip = %device_ip,
+                    dst_cidr = %cidr,
+                    "failed to remove stale switchback carve-out"
+                );
+            }
+        }
+
+        // Add newly-desired carve-outs.
+        for cidr in &desired_set {
+            if !applied.contains(cidr)
+                && let Err(e) = self
+                    .netlink
+                    .add_switchback_rule(&device_ip, cidr, SWITCHBACK_RULE_PRIORITY)
+                    .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    device_id = %device_id,
+                    device_ip = %device_ip,
+                    dst_cidr = %cidr,
+                    "failed to add switchback carve-out"
+                );
+            }
+        }
+
+        if desired_set.is_empty() {
+            state.applied_switchback.remove(&device_id);
+        } else {
+            tracing::debug!(
+                device_id = %device_id,
+                device_ip = %device_ip,
+                carve_outs = desired_set.len(),
+                "materialized switchback carve-outs for tunnel-bound device"
+            );
+            state.applied_switchback.insert(device_id, desired_set);
+        }
+    }
+
+    /// Remove ALL installed switchback carve-outs for a device (using the given
+    /// `device_ip`) and drop the applied-tracking entry. Leaves the stored
+    /// desired target set untouched. Caller holds the state lock.
+    #[allow(clippy::similar_names)]
+    async fn remove_switchback_for_device(
+        &self,
+        state: &mut RoutingState,
+        device_id: Uuid,
+        device_ip: &str,
+    ) {
+        let Some(applied) = state.applied_switchback.remove(&device_id) else {
+            return;
+        };
+        for cidr in &applied {
+            if let Err(e) = self
+                .netlink
+                .remove_switchback_rule(device_ip, cidr, SWITCHBACK_RULE_PRIORITY)
+                .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    device_id = %device_id,
+                    device_ip = %device_ip,
+                    dst_cidr = %cidr,
+                    "failed to remove switchback carve-out during teardown"
+                );
+            }
         }
     }
 
@@ -972,6 +1154,12 @@ impl RoutingService for RoutingServiceImpl {
 
         self.refresh_dns_upstream_snapshot(&state);
 
+        // (Re)materialize this device's cross-zone switchback carve-outs against
+        // the new binding: a tunnel-bound device installs them; a direct device
+        // installs none. The stored desired target set is the source of truth.
+        self.reconcile_switchback_for_device(&mut state, device_id)
+            .await;
+
         // Flush stale connections: inject temporary TCP RST reject rule,
         // flush conntrack, wait for device retransmits, then clean up.
         // Must run *after* the new ip rule is in place so re-opened
@@ -991,6 +1179,9 @@ impl RoutingService for RoutingServiceImpl {
         tracing::debug!(device_id = %device_id, "remove_device_routes called");
         let mut state = self.state.lock().await;
         self.remove_device_kernel_state(&mut state, device_id).await;
+        // The device is gone — drop its desired switchback targets too so a
+        // future device reusing the same UUID does not inherit stale carve-outs.
+        state.switchback_targets.remove(&device_id);
         self.refresh_dns_upstream_snapshot(&state);
         tracing::info!(device_id = %device_id, "removed device routing state");
         Ok(())
@@ -1013,7 +1204,13 @@ impl RoutingService for RoutingServiceImpl {
         let target = {
             let mut state = self.state.lock().await;
             let target = state.applied.get(&device_id).map(|r| r.target.clone());
+            // Tears down carve-outs installed under the OLD IP.
             self.remove_device_kernel_state(&mut state, device_id).await;
+            // Re-key the stored desired targets to the new IP so the re-apply
+            // below materializes them under `new_ip`.
+            if let Some((ip, _)) = state.switchback_targets.get_mut(&device_id) {
+                new_ip.clone_into(ip);
+            }
             target
         };
 
@@ -1222,6 +1419,17 @@ impl RoutingService for RoutingServiceImpl {
             .map_err(AppError::Internal)?;
         tracing::debug!("nftables table flushed");
 
+        // Re-establish the Network-Zone base-chain jumps that the flush above may
+        // have removed. This MUST run before `add_masquerade`: it restores the
+        // POSTROUTING→zone_natexempt jump as rule #0 of the now-empty postrouting
+        // chain, so the LAN masquerade appended next lands after it and NAT-exempt
+        // cross-zone flows are accepted before masquerade can rewrite them.
+        tracing::debug!("ensuring Network-Zone isolation jumps");
+        self.nftables
+            .ensure_isolation_jumps()
+            .await
+            .map_err(AppError::Internal)?;
+
         // Add base LAN masquerade rule so forwarded traffic from devices using
         // the Pi as their gateway gets NAT'd for the upstream router.
         tracing::debug!(interface = %self.lan_interface, "adding LAN masquerade rule");
@@ -1240,6 +1448,11 @@ impl RoutingService for RoutingServiceImpl {
             );
             state.applied.clear();
             state.tunnel_tables.clear();
+            // Kernel ip rules were just flushed conceptually via re-derivation;
+            // drop the applied-carve-out tracking so it is rebuilt from scratch.
+            // The desired target set (owned by the zone enforcer) is preserved so
+            // tunnel-bound devices re-materialize their carve-outs on re-apply.
+            state.applied_switchback.clear();
         }
 
         // Load all devices and apply rules for those that have them.
@@ -1374,6 +1587,78 @@ impl RoutingService for RoutingServiceImpl {
             }
             Err(e) => {
                 tracing::warn!(error = %e, "failed to list kernel ip rules for orphan cleanup");
+            }
+        }
+
+        // Prune orphaned switchback carve-outs, then ensure the desired ones for
+        // every tunnel-bound device exist. Any carve-out in the kernel at
+        // `SWITCHBACK_RULE_PRIORITY` that is not in the union of desired,
+        // currently-tunnel-bound device carve-outs is stale and removed.
+        tracing::debug!("checking for orphaned switchback carve-outs");
+        match self.netlink.list_switchback_rules().await {
+            Ok(kernel_carveouts) => {
+                let mut state = self.state.lock().await;
+
+                // Build the desired (device_ip, cidr) set for tunnel-bound
+                // devices only — the only devices that should carry carve-outs.
+                let mut desired: HashSet<(String, String)> = HashSet::new();
+                for (device_id, (ip, cidrs)) in &state.switchback_targets {
+                    let tunnel_bound = state
+                        .applied
+                        .get(device_id)
+                        .is_some_and(|r| r.table.is_some());
+                    if !tunnel_bound {
+                        continue;
+                    }
+                    let own = Self::self_cidr(ip);
+                    for cidr in cidrs {
+                        if *cidr != own {
+                            desired.insert((ip.clone(), cidr.clone()));
+                        }
+                    }
+                }
+
+                let mut orphan_count = 0u32;
+                for (src_ip, dst_cidr, priority) in &kernel_carveouts {
+                    if *priority != SWITCHBACK_RULE_PRIORITY {
+                        continue;
+                    }
+                    if !desired.contains(&(src_ip.clone(), dst_cidr.clone())) {
+                        tracing::warn!(
+                            src_ip = %src_ip,
+                            dst_cidr = %dst_cidr,
+                            priority,
+                            "removing orphaned switchback carve-out"
+                        );
+                        if let Err(e) = self
+                            .netlink
+                            .remove_switchback_rule(src_ip, dst_cidr, *priority)
+                            .await
+                        {
+                            tracing::warn!(
+                                error = %e,
+                                src_ip = %src_ip,
+                                dst_cidr = %dst_cidr,
+                                "failed to remove orphaned switchback carve-out"
+                            );
+                        } else {
+                            orphan_count += 1;
+                        }
+                    }
+                }
+                if orphan_count > 0 {
+                    tracing::info!(orphan_count, "cleaned up orphaned switchback carve-outs");
+                }
+
+                // Ensure desired carve-outs exist for every tunnel-bound device.
+                let device_ids: Vec<Uuid> = state.switchback_targets.keys().copied().collect();
+                for device_id in device_ids {
+                    self.reconcile_switchback_for_device(&mut state, device_id)
+                        .await;
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to list kernel switchback rules for orphan cleanup");
             }
         }
 
@@ -1523,6 +1808,47 @@ impl RoutingService for RoutingServiceImpl {
                 );
             }
         }
+        Ok(())
+    }
+
+    #[allow(clippy::similar_names)]
+    async fn set_switchback_targets(
+        &self,
+        device_id: Uuid,
+        device_ip: String,
+        mut target_cidrs: Vec<String>,
+    ) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        // Canonicalize the desired set: sorted + deduped so the stored form is
+        // order-stable and the diff in `reconcile_switchback_for_device` is clean.
+        target_cidrs.sort();
+        target_cidrs.dedup();
+
+        tracing::debug!(
+            device_id = %device_id,
+            device_ip = %device_ip,
+            targets = target_cidrs.len(),
+            "set_switchback_targets called"
+        );
+
+        let mut state = self.state.lock().await;
+
+        if target_cidrs.is_empty() {
+            // No desired targets — forget the device and tear down any carve-outs
+            // currently installed under this IP.
+            state.switchback_targets.remove(&device_id);
+            self.remove_switchback_for_device(&mut state, device_id, &device_ip)
+                .await;
+        } else {
+            state
+                .switchback_targets
+                .insert(device_id, (device_ip, target_cidrs));
+            // Materialize now if (and only if) the device is tunnel-bound.
+            self.reconcile_switchback_for_device(&mut state, device_id)
+                .await;
+        }
+
         Ok(())
     }
 

@@ -14,7 +14,7 @@ use crate::auth_context;
 use crate::error::AppError;
 use crate::routing::firewall::FirewallManager;
 use crate::routing::policy_router::PolicyRouter;
-use crate::routing::service::RoutingServiceImpl;
+use crate::routing::service::{RoutingServiceImpl, SWITCHBACK_RULE_PRIORITY};
 use crate::{RoutingService, TunnelService};
 use wardnet_common::auth::AuthContext;
 use wardnetd_data::repository::device::DeviceRow;
@@ -413,6 +413,11 @@ struct MockNetlink {
     /// Pre-seeded from `wardnet_rules` to simulate pre-existing kernel state.
     /// Returns an error when count reaches 0 (no such rule).
     rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>>,
+    /// Installed switchback carve-out rules as `(src_ip, dst_cidr, priority)`.
+    /// `add_switchback_rule` inserts (deduped), `remove_switchback_rule` removes,
+    /// `list_switchback_rules` returns the current set. Pre-seeded to simulate
+    /// stale kernel carve-outs for reconcile-prune tests.
+    switchback: Arc<Mutex<Vec<(String, String, u32)>>>,
 }
 
 #[async_trait]
@@ -491,6 +496,45 @@ impl PolicyRouter for MockNetlink {
             .await
             .push("list_wardnet_rules".to_owned());
         Ok(self.wardnet_rules.clone())
+    }
+
+    async fn add_switchback_rule(
+        &self,
+        src_ip: &str,
+        dst_cidr: &str,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        self.calls.lock().await.push(format!(
+            "add_switchback_rule:{src_ip}:{dst_cidr}:{priority}"
+        ));
+        let mut sw = self.switchback.lock().await;
+        let entry = (src_ip.to_owned(), dst_cidr.to_owned(), priority);
+        if !sw.contains(&entry) {
+            sw.push(entry);
+        }
+        Ok(())
+    }
+
+    async fn remove_switchback_rule(
+        &self,
+        src_ip: &str,
+        dst_cidr: &str,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        self.calls.lock().await.push(format!(
+            "remove_switchback_rule:{src_ip}:{dst_cidr}:{priority}"
+        ));
+        let mut sw = self.switchback.lock().await;
+        sw.retain(|(s, d, p)| !(s == src_ip && d == dst_cidr && *p == priority));
+        Ok(())
+    }
+
+    async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>> {
+        self.calls
+            .lock()
+            .await
+            .push("list_switchback_rules".to_owned());
+        Ok(self.switchback.lock().await.clone())
     }
 
     async fn flush_conntrack(&self, src_ip: &str) -> anyhow::Result<()> {
@@ -579,6 +623,14 @@ impl FirewallManager for MockNftables {
             .lock()
             .await
             .push("init_wardnet_table".to_owned());
+        Ok(())
+    }
+
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push("ensure_isolation_jumps".to_owned());
         Ok(())
     }
 
@@ -726,6 +778,8 @@ struct TestSetup {
     add_tcp_reset_reject_fail: Arc<Mutex<bool>>,
     /// Exposed so tests can pre-seed duplicate rule counts.
     netlink_rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>>,
+    /// Exposed so tests can assert / pre-seed installed switchback carve-outs.
+    netlink_switchback: Arc<Mutex<Vec<(String, String, u32)>>>,
 }
 
 fn device_id_1() -> Uuid {
@@ -850,6 +904,7 @@ fn setup_with_devices_and_tunnel(
         tear_downs: tear_downs.clone(),
     });
     let rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>> = Arc::new(Mutex::new(HashMap::new()));
+    let switchback: Arc<Mutex<Vec<(String, String, u32)>>> = Arc::new(Mutex::new(Vec::new()));
     let netlink: Arc<dyn PolicyRouter> = Arc::new(MockNetlink {
         calls: netlink_calls.clone(),
         wardnet_rules: vec![],
@@ -857,6 +912,7 @@ fn setup_with_devices_and_tunnel(
         has_route_table_result: has_route_table_result.clone(),
         has_route_table_error: has_route_table_error.clone(),
         rule_counts: rule_counts.clone(),
+        switchback: switchback.clone(),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -891,6 +947,7 @@ fn setup_with_devices_and_tunnel(
         has_route_table_error,
         add_tcp_reset_reject_fail,
         netlink_rule_counts: rule_counts,
+        netlink_switchback: switchback,
     }
 }
 
@@ -927,6 +984,7 @@ fn setup_with_orphaned_rules(
                 m
             });
     let rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>> = Arc::new(Mutex::new(initial_counts));
+    let switchback: Arc<Mutex<Vec<(String, String, u32)>>> = Arc::new(Mutex::new(Vec::new()));
     let netlink: Arc<dyn PolicyRouter> = Arc::new(MockNetlink {
         calls: netlink_calls.clone(),
         wardnet_rules: kernel_rules,
@@ -934,6 +992,7 @@ fn setup_with_orphaned_rules(
         has_route_table_result: has_route_table_result.clone(),
         has_route_table_error: has_route_table_error.clone(),
         rule_counts: rule_counts.clone(),
+        switchback: switchback.clone(),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -965,6 +1024,7 @@ fn setup_with_orphaned_rules(
         has_route_table_error,
         add_tcp_reset_reject_fail,
         netlink_rule_counts: rule_counts,
+        netlink_switchback: switchback,
     }
 }
 
@@ -992,6 +1052,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         tear_downs: tear_downs.clone(),
     });
     let rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>> = Arc::new(Mutex::new(HashMap::new()));
+    let switchback: Arc<Mutex<Vec<(String, String, u32)>>> = Arc::new(Mutex::new(Vec::new()));
     let netlink: Arc<dyn PolicyRouter> = Arc::new(MockNetlink {
         calls: netlink_calls.clone(),
         wardnet_rules: vec![],
@@ -999,6 +1060,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         has_route_table_result: has_route_table_result.clone(),
         has_route_table_error: has_route_table_error.clone(),
         rule_counts: rule_counts.clone(),
+        switchback: switchback.clone(),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -1030,6 +1092,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         has_route_table_error,
         add_tcp_reset_reject_fail,
         netlink_rule_counts: rule_counts,
+        netlink_switchback: switchback,
     }
 }
 
@@ -1619,6 +1682,23 @@ async fn reconcile_enables_forwarding_and_inits_nftables() {
     assert!(
         nf.contains(&"flush_wardnet_table".to_owned()),
         "expected flush_wardnet_table: {nf:?}"
+    );
+
+    // The isolation jumps must be re-established AFTER the flush and BEFORE the
+    // base LAN masquerade, so the POSTROUTING→zone_natexempt jump is restored as
+    // rule #0 and the masquerade appends after it (the un-NAT ordering).
+    let pos = |needle: &str| {
+        nf.iter()
+            .position(|c| c == needle)
+            .unwrap_or_else(|| panic!("expected {needle} in nftables calls: {nf:?}"))
+    };
+    let flush_idx = pos("flush_wardnet_table");
+    let ensure_idx = pos("ensure_isolation_jumps");
+    let masq_idx = pos("add_masquerade:eth0");
+    assert!(
+        flush_idx < ensure_idx && ensure_idx < masq_idx,
+        "expected order flush({flush_idx}) < ensure_isolation_jumps({ensure_idx}) < \
+         add_masquerade({masq_idx}): {nf:?}"
     );
 }
 
@@ -2340,6 +2420,250 @@ async fn set_default_policy_does_not_touch_explicit_targets() {
     assert!(
         new_rules.is_empty(),
         "policy change must not re-apply devices with explicit targets: {nl:?}"
+    );
+}
+
+// -- Tests: cross-zone switchback carve-outs (pass-switchback) -----------------
+
+/// The Entertainment-zone subnet a Family-zone phone casts into.
+fn ent_subnet() -> String {
+    "192.168.201.0/24".to_owned()
+}
+
+/// A tunnel-bound device gets an `add_switchback_rule` per target CIDR at the
+/// switchback priority, and the installed set is tracked.
+#[tokio::test]
+async fn set_switchback_targets_on_tunnel_bound_device_installs_carveouts() {
+    let ts = setup();
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    let nl = ts.netlink_calls.lock().await;
+    assert!(
+        nl.contains(&format!(
+            "add_switchback_rule:192.168.200.10:{}:{SWITCHBACK_RULE_PRIORITY}",
+            ent_subnet()
+        )),
+        "expected add_switchback_rule at priority {SWITCHBACK_RULE_PRIORITY}: {nl:?}"
+    );
+    let sw = ts.netlink_switchback.lock().await;
+    assert_eq!(
+        *sw,
+        vec![(
+            "192.168.200.10".to_owned(),
+            ent_subnet(),
+            SWITCHBACK_RULE_PRIORITY
+        )],
+        "carve-out must be installed for tunnel-bound device"
+    );
+}
+
+/// A direct device stores its targets but installs no kernel carve-outs.
+#[tokio::test]
+async fn set_switchback_targets_on_direct_device_installs_none() {
+    let ts = setup();
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &RoutingTarget::Direct),
+    )
+    .await
+    .unwrap();
+
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    assert!(
+        ts.netlink_switchback.lock().await.is_empty(),
+        "direct device must install no switchback carve-outs"
+    );
+}
+
+/// Storing targets while direct then binding to a tunnel materializes them.
+#[tokio::test]
+async fn binding_direct_to_tunnel_materializes_stored_targets() {
+    let ts = setup();
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &RoutingTarget::Direct),
+    )
+    .await
+    .unwrap();
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+    assert!(ts.netlink_switchback.lock().await.is_empty());
+
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+
+    let sw = ts.netlink_switchback.lock().await;
+    assert_eq!(
+        *sw,
+        vec![(
+            "192.168.200.10".to_owned(),
+            ent_subnet(),
+            SWITCHBACK_RULE_PRIORITY
+        )],
+        "direct→tunnel must materialize stored carve-outs"
+    );
+}
+
+/// Rebinding a tunnel-bound device back to direct removes its carve-outs.
+#[tokio::test]
+async fn binding_tunnel_to_direct_removes_carveouts() {
+    let ts = setup();
+    let tunnel = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &tunnel),
+    )
+    .await
+    .unwrap();
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+    assert!(!ts.netlink_switchback.lock().await.is_empty());
+
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &RoutingTarget::Direct),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        ts.netlink_switchback.lock().await.is_empty(),
+        "tunnel→direct must remove carve-outs"
+    );
+}
+
+/// A departed device has both its carve-outs and stored targets dropped.
+#[tokio::test]
+async fn device_gone_removes_carveouts() {
+    let ts = setup();
+    let tunnel = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &tunnel),
+    )
+    .await
+    .unwrap();
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+    assert!(!ts.netlink_switchback.lock().await.is_empty());
+
+    as_admin(
+        ts.routing
+            .remove_device_routes(device_id_1(), "192.168.200.10"),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        ts.netlink_switchback.lock().await.is_empty(),
+        "device removal must remove carve-outs"
+    );
+}
+
+/// An IP change re-keys the carve-outs to the new source IP.
+#[tokio::test]
+async fn ip_change_rekeys_carveouts() {
+    let ts = setup();
+    let tunnel = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &tunnel),
+    )
+    .await
+    .unwrap();
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    as_admin(
+        ts.routing
+            .handle_ip_change(device_id_1(), "192.168.200.10", "192.168.200.20"),
+    )
+    .await
+    .unwrap();
+
+    let sw = ts.netlink_switchback.lock().await;
+    assert_eq!(
+        *sw,
+        vec![(
+            "192.168.200.20".to_owned(),
+            ent_subnet(),
+            SWITCHBACK_RULE_PRIORITY
+        )],
+        "carve-out must be re-keyed to the new IP: {sw:?}"
+    );
+}
+
+/// Reconcile prunes a stale kernel carve-out that has no desired target.
+#[tokio::test]
+async fn reconcile_prunes_stale_carveouts() {
+    let ts = setup();
+    ts.netlink_switchback.lock().await.push((
+        "192.168.200.99".to_owned(),
+        ent_subnet(),
+        SWITCHBACK_RULE_PRIORITY,
+    ));
+
+    as_admin(ts.routing.reconcile()).await.unwrap();
+
+    assert!(
+        ts.netlink_switchback.lock().await.is_empty(),
+        "reconcile must prune stale switchback carve-outs"
     );
 }
 
