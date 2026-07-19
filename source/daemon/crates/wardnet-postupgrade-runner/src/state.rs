@@ -1,10 +1,11 @@
 //! Best-effort state.json writer for verification failures.
 //!
-//! On verify failure the runner records who/why/when into the
-//! root-only state file so operators can diagnose without scraping
-//! systemd journals. The migration runner (`wardnet-postupgrade`)
-//! owns the rest of the state schema; this module touches only the
-//! `last_verification_failure` field.
+//! On a boot-blocking failure the runner records who/why/when into
+//! the root-only state file so operators can diagnose without
+//! scraping systemd journals. The migration runner
+//! (`wardnet-postupgrade`) owns the rest of the state schema; this
+//! module touches only the `last_verification_failure` and
+//! `last_runner_failure` fields.
 
 use std::path::Path;
 
@@ -35,6 +36,8 @@ struct State {
     failed: Vec<serde_json::Value>,
     #[serde(default)]
     last_verification_failure: Option<VerificationFailure>,
+    #[serde(default)]
+    last_runner_failure: Option<RunnerFailure>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -43,14 +46,49 @@ struct VerificationFailure {
     at: DateTime<Utc>,
 }
 
-/// Append a verification-failure record to `state.json`, preserving
-/// any `applied`/`failed` arrays already written by the migration
-/// runner. Atomic write-then-rename, root-only file.
+#[derive(Debug, Serialize, Deserialize)]
+struct RunnerFailure {
+    stage: String,
+    error: String,
+    at: DateTime<Utc>,
+}
+
+/// Record a signature-verification failure into `state.json`,
+/// preserving any `applied`/`failed` arrays already written by the
+/// migration runner. Atomic write-then-rename, root-only file.
 pub fn record_verification_failure(
     state_path: &Path,
     error_message: &str,
     now: DateTime<Utc>,
 ) -> anyhow::Result<()> {
+    update_state(state_path, |state| {
+        state.last_verification_failure = Some(VerificationFailure {
+            error: error_message.to_owned(),
+            at: now,
+        });
+    })
+}
+
+/// Record a non-verification runner failure (artifact read, binary
+/// swap, exec) into `state.json`, so a boot-blocked daemon is
+/// diagnosable from the state file alongside verification failures.
+pub fn record_runner_failure(
+    state_path: &Path,
+    stage: &str,
+    error_message: &str,
+    now: DateTime<Utc>,
+) -> anyhow::Result<()> {
+    update_state(state_path, |state| {
+        state.last_runner_failure = Some(RunnerFailure {
+            stage: stage.to_owned(),
+            error: error_message.to_owned(),
+            at: now,
+        });
+    })
+}
+
+/// Load-or-start-fresh, apply `mutate`, write back atomically.
+fn update_state(state_path: &Path, mutate: impl FnOnce(&mut State)) -> anyhow::Result<()> {
     if let Some(parent) = state_path.parent() {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("could not create state directory {}", parent.display()))?;
@@ -78,10 +116,7 @@ pub fn record_verification_failure(
             )));
         }
     };
-    state.last_verification_failure = Some(VerificationFailure {
-        error: error_message.to_owned(),
-        at: now,
-    });
+    mutate(&mut state);
 
     let serialized = serde_json::to_vec_pretty(&state).context("serialize state.json")?;
     let tmp = state_path.with_extension("json.tmp");

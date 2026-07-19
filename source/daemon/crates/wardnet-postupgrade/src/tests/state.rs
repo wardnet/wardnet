@@ -3,7 +3,7 @@
 use chrono::TimeZone;
 use tempfile::TempDir;
 
-use crate::state::{AppliedEntry, FailedEntry, State};
+use crate::state::{AppliedEntry, FailedEntry, RunnerFailure, State};
 
 #[test]
 fn load_returns_default_when_file_missing() {
@@ -30,7 +30,7 @@ fn save_then_load_roundtrip() {
             error: "oops".into(),
             at: now,
         }],
-        last_verification_failure: None,
+        ..Default::default()
     };
     state.save(&path).unwrap();
 
@@ -39,6 +39,30 @@ fn save_then_load_roundtrip() {
     assert_eq!(loaded.applied[0].id, "0001");
     assert_eq!(loaded.failed.len(), 1);
     assert_eq!(loaded.failed[0].id, "0002");
+}
+
+#[test]
+fn save_preserves_runner_failure_record() {
+    // `last_runner_failure` is written by the trust-anchor runner;
+    // this crate's save must carry it through unchanged so a later
+    // migration run doesn't erase the diagnosis.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("state.json");
+    let now = chrono::Utc.with_ymd_and_hms(2026, 5, 4, 12, 0, 0).unwrap();
+    let state = State {
+        last_runner_failure: Some(RunnerFailure {
+            stage: "swap".into(),
+            error: "tarball unreadable".into(),
+            at: now,
+        }),
+        ..Default::default()
+    };
+    state.save(&path).unwrap();
+
+    let loaded = State::load(&path).expect("load");
+    let failure = loaded.last_runner_failure.expect("record preserved");
+    assert_eq!(failure.stage, "swap");
+    assert_eq!(failure.error, "tarball unreadable");
 }
 
 #[test]

@@ -3,7 +3,7 @@
 use chrono::TimeZone;
 use tempfile::TempDir;
 
-use crate::state::record_verification_failure;
+use crate::state::{record_runner_failure, record_verification_failure};
 
 #[test]
 fn writes_fresh_state_when_file_absent() {
@@ -146,6 +146,60 @@ fn absent_array_fields_are_rewritten_as_empty_arrays() {
         .expect("migration runner must parse state with defaulted arrays");
     assert!(state.applied.is_empty());
     assert!(state.failed.is_empty());
+}
+
+#[test]
+fn runner_failure_round_trips_through_migration_runner_schema() {
+    // Non-verification failures (artifact read, swap, exec) are
+    // recorded next to verification failures and must survive both
+    // directions of the manually-synced schema: written here, loaded
+    // by the migration runner's typed State, and not clobbering an
+    // existing verification record.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("state.json");
+    let now = chrono::Utc.with_ymd_and_hms(2026, 5, 4, 12, 0, 0).unwrap();
+    record_verification_failure(&path, "bad signature", now).unwrap();
+    record_runner_failure(&path, "swap", "tarball unreadable", now).unwrap();
+
+    let state = wardnet_postupgrade::State::load(&path)
+        .expect("migration runner must parse state with a runner failure");
+    let failure = state.last_runner_failure.expect("runner failure recorded");
+    assert_eq!(failure.stage, "swap");
+    assert_eq!(failure.error, "tarball unreadable");
+    let verification = state
+        .last_verification_failure
+        .expect("verification record preserved alongside");
+    assert_eq!(verification.error, "bad signature");
+}
+
+#[test]
+fn write_root_only_matches_migration_runner_copy() {
+    // The 0600 writer is mirror-copied into wardnet-postupgrade (the
+    // runner cannot share code with the crate it execs), same rule as
+    // the schema. The schema mirror is pinned by the round-trip tests
+    // above; this pins the writer: a fix applied to one copy fails CI
+    // until the other copy matches byte-for-byte.
+    fn helper_body(source: &str) -> &str {
+        let start = source
+            .find("fn write_root_only")
+            .expect("write_root_only present");
+        let len = source[start..]
+            .find("\n}")
+            .expect("write_root_only closing brace");
+        &source[start..start + len + 2]
+    }
+
+    let ours = include_str!("../state.rs");
+    let theirs_path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../wardnet-postupgrade/src/state.rs"
+    );
+    let theirs = std::fs::read_to_string(theirs_path).expect("read sibling state.rs");
+    assert_eq!(
+        helper_body(ours),
+        helper_body(&theirs),
+        "write_root_only diverged between the two crates; apply the change to both copies"
+    );
 }
 
 #[cfg(unix)]

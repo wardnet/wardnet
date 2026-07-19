@@ -68,19 +68,22 @@ pub enum RunOutcome {
     /// path is a directory, permission error, failing disk). Distinct
     /// from [`RunOutcome::NoPayload`]: something *is* staged, so
     /// pretending nothing happened would silently skip an update. The
-    /// runner logs ERROR and exits nonzero.
+    /// runner records the failure into `state.json`, logs ERROR, and
+    /// exits nonzero.
     ArtifactReadFailed(anyhow::Error),
     /// Signature verification failed. The runner logs ERROR, records
     /// the failure into `state.json`, and exits nonzero.
     VerifyFailed(anyhow::Error),
     /// `memfd_create` or `fexecve` failed. Successful exec replaces
     /// the process and never returns this variant. Very rare in
-    /// practice (kernel out of memory, seccomp policy mismatch).
+    /// practice (kernel out of memory, seccomp policy mismatch). The
+    /// failure is recorded into `state.json`.
     ExecFailed(anyhow::Error),
     /// Privileged swap of `<live>` could not be completed (signature
-    /// failure, missing wardnetd entry, fs error). The runner exits
-    /// nonzero so systemd refuses to start `wardnetd.service` against
-    /// an unverified binary.
+    /// failure, missing wardnetd entry, fs error). The runner records
+    /// the failure into `state.json` and exits nonzero so systemd
+    /// refuses to start `wardnetd.service` against an unverified
+    /// binary.
     SwapFailed(anyhow::Error),
 }
 
@@ -117,6 +120,7 @@ impl Runner {
                 tracing::info!(%live, "wardnetd rolled back to previous binary at {live}");
             }
             swap::SwapOutcome::Failed(e) => {
+                self.record_runner_failure("swap", &e);
                 return RunOutcome::SwapFailed(e);
             }
         }
@@ -125,7 +129,10 @@ impl Runner {
             match verify::read_artifacts(&self.payload_path, &self.signature_path) {
                 Ok(Some(pair)) => pair,
                 Ok(None) => return RunOutcome::NoPayload,
-                Err(e) => return RunOutcome::ArtifactReadFailed(e),
+                Err(e) => {
+                    self.record_runner_failure("artifact-read", &e);
+                    return RunOutcome::ArtifactReadFailed(e);
+                }
             };
 
         if let Err(e) = verify::verify(self.public_key, &payload, &signature) {
@@ -148,7 +155,29 @@ impl Runner {
 
         match exec::exec_memfd("wardnet-postupgrade", &payload, args) {
             Ok(never) => match never {},
-            Err(e) => RunOutcome::ExecFailed(e),
+            Err(e) => {
+                self.record_runner_failure("exec", &e);
+                RunOutcome::ExecFailed(e)
+            }
+        }
+    }
+
+    /// Best-effort mirror of the verification-failure recording above:
+    /// every boot-blocking outcome should be visible in state.json,
+    /// not only signature failures. Never fails the run — the ERROR
+    /// log + nonzero exit must reach the journal regardless.
+    fn record_runner_failure(&self, stage: &str, err: &anyhow::Error) {
+        let now = chrono::Utc::now();
+        if let Err(state_err) =
+            state::record_runner_failure(&self.state_path, stage, &format!("{err:#}"), now)
+        {
+            let path = self.state_path.display().to_string();
+            tracing::warn!(
+                %state_err,
+                %path,
+                %stage,
+                "could not record {stage} failure to {path}: {state_err}",
+            );
         }
     }
 }

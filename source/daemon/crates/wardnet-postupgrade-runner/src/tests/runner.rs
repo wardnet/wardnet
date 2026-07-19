@@ -108,6 +108,11 @@ fn unreadable_payload_returns_artifact_read_failed() {
         format!("{err:#}").contains("failed to read payload"),
         "expected payload-read context"
     );
+
+    // The failure is diagnosable from state.json, not only journald.
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("state.json")).unwrap()).unwrap();
+    assert_eq!(state["last_runner_failure"]["stage"], "artifact-read");
 }
 
 #[test]
@@ -164,6 +169,10 @@ fn exec_failed_when_verified_payload_is_not_an_executable() {
         format!("{err:#}").contains("fexecve failed"),
         "expected fexecve-failure message"
     );
+
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("state.json")).unwrap()).unwrap();
+    assert_eq!(state["last_runner_failure"]["stage"], "exec");
 }
 
 #[test]
@@ -360,4 +369,8 @@ fn swap_failure_short_circuits_run() {
         b"OLD wardnetd",
         "live binary must be untouched on swap failure",
     );
+
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("state.json")).unwrap()).unwrap();
+    assert_eq!(state["last_runner_failure"]["stage"], "swap");
 }

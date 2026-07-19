@@ -33,6 +33,13 @@ pub struct State {
     /// not touch this field — it only ever runs after verification
     /// has succeeded.
     pub last_verification_failure: Option<VerificationFailure>,
+    /// Recorded by `wardnet-postupgrade-runner` when a boot-time step
+    /// other than signature verification fails: reading the staged
+    /// artifacts, the privileged binary swap, or the exec of the
+    /// verified payload. Like `last_verification_failure`, this exists
+    /// so operators can diagnose a boot-blocked daemon from state.json
+    /// without scraping systemd journals.
+    pub last_runner_failure: Option<RunnerFailure>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,6 +57,14 @@ pub struct FailedEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VerificationFailure {
+    pub error: String,
+    pub at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunnerFailure {
+    /// Which runner step failed: `artifact-read`, `swap`, or `exec`.
+    pub stage: String,
     pub error: String,
     pub at: DateTime<Utc>,
 }
@@ -147,9 +162,9 @@ fn write_root_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }
     file.write_all(bytes)?;
-    // Flush to disk before `save` renames over state.json, so a power
-    // loss right after the rename cannot replay a zero-length file
-    // where the old state used to be.
+    // Flush to disk before the caller renames over state.json, so a
+    // power loss right after the rename cannot replay a zero-length
+    // file where the old state used to be.
     file.sync_all()?;
     Ok(())
 }
