@@ -13,9 +13,12 @@ use std::time::Duration;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use uuid::Uuid;
+use wardnet_common::auth::AuthContext;
 
 use super::buffer::StatsBuffer;
 use super::service::StatsService;
+use crate::auth_context;
 use crate::db_busy::retry_on_busy;
 
 /// How often the buffer is drained and flushed to `stats_intraday`.
@@ -144,13 +147,16 @@ async fn perform_flush(buffer: &Arc<StatsBuffer>, service: &Arc<dyn StatsService
     // takes the rows by value, so each attempt clones them — fine,
     // batches are bounded and the clone is only paid on retry, which
     // should be rare under the 30 s `busy_timeout`.
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
     let result = retry_on_busy(
         FLUSH_OPERATION,
         FLUSH_BUSY_RETRIES,
         FLUSH_BUSY_BACKOFF,
         || {
             let rows = rows.clone();
-            service.run_flush(rows)
+            auth_context::with_context(admin_ctx.clone(), service.run_flush(rows))
         },
     )
     .await;
@@ -166,7 +172,10 @@ async fn perform_flush(buffer: &Arc<StatsBuffer>, service: &Arc<dyn StatsService
 }
 
 async fn perform_maintenance(service: &Arc<dyn StatsService>) {
-    if let Err(e) = service.run_maintenance().await {
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+    if let Err(e) = auth_context::with_context(admin_ctx, service.run_maintenance()).await {
         tracing::warn!(
             error = %e,
             "stats maintenance tick failed: {e}"

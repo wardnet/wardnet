@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 use tokio::sync::broadcast;
 
+use crate::auth_context;
 use crate::error::AppError;
 
 use super::component::{BoxedLayer, LogComponent};
@@ -30,10 +31,10 @@ pub struct LogFileInfo {
 #[async_trait]
 pub trait LogService: Send + Sync {
     /// Subscribe to receive live log entries over WebSocket.
-    fn subscribe(&self) -> broadcast::Receiver<LogEntry>;
+    fn subscribe(&self) -> Result<broadcast::Receiver<LogEntry>, AppError>;
 
     /// Return the most recent errors and warnings.
-    fn get_recent_errors(&self) -> Vec<ErrorEntry>;
+    fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError>;
 
     /// List all available log files with metadata.
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError>;
@@ -45,12 +46,17 @@ pub trait LogService: Send + Sync {
     /// Collect tracing layers from all log components.
     ///
     /// Called once during startup to compose layers into the subscriber.
+    /// No auth guard — runs before the HTTP surface exists.
     fn tracing_layers(&self) -> Vec<BoxedLayer>;
 
     /// Start all log components (begin capturing events).
+    /// No auth guard — called from the startup/shutdown lifecycle, not on
+    /// behalf of a request.
     fn start_all(&self);
 
     /// Stop all log components.
+    /// No auth guard — called from the startup/shutdown lifecycle, not on
+    /// behalf of a request.
     fn stop_all(&self);
 }
 
@@ -88,15 +94,18 @@ impl LogServiceImpl {
 
 #[async_trait]
 impl LogService for LogServiceImpl {
-    fn subscribe(&self) -> broadcast::Receiver<LogEntry> {
-        self.stream.subscribe()
+    fn subscribe(&self) -> Result<broadcast::Receiver<LogEntry>, AppError> {
+        auth_context::require_admin()?;
+        Ok(self.stream.subscribe())
     }
 
-    fn get_recent_errors(&self) -> Vec<ErrorEntry> {
-        self.error_notifier.get_recent_errors()
+    fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+        auth_context::require_admin()?;
+        Ok(self.error_notifier.get_recent_errors())
     }
 
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
+        auth_context::require_admin()?;
         let candidates = discover_log_files(&self.log_path).await?;
         let active_path = find_active_log_path(&self.log_path, &candidates);
 
@@ -133,6 +142,7 @@ impl LogService for LogServiceImpl {
     }
 
     async fn download_log_file(&self, name: Option<&str>) -> Result<String, AppError> {
+        auth_context::require_admin()?;
         let target_path = if let Some(name) = name {
             // Resolve within the log directory — prevent path traversal.
             let dir = self

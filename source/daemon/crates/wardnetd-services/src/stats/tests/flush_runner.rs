@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use wardnet_common::stats::{StatsQueryResponse, StatsTopResponse};
 use wardnetd_data::repository::IntradayStatRow;
 
+use crate::auth_context;
 use crate::error::AppError;
 use crate::stats::buffer::StatsBuffer;
 use crate::stats::flush_runner::StatsFlushRunner;
@@ -39,13 +40,18 @@ impl StatsService for SpyService {
     ) -> Result<StatsTopResponse, AppError> {
         unimplemented!()
     }
+    // The spy guards like the real StatsServiceImpl, so the count
+    // assertions below also fail if the runner ever stops establishing
+    // an admin AuthContext around its calls.
     async fn run_flush(&self, rows: Vec<IntradayStatRow>) -> anyhow::Result<()> {
+        auth_context::require_admin()?;
         if !rows.is_empty() {
             *self.flush_calls.lock().unwrap() += 1;
         }
         Ok(())
     }
     async fn run_maintenance(&self) -> anyhow::Result<()> {
+        auth_context::require_admin()?;
         *self.maintenance_calls.lock().unwrap() += 1;
         Ok(())
     }
@@ -72,7 +78,7 @@ async fn startup_runs_maintenance_immediately() {
     runner.shutdown().await;
     assert!(
         service.maintenance_count() >= 1,
-        "maintenance must run immediately on startup"
+        "maintenance must run immediately on startup (with an admin AuthContext established)"
     );
 }
 
@@ -93,7 +99,7 @@ async fn shutdown_flushes_non_empty_buffer() {
     runner.shutdown().await;
     assert!(
         service.flush_count() >= 1,
-        "shutdown must trigger a final flush of any buffered rows"
+        "shutdown must trigger a final flush of any buffered rows (with an admin AuthContext established)"
     );
 }
 

@@ -194,17 +194,40 @@ fn hourly(metric: &str, labels: &str, hour_ts: i64, value: f64, kind: &str) -> H
 #[tokio::test]
 async fn run_flush_empty_is_noop() {
     let svc = make_service();
-    svc.run_flush(vec![]).await.unwrap();
+    auth_context::with_context(admin_ctx(), svc.run_flush(vec![]))
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
 async fn run_flush_delegates_rows_to_repo() {
     let repo = Arc::new(MemoryStatsRepo::default());
     let svc = StatsServiceImpl::new(repo.clone());
-    svc.run_flush(vec![intraday("m", "{}", 0, 1.0)])
-        .await
-        .unwrap();
+    auth_context::with_context(
+        admin_ctx(),
+        svc.run_flush(vec![intraday("m", "{}", 0, 1.0)]),
+    )
+    .await
+    .unwrap();
     assert_eq!(repo.intraday.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn run_flush_forbidden_without_admin_context() {
+    let repo = Arc::new(MemoryStatsRepo::default());
+    let svc = StatsServiceImpl::new(repo.clone());
+    let err = svc
+        .run_flush(vec![intraday("m", "{}", 0, 1.0)])
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        err.downcast_ref::<AppError>(),
+        Some(AppError::Forbidden(_))
+    ));
+    assert!(
+        repo.intraday.lock().unwrap().is_empty(),
+        "no rows may be written without an admin context"
+    );
 }
 
 // ── query ─────────────────────────────────────────────────────────────────────
@@ -540,5 +563,17 @@ async fn top_with_admin_context() {
 #[tokio::test]
 async fn run_maintenance_completes_without_error() {
     let svc = make_service();
-    svc.run_maintenance().await.unwrap();
+    auth_context::with_context(admin_ctx(), svc.run_maintenance())
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn run_maintenance_forbidden_without_admin_context() {
+    let svc = make_service();
+    let err = svc.run_maintenance().await.unwrap_err();
+    assert!(matches!(
+        err.downcast_ref::<AppError>(),
+        Some(AppError::Forbidden(_))
+    ));
 }

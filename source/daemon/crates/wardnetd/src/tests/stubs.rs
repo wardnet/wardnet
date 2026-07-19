@@ -1061,13 +1061,17 @@ pub struct StubLogService;
 
 #[async_trait]
 impl wardnetd_services::logging::LogService for StubLogService {
-    fn subscribe(&self) -> broadcast::Receiver<wardnetd_services::logging::stream::LogEntry> {
+    fn subscribe(
+        &self,
+    ) -> Result<broadcast::Receiver<wardnetd_services::logging::stream::LogEntry>, AppError> {
         let (tx, rx) = broadcast::channel(1);
         drop(tx);
-        rx
+        Ok(rx)
     }
-    fn get_recent_errors(&self) -> Vec<wardnetd_services::logging::error_notifier::ErrorEntry> {
-        Vec::new()
+    fn get_recent_errors(
+        &self,
+    ) -> Result<Vec<wardnetd_services::logging::error_notifier::ErrorEntry>, AppError> {
+        Ok(Vec::new())
     }
     async fn list_log_files(
         &self,

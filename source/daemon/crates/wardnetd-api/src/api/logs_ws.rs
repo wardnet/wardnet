@@ -6,6 +6,7 @@ use tokio::sync::broadcast;
 
 use crate::api::middleware::AdminAuth;
 use crate::state::AppState;
+use wardnetd_services::error::AppError;
 use wardnetd_services::logging::stream::LogEntry;
 
 /// Client command sent over the WebSocket to change filters.
@@ -45,9 +46,9 @@ pub async fn logs_ws(
     State(state): State<AppState>,
     _auth: AdminAuth,
     ws: WebSocketUpgrade,
-) -> impl IntoResponse {
-    let rx = state.log_service().subscribe();
-    ws.on_upgrade(move |socket| handle_socket(socket, rx))
+) -> Result<impl IntoResponse, AppError> {
+    let rx = state.log_service().subscribe()?;
+    Ok(ws.on_upgrade(move |socket| handle_socket(socket, rx)))
 }
 
 async fn handle_socket(mut socket: WebSocket, mut rx: broadcast::Receiver<LogEntry>) {
