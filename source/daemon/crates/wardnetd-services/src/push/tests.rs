@@ -1148,6 +1148,74 @@ fn build_request_sets_web_push_headers() {
 }
 
 #[test]
+fn build_request_vapid_token_verifies_against_advertised_key() {
+    // The Authorization header must carry an ES256 JWS a push service can
+    // actually validate: signature over `header.claims` with the key
+    // advertised in `k=`, and the claims RFC 8292 requires.
+    use web_push_native::p256::ecdsa::signature::Verifier;
+    use web_push_native::p256::ecdsa::{Signature, VerifyingKey};
+
+    let vapid = VapidKey::generate();
+    let subscriber = VapidKey::generate();
+    let p256dh = subscriber.public_key_base64url();
+    let auth = URL_SAFE_NO_PAD.encode([7u8; 16]);
+
+    let sender = ReqwestWebPushSender::new(reqwest::Client::new(), "mailto:a@b.c".to_owned());
+    let request = sender
+        .build_request(
+            &vapid,
+            &PushTarget {
+                endpoint: "https://push.example.com/xyz",
+                p256dh: &p256dh,
+                auth: &auth,
+            },
+            b"{}".to_vec(),
+        )
+        .expect("valid subscription should build");
+
+    let header = request
+        .headers()
+        .get(http::header::AUTHORIZATION)
+        .unwrap()
+        .to_str()
+        .unwrap();
+    let (token, advertised_key) = header
+        .strip_prefix("vapid t=")
+        .and_then(|rest| rest.split_once(", k="))
+        .expect("header must be `vapid t=<jwt>, k=<pub>`");
+    assert_eq!(advertised_key, vapid.public_key_base64url());
+
+    let [jose, claims, signature] = token.split('.').collect::<Vec<_>>()[..] else {
+        panic!("token must have three segments, got {token}");
+    };
+    let verifying_key =
+        VerifyingKey::from_sec1_bytes(&URL_SAFE_NO_PAD.decode(advertised_key).unwrap()).unwrap();
+    let signature = Signature::from_slice(&URL_SAFE_NO_PAD.decode(signature).unwrap()).unwrap();
+    verifying_key
+        .verify(format!("{jose}.{claims}").as_bytes(), &signature)
+        .expect("token signature must verify against the advertised key");
+
+    let jose: serde_json::Value =
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(jose).unwrap()).unwrap();
+    assert_eq!(jose["alg"], "ES256");
+
+    let claims: serde_json::Value =
+        serde_json::from_slice(&URL_SAFE_NO_PAD.decode(claims).unwrap()).unwrap();
+    assert_eq!(claims["aud"], "https://push.example.com");
+    assert_eq!(claims["sub"], "mailto:a@b.c");
+    let exp = claims["exp"].as_u64().expect("exp must be numeric");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    assert!(exp > now, "token must not be born expired");
+    assert!(
+        exp <= now + 24 * 60 * 60,
+        "push services reject exp more than 24h out"
+    );
+}
+
+#[test]
 fn build_request_rejects_wrong_length_auth() {
     let vapid = VapidKey::generate();
     let subscriber = VapidKey::generate();

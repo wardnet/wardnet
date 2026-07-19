@@ -247,6 +247,10 @@ impl RoutingService for MockRoutingService {
         Ok("direct".to_owned())
     }
 
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
     fn dns_upstream_snapshot(
         &self,
     ) -> std::sync::Arc<

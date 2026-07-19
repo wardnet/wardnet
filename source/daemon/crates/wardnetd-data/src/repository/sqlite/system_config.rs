@@ -128,6 +128,21 @@ impl SystemConfigRepository for SqliteSystemConfigRepository {
         Ok(())
     }
 
+    async fn reset_default_policy_from(&self, expected: &str) -> anyhow::Result<bool> {
+        // Single conditional UPDATE so the compare-and-set is atomic: a
+        // concurrent policy write that lands between the caller's read and
+        // this statement changes the stored value, the WHERE clause stops
+        // matching, and the reset is skipped instead of clobbering it.
+        let result = sqlx::query(
+            "UPDATE system_config SET value = 'direct' \
+             WHERE key = 'default_policy' AND value = ?",
+        )
+        .bind(expected)
+        .execute(&self.pools.write)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     async fn device_count(&self) -> anyhow::Result<i64> {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM devices")
             .fetch_one(&self.pools.read)

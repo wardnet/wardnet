@@ -285,6 +285,9 @@ impl RoutingService for MockRoutingService {
             Err(e) => Err(clone_app_error(e)),
         }
     }
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError> {
+        self.inner.handle_default_policy_changed().await
+    }
     fn dns_upstream_snapshot(
         &self,
     ) -> std::sync::Arc<

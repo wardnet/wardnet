@@ -323,6 +323,45 @@ async fn default_policy_round_trip() {
 }
 
 #[tokio::test]
+async fn reset_default_policy_from_is_conditional() {
+    let pool = test_pool().await;
+    let repo = SqliteSystemConfigRepository::new(pool);
+
+    // Unset key: nothing matches, nothing is written.
+    assert!(
+        !repo
+            .reset_default_policy_from("10000000-0000-0000-0000-000000000001")
+            .await
+            .unwrap()
+    );
+    assert!(repo.get_default_policy().await.unwrap().is_none());
+
+    let tunnel_uuid = "10000000-0000-0000-0000-000000000001";
+    repo.set_default_policy(tunnel_uuid).await.unwrap();
+
+    // Wrong expected value: the stored policy survives untouched — this
+    // is what protects a concurrent set_default_policy from being
+    // clobbered by a tunnel deletion.
+    assert!(
+        !repo
+            .reset_default_policy_from("20000000-0000-0000-0000-000000000002")
+            .await
+            .unwrap()
+    );
+    assert_eq!(
+        repo.get_default_policy().await.unwrap().as_deref(),
+        Some(tunnel_uuid)
+    );
+
+    // Matching expected value: reset applies.
+    assert!(repo.reset_default_policy_from(tunnel_uuid).await.unwrap());
+    assert_eq!(
+        repo.get_default_policy().await.unwrap().as_deref(),
+        Some("direct")
+    );
+}
+
+#[tokio::test]
 async fn wizard_step_round_trip() {
     let pool = test_pool().await;
     let repo = SqliteSystemConfigRepository::new(pool);

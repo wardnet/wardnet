@@ -529,6 +529,9 @@ impl RoutingService for StubRoutingService {
     async fn default_policy(&self) -> Result<String, AppError> {
         unimplemented!()
     }
+    async fn handle_default_policy_changed(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
     fn dns_upstream_snapshot(
         &self,
     ) -> std::sync::Arc<

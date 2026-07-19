@@ -27,9 +27,9 @@ use crate::tunnel::interface::{
 use crate::tunnel::latency_prober::{LatencyProbeError, TunnelLatencyProber};
 use crate::tunnel::throughput_tester::ThroughputTester;
 use crate::vpn::resolver::{EmptyServerListError, ServerResolver};
-use wardnetd_data::repository::TunnelRepository;
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::repository::tunnel_speed_test::{SpeedTestRow, TunnelSpeedTestRepository};
+use wardnetd_data::repository::{SystemConfigRepository, TunnelRepository};
 use wardnetd_data::secret_store::SecretStore;
 
 use crate::tunnel::key_store::{KeyStore, KeyStoreAdapter};
@@ -147,6 +147,10 @@ pub trait TunnelService: Send + Sync {
 pub struct TunnelServiceImpl {
     tunnels: Arc<dyn TunnelRepository>,
     devices: Arc<dyn wardnetd_data::repository::DeviceRepository>,
+    /// Holds the global `default_policy`. Read on deletion so a tunnel
+    /// that *is* the default policy resets it to `"direct"` instead of
+    /// leaving a dangling tunnel UUID behind.
+    system_config: Arc<dyn SystemConfigRepository>,
     tunnel_interface: Arc<dyn TunnelInterface>,
     exit_probe: Arc<dyn TunnelExitProbe>,
     latency_prober: Arc<dyn TunnelLatencyProber>,
@@ -240,6 +244,7 @@ impl TunnelServiceImpl {
     pub fn new(
         tunnels: Arc<dyn TunnelRepository>,
         devices: Arc<dyn wardnetd_data::repository::DeviceRepository>,
+        system_config: Arc<dyn SystemConfigRepository>,
         tunnel_interface: Arc<dyn TunnelInterface>,
         exit_probe: Arc<dyn TunnelExitProbe>,
         latency_prober: Arc<dyn TunnelLatencyProber>,
@@ -256,6 +261,7 @@ impl TunnelServiceImpl {
         Self {
             tunnels,
             devices,
+            system_config,
             tunnel_interface,
             exit_probe,
             latency_prober,
@@ -277,6 +283,7 @@ impl TunnelServiceImpl {
     pub(crate) fn with_key_store(
         tunnels: Arc<dyn TunnelRepository>,
         devices: Arc<dyn wardnetd_data::repository::DeviceRepository>,
+        system_config: Arc<dyn SystemConfigRepository>,
         tunnel_interface: Arc<dyn TunnelInterface>,
         exit_probe: Arc<dyn TunnelExitProbe>,
         latency_prober: Arc<dyn TunnelLatencyProber>,
@@ -292,6 +299,7 @@ impl TunnelServiceImpl {
         Self {
             tunnels,
             devices,
+            system_config,
             tunnel_interface,
             exit_probe,
             latency_prober,
@@ -1182,6 +1190,55 @@ impl TunnelService for TunnelServiceImpl {
                         timestamp: chrono::Utc::now(),
                     });
                 }
+            }
+        }
+
+        // The global default policy may also point at this tunnel. Reset it
+        // to "direct" in the same step, mirroring the explicit-rule switch
+        // above, so `Default`-ruled devices degrade the same way at the
+        // same time — instead of the config keeping a dangling tunnel UUID
+        // that silently resolves to direct on each later lookup.
+        //
+        // The stored policy is matched through `from_default_policy` — the
+        // same interpreter the routing engine resolves with — not raw string
+        // equality: `set_default_policy` stores the admin-supplied string
+        // verbatim, and the UUID parser accepts non-canonical forms
+        // (uppercase, braced, un-hyphenated) that would defeat an exact
+        // compare while still routing through this tunnel.
+        let default_policy = self
+            .system_config
+            .get_default_policy()
+            .await
+            .map_err(AppError::Internal)?;
+        let policy_targets_tunnel = default_policy.as_deref().is_some_and(|p| {
+            matches!(
+                wardnet_common::routing::RoutingTarget::from_default_policy(p),
+                wardnet_common::routing::RoutingTarget::Tunnel { tunnel_id } if tunnel_id == id
+            )
+        });
+        if policy_targets_tunnel {
+            // Conditional on the exact stored value so a concurrent
+            // `set_default_policy` write is never clobbered: if it lands
+            // in between, the compare-and-set misses and that writer's own
+            // event covers the change.
+            let reset = self
+                .system_config
+                .reset_default_policy_from(default_policy.as_deref().unwrap_or_default())
+                .await
+                .map_err(AppError::Internal)?;
+            if reset {
+                tracing::info!(
+                    tunnel_id = %id,
+                    "deleted tunnel {id} was the default routing policy, reset policy to direct"
+                );
+                // Announce the reset so the routing engine re-resolves
+                // `Default`-ruled devices immediately and the Network-Zone
+                // enforcer (#736) re-clamps them, rather than each device
+                // degrading lazily on its next resolve.
+                self.events.publish(WardnetEvent::DefaultPolicyChanged {
+                    policy: "direct".to_owned(),
+                    timestamp: chrono::Utc::now(),
+                });
             }
         }
 

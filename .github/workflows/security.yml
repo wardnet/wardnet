@@ -8,6 +8,7 @@ on:
       - "source/daemon/**/Cargo.lock"
       - "source/daemon/.cargo/audit.toml"
       - "source/daemon/osv-scanner.toml"
+      - "source/daemon/fuzz/osv-scanner.toml"
       - ".github/scripts/audit-ignore-staleness.py"
   pull_request:
     branches: [main]
@@ -16,6 +17,7 @@ on:
       - "source/daemon/**/Cargo.lock"
       - "source/daemon/.cargo/audit.toml"
       - "source/daemon/osv-scanner.toml"
+      - "source/daemon/fuzz/osv-scanner.toml"
       - ".github/scripts/audit-ignore-staleness.py"
   schedule:
     # Run daily at 06:00 UTC to catch newly disclosed advisories

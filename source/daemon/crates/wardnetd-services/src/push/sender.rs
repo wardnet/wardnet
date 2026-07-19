@@ -1,20 +1,27 @@
 //! Web Push delivery: VAPID signing + RFC 8291 payload encryption + HTTP POST.
 //!
 //! This is the cryptographic edge of the push subsystem and the focus of the
-//! security review. All key material and encryption is delegated to
-//! [`web_push_native`] (`RustCrypto`: `p256` / `aes-gcm` / `hkdf`); this module
-//! only marshals a stored subscription into a builder call and classifies the
-//! push service's HTTP response.
+//! security review. Payload encryption is delegated to [`web_push_native`]
+//! (`RustCrypto`: `p256` / `aes-gcm` / `hkdf`); the RFC 8292 VAPID token is
+//! signed here with the re-exported `p256` directly, because web-push-native's
+//! `vapid` feature would pull the whole jwt-simple stack (and with it the
+//! `rsa` crate, RUSTSEC-2023-0071) for a JWT with three claims. Beyond that,
+//! this module only marshals a stored subscription into a builder call and
+//! classifies the push service's HTTP response.
 //!
 //! The [`WebPushSender`] trait is the seam the [`PushService`](super) tests and
 //! the mock daemon substitute — the real [`ReqwestWebPushSender`] performs
 //! network I/O, so unit tests never touch it.
 
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
-use web_push_native::jwt_simple::algorithms::{ECDSAP256PublicKeyLike, ES256KeyPair};
 use web_push_native::p256::PublicKey;
+use web_push_native::p256::ecdsa::signature::Signer;
+use web_push_native::p256::ecdsa::{Signature, SigningKey};
+use web_push_native::p256::elliptic_curve::rand_core::OsRng;
 use web_push_native::{Auth, WebPushBuilder};
 
 /// Decode a base64url value, accepting both unpadded and padded input —
@@ -25,10 +32,10 @@ fn decode_b64url(value: &str) -> Result<Vec<u8>, base64::DecodeError> {
         .or_else(|_| URL_SAFE.decode(value))
 }
 
-/// The daemon's VAPID key pair. Wraps [`ES256KeyPair`] so the rest of the
-/// service never depends on the JWT crate directly.
+/// The daemon's VAPID key pair. Wraps a P-256 [`SigningKey`] so the rest of
+/// the service never depends on the ECDSA crates directly.
 pub struct VapidKey {
-    key_pair: ES256KeyPair,
+    signing_key: SigningKey,
 }
 
 impl VapidKey {
@@ -36,40 +43,83 @@ impl VapidKey {
     #[must_use]
     pub fn generate() -> Self {
         Self {
-            key_pair: ES256KeyPair::generate(),
+            signing_key: SigningKey::random(&mut OsRng),
         }
     }
 
     /// Reconstruct a key pair from the raw bytes produced by [`Self::to_bytes`].
     pub fn from_bytes(raw: &[u8]) -> Result<Self, anyhow::Error> {
-        // The raw P-256 private scalar is 32 bytes; `ES256KeyPair::from_bytes`
-        // *panics* on a shorter slice, so reject a corrupt/truncated stored
-        // secret here instead of crashing the daemon.
+        // The raw P-256 private scalar is 32 bytes; keep the explicit length
+        // check so a corrupt/truncated stored secret yields a diagnosable
+        // error instead of a generic decode failure.
         if raw.len() != 32 {
             anyhow::bail!("VAPID key must be 32 bytes, got {}", raw.len());
         }
-        let key_pair = ES256KeyPair::from_bytes(raw)
+        let signing_key = SigningKey::from_slice(raw)
             .map_err(|e| anyhow::anyhow!("invalid stored VAPID key: {e}"))?;
-        Ok(Self { key_pair })
+        Ok(Self { signing_key })
     }
 
     /// Serialize the private key for storage in the [`SecretStore`](crate::secret_store::SecretStore).
     #[must_use]
     pub fn to_bytes(&self) -> Vec<u8> {
-        self.key_pair.to_bytes()
+        self.signing_key.to_bytes().to_vec()
     }
 
     /// The uncompressed SEC1 public point, base64url-unpadded — the value a
     /// browser passes as `applicationServerKey` to `PushManager.subscribe`.
     #[must_use]
     pub fn public_key_base64url(&self) -> String {
-        let uncompressed = self
-            .key_pair
-            .public_key()
-            .public_key()
-            .to_bytes_uncompressed();
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(uncompressed)
+        let uncompressed = self.signing_key.verifying_key().to_encoded_point(false);
+        URL_SAFE_NO_PAD.encode(uncompressed.as_bytes())
     }
+}
+
+/// How long a minted VAPID token stays valid. Matches the 12-hour TTL
+/// [`WebPushBuilder`] puts on the request itself.
+const VAPID_TOKEN_LIFETIME_SECS: u64 = 12 * 60 * 60;
+
+/// Build the RFC 8292 `Authorization` header value: `vapid t=<jwt>, k=<pub>`.
+///
+/// The token is a plain ES256 JWS over the three claims push services
+/// validate — `aud` (endpoint origin), `exp`, and `sub` (our contact
+/// address). P-256 JWS signatures are the fixed-size `r || s` form, so the
+/// signature bytes go into the token as-is.
+fn vapid_authorization(
+    endpoint: &http::Uri,
+    contact: &str,
+    vapid: &VapidKey,
+) -> Result<String, anyhow::Error> {
+    let scheme = endpoint
+        .scheme_str()
+        .ok_or_else(|| anyhow::anyhow!("push endpoint has no scheme"))?;
+    let host = endpoint
+        .host()
+        .ok_or_else(|| anyhow::anyhow!("push endpoint has no host"))?;
+    let audience = format!("{scheme}://{host}");
+
+    let expiry = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| anyhow::anyhow!("system clock is before the Unix epoch: {e}"))?
+        .as_secs()
+        + VAPID_TOKEN_LIFETIME_SECS;
+
+    let header = URL_SAFE_NO_PAD.encode(br#"{"typ":"JWT","alg":"ES256"}"#);
+    let claims = serde_json::json!({
+        "aud": audience,
+        "exp": expiry,
+        "sub": contact,
+    });
+    let claims = URL_SAFE_NO_PAD.encode(serde_json::to_vec(&claims)?);
+
+    let signing_input = format!("{header}.{claims}");
+    let signature: Signature = vapid.signing_key.sign(signing_input.as_bytes());
+    let signature = URL_SAFE_NO_PAD.encode(signature.to_bytes());
+
+    Ok(format!(
+        "vapid t={signing_input}.{signature}, k={}",
+        vapid.public_key_base64url()
+    ))
 }
 
 /// A single delivery target — one stored subscription's addressing + keys.
@@ -146,10 +196,16 @@ impl ReqwestWebPushSender {
         }
         let ua_auth = Auth::clone_from_slice(&auth);
 
-        let request = WebPushBuilder::new(endpoint, ua_public, ua_auth)
-            .with_vapid(&vapid.key_pair, &self.contact)
+        let authorization = vapid_authorization(&endpoint, &self.contact, vapid)?;
+        let mut request = WebPushBuilder::new(endpoint, ua_public, ua_auth)
             .build(payload)
             .map_err(|e| anyhow::anyhow!("web push encryption failed: {e}"))?;
+        request.headers_mut().insert(
+            http::header::AUTHORIZATION,
+            authorization
+                .try_into()
+                .map_err(|e| anyhow::anyhow!("bad VAPID header value: {e}"))?,
+        );
         Ok(request)
     }
 }
