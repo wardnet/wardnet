@@ -21,6 +21,13 @@ struct MockRoutingService {
     calls: Mutex<Vec<RoutingCall>>,
     /// When `true`, `handle_route_table_lost` returns an error.
     error_on_route_table_lost: Mutex<bool>,
+    /// Milliseconds `apply_rule_for_device` sleeps before recording. Used
+    /// to park the listener inside a handler so the event bus can
+    /// overflow behind it and force a `Lagged` receive.
+    apply_rule_for_device_delay_ms: std::sync::atomic::AtomicU64,
+    /// When `true`, `handle_default_policy_changed` records the call and
+    /// then returns an error.
+    error_on_default_policy_changed: Mutex<bool>,
 }
 
 /// Describes a single call made to the mock routing service.
@@ -66,6 +73,8 @@ impl MockRoutingService {
         Self {
             calls: Mutex::new(Vec::new()),
             error_on_route_table_lost: Mutex::new(false),
+            apply_rule_for_device_delay_ms: std::sync::atomic::AtomicU64::new(0),
+            error_on_default_policy_changed: Mutex::new(false),
         }
     }
 
@@ -161,6 +170,12 @@ impl RoutingService for MockRoutingService {
         device_id: Uuid,
         target: &RoutingTarget,
     ) -> Result<(), AppError> {
+        let delay = self
+            .apply_rule_for_device_delay_ms
+            .load(std::sync::atomic::Ordering::SeqCst);
+        if delay > 0 {
+            tokio::time::sleep(tokio::time::Duration::from_millis(delay)).await;
+        }
         self.calls
             .lock()
             .unwrap()
@@ -199,6 +214,11 @@ impl RoutingService for MockRoutingService {
             .lock()
             .unwrap()
             .push(RoutingCall::HandleDefaultPolicyChanged);
+        if *self.error_on_default_policy_changed.lock().unwrap() {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "mock: handle_default_policy_changed forced error"
+            )));
+        }
         Ok(())
     }
 
@@ -778,6 +798,71 @@ async fn default_policy_changed_triggers_handle_default_policy_changed() {
     let calls = routing.take_calls();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0], RoutingCall::HandleDefaultPolicyChanged);
+}
+
+/// Park the listener inside a slow `apply_rule_for_device`, then overflow
+/// the small broadcast buffer behind it so the next `recv` returns
+/// `Lagged`. Returns the recorded calls after the listener drains.
+async fn run_lagged_listener(routing: Arc<MockRoutingService>) -> Vec<RoutingCall> {
+    routing
+        .apply_rule_for_device_delay_ms
+        .store(300, std::sync::atomic::Ordering::SeqCst);
+
+    let bus: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(4));
+    let parent = tracing::info_span!("test");
+    let listener = RoutingListener::start(&bus, routing.clone(), &parent);
+
+    // First event occupies the listener in the delayed handler...
+    bus.publish(WardnetEvent::RoutingRuleChanged {
+        device_id: Uuid::new_v4(),
+        target: RoutingTarget::Direct,
+        previous_target: None,
+        changed_by: RuleCreator::Admin,
+        timestamp: Utc::now(),
+    });
+    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+    // ...while twice the buffer capacity floods in behind it, evicting
+    // the oldest entries so the listener's next receive lags.
+    for _ in 0..8 {
+        bus.publish(WardnetEvent::TunnelStatsUpdated {
+            tunnel_id: Uuid::new_v4(),
+            status: wardnet_common::tunnel::TunnelStatus::Up,
+            bytes_tx: 0,
+            bytes_rx: 0,
+            last_handshake: None,
+            timestamp: Utc::now(),
+        });
+    }
+
+    tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+    listener.shutdown().await;
+    routing.take_calls()
+}
+
+#[tokio::test]
+async fn event_lag_triggers_default_policy_resync() {
+    // A lagged receiver may have dropped a DefaultPolicyChanged, which
+    // has no other recovery path — after catching up, the listener must
+    // resync the routing policy from the DB.
+    let routing = Arc::new(MockRoutingService::new());
+    let calls = run_lagged_listener(routing).await;
+    assert!(
+        calls.contains(&RoutingCall::HandleDefaultPolicyChanged),
+        "event lag must trigger a default-policy resync: {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn event_lag_resync_error_does_not_panic() {
+    // Even if the resync fails, the listener loop must keep running.
+    let routing = Arc::new(MockRoutingService::new());
+    *routing.error_on_default_policy_changed.lock().unwrap() = true;
+    let calls = run_lagged_listener(routing).await;
+    assert!(
+        calls.contains(&RoutingCall::HandleDefaultPolicyChanged),
+        "the resync must still be attempted on error: {calls:?}"
+    );
 }
 
 #[tokio::test]

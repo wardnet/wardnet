@@ -2407,6 +2407,29 @@ async fn handle_default_policy_changed_syncs_and_reapplies_default_ruled_devices
 }
 
 #[tokio::test]
+async fn handle_default_policy_changed_noops_when_policy_unset() {
+    // Pre-bootstrap state: the default_policy key does not exist yet.
+    // The handler has nothing to sync against and must leave the
+    // in-memory policy and kernel state untouched.
+    let ts = setup_with_devices_and_tunnel(vec![], HashMap::new(), None, None, "direct".to_owned());
+    ts.system_config.delete("default_policy").await.unwrap();
+
+    as_admin(ts.routing.handle_default_policy_changed())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        as_admin(ts.routing.default_policy()).await.unwrap(),
+        "direct",
+        "an unset persisted policy must not disturb the in-memory value"
+    );
+    assert!(
+        ts.netlink_calls.lock().await.is_empty(),
+        "an unset persisted policy must not trigger a sweep"
+    );
+}
+
+#[tokio::test]
 async fn handle_default_policy_changed_is_idempotent_when_policy_unchanged() {
     // A redundant trigger (set_default_policy's own event after the
     // cache was updated inline, or the listener's resync after event
