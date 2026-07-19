@@ -46,7 +46,7 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "health", description = "Unauthenticated liveness/readiness probe"),
         (name = "devices", description = "Device discovery and routing"),
         (name = "network", description = "LAN interface status and gateway discovery"),
-        (name = "network_zones", description = "Network Zones: device policy buckets"),
+        (name = "network-zones", description = "Network Zones: device policy buckets"),
         (name = "zone-exceptions", description = "Cross-zone exceptions: admin-granted allowances between isolated zones"),
         (name = "rule-requests", description = "Device-initiated firewall rule requests and admin decisions"),
         (name = "tunnels", description = "WireGuard tunnel lifecycle"),

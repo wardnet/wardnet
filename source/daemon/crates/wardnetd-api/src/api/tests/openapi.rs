@@ -184,7 +184,9 @@ fn for_each_operation(
     doc: &serde_json::Value,
     mut visit: impl FnMut(&str, &str, &serde_json::Value),
 ) {
-    const METHODS: [&str; 7] = ["get", "put", "post", "delete", "patch", "head", "options"];
+    const METHODS: [&str; 8] = [
+        "get", "put", "post", "delete", "patch", "head", "options", "trace",
+    ];
     let paths = doc["paths"].as_object().expect("paths block must exist");
     for (path, item) in paths {
         for method in METHODS {
@@ -211,12 +213,23 @@ fn every_security_requirement_references_a_registered_scheme() {
         .collect();
 
     for_each_operation(&doc, |path, method, op| {
-        let Some(requirements) = op["security"].as_array() else {
-            return;
-        };
+        // Every operation must declare security explicitly — a handler whose
+        // `#[utoipa::path]` omits the attribute serializes with no `security`
+        // key at all, and generated clients would send no credentials to it.
+        // Public endpoints opt out visibly with `security(())`.
+        let requirements = op["security"].as_array().unwrap_or_else(|| {
+            panic!(
+                "{method} {path} declares no security requirements; every \
+                 operation needs a security(...) attribute — use security(()) \
+                 for deliberately unauthenticated endpoints"
+            )
+        });
         for entry in requirements {
-            // An empty `{}` entry is the marker for "no auth required".
-            for name in entry.as_object().into_iter().flat_map(|o| o.keys()) {
+            let entry = entry.as_object().unwrap_or_else(|| {
+                panic!("{method} {path}: security requirement entry must be an object, got {entry}")
+            });
+            // An empty `{}` object is the no-auth marker and yields no keys.
+            for name in entry.keys() {
                 assert!(
                     registered.iter().any(|r| r == name),
                     "{method} {path} references security scheme {name:?}, \
@@ -255,6 +268,48 @@ fn operation_tags_match_the_declared_tag_list() {
         used.difference(&declared).collect::<Vec<_>>(),
         declared.difference(&used).collect::<Vec<_>>()
     );
+}
+
+#[test]
+fn optional_ip_fields_are_nullable_with_accurate_presence() {
+    // `Option<Ipv4Addr>` fields carry a manual `value_type` annotation
+    // (utoipa has no ToSchema for Ipv4Addr), which makes it easy to copy the
+    // non-nullable `String` form from a neighbouring non-Option field and
+    // silently publish a client-breaking schema. Pin the contract for the
+    // three fields that have already drifted once:
+    //
+    // - response fields (`gateway`, `foreign_server_ip`) are serialized on
+    //   every response (as explicit `null` when unset) → required + nullable;
+    // - the request field (`target_ip`) may be omitted by callers entirely
+    //   → not required + nullable.
+    let doc = api_doc_json();
+    let schemas = &doc["components"]["schemas"];
+
+    let is_nullable = |schema: &str, field: &str| {
+        let ty = &schemas[schema]["properties"][field]["type"];
+        ty.as_array().is_some_and(|t| t.iter().any(|v| v == "null"))
+    };
+    let is_required = |schema: &str, field: &str| {
+        schemas[schema]["required"]
+            .as_array()
+            .is_some_and(|r| r.iter().any(|v| v == field))
+    };
+
+    for (schema, field, required) in [
+        ("NetworkStatusResponse", "gateway", true),
+        ("DhcpSelfProbeResponse", "foreign_server_ip", true),
+        ("DiscoverGatewayMacRequest", "target_ip", false),
+    ] {
+        assert!(
+            is_nullable(schema, field),
+            "{schema}.{field} must be nullable in the published schema"
+        );
+        assert_eq!(
+            is_required(schema, field),
+            required,
+            "{schema}.{field} presence contract drifted: expected required = {required}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

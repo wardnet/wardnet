@@ -52,7 +52,10 @@
 - Every endpoint handler carries a `#[utoipa::path(...)]` attribute with `method`, `path`, `tag`, `description`, `request_body`, `responses`, `security`.
 - Route modules expose `pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState>` that attaches routes via `utoipa_axum::routes!`.
 - DTOs in `wardnet-common::api` derive `utoipa::ToSchema`.
-- `#[schema(value_type = String)]` required for `Ipv4Addr` / `IpAddr` fields — utoipa 5.4 doesn't ship `ToSchema` impls for them.
+- `Ipv4Addr` / `IpAddr` fields need a manual `value_type` annotation — utoipa doesn't ship `ToSchema` impls for them. Match the annotation to the field's shape, or the published schema lies about nullability:
+  - plain field → `#[schema(value_type = String)]`
+  - `Option<...>` field → `#[schema(value_type = Option<String>)]`
+  - `Option<...>` **response** field (always serialized, as `null` when unset) → add `required`: `#[schema(required, value_type = Option<String>)]`
 
 ## SQL query strings
 

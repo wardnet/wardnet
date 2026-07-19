@@ -13797,7 +13797,7 @@
     "/api/network/quarantine-new-devices": {
       "get": {
         "tags": [
-          "network_zones"
+          "network-zones"
         ],
         "description": "Read the new-device quarantine toggle (issue #738). When on, a freshly-discovered device lands in the default-for-new zone (as always) and admins get a push to approve it. Off by default. Admin only.",
         "operationId": "get_quarantine_new_devices",
@@ -13920,7 +13920,7 @@
       },
       "put": {
         "tags": [
-          "network_zones"
+          "network-zones"
         ],
         "description": "Enable or disable new-device quarantine (issue #738). Placement is unchanged either way (new devices always land in the default-for-new zone); the toggle only controls whether admins are notified to approve. Admin only.",
         "operationId": "set_quarantine_new_devices",
@@ -14212,7 +14212,7 @@
     "/api/network/zones": {
       "get": {
         "tags": [
-          "network_zones"
+          "network-zones"
         ],
         "description": "List every Network Zone with its current member count. Admin only.",
         "operationId": "list_zones",
@@ -14335,7 +14335,7 @@
       },
       "post": {
         "tags": [
-          "network_zones"
+          "network-zones"
         ],
         "description": "Create a Network Zone. `provenance` is forced to manual and default flags are never set on create (use PUT to promote). Admin only.",
         "operationId": "create_zone",
@@ -15347,7 +15347,7 @@
     "/api/network/zones/{id}": {
       "get": {
         "tags": [
-          "network_zones"
+          "network-zones"
         ],
         "description": "Fetch a single Network Zone with its member count. Admin only.",
         "operationId": "get_zone",
@@ -15514,7 +15514,7 @@
       },
       "put": {
         "tags": [
-          "network_zones"
+          "network-zones"
         ],
         "description": "Partially update a Network Zone. Setting `is_default` or `is_default_for_new` to true promotes this zone; false is rejected (flags only move by promoting another zone). System zones are editable but not deletable. Admin only.",
         "operationId": "update_zone",
@@ -15733,7 +15733,7 @@
       },
       "delete": {
         "tags": [
-          "network_zones"
+          "network-zones"
         ],
         "description": "Delete a Network Zone. Rejected for system zones, the anchor (default) zone, or zones that still have member devices. Admin only.",
         "operationId": "delete_zone",
@@ -24015,7 +24015,8 @@
         "description": "Response for POST /api/network/dhcp-self-probe.\n\nThe wizard's primary-mode step 3 uses this to verify Wardnet now\nowns LAN DHCP after the operator disabled it on their router:\n\n- `wardnet_responded == true && foreign_responded == false` → ready\n  to advance.\n- `foreign_responded == true` → re-show the disable-DHCP guide;\n  `foreign_server_ip` lets the wizard call out which device is\n  still answering.",
         "required": [
           "wardnet_responded",
-          "foreign_responded"
+          "foreign_responded",
+          "foreign_server_ip"
         ],
         "properties": {
           "foreign_responded": {
@@ -25614,6 +25615,7 @@
         "required": [
           "interface",
           "ip",
+          "gateway",
           "dhcp_source"
         ],
         "properties": {
@@ -28329,7 +28331,7 @@
       "description": "LAN interface status and gateway discovery"
     },
     {
-      "name": "network_zones",
+      "name": "network-zones",
       "description": "Network Zones: device policy buckets"
     },
     {
