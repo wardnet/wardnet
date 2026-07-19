@@ -493,7 +493,7 @@ impl QueryPipeline {
         //    bleed into a LAN device's lookup of the same domain (or vice
         //    versa).
         let cached = {
-            let mut cache_guard = self.cache.write().await;
+            let cache_guard = self.cache.read().await;
             cache_guard.get(upstream_id, &domain, rtype)
         };
         if let Some(mut response) = cached {

@@ -303,7 +303,7 @@ fn aged_ttl_floors_at_one_and_never_wraps() {
 }
 
 #[test]
-fn expired_entry_is_evicted_on_lookup() {
+fn expired_entry_is_not_served() {
     let mut cache = DnsCache::new(100);
     cache.insert(
         DEFAULT,
@@ -322,8 +322,151 @@ fn expired_entry_is_evicted_on_lookup() {
     );
 
     assert!(cache.get(DEFAULT, "example.com", RecordType::A).is_none());
-    assert!(cache.is_empty(), "expired entry must be removed on lookup");
     assert_eq!(cache.misses(), 1);
+
+    // A fresh insert for the same key overwrites the expired entry and
+    // serves again.
+    cache.insert(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        make_answer_response("example.com.", 300),
+        300,
+        0,
+        86400,
+    );
+    assert_eq!(cache.len(), 1);
+    assert!(cache.get(DEFAULT, "example.com", RecordType::A).is_some());
+}
+
+#[test]
+fn sweep_reclaims_expired_entries_before_evicting_live_ones() {
+    // At capacity, expired entries must be swept out rather than letting
+    // FIFO eviction remove the oldest still-live entry while dead ones
+    // keep occupying capacity.
+    let mut cache = DnsCache::new(4);
+    cache.insert(
+        DEFAULT,
+        "keep.com",
+        RecordType::A,
+        make_response(),
+        300,
+        0,
+        86400,
+    );
+    for domain in ["e1.com", "e2.com", "e3.com"] {
+        cache.insert(
+            DEFAULT,
+            domain,
+            RecordType::A,
+            make_response(),
+            30,
+            0,
+            86400,
+        );
+        cache.backdate(DEFAULT, domain, RecordType::A, Duration::from_mins(1));
+    }
+    assert_eq!(cache.len(), 4);
+
+    cache.insert(
+        DEFAULT,
+        "new.com",
+        RecordType::A,
+        make_response(),
+        300,
+        0,
+        86400,
+    );
+
+    assert!(
+        cache.get(DEFAULT, "keep.com", RecordType::A).is_some(),
+        "the oldest live entry must survive while expired entries exist"
+    );
+    assert!(cache.get(DEFAULT, "new.com", RecordType::A).is_some());
+    assert_eq!(
+        cache.len(),
+        2,
+        "the sweep must reclaim all expired entries, correcting len()"
+    );
+}
+
+#[test]
+fn served_ttl_capped_by_remaining_entry_lifetime() {
+    let mut cache = DnsCache::new(100);
+    // Record TTL far above the admin's ttl_max clamp: the entry lives for
+    // 300s, and served TTLs must never promise more than what's left of
+    // that, or downstream caches outlive the cap.
+    cache.insert(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        make_answer_response("example.com.", 86400),
+        86400,
+        0,
+        300,
+    );
+    cache.backdate(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        Duration::from_secs(100),
+    );
+
+    let hit = cache
+        .get(DEFAULT, "example.com", RecordType::A)
+        .expect("entry is still within its clamped 300s lifetime");
+    assert_eq!(
+        hit.answers[0].ttl, 200,
+        "served TTL must be capped at the entry's remaining lifetime"
+    );
+}
+
+#[test]
+fn zero_ttl_record_is_not_inflated() {
+    let mut cache = DnsCache::new(100);
+    let mut resp = make_answer_response("example.com.", 300);
+    // An upstream TTL of 0 means "do not cache this record"; aging must
+    // never raise it to 1.
+    resp.add_authority(Record::from_rdata(
+        Name::from_str_relaxed("example.com.").expect("authority name"),
+        0,
+        RData::A(A(Ipv4Addr::new(192, 0, 2, 2))),
+    ));
+    cache.insert(DEFAULT, "example.com", RecordType::A, resp, 300, 0, 86400);
+
+    let hit = cache
+        .get(DEFAULT, "example.com", RecordType::A)
+        .expect("hit");
+    assert_eq!(hit.authorities[0].ttl, 0, "TTL 0 must be preserved");
+    assert_eq!(hit.answers[0].ttl, 300);
+}
+
+#[test]
+fn hit_ages_additional_record_ttls() {
+    // The forwarding paths cache the full upstream message, so glue
+    // records in the additionals section must age like everything else.
+    let mut cache = DnsCache::new(100);
+    let mut resp = make_answer_response("example.com.", 300);
+    resp.add_additional(Record::from_rdata(
+        Name::from_str_relaxed("glue.example.com.").expect("glue name"),
+        300,
+        RData::A(A(Ipv4Addr::new(192, 0, 2, 3))),
+    ));
+    cache.insert(DEFAULT, "example.com", RecordType::A, resp, 300, 0, 86400);
+    cache.backdate(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        Duration::from_mins(2),
+    );
+
+    let hit = cache
+        .get(DEFAULT, "example.com", RecordType::A)
+        .expect("hit");
+    assert_eq!(
+        hit.additionals[0].ttl, 180,
+        "additional-section TTLs must shrink by time spent in cache"
+    );
 }
 
 #[test]
