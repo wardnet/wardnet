@@ -297,7 +297,13 @@ impl QueryPipeline {
         // 1. Rate limit (per-client token bucket). 0 disables; shed flooding
         // clients before any resolution work, returning REFUSED. The rate is
         // read lock-free from the limiter (no config lock on the hot path).
-        if !self.rate_limiter.check(src.ip()) {
+        //
+        // Only IP-attributed clients are limited here. A device-authenticated
+        // transport (DoT) already rate-limits per grant token at the listener
+        // — its `src` is the TCP peer, which for a relayed roaming device is a
+        // shared loopback/relay address, so limiting by `src.ip()` here would
+        // pool every device into one bucket (and double-charge LAN clients).
+        if matches!(client, ClientIdentity::Ip(_)) && !self.rate_limiter.check(src.ip()) {
             send_refused(reply, src, id, &request).await?;
             record_query(
                 log_sink,

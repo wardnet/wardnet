@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use hickory_proto::op::Message;
+use hickory_proto::op::{Message, ResponseCode};
 use hickory_proto::rr::RecordType;
 use hickory_proto::serialize::binary::BinDecodable;
 use rustls::pki_types::ServerName;
@@ -59,6 +59,9 @@ impl PrivateDnsService for SingleTokenResolver {
             domain: Some(DOMAIN.to_owned()),
         })
     }
+    async fn is_enabled(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
     async fn set_enabled(&self, _enabled: bool) -> Result<PrivateDnsStatus, AppError> {
         unimplemented!("not exercised by DoT tests")
     }
@@ -100,6 +103,12 @@ struct Harness {
 /// Start a `DoT` server on an ephemeral port whose pipeline answers
 /// `example.com A` authoritatively (no network) and logs to `log_rx`.
 async fn start_server(idle_timeout: Duration) -> Harness {
+    start_server_with_rate(idle_timeout, 0).await
+}
+
+/// As [`start_server`], but with a non-zero per-client rate limit so the
+/// per-token limiting path can be exercised.
+async fn start_server_with_rate(idle_timeout: Duration, rate: u32) -> Harness {
     install_crypto_provider();
     let (cert, key) = self_signed(DOMAIN);
     let (rustls_config, serving) =
@@ -108,7 +117,11 @@ async fn start_server(idle_timeout: Duration) -> Harness {
             .expect("serving control");
 
     let (sink, log_rx) = DnsLogSink::new();
-    let pipeline = build_pipeline(DnsConfig::default(), Some(sink));
+    let cfg = DnsConfig {
+        rate_limit_per_second: rate,
+        ..DnsConfig::default()
+    };
+    let pipeline = build_pipeline(cfg, Some(sink));
     pipeline
         .authoritative_view
         .store(Arc::new(AuthoritativeView::build(
@@ -361,6 +374,38 @@ async fn a_query_split_across_writes_is_reassembled() {
     h.server.stop().await.expect("stop");
 }
 
+// -- Rate limiting ---------------------------------------------------------
+
+#[tokio::test]
+async fn rate_limited_query_is_refused_not_disconnected() {
+    // Rate 1: the bucket admits a burst of 1, so a rapid second query is
+    // shed. It must come back REFUSED with the connection intact (a reset
+    // would make a fail-closed client reconnect-storm).
+    let h = start_server_with_rate(Duration::from_secs(30), 1).await;
+    let mut stream = dot_connect(h.addr, &token_hostname()).await;
+
+    let mut refused = false;
+    let mut answered = false;
+    for id in 0u16..6 {
+        send_frame(&mut stream, &query_bytes(id, "example.com", RecordType::A)).await;
+        let frame = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut stream))
+            .await
+            .expect("a response for every query — connection must stay open")
+            .expect("response frame");
+        let response = Message::from_bytes(&frame).expect("parse response");
+        assert_eq!(response.metadata.id, id);
+        match response.metadata.response_code {
+            ResponseCode::Refused => refused = true,
+            ResponseCode::NoError => answered = true,
+            other => panic!("unexpected rcode {other:?}"),
+        }
+    }
+    assert!(answered, "the first (burst) query must be answered");
+    assert!(refused, "a later query must be REFUSED, not dropped/reset");
+
+    h.server.stop().await.expect("stop");
+}
+
 // -- Idle timeout ----------------------------------------------------------
 
 #[tokio::test]
@@ -373,6 +418,53 @@ async fn idle_connection_is_closed() {
         "an idle connection must be closed by the server"
     );
     h.server.stop().await.expect("stop");
+}
+
+// -- Revocation teardown ---------------------------------------------------
+
+#[tokio::test]
+async fn revoking_a_device_tears_down_its_live_connection() {
+    let h = start_server(Duration::from_secs(30)).await;
+    let mut stream = dot_connect(h.addr, &token_hostname()).await;
+
+    // Confirm the session is live and serving.
+    send_frame(
+        &mut stream,
+        &query_bytes(0x0404, "example.com", RecordType::A),
+    )
+    .await;
+    tokio::time::timeout(Duration::from_secs(5), read_frame(&mut stream))
+        .await
+        .expect("response within 5s")
+        .expect("response frame");
+
+    // Revoke the device (the DotRunner would call this on the event); the
+    // established connection must be closed, not left resolving.
+    h.server.disconnect_device(h.device_id);
+    assert!(
+        connection_is_closed(&mut stream).await,
+        "a revoked device's live connection must be torn down"
+    );
+
+    h.server.stop().await.expect("stop");
+}
+
+// -- Clean shutdown with a live connection ---------------------------------
+
+#[tokio::test]
+async fn stop_completes_promptly_with_a_live_connection() {
+    let h = start_server(Duration::from_secs(30)).await;
+    let _stream = dot_connect(h.addr, &token_hostname()).await;
+
+    // An open (idle) connection must not wedge stop() — the drain path
+    // cancels every connection's token, so this returns well within the
+    // bound rather than blocking on the 30 s idle timeout or a stalled
+    // writer.
+    tokio::time::timeout(Duration::from_secs(5), h.server.stop())
+        .await
+        .expect("stop must not hang on an open connection")
+        .expect("stop");
+    assert!(!h.server.is_running());
 }
 
 // -- Cert hot-rotation -----------------------------------------------------

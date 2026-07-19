@@ -3,9 +3,11 @@
 -- 'udp' for the classic :53 path, 'dot' for queries arriving over the :853
 -- DNS-over-TLS listener. Backfilling existing rows as 'udp' is accurate —
 -- DoT did not exist before this migration.
+--
+-- Deliberately NOT indexed: no read path filters on `protocol` yet (the API
+-- query-log filter is #914), so an index here would be pure write
+-- amplification on the daemon's busiest insert path — and a bare index on a
+-- two-value column is near-useless to the planner anyway. When #914 adds a
+-- protocol filter, add the index there (likely composite with timestamp /
+-- device_id), per the append-only-table checklist in .agents/observability.md.
 ALTER TABLE dns_query_log ADD COLUMN protocol TEXT NOT NULL DEFAULT 'udp';
-
--- Filter column on a high-volume append-only table — indexed in the same
--- migration that introduces it, or reads degrade to full-table scans once the
--- log grows past a few thousand rows.
-CREATE INDEX IF NOT EXISTS idx_dns_query_log_protocol ON dns_query_log (protocol);

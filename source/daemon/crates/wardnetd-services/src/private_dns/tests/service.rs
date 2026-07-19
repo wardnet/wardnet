@@ -724,6 +724,7 @@ async fn revoke_deletes_the_grant_and_cuts_token_resolution() {
         .await
         .expect("grant");
 
+    let mut rx = h.events.subscribe();
     auth_context::with_context(admin_ctx(), h.service.revoke_grant(grant.id))
         .await
         .expect("revoke succeeds");
@@ -732,6 +733,17 @@ async fn revoke_deletes_the_grant_and_cuts_token_resolution() {
         .await
         .expect("resolve");
     assert!(resolved.is_none(), "revoked token must no longer resolve");
+
+    // A PrivateDnsGrantRevoked(device_id) must fire so the DoT listener can
+    // tear down the device's live sessions (not just block reconnects).
+    let mut saw_revoked = false;
+    while let Ok(event) = rx.try_recv() {
+        if let WardnetEvent::PrivateDnsGrantRevoked { device_id: d, .. } = event {
+            assert_eq!(d, device_id);
+            saw_revoked = true;
+        }
+    }
+    assert!(saw_revoked, "revoke must publish PrivateDnsGrantRevoked");
 }
 
 #[tokio::test]

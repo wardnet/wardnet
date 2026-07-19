@@ -115,6 +115,15 @@ pub trait DotServer: Send + Sync {
 
     /// Whether the listener is currently running.
     fn is_running(&self) -> bool;
+
+    /// Terminate every live connection authenticated as `device_id` — called
+    /// when the device's grant is revoked, so an established (and otherwise
+    /// only handshake-time authenticated) session is cut off at once rather
+    /// than surviving until it reconnects. A no-op default for test doubles;
+    /// the real listener cancels the matching connections.
+    fn disconnect_device(&self, device_id: Uuid) {
+        let _ = device_id;
+    }
 }
 
 /// Whether a [`TlsStatus`] means an issued certificate is live on `:443`
@@ -140,6 +149,12 @@ pub trait PrivateDnsService: Send + Sync {
     /// Current enabled state + the domain granted hostnames live under.
     async fn status(&self) -> Result<PrivateDnsStatus, AppError>;
 
+    /// Just the enabled flag — a single `system_config` read with no DDNS
+    /// round-trip. The `DotRunner` and the health check gate on this rather
+    /// than [`Self::status`] so a transient DDNS/config read error (which
+    /// only affects the unused `domain`) can't flap a healthy listener.
+    async fn is_enabled(&self) -> Result<bool, AppError>;
+
     /// Enable or disable Private DNS.
     ///
     /// Enabling is Premium-gated: it requires the wardnet DNS provider, an
@@ -152,7 +167,10 @@ pub trait PrivateDnsService: Send + Sync {
     /// Requires the feature to be enabled and one grant per device.
     async fn grant_device(&self, device_id: Uuid) -> Result<PrivateDnsGrant, AppError>;
 
-    /// Revoke a grant, cutting the device off at the next connection.
+    /// Revoke a grant. Deletes the token and, via
+    /// [`WardnetEvent::PrivateDnsGrantRevoked`], tears down the device's
+    /// live `DoT` sessions so revocation takes effect immediately, not only
+    /// on the device's next reconnect.
     async fn revoke_grant(&self, grant_id: Uuid) -> Result<(), AppError>;
 
     /// Every grant, oldest first.
@@ -343,6 +361,11 @@ impl PrivateDnsService for PrivateDnsServiceImpl {
         })
     }
 
+    async fn is_enabled(&self) -> Result<bool, AppError> {
+        auth_context::require_admin()?;
+        self.enabled().await
+    }
+
     async fn set_enabled(&self, enabled: bool) -> Result<PrivateDnsStatus, AppError> {
         auth_context::require_admin()?;
 
@@ -445,16 +468,25 @@ impl PrivateDnsService for PrivateDnsServiceImpl {
         auth_context::require_admin()?;
 
         let key = grant_id.to_string();
-        if self
+        let Some(row) = self
             .grants
             .find_by_id(&key)
             .await
             .map_err(AppError::Internal)?
-            .is_none()
-        {
+        else {
             return Err(AppError::NotFound(format!("grant {grant_id} not found")));
-        }
+        };
         self.grants.delete(&key).await.map_err(AppError::Internal)?;
+
+        // Cut off the device's already-established DoT sessions: the token is
+        // otherwise only checked at handshake, so without this a revoked
+        // (lost/compromised) device keeps resolving until it reconnects.
+        if let Ok(device_id) = Uuid::parse_str(&row.device_id) {
+            self.events.publish(WardnetEvent::PrivateDnsGrantRevoked {
+                device_id,
+                timestamp: Utc::now(),
+            });
+        }
         self.publish_changed(self.enabled().await?);
         Ok(())
     }

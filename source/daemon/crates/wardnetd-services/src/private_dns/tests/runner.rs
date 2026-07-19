@@ -20,6 +20,7 @@ struct MockDotServer {
     running: AtomicBool,
     starts: AtomicU32,
     stops: AtomicU32,
+    disconnected: std::sync::Mutex<Vec<Uuid>>,
 }
 
 #[async_trait]
@@ -36,6 +37,9 @@ impl DotServer for MockDotServer {
     }
     fn is_running(&self) -> bool {
         self.running.load(Ordering::SeqCst)
+    }
+    fn disconnect_device(&self, device_id: Uuid) {
+        self.disconnected.lock().unwrap().push(device_id);
     }
 }
 
@@ -60,6 +64,9 @@ impl PrivateDnsService for MockPrivateDnsService {
             enabled: self.enabled.load(Ordering::SeqCst),
             domain: Some("casa.my.wardnet.services".to_owned()),
         })
+    }
+    async fn is_enabled(&self) -> Result<bool, AppError> {
+        Ok(self.enabled.load(Ordering::SeqCst))
     }
     async fn set_enabled(&self, enabled: bool) -> Result<PrivateDnsStatus, AppError> {
         self.enabled.store(enabled, Ordering::SeqCst);
@@ -248,6 +255,36 @@ async fn entitlement_loss_event_rechecks_state() {
         timestamp: Utc::now(),
     });
     wait_for(|| !server.is_running()).await;
+
+    runner.shutdown().await;
+}
+
+#[tokio::test]
+async fn grant_revoked_event_disconnects_the_device() {
+    let server = Arc::new(MockDotServer::default());
+    let events: Arc<BroadcastEventBus> = Arc::new(BroadcastEventBus::new(16));
+    let runner = DotRunner::start(
+        Arc::new(MockPrivateDnsService::new(true)),
+        Arc::new(MockTlsService::issued()),
+        server.clone(),
+        events.as_ref(),
+        &tracing::Span::none(),
+    );
+    wait_for(|| server.is_running()).await;
+
+    let device_id = Uuid::new_v4();
+    events.publish(WardnetEvent::PrivateDnsGrantRevoked {
+        device_id,
+        timestamp: Utc::now(),
+    });
+
+    // The listener is torn down for that device without stopping the server
+    // (the feature is still enabled).
+    wait_for(|| server.disconnected.lock().unwrap().contains(&device_id)).await;
+    assert!(
+        server.is_running(),
+        "a single revocation must not stop the whole listener"
+    );
 
     runner.shutdown().await;
 }

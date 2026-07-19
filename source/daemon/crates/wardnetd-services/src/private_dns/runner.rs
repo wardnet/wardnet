@@ -28,6 +28,8 @@ use crate::tls::TlsService;
 /// the window in which a freshly-issued certificate brings the listener up.
 const RECHECK_INTERVAL: Duration = Duration::from_secs(30);
 
+/// Owns the spawned `DoT`-lifecycle loop and its cancellation handle. Drop
+/// via [`Self::shutdown`] to stop the loop (and the listener) cleanly.
 pub struct DotRunner {
     cancel: CancellationToken,
     handle: tokio::task::JoinHandle<()>,
@@ -64,18 +66,23 @@ impl DotRunner {
 /// [`auth_context`], like every background runner. Read failures resolve to
 /// `false` — better a listener that comes up one tick late than one serving
 /// with unknown state.
+///
+/// Gates on [`PrivateDnsService::is_enabled`] (a single config read), not
+/// the full `status()`, so a transient DDNS/config error that only affects
+/// `status()`'s unused `domain` field can't stop a healthy enabled listener.
 async fn desired_state(
     private_dns: &Arc<dyn PrivateDnsService>,
     tls: &Arc<dyn TlsService>,
     admin_ctx: &AuthContext,
 ) -> bool {
-    let enabled = match auth_context::with_context(admin_ctx.clone(), private_dns.status()).await {
-        Ok(status) => status.enabled,
-        Err(e) => {
-            tracing::error!(error = %e, "failed to read Private DNS status");
-            return false;
-        }
-    };
+    let enabled =
+        match auth_context::with_context(admin_ctx.clone(), private_dns.is_enabled()).await {
+            Ok(enabled) => enabled,
+            Err(e) => {
+                tracing::error!(error = %e, "failed to read Private DNS status");
+                return false;
+            }
+        };
     if !enabled {
         return false;
     }
@@ -139,6 +146,12 @@ async fn runner_loop(
                     Ok(WardnetEvent::PrivateDnsChanged { .. } | WardnetEvent::EntitlementChanged { .. }) => {
                         let should_run = desired_state(&private_dns, &tls, &admin_ctx).await;
                         reconcile(&server, should_run).await;
+                    }
+                    // Revocation: terminate the device's live sessions at once
+                    // (the token is otherwise only checked at handshake). This
+                    // does not change should-run, so no reconcile is needed.
+                    Ok(WardnetEvent::PrivateDnsGrantRevoked { device_id, .. }) => {
+                        server.disconnect_device(device_id);
                     }
                     Ok(_) => {}
                     Err(broadcast::error::RecvError::Lagged(n)) => {

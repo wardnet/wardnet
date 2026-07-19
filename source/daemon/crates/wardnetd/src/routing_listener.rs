@@ -238,6 +238,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::EntitlementChanged { .. }
         // Private DNS (#912) is the DoT runner's concern.
         | WardnetEvent::PrivateDnsChanged { .. }
+        | WardnetEvent::PrivateDnsGrantRevoked { .. }
         | WardnetEvent::DefaultPolicyChanged { .. } => {}
     }
 }

@@ -181,6 +181,14 @@ pub enum WardnetEvent {
         enabled: bool,
         timestamp: DateTime<Utc>,
     },
+    /// A device's Private DNS grant was revoked (issue #912). The `DoT`
+    /// listener reacts by terminating that device's live `:853` connections,
+    /// so revocation is enforced on established sessions rather than only at
+    /// the next handshake. Carries the device id (never the secret token).
+    PrivateDnsGrantRevoked {
+        device_id: Uuid,
+        timestamp: DateTime<Utc>,
+    },
     UpdateAvailable {
         current_version: String,
         latest_version: String,

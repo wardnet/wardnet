@@ -165,8 +165,9 @@ impl HealthCheck for DotServerHealthCheck {
     }
 
     async fn check(&self) -> CheckOutcome {
-        let enabled = match auth_context::with_context(admin_ctx(), self.service.status()).await {
-            Ok(status) => status.enabled,
+        let enabled = match auth_context::with_context(admin_ctx(), self.service.is_enabled()).await
+        {
+            Ok(enabled) => enabled,
             Err(e) => {
                 tracing::warn!(error = %e, "dot health probe: status read failed: {e}");
                 return CheckOutcome::down("dot status unavailable");

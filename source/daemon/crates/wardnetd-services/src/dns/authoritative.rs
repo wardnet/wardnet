@@ -217,10 +217,20 @@ impl AuthoritativeView {
     /// Returns `None` if the domain is unknown entirely (fall through to
     /// cache + upstream). Returns `Some(&[])` if the domain is known but
     /// has no records of `rtype` (NOERROR empty with AA bit). No heap
-    /// allocation — the outer map accepts `&str` directly. An exact miss
-    /// falls back to the wildcard entries; an explicit record fully shadows
-    /// a covering wildcard, including for types the explicit record does
-    /// not carry (standard left-most-wildcard shadowing).
+    /// allocation — the outer map accepts `&str` directly.
+    ///
+    /// **Wildcard fallback (issue #912):** an exact miss falls back to the
+    /// most specific covering wildcard, but *only for a type the wildcard
+    /// actually carries* — a type-miss under a wildcard returns `None` (fall
+    /// through to forwarding/upstream), **not** `Some(&[])`. Unlike an
+    /// explicit record, which authoritatively owns its exact name for every
+    /// type (an A record NODATA-answers an AAAA query for that one name), a
+    /// wildcard covers an entire subtree, so synthesising NODATA for the
+    /// types it doesn't carry would blackhole AAAA/MX/TXT/… for every name
+    /// under the suffix even when a conditional-forwarding rule or a public
+    /// zone serves them. Answering only the carried types keeps the
+    /// daemon-owned `*.<fqdn>` A record (the sole v1 use) working while
+    /// leaving everything else to resolve normally.
     #[must_use]
     pub fn lookup(
         &self,
@@ -231,12 +241,16 @@ impl AuthoritativeView {
             return Some(type_map.get(&rtype).map_or(&[], Vec::as_slice));
         }
         let wildcard = self.match_wildcard(domain_lower)?;
-        Some(wildcard.typed.get(&rtype).map_or(&[], Vec::as_slice))
+        // Some only when the wildcard carries this type; a type-miss falls
+        // through (None) rather than claiming authoritative NODATA.
+        wildcard.typed.get(&rtype).map(Vec::as_slice)
     }
 
     /// All enabled records for `domain_lower` regardless of type (ANY queries).
-    /// Returns `None` if the domain is unknown. Same wildcard fallback and
-    /// shadowing rules as [`Self::lookup`].
+    /// Returns `None` if the domain is unknown. A wildcard-covered name
+    /// resolves to the wildcard's records; unlike [`Self::lookup`] there is
+    /// no per-type shadowing question for an ANY query (it wants everything
+    /// the name has), so a covered name always yields the wildcard's set.
     #[must_use]
     pub fn lookup_all(&self, domain_lower: &str) -> Option<&[Arc<CustomDnsRecord>]> {
         if let Some(records) = self.all_records.get(domain_lower) {
@@ -245,11 +259,16 @@ impl AuthoritativeView {
         self.match_wildcard(domain_lower).map(|w| w.all.as_slice())
     }
 
-    /// The first CNAME record for `domain_lower`, if any.
+    /// The first CNAME record for `domain_lower`, if any. Falls back to a
+    /// covering wildcard's CNAME (issue #912) so the pipeline's A/AAAA
+    /// CNAME-chase sees wildcard CNAMEs the same way [`Self::lookup`] does.
     #[must_use]
     pub fn lookup_cname(&self, domain_lower: &str) -> Option<&Arc<CustomDnsRecord>> {
-        self.typed_records
-            .get(domain_lower)?
+        if let Some(type_map) = self.typed_records.get(domain_lower) {
+            return type_map.get(&DnsRecordType::Cname).and_then(|v| v.first());
+        }
+        self.match_wildcard(domain_lower)?
+            .typed
             .get(&DnsRecordType::Cname)
             .and_then(|v| v.first())
     }

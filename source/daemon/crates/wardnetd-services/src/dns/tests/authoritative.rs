@@ -324,12 +324,21 @@ fn wildcard_requires_a_label_boundary() {
 }
 
 #[test]
-fn wildcard_yields_nodata_for_other_types() {
+fn wildcard_type_miss_falls_through_not_nodata() {
+    // A wildcard covers a whole subtree, so a type it doesn't carry must
+    // fall through (None) to forwarding/upstream rather than short-circuit
+    // the subtree to authoritative NODATA (issue #912 review fix).
     let view = wildcard_view();
-    let recs = view
-        .lookup("token.casa.my.wardnet.services", DnsRecordType::Aaaa)
-        .expect("the name exists under the wildcard");
-    assert!(recs.is_empty(), "no AAAA record -> NODATA, not NXDOMAIN");
+    assert!(
+        view.lookup("token.casa.my.wardnet.services", DnsRecordType::Aaaa)
+            .is_none(),
+        "an A-only wildcard must not NODATA AAAA for the whole subtree"
+    );
+    // The carried type still resolves.
+    assert!(
+        view.lookup("token.casa.my.wardnet.services", DnsRecordType::A)
+            .is_some_and(|r| !r.is_empty())
+    );
 }
 
 #[test]

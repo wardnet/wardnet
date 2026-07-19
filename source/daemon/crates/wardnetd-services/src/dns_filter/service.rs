@@ -720,6 +720,15 @@ impl DnsFilterServiceImpl {
 
 #[async_trait]
 impl DnsFilterService for DnsFilterServiceImpl {
+    // NOTE (auth): `check` / `check_for_device` deliberately carry no
+    // `require_admin`/`require_authenticated` guard. They are the DNS resolve
+    // hot path, called per query from the DNS server (UDP `:53` and the DoT
+    // `:853` listener) — not from an authenticated HTTP handler — and must
+    // not allocate or take heavy locks. They expose no admin data and mutate
+    // nothing; the filter *management* methods below are all guarded. This is
+    // the same unguarded shape the pre-existing `check` has always had; the
+    // guard-or-documented-exception rule in `.agents/auth.md` is satisfied by
+    // this note rather than by fitting one of the three named categories.
     async fn check(&self, domain: &str, qtype: RecordType, client: IpAddr) -> CheckOutcome {
         let context = {
             let map = self.contexts.read().await;
