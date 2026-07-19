@@ -573,9 +573,15 @@ export default function System() {
             onClick={() => {
               // Revoke the server session first; only once that settles is
               // the biometric credential (the last local gate) dropped and
-              // the user routed away. logout() clears local auth state even
-              // when the revoke call fails, so this never strands the UI.
-              void logout().then(() => {
+              // the user routed away. Local auth state clears synchronously
+              // inside logout(), and the request is time-boxed by the SDK,
+              // so this never strands the UI.
+              void logout().then((revoked) => {
+                if (!revoked) {
+                  toast.error(
+                    "Couldn't reach the gateway — sign-out may not have completed there",
+                  );
+                }
                 biometric.unregister();
                 navigate("/login", { replace: true });
               });

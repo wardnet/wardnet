@@ -150,17 +150,19 @@ impl AuthService for MockRefreshAuthService {
     }
 }
 
-/// Stateful auth service for logout tests: tracks valid tokens in memory so
-/// the login → logout → replay sequence can be driven end-to-end through the
-/// real handlers and extractors.
+/// Stateful auth service for logout tests: tracks valid session tokens (and
+/// optionally API keys) in memory so the login → logout → replay sequence can
+/// be driven end-to-end through the real handlers and extractors.
 struct InMemorySessionAuthService {
     tokens: Mutex<HashSet<String>>,
+    api_keys: Mutex<HashSet<String>>,
 }
 
 impl InMemorySessionAuthService {
     fn new() -> Self {
         Self {
             tokens: Mutex::new(HashSet::new()),
+            api_keys: Mutex::new(HashSet::new()),
         }
     }
 }
@@ -181,8 +183,8 @@ impl AuthService for InMemorySessionAuthService {
     async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError> {
         Ok(self.tokens.lock().unwrap().contains(token).then(Uuid::nil))
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(None)
+    async fn validate_api_key(&self, key: &str) -> Result<Option<Uuid>, AppError> {
+        Ok(self.api_keys.lock().unwrap().contains(key).then(Uuid::nil))
     }
     async fn logout_session(&self, token: &str) -> Result<(), AppError> {
         self.tokens.lock().unwrap().remove(token);
@@ -674,6 +676,63 @@ async fn logout_via_bearer_token_returns_204() {
     let resp = app.oneshot(req).await.unwrap();
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     assert!(auth.tokens.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn logout_revokes_the_authenticating_bearer_session_not_a_stale_cookie() {
+    // A request can carry a stale cookie alongside the valid bearer token
+    // that actually authenticates it. Logout must revoke the bearer session
+    // — deleting the stale cookie's (nonexistent) session and reporting 204
+    // would leave the live session valid while claiming it was revoked.
+    let auth = Arc::new(InMemorySessionAuthService::new());
+    auth.tokens.lock().unwrap().insert("live-bearer".to_owned());
+    let app = auth_app(make_state_from_arc(auth.clone()));
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/logout")
+        .header("Cookie", "wardnet_session=stale-cookie-token")
+        .header("Authorization", "Bearer live-bearer")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert!(
+        auth.tokens.lock().unwrap().is_empty(),
+        "the bearer session that authenticated the request must be revoked"
+    );
+}
+
+#[tokio::test]
+async fn logout_via_api_key_returns_401_without_touching_sessions() {
+    // API keys authenticate but are not sessions: there is nothing to log
+    // out, so the handler must refuse rather than report a bogus 204.
+    let auth = Arc::new(InMemorySessionAuthService::new());
+    auth.api_keys
+        .lock()
+        .unwrap()
+        .insert("my-api-key".to_owned());
+    auth.tokens
+        .lock()
+        .unwrap()
+        .insert("someone-elses-session".to_owned());
+    let app = auth_app(make_state_from_arc(auth.clone()));
+
+    let req = Request::builder()
+        .method("POST")
+        .uri("/api/auth/logout")
+        .header("Authorization", "Bearer my-api-key")
+        .extension(connect_info_ext())
+        .body(Body::empty())
+        .unwrap();
+
+    let resp = app.oneshot(req).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    // The API key still works and no session was collateral damage.
+    assert!(auth.api_keys.lock().unwrap().contains("my-api-key"));
+    assert_eq!(auth.tokens.lock().unwrap().len(), 1);
 }
 
 #[tokio::test]

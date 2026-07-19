@@ -26,6 +26,9 @@ describe("AuthService", () => {
     expect(init.method).toBe("POST");
     // The session cookie is the credential — it must ride along.
     expect(init.credentials).toBe("include");
+    // Sign-out flows gate navigation on this call, so it must be time-boxed
+    // rather than riding the browser's connection timeout.
+    expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
   it("logout rejects when the daemon reports an error", async () => {

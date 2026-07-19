@@ -23,7 +23,7 @@ const logout = vi.fn();
 
 beforeEach(() => {
   logout.mockReset();
-  logout.mockResolvedValue(undefined);
+  logout.mockResolvedValue(true);
   mockAuth.mockReturnValue({ isAdmin: true, logout } as never);
   mockDaemon.mockReturnValue({
     data: { version: "1.2.3", reachable: true },

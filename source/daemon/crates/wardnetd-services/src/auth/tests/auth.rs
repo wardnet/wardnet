@@ -211,6 +211,21 @@ async fn login_success_with_remember_me() {
 }
 
 #[tokio::test]
+async fn login_with_malformed_stored_hash_returns_internal() {
+    // A corrupt password hash in the admins table must surface as Internal,
+    // not masquerade as bad credentials.
+    let svc = make_auth_service(
+        Some(("admin-1".to_owned(), "not-an-argon2-hash".to_owned())),
+        None,
+        None,
+        vec![],
+    );
+
+    let result = svc.login("admin", "any-password", false).await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+}
+
+#[tokio::test]
 async fn login_wrong_password() {
     let hash = argon2_hash("correct-password");
     let svc = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
@@ -235,6 +250,16 @@ async fn validate_session_valid() {
     let result = svc.validate_session("any-token").await.unwrap();
     assert!(result.is_some());
     assert_eq!(result.unwrap().to_string(), admin_uuid);
+}
+
+#[tokio::test]
+async fn validate_session_with_malformed_admin_id_returns_internal() {
+    // A session row whose admin_id is not a UUID must error rather than
+    // silently authenticate or deny.
+    let svc = make_auth_service(None, None, Some("not-a-uuid".to_owned()), vec![]);
+
+    let result = svc.validate_session("any-token").await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
 }
 
 #[tokio::test]
@@ -405,6 +430,58 @@ async fn refresh_session_not_remember_me_returns_forbidden() {
     )
     .await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+/// Build a service whose session row for refresh is exactly `row`.
+fn make_refresh_service(row: (String, bool, String)) -> AuthServiceImpl {
+    AuthServiceImpl::new(
+        Arc::new(MockAdminRepo {
+            find_result: Mutex::new(None),
+            first_id: Mutex::new(None),
+        }),
+        Arc::new(MockSessionRepo {
+            session_for_refresh: Mutex::new(Some(row)),
+            ..Default::default()
+        }),
+        Arc::new(MockApiKeyRepo { hashes: vec![] }),
+        Arc::new(MockSystemConfigRepo),
+        24,
+        720,
+    )
+}
+
+#[tokio::test]
+async fn refresh_session_with_malformed_admin_id_returns_internal() {
+    // A session row whose admin_id is not a UUID must error out, not refresh.
+    let svc = make_refresh_service((
+        "not-a-uuid".to_owned(),
+        true,
+        (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339(),
+    ));
+    let result = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        async { svc.refresh_session("any-token").await },
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+}
+
+#[tokio::test]
+async fn refresh_session_with_malformed_created_at_returns_internal() {
+    // A session row whose created_at is not RFC 3339 must error out — the
+    // absolute-lifetime cap cannot be enforced without it.
+    let admin_uuid = "00000000-0000-0000-0000-000000000001";
+    let svc = make_refresh_service((admin_uuid.to_owned(), true, "not-a-timestamp".to_owned()));
+    let result = auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::parse_str(admin_uuid).unwrap(),
+        },
+        async { svc.refresh_session("any-token").await },
+    )
+    .await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
 }
 
 #[tokio::test]

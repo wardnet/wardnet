@@ -28,11 +28,12 @@ fn session_cookie(token: &str, max_age_seconds: u64, secure: bool) -> String {
 ///
 /// `Max-Age=0` tells the browser to drop the cookie immediately — the only
 /// way to clear it, since it is `HttpOnly` and unreachable from client JS.
-/// Attributes mirror [`session_cookie`] so the browser matches (and thus
-/// replaces) the cookie it stored at login.
+/// Delegates to [`session_cookie`] with an empty token so the attribute list
+/// can never drift from the cookie set at login; a mismatched name/Path would
+/// make the browser treat this as a different cookie and leave the real one
+/// alive.
 fn clear_session_cookie(secure: bool) -> String {
-    let secure_attr = if secure { "; Secure" } else { "" };
-    format!("wardnet_session=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0{secure_attr}")
+    session_cookie("", 0, secure)
 }
 
 /// Register auth routes onto the given [`OpenApiRouter`]. Each module owns its
@@ -132,11 +133,14 @@ pub async fn refresh(
     description = "End the current session. Deletes the session server-side \
                    so the token can never authenticate again, and clears the \
                    `wardnet_session` cookie in the response. Requires a valid \
-                   session cookie or `Authorization: Bearer <token>` header; \
-                   only the caller's own session is affected.",
+                   session cookie or a `Authorization: Bearer <session token>` \
+                   header; only the session that authenticated this request is \
+                   affected. Callers authenticated with an API key get a 401 — \
+                   API keys are not sessions and cannot be logged out here.",
     responses(
         (status = 204, description = "Session invalidated; session cookie cleared"),
         (status = 401, description = "No valid session", body = ApiError),
+        (status = 403, description = "Caller lacks an admin auth context", body = ApiError),
         (status = 500, description = "Internal server error", body = ApiError),
     ),
 )]

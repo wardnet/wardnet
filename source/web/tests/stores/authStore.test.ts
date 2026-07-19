@@ -40,19 +40,36 @@ describe("authStore", () => {
     });
   });
 
-  it("logout revokes the server session and clears isAdmin", async () => {
+  it("logout revokes the server session and resolves true", async () => {
     authService.logout.mockResolvedValue(undefined);
     useAuthStore.setState({ isAdmin: true });
-    await useAuthStore.getState().logout();
+    await expect(useAuthStore.getState().logout()).resolves.toBe(true);
     expect(authService.logout).toHaveBeenCalledOnce();
     expect(useAuthStore.getState().isAdmin).toBe(false);
   });
 
-  it("logout clears isAdmin even when the network call fails", async () => {
+  it("logout clears isAdmin synchronously, before the network call settles", async () => {
+    let resolveLogout!: () => void;
+    authService.logout.mockImplementation(
+      () => new Promise<void>((resolve) => (resolveLogout = resolve)),
+    );
+    useAuthStore.setState({ isAdmin: true });
+    const pending = useAuthStore.getState().logout();
+    // Local sign-out must not wait for the round-trip — and a stale
+    // completion must not be what flips the flag (it already flipped).
+    expect(useAuthStore.getState().isAdmin).toBe(false);
+    resolveLogout();
+    await expect(pending).resolves.toBe(true);
+  });
+
+  it("logout resolves false and warns when the network call fails, still clearing isAdmin", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     authService.logout.mockRejectedValue(new Error("network down"));
     useAuthStore.setState({ isAdmin: true });
-    await expect(useAuthStore.getState().logout()).resolves.toBeUndefined();
+    await expect(useAuthStore.getState().logout()).resolves.toBe(false);
     expect(useAuthStore.getState().isAdmin).toBe(false);
+    expect(warn).toHaveBeenCalledOnce();
+    warn.mockRestore();
   });
 
   it("checkAuth marks admin when the status probe succeeds", async () => {

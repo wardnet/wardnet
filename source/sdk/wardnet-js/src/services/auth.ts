@@ -29,9 +29,22 @@ export class AuthService {
    * The daemon deletes the session server-side (the token can never
    * authenticate again) and clears the `wardnet_session` cookie in the
    * response. No body — the daemon reads the token from the request cookie.
+   *
+   * Bounded by a 5s timeout: sign-out flows gate navigation on this call, and
+   * an unreachable gateway (router mid-reboot, phone off the home LAN) would
+   * otherwise leave the UI hanging on the browser's connection timeout.
    */
   async logout(): Promise<void> {
-    await this.client.request<void>("/auth/logout", { method: "POST" });
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    try {
+      await this.client.request<void>("/auth/logout", {
+        method: "POST",
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** Return the authenticated admin's identity. */
