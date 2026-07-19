@@ -238,12 +238,16 @@ pub enum WardnetEvent {
         timestamp: DateTime<Utc>,
     },
     /// The global default routing policy changed (e.g. `"direct"` → a tunnel
-    /// UUID). Emitted by `RoutingService::set_default_policy`. The Network-Zone
-    /// enforcer (issue #736) consumes this to re-validate every `Default`-ruled
-    /// device against its zone: a policy flip can silently resolve a device's
-    /// `Default` rule to a target its zone forbids (the one edge the #735
-    /// write-time gate cannot catch), so the enforcer unbinds any now-forbidden
-    /// tunnel binding back to direct.
+    /// UUID). Emitted by `RoutingService::set_default_policy`, and by
+    /// `TunnelService::delete_tunnel` when the deleted tunnel *was* the default
+    /// policy (the policy is reset to `"direct"` so it never dangles). Two
+    /// consumers: the routing listener re-applies `Default`-ruled devices
+    /// against the persisted policy, and the Network-Zone enforcer (issue
+    /// #736) re-validates every `Default`-ruled device against its zone: a
+    /// policy flip can silently resolve a device's `Default` rule to a target
+    /// its zone forbids (the one edge the #735 write-time gate cannot catch),
+    /// so the enforcer unbinds any now-forbidden tunnel binding back to
+    /// direct.
     DefaultPolicyChanged {
         policy: String,
         timestamp: DateTime<Utc>,
