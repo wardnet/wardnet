@@ -1,6 +1,5 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { DaemonStrip } from "@/features/dashboard/DaemonStrip";
 import { StatusCard } from "@/features/dashboard/StatusCard";
 import { DevicesCard } from "@/features/dashboard/DevicesCard";
 import { TunnelsCard } from "@/features/dashboard/TunnelsCard";
@@ -9,25 +8,6 @@ import { renderWithProviders, makeDevice, makeTunnel } from "../../test-utils";
 
 const now = new Date().toISOString();
 const old = "2000-01-01T00:00:00Z";
-
-describe("DaemonStrip", () => {
-  it("shows running state with version and uptime", () => {
-    renderWithProviders(
-      <DaemonStrip reachable version="1.2.3" uptimeSeconds={3600} />,
-    );
-    expect(screen.getByText("Running")).toBeInTheDocument();
-    expect(screen.getByText("1.2.3")).toBeInTheDocument();
-    expect(screen.getByText(/up /)).toBeInTheDocument();
-  });
-
-  it("shows unreachable and omits version/uptime when null", () => {
-    renderWithProviders(
-      <DaemonStrip reachable={false} version={null} uptimeSeconds={null} />,
-    );
-    expect(screen.getByText("Unreachable")).toBeInTheDocument();
-    expect(screen.queryByText(/up /)).not.toBeInTheDocument();
-  });
-});
 
 describe("StatusCard", () => {
   it("renders the healthy badge and uptime", () => {
