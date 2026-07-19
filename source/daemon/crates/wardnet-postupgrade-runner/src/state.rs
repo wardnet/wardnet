@@ -101,25 +101,42 @@ pub fn record_verification_failure(
 /// carries the tmp file's permissions to state.json, so this is what
 /// upholds the file's documented root-only mode — a plain
 /// `std::fs::write` would leave it world-readable (0644).
+///
+/// Mirrored in `wardnet-postupgrade/src/state.rs` (same manual-sync
+/// rule as the schema above) — apply changes to both copies.
 fn write_root_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
+    // Drop any stale tmp from an interrupted earlier run before
+    // creating a fresh inode (`create_new`). Reusing the old inode
+    // would keep its old (possibly world-readable) mode, and a chmod
+    // cannot revoke an fd someone already holds on it — an unlinked
+    // inode's readers only ever see the bytes that were theirs.
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
     let mut options = std::fs::OpenOptions::new();
-    options.write(true).create(true).truncate(true);
+    options.write(true).create_new(true);
     #[cfg(unix)]
     {
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
     let mut file = options.open(path)?;
-    file.write_all(bytes)?;
-    // The creation mode does not apply when the file already exists —
-    // a stale tmp from an interrupted earlier run keeps its old mode —
-    // so tighten it explicitly either way.
+    // The creation mode is masked by umask (only ever tighter than
+    // 0600); normalize to exactly the documented mode while the file
+    // is still empty.
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }
+    file.write_all(bytes)?;
+    // Flush to disk before the caller renames over state.json, so a
+    // power loss right after the rename cannot replay a zero-length
+    // file where the old state used to be.
+    file.sync_all()?;
     Ok(())
 }

@@ -85,6 +85,28 @@ fn save_keeps_state_file_root_only() {
     assert_eq!(mode, 0o600, "state.json must be root-only, got {mode:o}");
 }
 
+#[cfg(unix)]
+#[test]
+fn load_reconciles_world_readable_state_to_root_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Older releases wrote state.json 0644 and a healthy host never
+    // rewrites it, so load — which runs every boot — tightens the
+    // mode back to the documented 0600.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("state.json");
+    State::default().save(&path).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    State::load(&path).expect("load");
+
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        mode, 0o600,
+        "load must tighten legacy world-readable state, got {mode:o}"
+    );
+}
+
 #[test]
 fn load_returns_err_on_invalid_json() {
     let dir = TempDir::new().unwrap();

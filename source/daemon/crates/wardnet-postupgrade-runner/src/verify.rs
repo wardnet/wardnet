@@ -13,10 +13,14 @@ pub fn read_artifacts(
     payload: &Path,
     signature: &Path,
 ) -> anyhow::Result<Option<(Vec<u8>, Vec<u8>)>> {
-    let Some(payload_bytes) = read_optional(payload, "payload")? else {
+    // Signature first: it is a few hundred bytes, while the payload
+    // can be a multi-megabyte tarball. A half-staged update (payload
+    // present, signature never written) short-circuits here without
+    // paying a full payload read on every boot.
+    let Some(signature_bytes) = read_optional(signature, "signature")? else {
         return Ok(None);
     };
-    let Some(signature_bytes) = read_optional(signature, "signature")? else {
+    let Some(payload_bytes) = read_optional(payload, "payload")? else {
         return Ok(None);
     };
     Ok(Some((payload_bytes, signature_bytes)))
