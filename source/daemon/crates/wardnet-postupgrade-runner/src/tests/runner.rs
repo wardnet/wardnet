@@ -1,9 +1,9 @@
-//! End-to-end tests for `Runner::run` covering all three return
-//! variants: `NoPayload` (either file missing), `VerifyFailed`
-//! (signature mismatched against embedded pubkey), and `ExecFailed`
-//! (verify passes but `fexecve` rejects the bytes as a non-executable
-//! image — driven here with a throwaway keypair signing garbage
-//! bytes).
+//! End-to-end tests for `Runner::run` covering its return variants:
+//! `NoPayload` (either file missing), `ArtifactReadFailed` (staged
+//! file present but unreadable), `VerifyFailed` (signature mismatched
+//! against embedded pubkey), `ExecFailed` (verify passes but `fexecve`
+//! rejects the bytes as a non-executable image — driven here with a
+//! throwaway keypair signing garbage bytes), and the swap arms.
 //!
 //! Successful exec replaces the test process, so the success branch
 //! is only reachable from a real systemd unit invocation. The
@@ -89,6 +89,33 @@ fn no_payload_when_signature_file_missing() {
 }
 
 #[test]
+fn unreadable_payload_returns_artifact_read_failed() {
+    // Payload path exists but is a directory: unlike the missing-file
+    // cases above this must NOT resolve to `NoPayload` — an update is
+    // staged and can't be read, so the runner has to exit nonzero
+    // instead of reporting a clean no-op.
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir(dir.path().join("postupgrade.bin")).unwrap();
+    std::fs::write(dir.path().join("postupgrade.minisig"), b"sig").unwrap();
+
+    let runner = build_runner(dir.path(), "untrusted comment: x\nAAAA");
+    let argv = [CString::new("p").unwrap()];
+    let outcome = runner.run(&argv);
+    let RunOutcome::ArtifactReadFailed(err) = outcome else {
+        panic!("expected ArtifactReadFailed, got {outcome:?}");
+    };
+    assert!(
+        format!("{err:#}").contains("failed to read payload"),
+        "expected payload-read context"
+    );
+
+    // The failure is diagnosable from state.json, not only journald.
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("state.json")).unwrap()).unwrap();
+    assert_eq!(state["last_runner_failure"]["stage"], "artifact-read");
+}
+
+#[test]
 fn verify_failed_records_state_and_returns_verify_failed() {
     let dir = TempDir::new().unwrap();
     let payload = b"some payload bytes";
@@ -142,6 +169,10 @@ fn exec_failed_when_verified_payload_is_not_an_executable() {
         format!("{err:#}").contains("fexecve failed"),
         "expected fexecve-failure message"
     );
+
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("state.json")).unwrap()).unwrap();
+    assert_eq!(state["last_runner_failure"]["stage"], "exec");
 }
 
 #[test]
@@ -338,4 +369,8 @@ fn swap_failure_short_circuits_run() {
         b"OLD wardnetd",
         "live binary must be untouched on swap failure",
     );
+
+    let state: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.path().join("state.json")).unwrap()).unwrap();
+    assert_eq!(state["last_runner_failure"]["stage"], "swap");
 }

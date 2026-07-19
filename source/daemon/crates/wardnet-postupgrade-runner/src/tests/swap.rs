@@ -60,6 +60,31 @@ fn no_pending_files_is_noop() {
 }
 
 #[test]
+fn unreadable_pending_tarball_fails_instead_of_noop() {
+    // A staged-but-unreadable tarball (here: the pending path is a
+    // directory) must resolve to `Failed`, not `NoOp` — otherwise a
+    // botched staging looks like "no update pending" and the host
+    // silently boots the old binary with exit code 0.
+    let dir = TempDir::new().unwrap();
+    let p = paths(dir.path());
+    std::fs::write(&p.live_binary, b"OLD wardnetd").unwrap();
+
+    std::fs::create_dir(&p.pending_tarball).unwrap();
+    std::fs::write(&p.pending_signature, b"sig").unwrap();
+
+    let outcome = swap::run(&p, "untrusted comment: x\nAAAA");
+    let SwapOutcome::Failed(err) = outcome else {
+        panic!("expected Failed, got {outcome:?}");
+    };
+    let chain = format!("{err:#}");
+    assert!(
+        chain.contains("read pending update artifacts"),
+        "expected artifact-read context, got: {chain}"
+    );
+    assert_eq!(std::fs::read(&p.live_binary).unwrap(), b"OLD wardnetd");
+}
+
+#[test]
 fn signature_mismatch_fails_and_preserves_live_binary() {
     let dir = TempDir::new().unwrap();
     let p = paths(dir.path());

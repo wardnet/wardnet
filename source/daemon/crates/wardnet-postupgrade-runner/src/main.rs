@@ -28,6 +28,14 @@ fn main() {
             );
             std::process::exit(0);
         }
+        RunOutcome::ArtifactReadFailed(e) => {
+            // The error chain names the file that failed (payload or
+            // signature); repeating the payload path here would point
+            // the operator at the wrong file half the time.
+            let error = format!("{e:#}");
+            tracing::error!(%error, "could not read staged postupgrade artifacts: {error}");
+            std::process::exit(4);
+        }
         RunOutcome::VerifyFailed(e) => {
             tracing::error!(
                 error = %e,

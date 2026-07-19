@@ -6246,6 +6246,7 @@ dependencies = [
  "tempfile",
  "tracing",
  "tracing-subscriber",
+ "wardnet-postupgrade",
 ]
 
 [[package]]

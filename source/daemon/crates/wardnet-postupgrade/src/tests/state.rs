@@ -3,7 +3,7 @@
 use chrono::TimeZone;
 use tempfile::TempDir;
 
-use crate::state::{AppliedEntry, FailedEntry, State};
+use crate::state::{AppliedEntry, FailedEntry, RunnerFailure, State};
 
 #[test]
 fn load_returns_default_when_file_missing() {
@@ -30,7 +30,7 @@ fn save_then_load_roundtrip() {
             error: "oops".into(),
             at: now,
         }],
-        last_verification_failure: None,
+        ..Default::default()
     };
     state.save(&path).unwrap();
 
@@ -39,6 +39,30 @@ fn save_then_load_roundtrip() {
     assert_eq!(loaded.applied[0].id, "0001");
     assert_eq!(loaded.failed.len(), 1);
     assert_eq!(loaded.failed[0].id, "0002");
+}
+
+#[test]
+fn save_preserves_runner_failure_record() {
+    // `last_runner_failure` is written by the trust-anchor runner;
+    // this crate's save must carry it through unchanged so a later
+    // migration run doesn't erase the diagnosis.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("state.json");
+    let now = chrono::Utc.with_ymd_and_hms(2026, 5, 4, 12, 0, 0).unwrap();
+    let state = State {
+        last_runner_failure: Some(RunnerFailure {
+            stage: "swap".into(),
+            error: "tarball unreadable".into(),
+            at: now,
+        }),
+        ..Default::default()
+    };
+    state.save(&path).unwrap();
+
+    let loaded = State::load(&path).expect("load");
+    let failure = loaded.last_runner_failure.expect("record preserved");
+    assert_eq!(failure.stage, "swap");
+    assert_eq!(failure.error, "tarball unreadable");
 }
 
 #[test]
@@ -61,6 +85,50 @@ fn is_applied_matches_by_id() {
     };
     assert!(state.is_applied("0001"));
     assert!(!state.is_applied("0002"));
+}
+
+#[cfg(unix)]
+#[test]
+fn save_keeps_state_file_root_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // The module doc pins state.json at mode 0600. The write-then-
+    // rename must uphold that even when overwriting a file (or a
+    // stale tmp) that was left world-readable.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("state.json");
+    std::fs::write(&path, b"{}").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let tmp = dir.path().join("state.json.tmp");
+    std::fs::write(&tmp, b"stale").unwrap();
+    std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    State::default().save(&path).expect("save");
+
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(mode, 0o600, "state.json must be root-only, got {mode:o}");
+}
+
+#[cfg(unix)]
+#[test]
+fn load_reconciles_world_readable_state_to_root_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // Older releases wrote state.json 0644 and a healthy host never
+    // rewrites it, so load — which runs every boot — tightens the
+    // mode back to the documented 0600.
+    let dir = TempDir::new().unwrap();
+    let path = dir.path().join("state.json");
+    State::default().save(&path).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+
+    State::load(&path).expect("load");
+
+    let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+    assert_eq!(
+        mode, 0o600,
+        "load must tighten legacy world-readable state, got {mode:o}"
+    );
 }
 
 #[test]

@@ -33,6 +33,13 @@ pub struct State {
     /// not touch this field — it only ever runs after verification
     /// has succeeded.
     pub last_verification_failure: Option<VerificationFailure>,
+    /// Recorded by `wardnet-postupgrade-runner` when a boot-time step
+    /// other than signature verification fails: reading the staged
+    /// artifacts, the privileged binary swap, or the exec of the
+    /// verified payload. Like `last_verification_failure`, this exists
+    /// so operators can diagnose a boot-blocked daemon from state.json
+    /// without scraping systemd journals.
+    pub last_runner_failure: Option<RunnerFailure>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,13 +61,39 @@ pub struct VerificationFailure {
     pub at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunnerFailure {
+    /// Which runner step failed: `artifact-read`, `swap`, or `exec`.
+    pub stage: String,
+    pub error: String,
+    pub at: DateTime<Utc>,
+}
+
 impl State {
     /// Read state from disk. Returns `Default::default()` when the
     /// file is absent — first run on a fresh host.
+    ///
+    /// Also reconciles the file's mode back to the documented 0600:
+    /// older releases wrote state.json world-readable (0644), and on a
+    /// healthy host nothing ever rewrites the file, so load — which
+    /// runs on every boot — is the one place that reliably sees it.
+    /// Best-effort: a chmod failure must not block migrations.
     pub fn load(path: &Path) -> anyhow::Result<Self> {
         match std::fs::read(path) {
-            Ok(bytes) => serde_json::from_slice(&bytes)
-                .with_context(|| format!("parsing state file {}", path.display())),
+            Ok(bytes) => {
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Ok(meta) = std::fs::metadata(path)
+                        && meta.permissions().mode() & 0o077 != 0
+                    {
+                        let _ =
+                            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+                    }
+                }
+                serde_json::from_slice(&bytes)
+                    .with_context(|| format!("parsing state file {}", path.display()))
+            }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(State::default()),
             Err(e) => {
                 Err(anyhow::Error::from(e)
@@ -79,7 +112,7 @@ impl State {
         }
         let bytes = serde_json::to_vec_pretty(self).context("serialize state")?;
         let tmp = path.with_extension("json.tmp");
-        std::fs::write(&tmp, &bytes).with_context(|| format!("writing {}", tmp.display()))?;
+        write_root_only(&tmp, &bytes).with_context(|| format!("writing {}", tmp.display()))?;
         std::fs::rename(&tmp, path)
             .with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
         Ok(())
@@ -90,4 +123,48 @@ impl State {
     pub fn is_applied(&self, id: &str) -> bool {
         self.applied.iter().any(|e| e.id == id)
     }
+}
+
+/// Write `bytes` to `path` with mode 0600. The rename in `save`
+/// carries the tmp file's permissions to state.json, so this is what
+/// upholds the root-only mode documented at the top of this module —
+/// a plain `std::fs::write` would leave it world-readable (0644).
+///
+/// Mirrored in `wardnet-postupgrade-runner/src/state.rs` (same
+/// manual-sync rule as the schema) — apply changes to both copies.
+fn write_root_only(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    // Drop any stale tmp from an interrupted earlier run before
+    // creating a fresh inode (`create_new`). Reusing the old inode
+    // would keep its old (possibly world-readable) mode, and a chmod
+    // cannot revoke an fd someone already holds on it — an unlinked
+    // inode's readers only ever see the bytes that were theirs.
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let mut file = options.open(path)?;
+    // The creation mode is masked by umask (only ever tighter than
+    // 0600); normalize to exactly the documented mode while the file
+    // is still empty.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+    }
+    file.write_all(bytes)?;
+    // Flush to disk before the caller renames over state.json, so a
+    // power loss right after the rename cannot replay a zero-length
+    // file where the old state used to be.
+    file.sync_all()?;
+    Ok(())
 }

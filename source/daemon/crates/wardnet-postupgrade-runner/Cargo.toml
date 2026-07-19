@@ -38,5 +38,10 @@ tracing-subscriber.workspace = true
 [dev-dependencies]
 # https://crates.io/crates/minisign
 minisign.workspace = true
+# Test-only: proves state.json written by this crate's recovery paths
+# still parses through the migration runner's typed schema. Must never
+# become a runtime dependency — the runner is the trust anchor and only
+# ever execs the migration runner from a verified payload.
+wardnet-postupgrade.workspace = true
 # https://crates.io/crates/tempfile
 tempfile.workspace = true
