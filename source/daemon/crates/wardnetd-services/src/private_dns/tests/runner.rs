@@ -9,6 +9,8 @@ use wardnet_common::event::WardnetEvent;
 
 use crate::error::AppError;
 use crate::event::{BroadcastEventBus, EventPublisher};
+use crate::health::checks::DotServerHealthCheck;
+use crate::health::{CheckOutcome, HealthCheck};
 use crate::private_dns::runner::DotRunner;
 use crate::private_dns::{DotServer, PrivateDnsGrant, PrivateDnsService, PrivateDnsStatus};
 use crate::tls::{TlsService, TlsStatus};
@@ -47,13 +49,23 @@ impl DotServer for MockDotServer {
 
 struct MockPrivateDnsService {
     enabled: AtomicBool,
+    /// When set, `is_enabled` returns an error — models a transient config
+    /// read failure so the runner's error branch can be exercised.
+    fail: AtomicBool,
 }
 
 impl MockPrivateDnsService {
     fn new(enabled: bool) -> Self {
         Self {
             enabled: AtomicBool::new(enabled),
+            fail: AtomicBool::new(false),
         }
+    }
+
+    fn erroring() -> Self {
+        let s = Self::new(true);
+        s.fail.store(true, Ordering::SeqCst);
+        s
     }
 }
 
@@ -66,6 +78,9 @@ impl PrivateDnsService for MockPrivateDnsService {
         })
     }
     async fn is_enabled(&self) -> Result<bool, AppError> {
+        if self.fail.load(Ordering::SeqCst) {
+            return Err(AppError::Internal(anyhow::anyhow!("config read failed")));
+        }
         Ok(self.enabled.load(Ordering::SeqCst))
     }
     async fn set_enabled(&self, enabled: bool) -> Result<PrivateDnsStatus, AppError> {
@@ -109,6 +124,31 @@ impl MockTlsService {
         Self {
             status: std::sync::Mutex::new(TlsStatus::NotConfigured),
         }
+    }
+}
+
+/// A `TlsService` whose `status()` always errors — models a transient read
+/// failure so the runner's TLS error branch is exercised.
+struct ErroringTlsService;
+
+#[async_trait]
+impl TlsService for ErroringTlsService {
+    async fn status(&self) -> Result<TlsStatus, AppError> {
+        Err(AppError::Internal(anyhow::anyhow!("tls read failed")))
+    }
+    async fn ensure_certificate(&self) -> Result<TlsStatus, AppError> {
+        unimplemented!("not exercised by runner tests")
+    }
+    async fn mark_provisioning_started(&self) -> Result<(), AppError> {
+        unimplemented!("not exercised by runner tests")
+    }
+    async fn provisioning_status(
+        &self,
+    ) -> Result<wardnet_common::api::TlsStatusResponse, AppError> {
+        unimplemented!("not exercised by runner tests")
+    }
+    async fn teardown(&self) -> Result<(), AppError> {
+        unimplemented!("not exercised by runner tests")
     }
 }
 
@@ -287,4 +327,89 @@ async fn grant_revoked_event_disconnects_the_device() {
     );
 
     runner.shutdown().await;
+}
+
+#[tokio::test]
+async fn status_read_error_keeps_the_listener_down() {
+    // A transient is_enabled() error must resolve desired-state to false —
+    // fail safe — not crash the runner or start with unknown state.
+    let server = Arc::new(MockDotServer::default());
+    let events: Arc<BroadcastEventBus> = Arc::new(BroadcastEventBus::new(16));
+    let runner = DotRunner::start(
+        Arc::new(MockPrivateDnsService::erroring()),
+        Arc::new(MockTlsService::issued()),
+        server.clone(),
+        events.as_ref(),
+        &tracing::Span::none(),
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!server.is_running());
+    assert_eq!(server.starts.load(Ordering::SeqCst), 0);
+    runner.shutdown().await;
+}
+
+#[tokio::test]
+async fn tls_read_error_keeps_the_listener_down() {
+    // Enabled, but the TLS status read errors: desired-state resolves false
+    // so a DDNS/cert read hiccup can't bring a half-known listener up.
+    let server = Arc::new(MockDotServer::default());
+    let events: Arc<BroadcastEventBus> = Arc::new(BroadcastEventBus::new(16));
+    let runner = DotRunner::start(
+        Arc::new(MockPrivateDnsService::new(true)),
+        Arc::new(ErroringTlsService),
+        server.clone(),
+        events.as_ref(),
+        &tracing::Span::none(),
+    );
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!server.is_running());
+    runner.shutdown().await;
+}
+
+// -- DotServerHealthCheck (desired-vs-actual) ------------------------------
+
+fn is_down(outcome: &CheckOutcome) -> bool {
+    matches!(outcome, CheckOutcome::Down { .. })
+}
+
+#[tokio::test]
+async fn health_down_only_when_enabled_cert_live_but_not_running() {
+    let service = Arc::new(MockPrivateDnsService::new(true));
+    let tls = Arc::new(MockTlsService::issued());
+    let server = Arc::new(MockDotServer::default()); // not running
+    let check = DotServerHealthCheck::new(service, tls, server.clone());
+
+    assert_eq!(check.name(), "dot");
+    assert!(
+        is_down(&check.check().await),
+        "enabled + issued cert + not running is a crash → DOWN"
+    );
+
+    // Once the listener is up, the same preconditions read UP.
+    server.start().await.unwrap();
+    assert!(!is_down(&check.check().await));
+}
+
+#[tokio::test]
+async fn health_up_when_disabled() {
+    let service = Arc::new(MockPrivateDnsService::new(false));
+    let tls = Arc::new(MockTlsService::issued());
+    let server = Arc::new(MockDotServer::default()); // not running, but disabled
+    let check = DotServerHealthCheck::new(service, tls, server);
+    assert!(
+        !is_down(&check.check().await),
+        "a disabled feature is UP even with the listener down"
+    );
+}
+
+#[tokio::test]
+async fn health_up_when_cert_not_yet_issued() {
+    let service = Arc::new(MockPrivateDnsService::new(true));
+    let tls = Arc::new(MockTlsService::not_configured());
+    let server = Arc::new(MockDotServer::default()); // not running
+    let check = DotServerHealthCheck::new(service, tls, server);
+    assert!(
+        !is_down(&check.check().await),
+        "enabled but no cert yet (normal post-enrollment) is UP, not a crash"
+    );
 }

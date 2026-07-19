@@ -578,6 +578,27 @@ async fn enable_persists_seeds_wildcard_and_publishes() {
 }
 
 #[tokio::test]
+async fn is_enabled_reflects_the_flag_without_a_ddns_round_trip() {
+    let h = harness();
+    assert!(
+        !auth_context::with_context(admin_ctx(), h.service.is_enabled())
+            .await
+            .expect("is_enabled reads only the config flag")
+    );
+
+    enable(&h).await;
+    // Break DDNS after enabling: is_enabled must still report true (it never
+    // consults the provider), which is the whole point of the accessor — a
+    // DDNS hiccup must not make the runner think the feature is off.
+    h.ddns.set_provider(None, None);
+    assert!(
+        auth_context::with_context(admin_ctx(), h.service.is_enabled())
+            .await
+            .expect("is_enabled")
+    );
+}
+
+#[tokio::test]
 async fn enable_without_entitlement_is_forbidden() {
     let h = harness();
     h.entitlement.set_premium(false);

@@ -154,6 +154,14 @@ async fn deleting_the_device_cascades_the_grant() {
     );
 }
 
+#[test]
+fn marker_error_displays_a_message() {
+    // The service layer downcasts on this marker; its Display feeds the
+    // 409 path's log line.
+    let msg = DeviceAlreadyGrantedPrivateDnsError.to_string();
+    assert!(msg.contains("Private DNS grant"), "got: {msg}");
+}
+
 #[tokio::test]
 async fn missing_device_is_rejected_by_the_fk() {
     let pool = test_pool().await;

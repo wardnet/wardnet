@@ -531,7 +531,56 @@ async fn cert_rotation_is_picked_up_without_restart() {
     h.server.stop().await.expect("stop");
 }
 
+// -- Acceptor cache --------------------------------------------------------
+
+#[tokio::test]
+async fn second_connection_reuses_the_cached_acceptor() {
+    let h = start_server(Duration::from_secs(30)).await;
+
+    // First connection populates the pointer-keyed acceptor cache.
+    let s1 = dot_connect(h.addr, &token_hostname()).await;
+    drop(s1);
+
+    // Second connection (no cert rotation between) takes the cache-hit path.
+    let mut s2 = dot_connect(h.addr, &token_hostname()).await;
+    send_frame(&mut s2, &query_bytes(0x0505, "example.com", RecordType::A)).await;
+    let frame = tokio::time::timeout(Duration::from_secs(5), read_frame(&mut s2))
+        .await
+        .expect("response within 5s")
+        .expect("response frame");
+    assert_eq!(
+        Message::from_bytes(&frame).expect("parse").metadata.id,
+        0x0505
+    );
+
+    h.server.stop().await.expect("stop");
+}
+
 // -- Lifecycle -------------------------------------------------------------
+
+#[tokio::test]
+async fn new_constructs_with_the_default_bind() {
+    // The production constructor pins `:853`; exercise it (binding needs
+    // privileges, so we only construct — start() is covered via the
+    // ephemeral-port harness).
+    install_crypto_provider();
+    let (cert, key) = self_signed(DOMAIN);
+    let (rustls_config, serving) =
+        build_serving_control(Some((cert, key)), Some(DOMAIN.to_owned()))
+            .await
+            .expect("serving control");
+    let pipeline = build_pipeline(DnsConfig::default(), None);
+    let server = DotDnsServer::new(
+        pipeline,
+        rustls_config,
+        serving,
+        Arc::new(SingleTokenResolver {
+            token: TOKEN.to_owned(),
+            device_id: Uuid::new_v4(),
+        }),
+    );
+    assert!(!server.is_running());
+}
 
 #[tokio::test]
 async fn stop_is_idempotent_and_start_stop_cycles() {
