@@ -1,0 +1,30 @@
+{
+  "schema": 1,
+  "tool": "criterion",
+  "commit": "8abbfdb31e0db2494493366ac268d9707ac8b590",
+  "branch": "main",
+  "timestamp": "2026-07-20T01:51:28Z",
+  "measurements": [
+    {
+      "id": "dns_cache/get_hit",
+      "unit": "ns",
+      "value": 132.39782057726143,
+      "lower": 132.14553623510682,
+      "upper": 132.92937355062105
+    },
+    {
+      "id": "dns_cache/get_miss",
+      "unit": "ns",
+      "value": 25.386583020970832,
+      "lower": 25.33683460344232,
+      "upper": 25.41535614614743
+    },
+    {
+      "id": "dns_cache/insert",
+      "unit": "ns",
+      "value": 2000.1792952208107,
+      "lower": 1975.4829338972431,
+      "upper": 2024.540687035048
+    }
+  ]
+}
