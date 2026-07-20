@@ -138,7 +138,7 @@ pub trait RoutingService: Send + Sync {
     /// matched domain.
     ///
     /// For each IPv4 address, installs `ip rule from <device_ip> to <ip>/32
-    /// lookup <table> priority [`DOMAIN_ROUTE_RULE_PRIORITY`]`, where `table` is
+    /// lookup <table> priority [``DOMAIN_ROUTE_RULE_PRIORITY``]`, where `table` is
     /// the target tunnel's table (routing the domain through that tunnel) or
     /// `main` (a `direct` carve-out). The lease expires `ttl_secs` after
     /// installation (clamped), and is renewed on each subsequent resolution.
@@ -1544,7 +1544,7 @@ impl RoutingService for RoutingServiceImpl {
                 }
             }
             Err(e) => {
-                tracing::warn!(error = %e, "failed to list domain-route rules during reconcile")
+                tracing::warn!(error = %e, "failed to list domain-route rules during reconcile");
             }
         }
 
@@ -1973,8 +1973,8 @@ impl RoutingService for RoutingServiceImpl {
                         return Ok(());
                     }
                 };
-                if tunnel.status == TunnelStatus::Down {
-                    if let Err(e) = self.tunnels.bring_up_internal(*tunnel_id).await {
+                if tunnel.status == TunnelStatus::Down
+                    && let Err(e) = self.tunnels.bring_up_internal(*tunnel_id).await {
                         tracing::warn!(
                             error = %e,
                             tunnel_id = %tunnel_id,
@@ -1982,7 +1982,6 @@ impl RoutingService for RoutingServiceImpl {
                         );
                         return Ok(());
                     }
-                }
                 let Some(index) = parse_interface_index(&tunnel.interface_name) else {
                     tracing::warn!(
                         interface = %tunnel.interface_name,
@@ -2100,15 +2099,13 @@ impl RoutingService for RoutingServiceImpl {
             if !state
                 .domain_routes
                 .contains_key(&(src.clone(), dst.clone()))
-            {
-                if let Err(e) = self
+                && let Err(e) = self
                     .netlink
                     .remove_domain_route_rule(&src, &dst, table, DOMAIN_ROUTE_RULE_PRIORITY)
                     .await
                 {
                     tracing::warn!(error = %e, src, dst, "failed to prune orphan domain-route rule");
                 }
-            }
         }
 
         Ok(())

@@ -8,9 +8,9 @@ use wardnetd_services::tls::runner::TlsRetryNudge;
 use wardnetd_services::{
     AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
     DnsFilterService, DnsLocalService, DnsService, HealthMonitor, InboundWgService, JobService,
-    LogService, NetworkZoneService, PushService, RoutingService, RuleRequestService, StatsService,
-    SystemService, TlsService, TunnelService, UpdateService, VpnProviderService,
-    ZoneExceptionService,
+    LogService, NetworkZoneService, PushService, RoutingProfileService, RoutingService,
+    RuleRequestService, StatsService, SystemService, TlsService, TunnelService, UpdateService,
+    VpnProviderService, ZoneExceptionService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -36,6 +36,7 @@ struct Inner {
     log_service: Arc<dyn LogService>,
     provider_service: Arc<dyn VpnProviderService>,
     routing_service: Arc<dyn RoutingService>,
+    routing_profile_service: Arc<dyn RoutingProfileService>,
     network_zone_service: Arc<dyn NetworkZoneService>,
     zone_exception_service: Arc<dyn ZoneExceptionService>,
     system_service: Arc<dyn SystemService>,
@@ -127,6 +128,9 @@ impl AppState {
                 // Defaults to a no-op; production and the mock inject the live
                 // service via `with_push_service`.
                 push_service: Arc::new(NoopPushService),
+                // Defaults to a no-op; production and the mock inject the live
+                // service via `with_routing_profile_service` (issue #241).
+                routing_profile_service: Arc::new(NoopRoutingProfileService),
                 // Defaults to an empty monitor (initial snapshot is UP with no
                 // components). Production and the mock inject the live monitor
                 // — wired to the runners — via `with_health_monitor`.
@@ -161,6 +165,20 @@ impl AppState {
         Arc::get_mut(&mut self.inner)
             .expect("with_push_service must be called before AppState is cloned")
             .push_service = push_service;
+        self
+    }
+
+    /// Inject the live [`RoutingProfileService`] (issue #241). Defaults to a
+    /// no-op in [`Self::new`]; production and the mock wire the real one. Must
+    /// be called before the state is cloned or shared.
+    #[must_use]
+    pub fn with_routing_profile_service(
+        mut self,
+        routing_profile_service: Arc<dyn RoutingProfileService>,
+    ) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_routing_profile_service must be called before AppState is cloned")
+            .routing_profile_service = routing_profile_service;
         self
     }
 
@@ -302,6 +320,12 @@ impl AppState {
     #[must_use]
     pub fn routing_service(&self) -> &dyn RoutingService {
         self.inner.routing_service.as_ref()
+    }
+
+    /// Access the routing-profile service (per-domain routing — issue #241).
+    #[must_use]
+    pub fn routing_profile_service(&self) -> &dyn RoutingProfileService {
+        self.inner.routing_profile_service.as_ref()
     }
 
     /// Access the Network Zones service (device policy buckets — issue #735).
@@ -526,4 +550,113 @@ impl PushService for NoopPushService {
     async fn clear_notifications(&self) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
     }
+}
+
+/// No-op [`RoutingProfileService`] used as the [`AppState::new`] default before
+/// the live service is injected via [`AppState::with_routing_profile_service`].
+/// Reads return empty; mutations report the service is not configured.
+struct NoopRoutingProfileService;
+
+#[async_trait::async_trait]
+impl RoutingProfileService for NoopRoutingProfileService {
+    async fn list_profiles(
+        &self,
+    ) -> Result<Vec<wardnet_common::routing_profile::RoutingProfile>, wardnetd_services::error::AppError>
+    {
+        Ok(Vec::new())
+    }
+    async fn get_profile(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, wardnetd_services::error::AppError>
+    {
+        Err(not_configured())
+    }
+    async fn create_profile(
+        &self,
+        _name: &str,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, wardnetd_services::error::AppError>
+    {
+        Err(not_configured())
+    }
+    async fn rename_profile(
+        &self,
+        _id: uuid::Uuid,
+        _name: &str,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, wardnetd_services::error::AppError>
+    {
+        Err(not_configured())
+    }
+    async fn delete_profile(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Err(not_configured())
+    }
+    async fn list_rules(
+        &self,
+        _profile_id: uuid::Uuid,
+    ) -> Result<
+        Vec<wardnet_common::routing_profile::DomainRoutingRule>,
+        wardnetd_services::error::AppError,
+    > {
+        Ok(Vec::new())
+    }
+    async fn create_rule(
+        &self,
+        _profile_id: uuid::Uuid,
+        _pattern: &str,
+        _target: wardnet_common::routing_profile::DomainRoutingTarget,
+        _enabled: bool,
+    ) -> Result<wardnet_common::routing_profile::DomainRoutingRule, wardnetd_services::error::AppError>
+    {
+        Err(not_configured())
+    }
+    async fn update_rule(
+        &self,
+        _id: uuid::Uuid,
+        _pattern: Option<String>,
+        _target: Option<wardnet_common::routing_profile::DomainRoutingTarget>,
+        _enabled: Option<bool>,
+    ) -> Result<wardnet_common::routing_profile::DomainRoutingRule, wardnetd_services::error::AppError>
+    {
+        Err(not_configured())
+    }
+    async fn delete_rule(
+        &self,
+        _id: uuid::Uuid,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Err(not_configured())
+    }
+    async fn get_device_profiles(
+        &self,
+        _device_id: uuid::Uuid,
+    ) -> Result<Vec<uuid::Uuid>, wardnetd_services::error::AppError> {
+        Ok(Vec::new())
+    }
+    async fn set_device_profiles(
+        &self,
+        _device_id: uuid::Uuid,
+        _profile_ids: &[uuid::Uuid],
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Err(not_configured())
+    }
+    async fn refresh_view(&self) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    fn note_resolution(
+        &self,
+        _device_id: uuid::Uuid,
+        _device_ip: std::net::IpAddr,
+        _name: &str,
+        _answer_ips: &[std::net::IpAddr],
+        _ttl_secs: u32,
+    ) {
+    }
+}
+
+fn not_configured() -> wardnetd_services::error::AppError {
+    wardnetd_services::error::AppError::Internal(anyhow::anyhow!(
+        "routing profile service not configured"
+    ))
 }

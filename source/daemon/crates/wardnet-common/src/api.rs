@@ -12,6 +12,7 @@ use crate::dns::{
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::network_zone::{AllowedTargetKind, NetworkZone, ZoneStance, ZoneSubnet};
 use crate::routing::RoutingTarget;
+use crate::routing_profile::{DomainRoutingRule, DomainRoutingTarget, RoutingProfile};
 use crate::tunnel::{BestServerSelector, Tunnel, TunnelStatus};
 use crate::update::{InstallHandle, UpdateChannel, UpdateHistoryEntry, UpdateStatus};
 use crate::vpn_provider::{
@@ -2109,4 +2110,116 @@ pub struct UpdateZoneExceptionResponse {
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DeleteZoneExceptionResponse {
     pub deleted: bool,
+}
+
+// --- Routing profiles (issue #241) -----------------------------------------
+
+/// Response for GET /api/routing/profiles.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListRoutingProfilesResponse {
+    pub profiles: Vec<RoutingProfile>,
+}
+
+/// Response for GET /api/routing/profiles/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetRoutingProfileResponse {
+    pub profile: RoutingProfile,
+}
+
+/// Request body for POST /api/routing/profiles.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateRoutingProfileRequest {
+    pub name: String,
+}
+
+/// Response for POST /api/routing/profiles.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateRoutingProfileResponse {
+    pub profile: RoutingProfile,
+    pub message: String,
+}
+
+/// Request body for PUT /api/routing/profiles/{id}.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRoutingProfileRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Response for PUT /api/routing/profiles/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRoutingProfileResponse {
+    pub profile: RoutingProfile,
+    pub message: String,
+}
+
+/// Response for DELETE /api/routing/profiles/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteRoutingProfileResponse {
+    pub message: String,
+}
+
+/// Response for GET /api/routing/profiles/{id}/rules.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListDomainRoutingRulesResponse {
+    pub rules: Vec<DomainRoutingRule>,
+}
+
+/// Request body for POST /api/routing/profiles/{id}/rules.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateDomainRoutingRuleRequest {
+    pub pattern: String,
+    pub target: DomainRoutingTarget,
+    pub enabled: bool,
+}
+
+/// Response for POST /api/routing/profiles/{id}/rules.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateDomainRoutingRuleResponse {
+    pub rule: DomainRoutingRule,
+    pub message: String,
+}
+
+/// Request body for PUT /api/routing/rules/{id} (partial update).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateDomainRoutingRuleRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<DomainRoutingTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Response for PUT /api/routing/rules/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateDomainRoutingRuleResponse {
+    pub rule: DomainRoutingRule,
+    pub message: String,
+}
+
+/// Response for DELETE /api/routing/rules/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteDomainRoutingRuleResponse {
+    pub message: String,
+}
+
+/// Response for GET /`api/routing/devices/{device_id}/profiles`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetDeviceRoutingProfilesResponse {
+    /// Assigned profile ids, in priority order (first = highest priority).
+    pub profile_ids: Vec<Uuid>,
+}
+
+/// Request body for PUT /`api/routing/devices/{device_id}/profiles`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetDeviceRoutingProfilesRequest {
+    /// Profile ids in priority order (first = highest priority).
+    pub profile_ids: Vec<Uuid>,
+}
+
+/// Response for PUT /`api/routing/devices/{device_id}/profiles`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetDeviceRoutingProfilesResponse {
+    pub message: String,
 }

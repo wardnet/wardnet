@@ -400,6 +400,7 @@ async fn run(
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
+    .with_routing_profile_service(services.routing_profile.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
     .with_entitlement(services.entitlement.clone())
     .with_health_monitor(health_monitor);

@@ -376,7 +376,7 @@ impl RoutingProfileService for RoutingProfileServiceImpl {
             let profiles = assignment
                 .profile_ids
                 .iter()
-                .map(|pid| by_profile.get(pid).map(Clone::clone).unwrap_or_default())
+                .map(|pid| by_profile.get(pid).cloned().unwrap_or_default())
                 .collect();
             view.insert(
                 assignment.device_id,
@@ -391,7 +391,7 @@ impl RoutingProfileService for RoutingProfileServiceImpl {
     fn note_resolution(
         &self,
         device_id: Uuid,
-        device_ip: IpAddr,
+        client_ip: IpAddr,
         name: &str,
         answer_ips: &[IpAddr],
         ttl_secs: u32,
@@ -412,7 +412,7 @@ impl RoutingProfileService for RoutingProfileServiceImpl {
         // Non-blocking: if the enforcement queue is full we drop this match; the
         // next resolution of the same name re-queues it.
         let _ = self.sink.try_send(DomainRouteRequest {
-            device_ip,
+            device_ip: client_ip,
             resolved_ips,
             target: target.clone(),
             ttl_secs,
@@ -431,7 +431,7 @@ impl Clone for CompiledRule {
     }
 }
 
-/// Map a SQLite `UNIQUE` violation surfaced through the repo's `anyhow` error
+/// Map a `SQLite` `UNIQUE` violation surfaced through the repo's `anyhow` error
 /// into a 409 with `msg`; anything else stays a 500.
 fn map_unique(msg: &'static str) -> impl Fn(anyhow::Error) -> AppError {
     move |e| {
