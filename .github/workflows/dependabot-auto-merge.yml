@@ -26,7 +26,7 @@ on:
   workflow_dispatch:     # allow manual triggering for debugging
 
 permissions:
-  contents: read
+  contents: write        # required to squash-merge PRs and delete their branches
   pull-requests: write
 
 jobs:
@@ -60,10 +60,17 @@ jobs:
           count=$(jq 'length' prs.json)
           echo "Found ${count} open Dependabot PR(s)."
 
+          # Track per-PR merge failures so one bad PR doesn't abort the
+          # whole batch (the loop runs under `set -e`). We surface a red
+          # X at the end if any eligible merge failed.
+          failed=0
+
           # Extract "from X.Y.Z to A.B.C" out of the title, classify
           # the bump via semver comparison, merge if patch/minor and
           # the PR is ready.
-          jq -c '.[]' prs.json | while read -r pr; do
+          # Fed via process substitution (not a pipe) so the loop runs
+          # in this shell and `failed` survives past `done`.
+          while read -r pr; do
             number=$(echo "$pr" | jq -r '.number')
             title=$(echo "$pr" | jq -r '.title')
             mergeable=$(echo "$pr" | jq -r '.mergeable')
@@ -118,5 +125,14 @@ jobs:
             fi
 
             echo "   → merging (squash)"
-            gh pr merge "$number" --repo "$REPO" --squash --delete-branch
-          done
+            if ! gh pr merge "$number" --repo "$REPO" --squash --delete-branch; then
+              echo "   → FAILED to merge #${number}; continuing with the rest"
+              failed=1
+            fi
+          done < <(jq -c '.[]' prs.json)
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo ""
+            echo "One or more eligible PRs failed to merge — see log above."
+            exit 1
+          fi
