@@ -2,7 +2,6 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use hickory_proto::op::Message;
 use hickory_proto::rr::RecordType;
 
 use wardnet_common::dns::UpstreamId;
@@ -11,6 +10,19 @@ use crate::dns_filter::filter::normalize_owned;
 
 type CacheKey = (UpstreamId, String, RecordType);
 
+/// DNS wire-format record type for EDNS `OPT`. Its "TTL" field is actually
+/// extended-rcode + version + flags, not a real TTL, so the aging walk must
+/// leave it untouched.
+const RR_TYPE_OPT: u16 = 41;
+
+/// Fixed-size portion of a resource record following its NAME: TYPE(2) +
+/// CLASS(2) + TTL(4) + RDLENGTH(2).
+const RR_FIXED_LEN: usize = 10;
+
+/// Byte offset of the TTL field within a record's fixed portion (past TYPE and
+/// CLASS).
+const RR_TTL_OFFSET: usize = 4;
+
 /// Once the eviction queue holds this many slots for an empty-ish cache it
 /// gets compacted regardless of the live-entry count, so a small cache can't
 /// keep a long tail of stale slots alive.
@@ -18,7 +30,11 @@ const ORDER_COMPACT_FLOOR: usize = 64;
 
 /// A cached DNS response with TTL-aware expiration.
 struct CachedEntry {
-    response: Message,
+    /// The full response in wire format, exactly as sent to the first client
+    /// that populated it (transaction id included but irrelevant — the read
+    /// path overwrites it). Serving a hit is a buffer copy + txid patch +
+    /// in-place TTL aging, with no per-hit `Message` clone or re-encode.
+    wire: Vec<u8>,
     inserted_at: Instant,
     ttl: Duration,
     /// Matches this entry to its slot in `insertion_order`; an overwrite
@@ -84,16 +100,24 @@ impl DnsCache {
         }
     }
 
-    /// Look up a cached response keyed by upstream pool. Returns `None`
-    /// if not found or expired. Expired entries are left for the eviction
-    /// machinery to reclaim so lookups stay shared-access.
+    /// Look up a cached response keyed by upstream pool, returning it as a
+    /// send-ready wire buffer stamped with the caller's transaction `id`.
+    /// Returns `None` if not found or expired. Expired entries are left for
+    /// the eviction machinery to reclaim so lookups stay shared-access.
     ///
-    /// The returned message's record TTLs are aged down by the entry's
-    /// time in cache and capped at the entry's remaining lifetime, so a
-    /// client hitting near the end of the entry's lifetime can't
-    /// over-cache the records downstream — neither past their original
-    /// TTL nor past the admin's `ttl_max` clamp.
-    pub fn get(&self, upstream: UpstreamId, domain: &str, rtype: RecordType) -> Option<Message> {
+    /// The returned buffer's record TTLs are aged down by the entry's time in
+    /// cache and capped at the entry's remaining lifetime, so a client hitting
+    /// near the end of the entry's lifetime can't over-cache the records
+    /// downstream — neither past their original TTL nor past the admin's
+    /// `ttl_max` clamp. Aging happens in place on the wire bytes; no `Message`
+    /// is parsed, cloned, or re-encoded on the hit path.
+    pub fn get(
+        &self,
+        upstream: UpstreamId,
+        domain: &str,
+        rtype: RecordType,
+        id: u16,
+    ) -> Option<Vec<u8>> {
         let key = (upstream, canonical_domain(domain), rtype);
 
         let Some(entry) = self.entries.get(&key) else {
@@ -108,20 +132,27 @@ impl DnsCache {
         }
 
         self.hits.fetch_add(1, Ordering::Relaxed);
-        let mut response = entry.response.clone();
+        let mut wire = entry.wire.clone();
+        // Stamp the querying client's transaction id over the cached one — the
+        // only header field a hit needs to change (2 bytes, big-endian).
+        if wire.len() >= 2 {
+            wire[..2].copy_from_slice(&id.to_be_bytes());
+        }
         // Whole seconds for both, so a fresh hit (sub-second age) doesn't
         // round the remaining lifetime down below the original TTL.
         let elapsed = age.as_secs();
-        age_record_ttls(
-            &mut response,
+        age_wire_ttls(
+            &mut wire,
             elapsed,
             entry.ttl.as_secs().saturating_sub(elapsed),
         );
-        Some(response)
+        Some(wire)
     }
 
-    /// Insert a response into the cache with the given TTL, keyed by the
-    /// upstream pool that produced it.
+    /// Insert a response — as its wire-format bytes, exactly as sent — into
+    /// the cache with the given TTL, keyed by the upstream pool that produced
+    /// it. The send paths already hold these bytes (the built response or the
+    /// raw upstream datagram), so caching costs no extra encode.
     ///
     /// The TTL is clamped between `ttl_min` and `ttl_max` seconds.
     #[allow(clippy::too_many_arguments)]
@@ -130,7 +161,7 @@ impl DnsCache {
         upstream: UpstreamId,
         domain: &str,
         rtype: RecordType,
-        response: Message,
+        wire: Vec<u8>,
         ttl_secs: u32,
         ttl_min: u32,
         ttl_max: u32,
@@ -159,7 +190,7 @@ impl DnsCache {
         self.entries.insert(
             key,
             CachedEntry {
-                response,
+                wire,
                 inserted_at: Instant::now(),
                 ttl: Duration::from_secs(u64::from(ttl)),
                 seq,
@@ -298,27 +329,89 @@ impl DnsCache {
     }
 }
 
-/// Age a cached response's record TTLs by its time in cache, and cap them
-/// at the entry's remaining lifetime so the admin's `ttl_max` clamp bounds
-/// what downstream resolvers cache, not just how long this cache keeps the
-/// entry. Nonzero TTLs floor at 1 so a still-valid entry never serves a
-/// wrapped TTL; a TTL of 0 is an upstream do-not-cache signal and is left
-/// alone. All three record sections are aged — the forwarding paths cache
-/// the full upstream message, which can carry glue records in additionals
-/// (OPT never appears there; hickory parses it into `Message::edns`).
-fn age_record_ttls(response: &mut Message, elapsed_secs: u64, remaining_secs: u64) {
+/// Age every resource record's TTL in a wire-format response by its time in
+/// cache, capping at the entry's remaining lifetime so the admin's `ttl_max`
+/// clamp bounds what downstream resolvers cache, not just how long this cache
+/// keeps the entry. Nonzero TTLs floor at 1 so a still-valid entry never
+/// serves a wrapped TTL; a TTL of 0 is an upstream do-not-cache signal and is
+/// left alone.
+///
+/// Walks the header counts and question section to reach the records, then
+/// each record's NAME (following the length/pointer encoding) to reach its
+/// TTL field. `OPT` records are skipped — their "TTL" field is EDNS metadata,
+/// not a real TTL. The walk is fully bounds-checked: a buffer that doesn't
+/// parse cleanly (never expected — we cached bytes we ourselves sent) simply
+/// stops aging where it fell off, rather than panicking on the hot path.
+fn age_wire_ttls(buf: &mut [u8], elapsed_secs: u64, remaining_secs: u64) {
     let elapsed = u32::try_from(elapsed_secs).unwrap_or(u32::MAX);
     let remaining = u32::try_from(remaining_secs).unwrap_or(u32::MAX);
-    for record in response
-        .answers
-        .iter_mut()
-        .chain(response.authorities.iter_mut())
-        .chain(response.additionals.iter_mut())
-    {
-        if record.ttl == 0 {
-            continue;
+    let _ = age_wire_ttls_inner(buf, elapsed, remaining);
+}
+
+/// Fallible core of [`age_wire_ttls`]; returns `None` the moment an offset
+/// would run past the buffer, leaving the remainder untouched.
+fn age_wire_ttls_inner(buf: &mut [u8], elapsed: u32, remaining: u32) -> Option<()> {
+    // Header is 12 bytes: id(2) flags(2) qdcount(2) then the three record
+    // section counts — answer(2), authority(2), additional(2). All three
+    // sections carry real records to age, so sum them into one record count.
+    let question_count = u16::from_be_bytes([*buf.get(4)?, *buf.get(5)?]);
+    let record_count = u32::from(u16::from_be_bytes([*buf.get(6)?, *buf.get(7)?]))
+        + u32::from(u16::from_be_bytes([*buf.get(8)?, *buf.get(9)?]))
+        + u32::from(u16::from_be_bytes([*buf.get(10)?, *buf.get(11)?]));
+
+    let mut pos = 12;
+    for _ in 0..question_count {
+        pos = skip_name(buf, pos)?;
+        pos = pos.checked_add(4)?; // QTYPE(2) + QCLASS(2)
+    }
+
+    for _ in 0..record_count {
+        pos = skip_name(buf, pos)?;
+        let rtype = u16::from_be_bytes([*buf.get(pos)?, *buf.get(pos + 1)?]);
+        let ttl_at = pos.checked_add(RR_TTL_OFFSET)?;
+        let rdlen_at = pos.checked_add(8)?;
+        let rdlength = usize::from(u16::from_be_bytes([
+            *buf.get(rdlen_at)?,
+            *buf.get(rdlen_at + 1)?,
+        ]));
+
+        // OPT carries EDNS state in its TTL slot — never a real TTL.
+        if rtype != RR_TYPE_OPT {
+            let ttl = u32::from_be_bytes([
+                *buf.get(ttl_at)?,
+                *buf.get(ttl_at + 1)?,
+                *buf.get(ttl_at + 2)?,
+                *buf.get(ttl_at + 3)?,
+            ]);
+            if ttl != 0 {
+                let aged = ttl.saturating_sub(elapsed).min(remaining).max(1);
+                buf.get_mut(ttl_at..ttl_at + 4)?
+                    .copy_from_slice(&aged.to_be_bytes());
+            }
         }
-        record.ttl = record.ttl.saturating_sub(elapsed).min(remaining).max(1);
+
+        pos = pos.checked_add(RR_FIXED_LEN)?.checked_add(rdlength)?;
+    }
+    Some(())
+}
+
+/// Advance past a DNS NAME starting at `pos`, returning the offset of the byte
+/// after it. A name is a run of length-prefixed labels ending in a zero byte,
+/// or a 2-byte compression pointer (top two bits set) that terminates it. The
+/// reserved `0x40`/`0x80` length forms are treated as malformed.
+fn skip_name(buf: &[u8], mut pos: usize) -> Option<usize> {
+    loop {
+        let len = *buf.get(pos)?;
+        match len & 0xC0 {
+            0x00 => {
+                if len == 0 {
+                    return Some(pos + 1);
+                }
+                pos = pos.checked_add(1 + usize::from(len))?;
+            }
+            0xC0 => return pos.checked_add(2),
+            _ => return None,
+        }
     }
 }
 

@@ -4,6 +4,7 @@ use std::time::Duration;
 use hickory_proto::op::{Message, OpCode};
 use hickory_proto::rr::rdata::{A, SOA};
 use hickory_proto::rr::{Name, RData, Record, RecordType};
+use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
 use uuid::Uuid;
 use wardnet_common::dns::UpstreamId;
 
@@ -24,16 +25,43 @@ fn make_answer_response(domain: &str, ttl: u32) -> Message {
     resp
 }
 
+/// Encode a response to the wire bytes the cache now stores.
+fn wire(msg: &Message) -> Vec<u8> {
+    msg.to_bytes().expect("encode response to wire")
+}
+
+/// Look a response up and decode the returned wire buffer back into a
+/// `Message`, so the TTL/section assertions below can inspect it. Uses a
+/// fixed transaction id — the tests that care assert on it explicitly.
+fn get_msg(
+    cache: &DnsCache,
+    upstream: UpstreamId,
+    domain: &str,
+    rtype: RecordType,
+) -> Option<Message> {
+    cache
+        .get(upstream, domain, rtype, 0)
+        .map(|b| Message::from_bytes(&b).expect("decode cached wire response"))
+}
+
 const DEFAULT: UpstreamId = UpstreamId::Default;
 
 #[test]
 fn insert_and_get() {
     let mut cache = DnsCache::new(100);
     let resp = make_response();
-    cache.insert(DEFAULT, "example.com", RecordType::A, resp, 300, 0, 86400);
+    cache.insert(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        wire(&resp),
+        300,
+        0,
+        86400,
+    );
     assert_eq!(cache.len(), 1);
-    assert!(cache.get(DEFAULT, "example.com", RecordType::A).is_some());
-    assert!(cache.get(DEFAULT, "other.com", RecordType::A).is_none());
+    assert!(get_msg(&cache, DEFAULT, "example.com", RecordType::A).is_some());
+    assert!(get_msg(&cache, DEFAULT, "other.com", RecordType::A).is_none());
 }
 
 #[test]
@@ -43,12 +71,12 @@ fn case_insensitive() {
         DEFAULT,
         "Example.COM",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
     );
-    assert!(cache.get(DEFAULT, "example.com", RecordType::A).is_some());
+    assert!(get_msg(&cache, DEFAULT, "example.com", RecordType::A).is_some());
 }
 
 #[test]
@@ -61,13 +89,13 @@ fn trailing_dot_normalized_across_insert_get_and_invalidate() {
         DEFAULT,
         "example.com.",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
     );
     assert!(
-        cache.get(DEFAULT, "example.com", RecordType::A).is_some(),
+        get_msg(&cache, DEFAULT, "example.com", RecordType::A).is_some(),
         "bare-name lookup must hit the FQDN-inserted entry"
     );
     assert_eq!(
@@ -85,7 +113,7 @@ fn zero_ttl_not_cached() {
         DEFAULT,
         "example.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         0,
         0,
         86400,
@@ -100,7 +128,7 @@ fn flush_clears_all() {
         DEFAULT,
         "a.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -109,7 +137,7 @@ fn flush_clears_all() {
         DEFAULT,
         "b.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -125,7 +153,7 @@ fn evicts_when_at_capacity() {
         DEFAULT,
         "a.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -134,7 +162,7 @@ fn evicts_when_at_capacity() {
         DEFAULT,
         "b.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -143,14 +171,14 @@ fn evicts_when_at_capacity() {
         DEFAULT,
         "c.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
     );
     assert_eq!(cache.len(), 2);
     // Oldest (a.com) should have been evicted.
-    assert!(cache.get(DEFAULT, "a.com", RecordType::A).is_none());
+    assert!(get_msg(&cache, DEFAULT, "a.com", RecordType::A).is_none());
 }
 
 #[test]
@@ -160,13 +188,13 @@ fn hit_rate_tracking() {
         DEFAULT,
         "a.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
     );
-    cache.get(DEFAULT, "a.com", RecordType::A); // hit
-    cache.get(DEFAULT, "b.com", RecordType::A); // miss
+    let _ = get_msg(&cache, DEFAULT, "a.com", RecordType::A); // hit
+    let _ = get_msg(&cache, DEFAULT, "b.com", RecordType::A); // miss
     assert_eq!(cache.hits(), 1);
     assert_eq!(cache.misses(), 1);
     assert!((cache.hit_rate() - 0.5).abs() < f64::EPSILON);
@@ -180,7 +208,7 @@ fn ttl_min_clamp() {
         DEFAULT,
         "a.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         5,
         60,
         86400,
@@ -195,7 +223,7 @@ fn different_record_types_cached_separately() {
         DEFAULT,
         "a.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -204,14 +232,14 @@ fn different_record_types_cached_separately() {
         DEFAULT,
         "a.com",
         RecordType::AAAA,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
     );
     assert_eq!(cache.len(), 2);
-    assert!(cache.get(DEFAULT, "a.com", RecordType::A).is_some());
-    assert!(cache.get(DEFAULT, "a.com", RecordType::AAAA).is_some());
+    assert!(get_msg(&cache, DEFAULT, "a.com", RecordType::A).is_some());
+    assert!(get_msg(&cache, DEFAULT, "a.com", RecordType::AAAA).is_some());
 }
 
 #[test]
@@ -232,7 +260,15 @@ fn hit_ages_answer_and_authority_ttls() {
         300,
         RData::SOA(soa),
     ));
-    cache.insert(DEFAULT, "example.com", RecordType::A, resp, 300, 0, 86400);
+    cache.insert(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        wire(&resp),
+        300,
+        0,
+        86400,
+    );
     cache.backdate(
         DEFAULT,
         "example.com",
@@ -240,8 +276,7 @@ fn hit_ages_answer_and_authority_ttls() {
         Duration::from_mins(2),
     );
 
-    let hit = cache
-        .get(DEFAULT, "example.com", RecordType::A)
+    let hit = get_msg(&cache, DEFAULT, "example.com", RecordType::A)
         .expect("entry is still within its 300s lifetime");
     assert_eq!(
         hit.answers[0].ttl, 180,
@@ -260,14 +295,12 @@ fn fresh_hit_serves_ttl_no_larger_than_inserted() {
         DEFAULT,
         "example.com",
         RecordType::A,
-        make_answer_response("example.com.", 300),
+        wire(&make_answer_response("example.com.", 300)),
         300,
         0,
         86400,
     );
-    let hit = cache
-        .get(DEFAULT, "example.com", RecordType::A)
-        .expect("hit");
+    let hit = get_msg(&cache, DEFAULT, "example.com", RecordType::A).expect("hit");
     assert!(hit.answers[0].ttl <= 300);
     assert!(hit.answers[0].ttl >= 1);
 }
@@ -281,7 +314,7 @@ fn aged_ttl_floors_at_one_and_never_wraps() {
         DEFAULT,
         "example.com",
         RecordType::A,
-        make_answer_response("example.com.", 30),
+        wire(&make_answer_response("example.com.", 30)),
         30,
         300,
         86400,
@@ -293,8 +326,7 @@ fn aged_ttl_floors_at_one_and_never_wraps() {
         Duration::from_mins(2),
     );
 
-    let hit = cache
-        .get(DEFAULT, "example.com", RecordType::A)
+    let hit = get_msg(&cache, DEFAULT, "example.com", RecordType::A)
         .expect("entry is still within its clamped 300s lifetime");
     assert_eq!(
         hit.answers[0].ttl, 1,
@@ -309,7 +341,7 @@ fn expired_entry_is_not_served() {
         DEFAULT,
         "example.com",
         RecordType::A,
-        make_answer_response("example.com.", 300),
+        wire(&make_answer_response("example.com.", 300)),
         300,
         0,
         86400,
@@ -321,7 +353,7 @@ fn expired_entry_is_not_served() {
         Duration::from_mins(5),
     );
 
-    assert!(cache.get(DEFAULT, "example.com", RecordType::A).is_none());
+    assert!(get_msg(&cache, DEFAULT, "example.com", RecordType::A).is_none());
     assert_eq!(cache.misses(), 1);
 
     // A fresh insert for the same key overwrites the expired entry and
@@ -330,13 +362,13 @@ fn expired_entry_is_not_served() {
         DEFAULT,
         "example.com",
         RecordType::A,
-        make_answer_response("example.com.", 300),
+        wire(&make_answer_response("example.com.", 300)),
         300,
         0,
         86400,
     );
     assert_eq!(cache.len(), 1);
-    assert!(cache.get(DEFAULT, "example.com", RecordType::A).is_some());
+    assert!(get_msg(&cache, DEFAULT, "example.com", RecordType::A).is_some());
 }
 
 #[test]
@@ -349,7 +381,7 @@ fn sweep_reclaims_expired_entries_before_evicting_live_ones() {
         DEFAULT,
         "keep.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -359,7 +391,7 @@ fn sweep_reclaims_expired_entries_before_evicting_live_ones() {
             DEFAULT,
             domain,
             RecordType::A,
-            make_response(),
+            wire(&make_response()),
             30,
             0,
             86400,
@@ -372,17 +404,17 @@ fn sweep_reclaims_expired_entries_before_evicting_live_ones() {
         DEFAULT,
         "new.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
     );
 
     assert!(
-        cache.get(DEFAULT, "keep.com", RecordType::A).is_some(),
+        get_msg(&cache, DEFAULT, "keep.com", RecordType::A).is_some(),
         "the oldest live entry must survive while expired entries exist"
     );
-    assert!(cache.get(DEFAULT, "new.com", RecordType::A).is_some());
+    assert!(get_msg(&cache, DEFAULT, "new.com", RecordType::A).is_some());
     assert_eq!(
         cache.len(),
         2,
@@ -400,7 +432,7 @@ fn served_ttl_capped_by_remaining_entry_lifetime() {
         DEFAULT,
         "example.com",
         RecordType::A,
-        make_answer_response("example.com.", 86400),
+        wire(&make_answer_response("example.com.", 86400)),
         86400,
         0,
         300,
@@ -412,8 +444,7 @@ fn served_ttl_capped_by_remaining_entry_lifetime() {
         Duration::from_secs(100),
     );
 
-    let hit = cache
-        .get(DEFAULT, "example.com", RecordType::A)
+    let hit = get_msg(&cache, DEFAULT, "example.com", RecordType::A)
         .expect("entry is still within its clamped 300s lifetime");
     assert_eq!(
         hit.answers[0].ttl, 200,
@@ -432,11 +463,17 @@ fn zero_ttl_record_is_not_inflated() {
         0,
         RData::A(A(Ipv4Addr::new(192, 0, 2, 2))),
     ));
-    cache.insert(DEFAULT, "example.com", RecordType::A, resp, 300, 0, 86400);
+    cache.insert(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        wire(&resp),
+        300,
+        0,
+        86400,
+    );
 
-    let hit = cache
-        .get(DEFAULT, "example.com", RecordType::A)
-        .expect("hit");
+    let hit = get_msg(&cache, DEFAULT, "example.com", RecordType::A).expect("hit");
     assert_eq!(hit.authorities[0].ttl, 0, "TTL 0 must be preserved");
     assert_eq!(hit.answers[0].ttl, 300);
 }
@@ -452,7 +489,15 @@ fn hit_ages_additional_record_ttls() {
         300,
         RData::A(A(Ipv4Addr::new(192, 0, 2, 3))),
     ));
-    cache.insert(DEFAULT, "example.com", RecordType::A, resp, 300, 0, 86400);
+    cache.insert(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        wire(&resp),
+        300,
+        0,
+        86400,
+    );
     cache.backdate(
         DEFAULT,
         "example.com",
@@ -460,9 +505,7 @@ fn hit_ages_additional_record_ttls() {
         Duration::from_mins(2),
     );
 
-    let hit = cache
-        .get(DEFAULT, "example.com", RecordType::A)
-        .expect("hit");
+    let hit = get_msg(&cache, DEFAULT, "example.com", RecordType::A).expect("hit");
     assert_eq!(
         hit.additionals[0].ttl, 180,
         "additional-section TTLs must shrink by time spent in cache"
@@ -476,7 +519,7 @@ fn overwritten_entry_survives_its_stale_queue_slot() {
         DEFAULT,
         "a.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -485,7 +528,7 @@ fn overwritten_entry_survives_its_stale_queue_slot() {
         DEFAULT,
         "b.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -496,7 +539,7 @@ fn overwritten_entry_survives_its_stale_queue_slot() {
         DEFAULT,
         "a.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -505,7 +548,7 @@ fn overwritten_entry_survives_its_stale_queue_slot() {
         DEFAULT,
         "c.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -513,11 +556,11 @@ fn overwritten_entry_survives_its_stale_queue_slot() {
 
     assert_eq!(cache.len(), 2);
     assert!(
-        cache.get(DEFAULT, "a.com", RecordType::A).is_some(),
+        get_msg(&cache, DEFAULT, "a.com", RecordType::A).is_some(),
         "re-inserted entry must not be evicted through its stale slot"
     );
-    assert!(cache.get(DEFAULT, "b.com", RecordType::A).is_none());
-    assert!(cache.get(DEFAULT, "c.com", RecordType::A).is_some());
+    assert!(get_msg(&cache, DEFAULT, "b.com", RecordType::A).is_none());
+    assert!(get_msg(&cache, DEFAULT, "c.com", RecordType::A).is_some());
 }
 
 #[test]
@@ -527,7 +570,7 @@ fn eviction_skips_slots_of_invalidated_entries() {
         DEFAULT,
         "a.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -536,7 +579,7 @@ fn eviction_skips_slots_of_invalidated_entries() {
         DEFAULT,
         "b.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -546,7 +589,7 @@ fn eviction_skips_slots_of_invalidated_entries() {
         DEFAULT,
         "c.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -555,7 +598,7 @@ fn eviction_skips_slots_of_invalidated_entries() {
         DEFAULT,
         "d.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -563,11 +606,11 @@ fn eviction_skips_slots_of_invalidated_entries() {
 
     assert_eq!(cache.len(), 2);
     assert!(
-        cache.get(DEFAULT, "b.com", RecordType::A).is_none(),
+        get_msg(&cache, DEFAULT, "b.com", RecordType::A).is_none(),
         "b.com is the oldest live entry once a.com's slot is stale"
     );
-    assert!(cache.get(DEFAULT, "c.com", RecordType::A).is_some());
-    assert!(cache.get(DEFAULT, "d.com", RecordType::A).is_some());
+    assert!(get_msg(&cache, DEFAULT, "c.com", RecordType::A).is_some());
+    assert!(get_msg(&cache, DEFAULT, "d.com", RecordType::A).is_some());
 }
 
 #[test]
@@ -583,7 +626,7 @@ fn insert_at_capacity_keeps_eviction_work_bounded() {
             DEFAULT,
             &domain,
             RecordType::A,
-            make_response(),
+            wire(&make_response()),
             300,
             0,
             86400,
@@ -604,7 +647,7 @@ fn repeated_overwrites_compact_stale_queue_slots() {
             DEFAULT,
             "example.com",
             RecordType::A,
-            make_response(),
+            wire(&make_response()),
             300,
             0,
             86400,
@@ -625,7 +668,7 @@ fn upstream_id_separates_cache_entries() {
         UpstreamId::Default,
         "example.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
@@ -634,20 +677,95 @@ fn upstream_id_separates_cache_entries() {
         UpstreamId::Tunnel(tunnel_id),
         "example.com",
         RecordType::A,
-        make_response(),
+        wire(&make_response()),
         300,
         0,
         86400,
     );
     assert_eq!(cache.len(), 2);
+    assert!(get_msg(&cache, UpstreamId::Default, "example.com", RecordType::A).is_some());
     assert!(
-        cache
-            .get(UpstreamId::Default, "example.com", RecordType::A)
-            .is_some()
+        get_msg(
+            &cache,
+            UpstreamId::Tunnel(tunnel_id),
+            "example.com",
+            RecordType::A
+        )
+        .is_some()
     );
-    assert!(
-        cache
-            .get(UpstreamId::Tunnel(tunnel_id), "example.com", RecordType::A)
-            .is_some()
+}
+
+#[test]
+fn hit_stamps_the_querying_transaction_id() {
+    let mut cache = DnsCache::new(100);
+    cache.insert(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        wire(&make_answer_response("example.com.", 300)),
+        300,
+        0,
+        86400,
+    );
+    // Every client that hits this entry supplies its own transaction id; the
+    // hit must carry it, not the id baked into the cached bytes.
+    let bytes = cache
+        .get(DEFAULT, "example.com", RecordType::A, 0xBEEF)
+        .expect("hit");
+    assert_eq!(
+        &bytes[..2],
+        &0xBEEF_u16.to_be_bytes(),
+        "the first two wire bytes are the client's txid"
+    );
+    assert_eq!(
+        Message::from_bytes(&bytes).expect("decode").metadata.id,
+        0xBEEF
+    );
+}
+
+#[test]
+fn hit_ages_records_but_leaves_the_edns_opt_untouched() {
+    use hickory_proto::op::Edns;
+    // The tunnel/conditional paths cache the raw upstream datagram, which
+    // routinely carries an EDNS OPT record in the additional section. Its
+    // "TTL" slot is really extended-rcode + version + flags, so the aging
+    // walk must skip it (RR type 41) or it corrupts EDNS.
+    let mut cache = DnsCache::new(100);
+    let mut resp = make_answer_response("example.com.", 300);
+    let mut edns = Edns::new();
+    // Version 1 puts a nonzero byte in the OPT record's "TTL" slot, so a walk
+    // that failed to skip type-41 records would actually corrupt it (a
+    // version-0 slot is all-zero and the `ttl != 0` guard would spare it
+    // anyway, testing nothing).
+    edns.set_version(1);
+    edns.set_max_payload(4096);
+    resp.set_edns(edns);
+    cache.insert(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        wire(&resp),
+        300,
+        0,
+        86400,
+    );
+    cache.backdate(
+        DEFAULT,
+        "example.com",
+        RecordType::A,
+        Duration::from_mins(2),
+    );
+
+    let hit = get_msg(&cache, DEFAULT, "example.com", RecordType::A).expect("hit");
+    assert_eq!(hit.answers[0].ttl, 180, "the real answer TTL still ages");
+    assert_eq!(
+        hit.version(),
+        1,
+        "the OPT version byte (in the TTL slot) must be left untouched"
+    );
+    assert_eq!(
+        hit.max_payload(),
+        4096,
+        "the OPT record must survive intact"
     );
 }

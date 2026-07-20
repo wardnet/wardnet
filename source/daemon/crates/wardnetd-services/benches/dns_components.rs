@@ -34,8 +34,17 @@ use wardnetd_services::dns::filter_parser::parse_line;
 use wardnetd_services::dns::{DnsCache, row_to_event};
 use wardnetd_services::dns_filter::{DnsFilter, DnsFilterInputs, RuntimeDnsFilterProfile};
 
-fn response() -> Message {
-    Message::response(0, OpCode::Query)
+/// A one-answer A response as the wire bytes the cache now stores — a
+/// realistic hit payload, so the get-hit bench reflects the buffer copy +
+/// TTL-aging walk over an actual record rather than an empty message.
+fn response_wire() -> Vec<u8> {
+    let mut resp = Message::response(0, OpCode::Query);
+    resp.add_answer(Record::from_rdata(
+        Name::from_str_relaxed("example.com.").expect("answer name"),
+        300,
+        RData::A(A(Ipv4Addr::new(93, 184, 216, 34))),
+    ));
+    resp.to_bytes().expect("encode response")
 }
 
 /// `DnsCache` lookup + insert — the per-query cache path. Hit and miss are
@@ -50,13 +59,18 @@ fn bench_cache(c: &mut Criterion) {
             UpstreamId::Default,
             "example.com",
             RecordType::A,
-            response(),
+            response_wire(),
             300,
             0,
             86400,
         );
         b.iter(|| {
-            black_box(cache.get(UpstreamId::Default, black_box("example.com"), RecordType::A));
+            black_box(cache.get(
+                UpstreamId::Default,
+                black_box("example.com"),
+                RecordType::A,
+                0,
+            ));
         });
     });
 
@@ -69,6 +83,7 @@ fn bench_cache(c: &mut Criterion) {
                 UpstreamId::Default,
                 black_box("absent.example.com"),
                 RecordType::A,
+                0,
             ));
         });
     });
@@ -81,7 +96,7 @@ fn bench_cache(c: &mut Criterion) {
                     UpstreamId::Default,
                     black_box("example.com"),
                     RecordType::A,
-                    response(),
+                    response_wire(),
                     300,
                     0,
                     86400,
@@ -115,7 +130,7 @@ fn bench_cache_concurrent(c: &mut Criterion) {
                     UpstreamId::Default,
                     "example.com",
                     RecordType::A,
-                    response(),
+                    response_wire(),
                     300,
                     0,
                     86400,
@@ -136,6 +151,7 @@ fn bench_cache_concurrent(c: &mut Criterion) {
                                         UpstreamId::Default,
                                         black_box("example.com"),
                                         RecordType::A,
+                                        0,
                                     ));
                                 }
                             })
@@ -279,7 +295,9 @@ fn bench_filter(c: &mut Criterion) {
 
     let build_10k = || {
         DnsFilter::build(DnsFilterInputs {
-            blocked_domains: (0..10_000).map(|i| format!("blocked{i}.example.com")).collect(),
+            blocked_domains: (0..10_000)
+                .map(|i| format!("blocked{i}.example.com"))
+                .collect(),
             allowlist: vec![],
             custom_rules: vec![],
         })
@@ -291,11 +309,7 @@ fn bench_filter(c: &mut Criterion) {
     group.bench_function("check_uncanonical", |b| {
         let filter = build_10k();
         b.iter(|| {
-            black_box(filter.check(
-                black_box("Allowed.Example.Org."),
-                RecordType::A,
-                client,
-            ));
+            black_box(filter.check(black_box("Allowed.Example.Org."), RecordType::A, client));
         });
     });
 

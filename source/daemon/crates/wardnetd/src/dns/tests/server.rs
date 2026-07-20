@@ -1668,6 +1668,7 @@ async fn spawn_invalidator_for_test(
 /// `Pass` answer keyed on `Default`.
 async fn seed_cache(cache: &Arc<RwLock<wardnetd_services::dns::cache::DnsCache>>) {
     use hickory_proto::op::{Message, OpCode};
+    use hickory_proto::serialize::binary::BinEncodable;
     let mut answer = Message::response(0, OpCode::Query);
     answer.metadata.recursion_desired = true;
     answer.metadata.recursion_available = true;
@@ -1675,7 +1676,7 @@ async fn seed_cache(cache: &Arc<RwLock<wardnetd_services::dns::cache::DnsCache>>
         UpstreamId::Default,
         "seed.example.",
         RecordType::A,
-        answer,
+        answer.to_bytes().expect("encode seed response"),
         60,
         1,
         60,
@@ -2671,7 +2672,7 @@ async fn recursor_nodata_relays_noerror_not_servfail() {
         cache
             .write()
             .await
-            .get(UpstreamId::Default, "foo.com", RecordType::A)
+            .get(UpstreamId::Default, "foo.com", RecordType::A, 0)
             .is_some(),
         "negative response must be cached so repeats don't re-resolve"
     );
@@ -2718,7 +2719,7 @@ async fn recursor_negative_with_zero_minimum_is_not_cached_or_raised() {
         cache
             .write()
             .await
-            .get(UpstreamId::Default, "foo.com", RecordType::A)
+            .get(UpstreamId::Default, "foo.com", RecordType::A, 0)
             .is_none(),
         "a zone-forbidden negative must not be cached"
     );
