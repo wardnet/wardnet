@@ -125,7 +125,24 @@ jobs:
             fi
 
             echo "   → merging (squash)"
-            if ! gh pr merge "$number" --repo "$REPO" --squash --delete-branch; then
+            if out=$(gh pr merge "$number" --repo "$REPO" --squash --delete-branch 2>&1); then
+              echo "   → merged"
+              continue
+            fi
+            # The merge was rejected. Classify: some reasons are
+            # expected and benign for a daily batch and must NOT fail
+            # the job; anything else is a genuine problem.
+            echo "$out" | sed 's/^/     /'
+            if echo "$out" | grep -qiE 'merge conflict|not mergeable'; then
+              # MERGEABLE at list time can go stale by merge time.
+              # Dependabot rebases conflicted PRs; a later run merges it.
+              echo "   → skip: merge conflict — Dependabot will rebase; picked up next run"
+            elif echo "$out" | grep -qi "without .workflows. permission"; then
+              # The default GITHUB_TOKEN cannot merge PRs that touch
+              # .github/workflows/** — there is no permissions: key that
+              # grants the `workflow` scope. These need a human/PAT merge.
+              echo "   → skip: touches a workflow file; GITHUB_TOKEN can't merge these — merge manually"
+            else
               echo "   → FAILED to merge #${number}; continuing with the rest"
               failed=1
             fi
