@@ -5992,7 +5992,7 @@ dependencies = [
 
 [[package]]
 name = "wardnet-common"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -6007,7 +6007,7 @@ dependencies = [
 
 [[package]]
 name = "wardnet-postupgrade"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -6020,7 +6020,7 @@ dependencies = [
 
 [[package]]
 name = "wardnet-postupgrade-runner"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "chrono",
@@ -6039,7 +6039,7 @@ dependencies = [
 
 [[package]]
 name = "wardnet-test-agent"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "axum",
@@ -6056,7 +6056,7 @@ dependencies = [
 
 [[package]]
 name = "wardnetd"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -6115,7 +6115,7 @@ dependencies = [
 
 [[package]]
 name = "wardnetd-api"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -6144,7 +6144,7 @@ dependencies = [
 
 [[package]]
 name = "wardnetd-data"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "argon2",
@@ -6163,7 +6163,7 @@ dependencies = [
 
 [[package]]
 name = "wardnetd-mock"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6188,7 +6188,7 @@ dependencies = [
 
 [[package]]
 name = "wardnetd-services"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "age",
  "anyhow",
@@ -6370,7 +6370,7 @@ dependencies = [
 
 [[package]]
 name = "wctl"
-version = "0.6.1"
+version = "0.7.0"
 dependencies = [
  "anyhow",
  "clap",
