@@ -197,6 +197,76 @@ fn blocked_outcome_records_by_domain_stat() {
     // the by_domain counter is an internal implementation detail.
 }
 
+/// A query attributed to a device records `dns.queries.by_device` keyed on
+/// the device id; an unattributed query does not.
+#[tokio::test]
+async fn records_by_device_only_when_device_attributed() {
+    let buf = StatsBuffer::new();
+    let meter = Meter::new(buf.clone());
+    let (sink, _channels) = DnsLogSink::new_with_stats(&meter);
+
+    sink.record(make_row("example.com", Some("dev-42")));
+    sink.record(make_row("example.org", None));
+
+    let rows = buf.drain();
+    let device_rows: Vec<_> = rows
+        .iter()
+        .filter(|r| r.metric == "dns.queries.by_device")
+        .collect();
+    assert_eq!(
+        device_rows.len(),
+        1,
+        "exactly one by_device row (the attributed query)"
+    );
+    assert!(
+        device_rows[0].labels.contains("dev-42"),
+        "by_device label must carry the device id, got {}",
+        device_rows[0].labels
+    );
+}
+
+/// A blocked query whose domain is a recognised tracker records
+/// `dns.blocked.by_tracker` labelled with the operating company. A blocked
+/// query for an unrecognised domain records no tracker row, and a
+/// non-blocked query for a tracker domain records none either.
+#[tokio::test]
+async fn records_by_tracker_for_blocked_known_trackers_only() {
+    let buf = StatsBuffer::new();
+    let meter = Meter::new(buf.clone());
+    let (sink, _channels) = DnsLogSink::new_with_stats(&meter);
+
+    // Blocked, recognised tracker → recorded, attributed to the company.
+    let mut blocked_tracker = sample_row("pagead2.googlesyndication.com");
+    blocked_tracker.result = "blocked".to_owned();
+    sink.record(blocked_tracker);
+
+    // Blocked, but not in the tracker catalogue → no tracker row.
+    let mut blocked_other = sample_row("some-random-blocklist-domain.example");
+    blocked_other.result = "blocked".to_owned();
+    sink.record(blocked_other);
+
+    // A tracker domain that was NOT blocked (allowlisted/forwarded) → none.
+    let mut forwarded_tracker = sample_row("doubleclick.net");
+    forwarded_tracker.result = "forwarded".to_owned();
+    sink.record(forwarded_tracker);
+
+    let rows = buf.drain();
+    let tracker_rows: Vec<_> = rows
+        .iter()
+        .filter(|r| r.metric == "dns.blocked.by_tracker")
+        .collect();
+    assert_eq!(
+        tracker_rows.len(),
+        1,
+        "only the blocked recognised tracker should be counted"
+    );
+    assert!(
+        tracker_rows[0].labels.contains("Google"),
+        "tracker row must be attributed to the operating company, got {}",
+        tracker_rows[0].labels
+    );
+}
+
 /// When the persist channel is full, `dropped_entries` is incremented.
 #[test]
 fn persist_full_increments_dropped_counter() {

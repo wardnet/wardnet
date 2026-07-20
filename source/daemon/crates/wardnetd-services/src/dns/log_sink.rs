@@ -24,6 +24,8 @@
 //! | `dns.latency_ms` | `{outcome}` | Gauge per outcome |
 //! | `dns.queries.by_domain` | `{domain}` | Counter; blocked queries only |
 //! | `dns.queries.by_client` | `{client, device_id?}` | Counter per client; `device_id` present when attributed at query time |
+//! | `dns.queries.by_device` | `{device_id}` | Counter per device; recorded only when the query is attributed to a known device |
+//! | `dns.blocked.by_tracker` | `{company}` | Counter; blocked queries whose domain is a recognised tracker (see [`wardnet_common::trackers`]) |
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -47,6 +49,8 @@ struct DnsStatInstruments {
     latency: Gauge,
     by_domain: Counter,
     by_client: Counter,
+    by_device: Counter,
+    by_tracker: Counter,
 }
 
 /// Receivers returned by [`DnsLogSink::new_with_stats`].
@@ -105,6 +109,8 @@ impl DnsLogSink {
                 latency: meter.gauge("dns.latency_ms"),
                 by_domain: meter.counter("dns.queries.by_domain"),
                 by_client: meter.counter("dns.queries.by_client"),
+                by_device: meter.counter("dns.queries.by_device"),
+                by_tracker: meter.counter("dns.blocked.by_tracker"),
             }),
         });
         (
@@ -215,11 +221,11 @@ pub fn row_to_event(row: &QueryLogRow) -> QueryLogEvent {
     }
 }
 
-/// Record the four DNS stats metrics from a single query log row.
+/// Record the DNS stats metrics from a single query log row.
 ///
 /// Label strings are sorted JSON objects as required by the stats schema.
-/// `dns.queries.by_domain` is only recorded for blocked queries so the
-/// per-domain counter stays bounded.
+/// `dns.queries.by_domain` and `dns.blocked.by_tracker` are only recorded for
+/// blocked queries so those per-domain / per-company counters stay bounded.
 fn record_dns_stats(inst: &DnsStatInstruments, row: &QueryLogRow) {
     let outcome = normalize_outcome(&row.result);
     let outcome_labels = format!(r#"{{"outcome":"{outcome}"}}"#);
@@ -232,6 +238,17 @@ fn record_dns_stats(inst: &DnsStatInstruments, row: &QueryLogRow) {
         let domain = row.domain.replace('"', r#"\""#);
         inst.by_domain
             .add(&format!(r#"{{"domain":"{domain}"}}"#), 1.0);
+
+        // Attribute the block to its operating company when the domain is a
+        // recognised tracker. The catalogue is small and lookups are cheap;
+        // unrecognised blocks (custom rules, niche lists) simply go
+        // uncategorised and never touch this counter, keeping it bounded to
+        // the handful of companies in the catalogue.
+        if let Some(company) = wardnet_common::trackers::company_for_domain(&row.domain) {
+            let company = company.replace('"', r#"\""#);
+            inst.by_tracker
+                .add(&format!(r#"{{"company":"{company}"}}"#), 1.0);
+        }
     }
 
     let client = row.client_ip.replace('"', r#"\""#);
@@ -241,6 +258,12 @@ fn record_dns_stats(inst: &DnsStatInstruments, row: &QueryLogRow) {
     // Keys stay sorted as the stats schema requires (client < device_id).
     let labels = match &row.device_id {
         Some(device_id) => {
+            // Per-device series keyed on the stable device id (bounded by the
+            // number of devices on the network, so cardinality is safe). This
+            // powers the per-device timeseries; unlike `by_client` it does not
+            // fragment when a device's IP changes.
+            inst.by_device
+                .add(&format!(r#"{{"device_id":"{device_id}"}}"#), 1.0);
             format!(r#"{{"client":"{client}","device_id":"{device_id}"}}"#)
         }
         None => format!(r#"{{"client":"{client}"}}"#),

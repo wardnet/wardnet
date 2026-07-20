@@ -15,6 +15,7 @@ pub mod rule_request;
 pub mod serde_util;
 pub mod speed_test;
 pub mod stats;
+pub mod trackers;
 pub mod tunnel;
 pub mod update;
 pub mod vpn_provider;
