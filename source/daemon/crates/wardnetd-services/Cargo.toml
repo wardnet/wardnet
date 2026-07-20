@@ -99,6 +99,18 @@ instant-acme.workspace = true
 rcgen.workspace = true
 # https://crates.io/crates/x509-parser — parse cert `not_after` for renewal scheduling
 x509-parser.workspace = true
+# https://crates.io/crates/cms — CMS SignedData for the signed iOS `.mobileconfig` (#914)
+cms.workspace = true
+# https://crates.io/crates/x509-cert — parse the leaf chain for the CMS signer + certificates set
+x509-cert.workspace = true
+# https://crates.io/crates/p256 — sign the CMS SignerInfo with the leaf's ECDSA P-256 key
+p256.workspace = true
+# https://crates.io/crates/der — encode the profile bytes as the CMS encapsulated content
+der.workspace = true
+# https://crates.io/crates/const-oid — id-data / SHA-256 OIDs for the CMS structure
+const-oid.workspace = true
+# https://crates.io/crates/spki — SHA-256 / ECDSA AlgorithmIdentifiers for the CMS structure
+spki.workspace = true
 # https://crates.io/crates/web-push-native — Web Push encryption + VAPID signing
 web-push-native.workspace = true
 # https://crates.io/crates/http — name the http::Request web-push-native returns

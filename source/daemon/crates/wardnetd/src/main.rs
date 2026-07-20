@@ -962,6 +962,7 @@ async fn run(
     )
     .with_push_service(services.push.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
+    .with_private_dns_service(services.private_dns.clone())
     .with_health_monitor(health_monitor.clone())
     // Inject the live entitlement handle (the same one the DDNS cloud clients
     // flip) so the serving layer can gate the premium app surfaces while

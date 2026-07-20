@@ -18,6 +18,7 @@ use crate::entitlement::Entitlement;
 use crate::error::AppError;
 use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::private_dns::{PrivateDnsService, PrivateDnsServiceImpl, encode_base32, mint_token};
+use crate::secret_store::SecretStore;
 use crate::tls::{TlsService, TlsStatus};
 use wardnetd_data::repository::private_dns::{
     DeviceAlreadyGrantedPrivateDnsError, PrivateDnsGrantRepository, PrivateDnsGrantRow,
@@ -29,6 +30,43 @@ const DOMAIN: &str = "casa.my.wardnet.services";
 fn admin_ctx() -> AuthContext {
     AuthContext::Admin {
         admin_id: Uuid::new_v4(),
+    }
+}
+
+// -- In-memory SecretStore ------------------------------------------------
+//
+// Backs the cert/key `device_profile` signs with. Empty by default (no cert
+// issued); the profile happy-path test seeds a self-signed pair.
+#[derive(Default)]
+struct MockSecretStore {
+    store: Mutex<HashMap<String, Vec<u8>>>,
+}
+
+#[async_trait]
+impl SecretStore for MockSecretStore {
+    async fn put(&self, path: &str, value: &[u8]) -> anyhow::Result<()> {
+        self.store
+            .lock()
+            .unwrap()
+            .insert(path.to_owned(), value.to_vec());
+        Ok(())
+    }
+    async fn get(&self, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.store.lock().unwrap().get(path).cloned())
+    }
+    async fn delete(&self, path: &str) -> anyhow::Result<()> {
+        self.store.lock().unwrap().remove(path);
+        Ok(())
+    }
+    async fn list(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
+        Ok(self
+            .store
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .cloned()
+            .collect())
     }
 }
 
@@ -509,6 +547,7 @@ struct Harness {
     dns_local: Arc<MockDnsLocalService>,
     entitlement: Arc<Entitlement>,
     events: Arc<BroadcastEventBus>,
+    secrets: Arc<MockSecretStore>,
     service: PrivateDnsServiceImpl,
 }
 
@@ -524,6 +563,7 @@ fn harness() -> Harness {
     let entitlement = Entitlement::shared();
     entitlement.set_premium(true);
     let events = Arc::new(BroadcastEventBus::new(16));
+    let secrets = Arc::new(MockSecretStore::default());
 
     let service = PrivateDnsServiceImpl::new(
         grants.clone(),
@@ -534,6 +574,7 @@ fn harness() -> Harness {
         dns_local.clone(),
         entitlement.clone(),
         events.clone(),
+        secrets.clone(),
         Ipv4Addr::new(192, 168, 1, 1),
     );
     Harness {
@@ -545,6 +586,7 @@ fn harness() -> Harness {
         dns_local,
         entitlement,
         events,
+        secrets,
         service,
     }
 }
@@ -815,6 +857,91 @@ async fn list_grants_returns_all_rows() {
         .await
         .expect("list");
     assert_eq!(grants.len(), 2);
+}
+
+// -- Device-keyed surface (`/me`, `/me/profile`) ---------------------------
+
+#[tokio::test]
+async fn device_grant_returns_only_this_devices_grant() {
+    let h = harness();
+    enable(&h).await;
+    let a = h.devices.add_device();
+    let b = h.devices.add_device();
+    auth_context::with_context(admin_ctx(), h.service.grant_device(a))
+        .await
+        .expect("grant a");
+
+    let for_a = auth_context::with_context(admin_ctx(), h.service.device_grant(a))
+        .await
+        .expect("device_grant a");
+    assert_eq!(for_a.map(|g| g.device_id), Some(a));
+
+    let for_b = auth_context::with_context(admin_ctx(), h.service.device_grant(b))
+        .await
+        .expect("device_grant b");
+    assert!(for_b.is_none(), "ungranted device has no grant");
+}
+
+#[tokio::test]
+async fn device_profile_is_none_when_disabled_or_ungranted() {
+    let h = harness();
+    let device_id = h.devices.add_device();
+
+    // Feature disabled → no profile.
+    let none = auth_context::with_context(admin_ctx(), h.service.device_profile(device_id))
+        .await
+        .expect("device_profile");
+    assert!(none.is_none());
+
+    // Enabled but this device isn't granted → still none.
+    enable(&h).await;
+    let none = auth_context::with_context(admin_ctx(), h.service.device_profile(device_id))
+        .await
+        .expect("device_profile");
+    assert!(none.is_none());
+}
+
+#[tokio::test]
+async fn device_profile_signs_when_granted_and_cert_present() {
+    let h = harness();
+    enable(&h).await;
+    let device_id = h.devices.add_device();
+    let grant = auth_context::with_context(admin_ctx(), h.service.grant_device(device_id))
+        .await
+        .expect("grant");
+
+    // Seed a self-signed cert/key at the same secret-store keys the TLS layer
+    // uses, so `device_profile` has material to sign with.
+    let key_pair = rcgen::KeyPair::generate().unwrap();
+    let cert = rcgen::CertificateParams::new(vec![format!("{}.{DOMAIN}", grant.token)])
+        .unwrap()
+        .self_signed(&key_pair)
+        .unwrap();
+    h.secrets
+        .put(crate::tls::SECRET_CERT_CHAIN, cert.pem().as_bytes())
+        .await
+        .unwrap();
+    h.secrets
+        .put(
+            crate::tls::SECRET_CERT_KEY,
+            key_pair.serialize_pem().as_bytes(),
+        )
+        .await
+        .unwrap();
+
+    let profile = auth_context::with_context(admin_ctx(), h.service.device_profile(device_id))
+        .await
+        .expect("device_profile")
+        .expect("a granted device with a cert gets a signed profile");
+    // The signed profile embeds the plist verbatim, so the device's hostname
+    // appears in the bytes.
+    let hostname = format!("{}.{DOMAIN}", grant.token);
+    assert!(
+        profile
+            .windows(hostname.len())
+            .any(|w| w == hostname.as_bytes()),
+        "signed profile must carry the device hostname"
+    );
 }
 
 // -- Reconcile -------------------------------------------------------------

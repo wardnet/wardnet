@@ -691,6 +691,7 @@ fn create_services(
         dns_local_service.clone(),
         entitlement.clone(),
         event_publisher.clone(),
+        backends.secret_store.clone(),
         lan_ip,
     ));
 
