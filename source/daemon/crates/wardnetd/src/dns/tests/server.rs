@@ -2225,8 +2225,36 @@ fn udp_upstream(addr: SocketAddr) -> UpstreamDns {
     }
 }
 
+/// Send an A query for an arbitrary `name` (from a fresh client socket) and
+/// return the parsed reply. The companion to [`query_foo_com`] for tests that
+/// need a second, distinct question.
+async fn query_a_named(target: SocketAddr, name: &str, id: u16) -> hickory_proto::op::Message {
+    use hickory_proto::op::{Message, Query};
+    use hickory_proto::rr::{Name, RecordType};
+    use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
+
+    let client = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("client bind");
+    let mut msg = Message::query();
+    msg.metadata.id = id;
+    msg.metadata.recursion_desired = true;
+    msg.add_queries(vec![Query::query(
+        Name::from_str_relaxed(name).expect("query name"),
+        RecordType::A,
+    )]);
+    let bytes = msg.to_bytes().expect("encode query");
+    client.send_to(&bytes, target).await.expect("send");
+    let mut buf = vec![0u8; 4096];
+    let (n, _) = tokio::time::timeout(Duration::from_secs(5), client.recv_from(&mut buf))
+        .await
+        .expect("client recv timeout")
+        .expect("client recv");
+    Message::from_bytes(&buf[..n]).expect("parse response")
+}
+
 #[tokio::test]
-async fn rate_limit_refuses_queries_over_the_per_client_budget() {
+async fn rate_limit_refuses_forwarded_queries_but_not_local_answers() {
     use hickory_proto::op::ResponseCode;
 
     let upstream_addr = spawn_stub_upstream().await;
@@ -2243,10 +2271,24 @@ async fn rate_limit_refuses_queries_over_the_per_client_budget() {
     let first = query_foo_com(bound).await;
     assert_eq!(first.metadata.response_code, ResponseCode::NoError);
 
-    // Second query from the same client IP within the same second → no
-    // token left → REFUSED, before any cache/forward work.
-    let second = query_foo_com(bound).await;
-    assert_eq!(second.metadata.response_code, ResponseCode::Refused);
+    // Second query, same domain, same second: the budget is spent, but this is
+    // now a cache hit — a local answer — so it is served, NOT refused. The
+    // limiter only guards the upstream-bound path.
+    let cached = query_foo_com(bound).await;
+    assert_eq!(
+        cached.metadata.response_code,
+        ResponseCode::NoError,
+        "a cache hit must not be rate-limited"
+    );
+
+    // A different, un-cached domain within the same second would have to be
+    // forwarded → no token left → REFUSED.
+    let forwarded = query_a_named(bound, "bar.com.", 0xBEEF).await;
+    assert_eq!(
+        forwarded.metadata.response_code,
+        ResponseCode::Refused,
+        "a query that must go upstream is rate-limited"
+    );
 
     server.stop().await.unwrap();
 }

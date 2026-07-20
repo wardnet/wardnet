@@ -688,3 +688,256 @@ async fn malformed_authoritative_record_is_skipped_not_served() {
         "the malformed record must be dropped"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Reverse PTR for private ranges: the hostname answer, the authoritative
+// NXDOMAIN for an unknown private address, the rate-limiter exemption that
+// breaks the RFC1918 PTR flood, and the public-IP / conditional-rule
+// fall-through paths.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn reverse_ptr_for_a_known_private_ip_answers_with_the_hostname() {
+    use hickory_proto::rr::RData;
+
+    let (sink, mut rx) = DnsLogSink::new();
+    let pipeline = build_pipeline(DnsConfig::default(), Some(sink));
+    pipeline
+        .authoritative_view
+        .store(Arc::new(AuthoritativeView::build(
+            &[],
+            vec![manual_record(
+                "laptop.lan",
+                DnsRecordType::A,
+                "192.168.100.5",
+            )],
+            vec![],
+        )));
+
+    let response = ask(
+        &pipeline,
+        &query_bytes(0xD000, "5.100.168.192.in-addr.arpa.", RecordType::PTR),
+        ip_client(),
+    )
+    .await
+    .expect("authoritative PTR answer");
+
+    assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+    assert!(response.metadata.authoritative, "PTR must carry the AA bit");
+    assert_eq!(response.answers.len(), 1);
+    match &response.answers[0].data {
+        RData::PTR(ptr) => assert_eq!(ptr.0.to_string(), "laptop.lan."),
+        other => panic!("expected a PTR record, got {other:?}"),
+    }
+    assert_eq!(next_row(&mut rx).await.result, "authoritative");
+}
+
+#[tokio::test]
+async fn reverse_ptr_for_an_unknown_private_ip_is_authoritative_nxdomain() {
+    let (sink, mut rx) = DnsLogSink::new();
+    // A black-hole upstream: if the query leaked to forwarding it would hang,
+    // not answer — so a prompt NXDOMAIN proves it was answered locally.
+    let pipeline = build_pipeline(
+        config_with_upstream(SocketAddr::from(([127, 0, 0, 1], 1))),
+        Some(sink),
+    );
+
+    let response = ask(
+        &pipeline,
+        &query_bytes(0xD001, "9.100.168.192.in-addr.arpa.", RecordType::PTR),
+        ip_client(),
+    )
+    .await
+    .expect("authoritative NXDOMAIN");
+
+    assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+    assert!(
+        response.metadata.authoritative,
+        "NXDOMAIN must carry the AA bit"
+    );
+    assert!(response.answers.is_empty());
+    assert!(
+        !response.authorities.is_empty(),
+        "the synthetic SOA must ride along so the negative is cacheable"
+    );
+    assert_eq!(next_row(&mut rx).await.result, "authoritative_nxdomain");
+}
+
+#[tokio::test]
+async fn reverse_ptr_for_private_ranges_is_never_rate_limited() {
+    // Budget of one query/sec: the storm the mesh nodes generate would trip
+    // this instantly under the old ordering. With the limiter scoped to the
+    // upstream path, every private PTR is answered locally and none is REFUSED.
+    let cfg = DnsConfig {
+        rate_limit_per_second: 1,
+        ..config_with_upstream(SocketAddr::from(([127, 0, 0, 1], 1)))
+    };
+    let pipeline = build_pipeline(cfg, None);
+
+    for i in 0..10u8 {
+        let name = format!("{i}.100.168.192.in-addr.arpa.");
+        let response = ask(
+            &pipeline,
+            &query_bytes(0xD100 + u16::from(i), &name, RecordType::PTR),
+            ip_client(),
+        )
+        .await
+        .expect("PTR answered locally");
+        assert_ne!(
+            response.metadata.response_code,
+            ResponseCode::Refused,
+            "private PTR #{i} must never be rate-limited"
+        );
+        assert_eq!(response.metadata.response_code, ResponseCode::NXDomain);
+    }
+}
+
+#[tokio::test]
+async fn reverse_ptr_for_a_public_ip_falls_through_to_forwarding() {
+    let upstream = spawn_stub_upstream(StubAnswer::NxDomain).await;
+    let (sink, mut rx) = DnsLogSink::new();
+    let pipeline = build_pipeline(config_with_upstream(upstream), Some(sink));
+
+    // 8.8.8.8 is public — not our reverse space, so the query is forwarded.
+    let response = ask(
+        &pipeline,
+        &query_bytes(0xD200, "8.8.8.8.in-addr.arpa.", RecordType::PTR),
+        ip_client(),
+    )
+    .await
+    .expect("forwarded negative");
+
+    assert!(
+        !response.metadata.authoritative,
+        "a public-range PTR must not be answered authoritatively"
+    );
+    assert_eq!(next_row(&mut rx).await.result, "negative");
+}
+
+#[tokio::test]
+async fn reverse_ptr_conditional_forwarding_rule_wins_over_local_authority() {
+    let upstream = spawn_stub_upstream(StubAnswer::NxDomain).await;
+    let (sink, mut rx) = DnsLogSink::new();
+    // Default upstream is a black hole; only the conditional rule can answer.
+    let pipeline = build_pipeline(
+        config_with_upstream(SocketAddr::from(([127, 0, 0, 1], 1))),
+        Some(sink),
+    );
+    pipeline
+        .authoritative_view
+        .store(Arc::new(AuthoritativeView::build(
+            &[],
+            vec![],
+            vec![forwarding_rule(
+                "168.192.in-addr.arpa",
+                upstream.to_string(),
+            )],
+        )));
+
+    let response = ask(
+        &pipeline,
+        &query_bytes(0xD300, "5.100.168.192.in-addr.arpa.", RecordType::PTR),
+        ip_client(),
+    )
+    .await
+    .expect("conditionally forwarded answer");
+
+    // The rule routed it to the stub (which we reached) rather than the local
+    // synthetic NXDOMAIN, so the answer is non-authoritative and attributed to
+    // the conditional upstream.
+    assert!(!response.metadata.authoritative);
+    let row = next_row(&mut rx).await;
+    assert_eq!(
+        row.upstream.as_deref(),
+        Some(upstream.ip().to_string()).as_deref(),
+        "the reverse query must go to the conditional upstream"
+    );
+}
+
+#[tokio::test]
+async fn reverse_any_query_for_a_private_ip_is_answered_locally() {
+    use hickory_proto::rr::RData;
+
+    let (sink, mut rx) = DnsLogSink::new();
+    // Black-hole upstream: a prompt local answer proves it did not forward.
+    let pipeline = build_pipeline(
+        config_with_upstream(SocketAddr::from(([127, 0, 0, 1], 1))),
+        Some(sink),
+    );
+    pipeline
+        .authoritative_view
+        .store(Arc::new(AuthoritativeView::build(
+            &[],
+            vec![manual_record(
+                "printer.lan",
+                DnsRecordType::A,
+                "192.168.100.7",
+            )],
+            vec![],
+        )));
+
+    // An ANY query for a private reverse name must be answered locally too,
+    // otherwise the "never leak private reverse upstream" guarantee has a hole.
+    let response = ask(
+        &pipeline,
+        &query_bytes(0xD400, "7.100.168.192.in-addr.arpa.", RecordType::ANY),
+        ip_client(),
+    )
+    .await
+    .expect("authoritative ANY answer");
+
+    assert!(
+        response.metadata.authoritative,
+        "ANY reverse must be answered locally, not forwarded"
+    );
+    assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+    assert_eq!(response.answers.len(), 1);
+    match &response.answers[0].data {
+        RData::PTR(ptr) => assert_eq!(ptr.0.to_string(), "printer.lan."),
+        other => panic!("expected a PTR record, got {other:?}"),
+    }
+    assert_eq!(next_row(&mut rx).await.result, "authoritative");
+}
+
+#[tokio::test]
+async fn reverse_ptr_with_only_unrenderable_targets_is_nodata_not_nxdomain() {
+    let (sink, mut rx) = DnsLogSink::new();
+    let pipeline = build_pipeline(
+        config_with_upstream(SocketAddr::from(([127, 0, 0, 1], 1))),
+        Some(sink),
+    );
+    // A 64-octet label exceeds the DNS limit, so the forward record is indexed
+    // for the reverse (its value is a private IP) but its name can't be rendered
+    // back into a PTR target.
+    let bad_label = "a".repeat(64);
+    pipeline
+        .authoritative_view
+        .store(Arc::new(AuthoritativeView::build(
+            &[],
+            vec![manual_record(
+                &format!("{bad_label}.lan"),
+                DnsRecordType::A,
+                "192.168.100.8",
+            )],
+            vec![],
+        )));
+
+    let response = ask(
+        &pipeline,
+        &query_bytes(0xD500, "8.100.168.192.in-addr.arpa.", RecordType::PTR),
+        ip_client(),
+    )
+    .await
+    .expect("authoritative NODATA");
+
+    // The address exists (a record names it) but no PTR could be rendered, so
+    // this is NODATA — NoError with the SOA for negative caching — not NXDOMAIN,
+    // which would wrongly assert the name does not exist.
+    assert_eq!(response.metadata.response_code, ResponseCode::NoError);
+    assert!(response.answers.is_empty());
+    assert!(
+        !response.authorities.is_empty(),
+        "the SOA must ride along so the negative is cacheable"
+    );
+    assert_eq!(next_row(&mut rx).await.result, "authoritative_nodata");
+}

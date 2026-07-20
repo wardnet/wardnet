@@ -5,7 +5,9 @@ use wardnet_common::dns::{
     DnsZoneSource,
 };
 
-use crate::dns::authoritative::{AuthoritativeView, build_soa, parse_conditional_upstream};
+use crate::dns::authoritative::{
+    AuthoritativeView, build_soa, parse_conditional_upstream, parse_ptr_ipv4, private_reverse_zone,
+};
 
 fn zone(name: &str, enabled: bool) -> DnsZone {
     DnsZone {
@@ -401,6 +403,117 @@ fn disabled_wildcard_is_ignored() {
     );
     assert!(
         view.lookup("token.casa.my.wardnet.services", DnsRecordType::A)
+            .is_none()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Reverse PTR: name parsing, the private-zone classifier, and the reverse
+// index built from forward A records.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_ptr_ipv4_reverses_the_octet_order() {
+    use std::net::Ipv4Addr;
+    assert_eq!(
+        parse_ptr_ipv4("5.100.168.192.in-addr.arpa"),
+        Some(Ipv4Addr::new(192, 168, 100, 5)),
+    );
+    assert_eq!(
+        parse_ptr_ipv4("1.0.0.10.in-addr.arpa"),
+        Some(Ipv4Addr::new(10, 0, 0, 1)),
+    );
+}
+
+#[test]
+fn parse_ptr_ipv4_rejects_non_host_names() {
+    // A zone-apex query (three labels), a too-long name, an out-of-range
+    // octet, and an ip6.arpa name all fall through to normal forwarding.
+    assert_eq!(parse_ptr_ipv4("100.168.192.in-addr.arpa"), None);
+    assert_eq!(parse_ptr_ipv4("1.5.100.168.192.in-addr.arpa"), None);
+    assert_eq!(parse_ptr_ipv4("256.100.168.192.in-addr.arpa"), None);
+    assert_eq!(parse_ptr_ipv4("a.b.c.d.in-addr.arpa"), None);
+    assert_eq!(
+        parse_ptr_ipv4("1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa"),
+        None,
+    );
+}
+
+#[test]
+fn private_reverse_zone_classifies_rfc6303_blocks() {
+    use std::net::Ipv4Addr;
+    assert_eq!(
+        private_reverse_zone(Ipv4Addr::new(10, 1, 2, 3)).as_deref(),
+        Some("10.in-addr.arpa"),
+    );
+    assert_eq!(
+        private_reverse_zone(Ipv4Addr::new(172, 20, 5, 5)).as_deref(),
+        Some("20.172.in-addr.arpa"),
+    );
+    assert_eq!(
+        private_reverse_zone(Ipv4Addr::new(192, 168, 100, 5)).as_deref(),
+        Some("168.192.in-addr.arpa"),
+    );
+    assert_eq!(
+        private_reverse_zone(Ipv4Addr::new(169, 254, 1, 1)).as_deref(),
+        Some("254.169.in-addr.arpa"),
+    );
+    assert_eq!(
+        private_reverse_zone(Ipv4Addr::new(100, 100, 0, 1)).as_deref(),
+        Some("100.100.in-addr.arpa"),
+    );
+    // Public and just-outside-the-block addresses are not ours.
+    assert_eq!(private_reverse_zone(Ipv4Addr::new(8, 8, 8, 8)), None);
+    assert_eq!(private_reverse_zone(Ipv4Addr::new(172, 15, 0, 1)), None);
+    assert_eq!(private_reverse_zone(Ipv4Addr::new(172, 32, 0, 1)), None);
+    assert_eq!(private_reverse_zone(Ipv4Addr::new(100, 63, 0, 1)), None);
+}
+
+#[test]
+fn reverse_index_inverts_private_a_records() {
+    use std::net::Ipv4Addr;
+    let view = AuthoritativeView::build(
+        &[],
+        vec![
+            record("laptop.lan", DnsRecordType::A, "192.168.100.5", None, true),
+            // A second name for the same address — both are returned.
+            record(
+                "laptop-wifi.lan",
+                DnsRecordType::A,
+                "192.168.100.5",
+                None,
+                true,
+            ),
+        ],
+        vec![],
+    );
+    let recs = view
+        .reverse_lookup(Ipv4Addr::new(192, 168, 100, 5))
+        .expect("reverse hit");
+    let mut names: Vec<&str> = recs.iter().map(|r| r.domain.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["laptop-wifi.lan", "laptop.lan"]);
+}
+
+#[test]
+fn reverse_index_skips_public_and_disabled_records() {
+    use std::net::Ipv4Addr;
+    let view = AuthoritativeView::build(
+        &[],
+        vec![
+            // Public target — reverse stays upstream, never indexed.
+            record("cdn.lan", DnsRecordType::A, "93.184.216.34", None, true),
+            // Disabled — excluded like everywhere else.
+            record("old.lan", DnsRecordType::A, "192.168.100.9", None, false),
+        ],
+        vec![],
+    );
+    assert!(
+        view.reverse_lookup(Ipv4Addr::new(93, 184, 216, 34))
+            .is_none()
+    );
+    assert!(
+        view.reverse_lookup(Ipv4Addr::new(192, 168, 100, 9))
             .is_none()
     );
 }

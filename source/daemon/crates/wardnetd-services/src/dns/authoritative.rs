@@ -1,6 +1,6 @@
 use std::cmp::Reverse;
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
 use hickory_proto::rr::{Name, RData, Record, rdata::SOA};
@@ -50,6 +50,15 @@ pub struct AuthoritativeView {
     /// Enabled authoritative zones, sorted longest-name-first so the first
     /// suffix match is the most specific zone claiming the namespace.
     zone_authorities: Vec<ZoneAuthority>,
+    /// Reverse (PTR) map: private IPv4 address → the forward A records that
+    /// point at it. Built by inverting every enabled, non-wildcard A record
+    /// whose value is a private/internal address (RFC 1918, link-local, or
+    /// RFC 6598 CGN). The DHCP `.lan` integration already writes those
+    /// forward records and fires `DnsLocalChanged`, so this map rides the
+    /// same rebuild with no extra data source. Consulted only for
+    /// `in-addr.arpa` PTR queries; the record's own TTL is reused for the
+    /// PTR answer.
+    reverse_ptr: HashMap<Ipv4Addr, Vec<Arc<CustomDnsRecord>>>,
 }
 
 /// The compiled form of one wildcard domain (`*.<suffix>`): every enabled
@@ -74,6 +83,7 @@ impl AuthoritativeView {
             wildcards: Vec::new(),
             forwarding_rules: Vec::new(),
             zone_authorities: Vec::new(),
+            reverse_ptr: HashMap::new(),
         }
     }
 
@@ -134,6 +144,7 @@ impl AuthoritativeView {
         let mut typed_records: HashMap<String, HashMap<DnsRecordType, Vec<Arc<CustomDnsRecord>>>> =
             HashMap::new();
         let mut wildcard_map: HashMap<String, WildcardEntry> = HashMap::new();
+        let mut reverse_ptr: HashMap<Ipv4Addr, Vec<Arc<CustomDnsRecord>>> = HashMap::new();
 
         for record in records {
             if !record.enabled {
@@ -169,6 +180,17 @@ impl AuthoritativeView {
                 continue;
             }
 
+            // Reverse (PTR) index: an A record for a private address doubles as
+            // the answer to that address's `in-addr.arpa` lookup. Only private
+            // targets are indexed — public IPs keep resolving reverse upstream —
+            // so the map mirrors exactly the addresses the pipeline answers for.
+            if rtype == DnsRecordType::A
+                && let Ok(v4) = record.value.parse::<Ipv4Addr>()
+                && private_reverse_zone(v4).is_some()
+            {
+                reverse_ptr.entry(v4).or_default().push(Arc::clone(&record));
+            }
+
             // Shared Arc: one heap allocation, two map entries.
             typed_records
                 .entry(domain.clone())
@@ -198,6 +220,7 @@ impl AuthoritativeView {
             wildcards,
             forwarding_rules,
             zone_authorities,
+            reverse_ptr,
         }
     }
 
@@ -303,6 +326,60 @@ impl AuthoritativeView {
                     .strip_suffix(z.name.as_str())
                     .is_some_and(|prefix| prefix.ends_with('.'))
         })
+    }
+
+    /// The forward A records naming `ip` (built from the reverse index), for
+    /// answering an `in-addr.arpa` PTR query. `None` when no enabled record
+    /// points at the address — the pipeline then answers an authoritative
+    /// NXDOMAIN for a private address, so the reverse lookup never leaks
+    /// upstream. Each record carries the TTL and hostname to echo back.
+    #[must_use]
+    pub fn reverse_lookup(&self, ip: Ipv4Addr) -> Option<&[Arc<CustomDnsRecord>]> {
+        self.reverse_ptr.get(&ip).map(Vec::as_slice)
+    }
+}
+
+/// Parse an `in-addr.arpa` PTR query name into the IPv4 address it asks about.
+///
+/// `name_lower` must be lowercased and trailing-dot-trimmed (the pipeline
+/// normalizes it that way before matching). Returns `None` for anything that
+/// isn't exactly four numeric octet labels followed by `in-addr.arpa` — a
+/// zone-apex query (`168.192.in-addr.arpa`), an RFC 2317 classless
+/// delegation label, or an `ip6.arpa` name all fall through to normal
+/// forwarding rather than being answered locally.
+#[must_use]
+pub fn parse_ptr_ipv4(name_lower: &str) -> Option<Ipv4Addr> {
+    let labels = name_lower.strip_suffix(".in-addr.arpa")?;
+    let mut parts = labels.split('.');
+    let a = parts.next()?.parse::<u8>().ok()?;
+    let b = parts.next()?.parse::<u8>().ok()?;
+    let c = parts.next()?.parse::<u8>().ok()?;
+    let d = parts.next()?.parse::<u8>().ok()?;
+    if parts.next().is_some() {
+        return None; // more than four labels — not a single-host PTR
+    }
+    // `in-addr.arpa` lists the octets least-significant first, so reverse them.
+    Some(Ipv4Addr::new(d, c, b, a))
+}
+
+/// The RFC 6303 private-use reverse zone apex that `ip` falls under, or `None`
+/// if the address is not in a private/internal block.
+///
+/// These are the reverse zones a recursive resolver should answer for locally
+/// instead of leaking upstream (RFC 6303 §4): RFC 1918 (10/8, 172.16/12,
+/// 192.168/16), link-local (169.254/16), and the RFC 6598 shared CGN space
+/// (100.64/10). The returned name is the zone apex used as the SOA owner on
+/// authoritative NXDOMAIN answers, so downstream resolvers can negatively
+/// cache the miss (RFC 2308) and stop re-asking.
+#[must_use]
+pub fn private_reverse_zone(ip: Ipv4Addr) -> Option<String> {
+    match ip.octets() {
+        [10, ..] => Some("10.in-addr.arpa".to_owned()),
+        [172, b, ..] if (16..=31).contains(&b) => Some(format!("{b}.172.in-addr.arpa")),
+        [192, 168, ..] => Some("168.192.in-addr.arpa".to_owned()),
+        [169, 254, ..] => Some("254.169.in-addr.arpa".to_owned()),
+        [100, b, ..] if (64..=127).contains(&b) => Some(format!("{b}.100.in-addr.arpa")),
+        _ => None,
     }
 }
 
