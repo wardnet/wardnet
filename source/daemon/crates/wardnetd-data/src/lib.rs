@@ -17,16 +17,16 @@ use repository::{
     AdminRepository, ApiKeyRepository, DeviceRepository, DhcpRepository, DnsEventsRepository,
     DnsFilterRepository, DnsLocalRepository, DnsRepository, InboundWgPeerRepository,
     MaintenanceRepository, NetworkZoneRepository, NotificationRepository,
-    PrivateDnsGrantRepository, PushRepository, RuleRequestRepository, SessionRepository,
-    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
-    SqliteDnsRepository, SqliteInboundWgPeerRepository, SqliteMaintenanceRepository,
-    SqliteNetworkZoneRepository, SqliteNotificationRepository, SqlitePrivateDnsGrantRepository,
-    SqlitePushRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
-    SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
-    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, SqliteZoneExceptionRepository,
-    StatsRepository, SystemConfigRepository, TunnelRepository, TunnelSpeedTestRepository,
-    UpdateRepository, ZoneExceptionRepository,
+    PrivateDnsGrantRepository, PushRepository, RoutingProfileRepository, RuleRequestRepository,
+    SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository,
+    SqliteDhcpRepository, SqliteDnsEventsRepository, SqliteDnsFilterRepository,
+    SqliteDnsLocalRepository, SqliteDnsRepository, SqliteInboundWgPeerRepository,
+    SqliteMaintenanceRepository, SqliteNetworkZoneRepository, SqliteNotificationRepository,
+    SqlitePrivateDnsGrantRepository, SqlitePushRepository, SqliteRoutingProfileRepository,
+    SqliteRuleRequestRepository, SqliteSessionRepository, SqliteStatsRepository,
+    SqliteSystemConfigRepository, SqliteTunnelRepository, SqliteTunnelSpeedTestRepository,
+    SqliteUpdateRepository, SqliteZoneExceptionRepository, StatsRepository, SystemConfigRepository,
+    TunnelRepository, TunnelSpeedTestRepository, UpdateRepository, ZoneExceptionRepository,
 };
 use sqlx::SqlitePool;
 
@@ -46,6 +46,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn dns_events(&self) -> Arc<dyn DnsEventsRepository>;
     fn dns_filter(&self) -> Arc<dyn DnsFilterRepository>;
     fn dns_local(&self) -> Arc<dyn DnsLocalRepository>;
+    fn routing_profile(&self) -> Arc<dyn RoutingProfileRepository>;
     fn tunnel(&self) -> Arc<dyn TunnelRepository>;
     fn tunnel_speed_tests(&self) -> Arc<dyn TunnelSpeedTestRepository>;
     fn inbound_wg_peers(&self) -> Arc<dyn InboundWgPeerRepository>;
@@ -184,6 +185,12 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn dns_local(&self) -> Arc<dyn DnsLocalRepository> {
         Arc::new(SqliteDnsLocalRepository::new_pools(self.pools.clone()))
+    }
+
+    fn routing_profile(&self) -> Arc<dyn RoutingProfileRepository> {
+        Arc::new(SqliteRoutingProfileRepository::new_pools(
+            self.pools.clone(),
+        ))
     }
 
     fn tunnel(&self) -> Arc<dyn TunnelRepository> {

@@ -12,6 +12,7 @@ pub mod network_zone;
 pub mod notification;
 pub mod private_dns;
 pub mod push;
+pub mod routing_profile;
 pub mod rule_request;
 pub mod session;
 pub mod sqlite;
@@ -42,6 +43,10 @@ pub use network_zone::NetworkZoneRepository;
 pub use notification::{NewNotification, NotificationRepository, StoredNotification};
 pub use private_dns::{PrivateDnsGrantRepository, PrivateDnsGrantRow};
 pub use push::{NewPushSubscription, PushRepository, StoredPushSubscription};
+pub use routing_profile::{
+    DeviceAssignmentWithIp, RoutingProfileRepository, RoutingProfileRow, RoutingProfileUpdate,
+    RoutingRuleRow, RoutingRuleUpdate,
+};
 pub use rule_request::RuleRequestRepository;
 pub use session::SessionRepository;
 pub use sqlite::{
@@ -49,9 +54,10 @@ pub use sqlite::{
     SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
     SqliteDnsRepository, SqliteInboundWgPeerRepository, SqliteMaintenanceRepository,
     SqliteNetworkZoneRepository, SqliteNotificationRepository, SqlitePrivateDnsGrantRepository,
-    SqlitePushRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
-    SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
-    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, SqliteZoneExceptionRepository,
+    SqlitePushRepository, SqliteRoutingProfileRepository, SqliteRuleRequestRepository,
+    SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
+    SqliteTunnelRepository, SqliteTunnelSpeedTestRepository, SqliteUpdateRepository,
+    SqliteZoneExceptionRepository,
 };
 pub use stats::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 pub use system_config::{LastShutdownInfo, SystemConfigRepository};
