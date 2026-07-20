@@ -154,7 +154,7 @@ export {
   useAcknowledgeShutdown,
   useRecentErrors,
 } from "./hooks/useSystemStatus";
-export type { RecentError } from "./hooks/useSystemStatus";
+export type { Diagnostic } from "./hooks/useSystemStatus";
 
 export {
   useDefaultPolicy,

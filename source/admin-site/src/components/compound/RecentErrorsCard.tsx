@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Text } from "@wardnet/web";
-import type { RecentError } from "@wardnet/web";
+import type { Diagnostic } from "@wardnet/web";
 
 function formatTimestamp(ts: string): string {
   if (!ts) return "";
@@ -10,17 +10,25 @@ function formatTimestamp(ts: string): string {
   return `${hms}.${ms}`;
 }
 
-function levelClass(level: string): string {
-  if (level === "ERROR") return "is-err";
-  if (level === "WARN" || level === "WARNING") return "is-warn";
+/** Map a diagnostic severity to the `.logrow` colour modifier. */
+function severityClass(severity: string): string {
+  if (severity === "error") return "is-err";
+  if (severity === "warning") return "is-warn";
   return "is-info";
 }
 
-interface RecentErrorsCardProps {
-  errors: RecentError[];
+/** Short uppercase label shown in the level column. */
+function severityLabel(severity: string): string {
+  if (severity === "error") return "ERR";
+  if (severity === "warning") return "WARN";
+  return "INFO";
 }
 
-/** Dashboard card showing the most recent warnings and errors. */
+interface RecentErrorsCardProps {
+  errors: Diagnostic[];
+}
+
+/** Dashboard card showing the most recent admin-facing diagnostics. */
 export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
   return (
     // `dashboard-recent-errors` lets the visual-regression suite mask this
@@ -37,10 +45,20 @@ export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
         ) : (
           <div className="logs">
             {[...errors].reverse().map((err, i) => (
-              <div key={i} className={`logrow ${levelClass(err.level)}`}>
+              <div key={i} className={`logrow ${severityClass(err.severity)}`}>
                 <div className="t">{formatTimestamp(err.timestamp)}</div>
-                <div className="l">{err.level}</div>
-                <div className="m">{err.message}</div>
+                <div className="l">{severityLabel(err.severity)}</div>
+                <div className="m">
+                  <span>{err.message}</span>
+                  {err.hint && (
+                    <span className="mt-1 flex gap-1.5 text-ink-3">
+                      <span aria-hidden className="select-none">
+                        →
+                      </span>
+                      <span>{err.hint}</span>
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
           </div>

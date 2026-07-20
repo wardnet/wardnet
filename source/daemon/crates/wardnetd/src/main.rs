@@ -58,6 +58,8 @@ use wardnetd_services::cloud::TunnelerRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::ddns::runner::DdnsUpdateRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
+use wardnetd_services::diagnostics::DiagnosticStore;
+use wardnetd_services::diagnostics::listener::DiagnosticsListener;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::dhcp_lan_runner::DhcpLanRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
@@ -68,9 +70,7 @@ use wardnetd_services::health::checks::{
     DbHealthCheck, DhcpServerHealthCheck, DnsServerHealthCheck, DotServerHealthCheck,
     LivenessHealthCheck,
 };
-use wardnetd_services::logging::{
-    ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
-};
+use wardnetd_services::logging::{LogService, LogServiceImpl, LogStreamService};
 use wardnetd_services::private_dns::runner::DotRunner;
 use wardnetd_services::push::listener::PushNotificationListener;
 use wardnetd_services::secret_store::build_secret_store;
@@ -117,13 +117,13 @@ async fn main() -> anyhow::Result<()> {
         LogStreamService::new(config.logging.broadcast_capacity)
             .with_suppressed_targets(config.logging.ui_suppressed_targets.clone()),
     );
-    let error_notifier = Arc::new(
-        ErrorNotifierService::new(config.logging.max_recent_errors)
-            .with_suppressed_targets(config.logging.ui_suppressed_targets.clone()),
-    );
+    // Recent-diagnostics buffer: the read handle goes to the log service (which
+    // serves `/api/system/errors`); the write handle is given to the
+    // diagnostics listener below, once the event bus exists.
+    let diagnostics = Arc::new(DiagnosticStore::new(config.logging.max_recent_errors));
     let log_service: Arc<dyn LogService> = Arc::new(LogServiceImpl::new(
         log_stream,
-        error_notifier,
+        diagnostics.clone(),
         config.logging.path.clone(),
     ));
 
@@ -144,7 +144,7 @@ async fn main() -> anyhow::Result<()> {
     // propagated across `.await` points in the tokio multi-threaded runtime.
     // The `Full` (console) formatter prints span fields on every line, and the
     // JSON formatter includes them via `with_current_span` / `with_span_list`.
-    let result = run(config, cli.config.clone(), log_service)
+    let result = run(config, cli.config.clone(), log_service, diagnostics)
         .instrument(tracing::info_span!(
             "wardnetd",
             version = env!("WARDNET_VERSION")
@@ -178,6 +178,7 @@ async fn run(
     config: ApplicationConfiguration,
     config_path: PathBuf,
     log_service: Arc<dyn LogService>,
+    diagnostics: Arc<DiagnosticStore>,
 ) -> anyhow::Result<()> {
     let started_at = Instant::now();
 
@@ -582,6 +583,9 @@ async fn run(
         services.push.clone(),
         &root_span,
     );
+    // Turn error-flavoured domain events into admin-facing diagnostics.
+    let diagnostics_listener =
+        DiagnosticsListener::start(&services.event_publisher, diagnostics.clone(), &root_span);
     let route_monitor = RouteMonitor::start(services.event_publisher.clone(), &root_span)
         .map_err(|e| anyhow::anyhow!("failed to start route monitor: {e}"))?;
 
@@ -1128,6 +1132,7 @@ async fn run(
     zone_enforcement_listener.shutdown().await;
     entitlement_listener.shutdown().await;
     push_listener.shutdown().await;
+    diagnostics_listener.shutdown().await;
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;
     monitor.shutdown().await;

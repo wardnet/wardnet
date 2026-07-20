@@ -730,10 +730,9 @@ impl UpdateService for UpdateServiceImpl {
 
         let latest = result.map_err(|e| {
             // Emit the full error text in the tracing *message* (not just a
-            // structured field) so `ErrorNotifierService` captures it in the
-            // `/api/system/errors` feed — otherwise the client only sees an
-            // opaque "internal server error" in the toast and the error
-            // notifier only stores "internal server error" as the message.
+            // structured field) so the underlying failure is legible in the
+            // logs — otherwise the client only sees an opaque "internal server
+            // error" in the toast and the log line carries no detail either.
             tracing::warn!(
                 channel = channel.as_str(),
                 error = %e,
