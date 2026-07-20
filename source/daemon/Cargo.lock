@@ -5998,6 +5998,7 @@ dependencies = [
  "axum-server",
  "chrono",
  "clap",
+ "criterion",
  "cron",
  "dhcproto",
  "futures",
