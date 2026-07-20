@@ -17,6 +17,7 @@ use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 use std::time::Instant;
 
+use arc_swap::ArcSwap;
 use chrono::Utc;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use hickory_proto::op::{Message, OpCode, Query};
@@ -30,7 +31,7 @@ use wardnet_common::dns::{
 use wardnetd_services::dns::DnsCache;
 use wardnetd_services::dns::authoritative::AuthoritativeView;
 use wardnetd_services::dns::filter_parser::parse_line;
-use wardnetd_services::dns_filter::{DnsFilter, DnsFilterInputs};
+use wardnetd_services::dns_filter::{DnsFilter, DnsFilterInputs, RuntimeDnsFilterProfile};
 
 fn response() -> Message {
     Message::response(0, OpCode::Query)
@@ -274,6 +275,42 @@ fn bench_filter(c: &mut Criterion) {
             });
         });
     }
+
+    let build_10k = || {
+        DnsFilter::build(DnsFilterInputs {
+            blocked_domains: (0..10_000).map(|i| format!("blocked{i}.example.com")).collect(),
+            allowlist: vec![],
+            custom_rules: vec![],
+        })
+    };
+
+    // Owned normalize path: a mixed-case, trailing-dot name (the one shape
+    // `check` still has to allocate and lowercase, vs the borrow it takes for
+    // the canonical names the pipeline normally hands down).
+    group.bench_function("check_uncanonical", |b| {
+        let filter = build_10k();
+        b.iter(|| {
+            black_box(filter.check(
+                black_box("Allowed.Example.Org."),
+                RecordType::A,
+                client,
+            ));
+        });
+    });
+
+    // The real profile path: `RuntimeDnsFilterProfile::check` fans one query
+    // across each source, loading every one through its `ArcSwap` and
+    // aggregating outcomes — the cost a query actually pays when a profile
+    // stacks several blocklists, not `DnsFilter::check` in isolation.
+    group.bench_function("profile_check_pass", |b| {
+        let filters: Vec<Arc<ArcSwap<DnsFilter>>> = (0..4)
+            .map(|_| Arc::new(ArcSwap::from_pointee(build_10k())))
+            .collect();
+        let profile = RuntimeDnsFilterProfile::new(Uuid::nil(), "bench".to_string(), filters);
+        b.iter(|| {
+            black_box(profile.check(black_box("allowed.example.org"), RecordType::A, client));
+        });
+    });
 
     group.finish();
 }
