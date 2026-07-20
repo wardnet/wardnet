@@ -41,6 +41,7 @@ use wardnetd_services::dns::authoritative::{
     AuthoritativeView, build_soa, parse_conditional_upstream, parse_ptr_ipv4, private_reverse_zone,
 };
 use wardnetd_services::dns::cache::DnsCache;
+use wardnetd_services::dns::classify_response;
 use wardnetd_services::dns::server::DnsSocket;
 
 use crate::dns::rate_limit::RateLimiter;
@@ -1392,31 +1393,6 @@ async fn forward_via_tunnel(
         elapsed,
     );
     Ok(())
-}
-
-/// Classify a parsed upstream response for caching: positive answers use the
-/// answers' minimum TTL; negative answers (NXDOMAIN, or NOERROR with zero
-/// answers) use the RFC 2308 negative TTL — min(SOA record TTL, SOA MINIMUM)
-/// from the authority section, or 0 (uncacheable) when the zone forbids
-/// negative caching or carries no SOA. Returns `(is_negative, raw_ttl)`.
-fn classify_response(parsed: &Message) -> (bool, u32) {
-    use hickory_proto::rr::RData;
-
-    let negative = parsed.metadata.response_code == ResponseCode::NXDomain
-        || (parsed.metadata.response_code == ResponseCode::NoError && parsed.answers.is_empty());
-    if negative {
-        let ttl = parsed
-            .authorities
-            .iter()
-            .find_map(|r| match &r.data {
-                RData::SOA(soa) => Some(r.ttl.min(soa.minimum)),
-                _ => None,
-            })
-            .unwrap_or(0);
-        return (true, ttl);
-    }
-    let min_ttl = parsed.answers.iter().map(|r| r.ttl).min().unwrap_or(0);
-    (false, min_ttl)
 }
 
 /// The query-log result for a relayed upstream response: negative answers

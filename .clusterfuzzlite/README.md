@@ -1,7 +1,8 @@
 # ClusterFuzzLite
 
 Coverage-guided fuzzing for wardnet's deserialization boundaries —
-bundle archiver, SQLite restore, and bundle-manifest JSON.
+bundle archiver, SQLite restore, bundle-manifest JSON, and
+upstream DNS-response parsing.
 
 ## Layout
 
@@ -40,6 +41,7 @@ cd source/daemon/fuzz
 cargo +nightly fuzz run archiver_unpack
 cargo +nightly fuzz run sqlite_restore
 cargo +nightly fuzz run bundle_manifest
+cargo +nightly fuzz run dns_response
 ```
 
 `cargo fuzz` needs nightly Rust even though the daemon pins stable —
@@ -83,13 +85,19 @@ unaffected and the corpus itself doesn't corrupt. To rotate:
 ## Scope — what's fuzzed and what isn't
 
 Fuzzing targets the trust boundaries where wardnet parses
-attacker-influenceable bytes. Currently that's the backup/restore
-pipeline — four stacked parsers (age → gzip → tar → JSON+SQLite) on a
-path an operator can be tricked into triggering with a crafted bundle.
+attacker-influenceable bytes. Currently that's two boundaries:
+
+- The **backup/restore pipeline** — four stacked parsers (age → gzip →
+  tar → JSON+SQLite) on a path an operator can be tricked into
+  triggering with a crafted bundle.
+- **Upstream DNS-response parsing** — every datagram the forwarders
+  receive from an upstream resolver (or an off-path attacker who beats
+  it back to our socket) is wire-parsed with `Message::from_bytes` and
+  walked by our caching classifier before it can be relayed or cached.
+  The `dns_response` target drives that parse+classify core directly.
 
 Candidates to add incrementally as new features land:
 
-- **DNS response parsing** — once DNS forwarding is implemented.
 - **VPN provider config parsers** — `.ovpn` / similar user-uploaded files.
 - **Update manifest JSON** — fetched from the release endpoint.
 - **TOML config parsing** — lower priority; admin-supplied.
