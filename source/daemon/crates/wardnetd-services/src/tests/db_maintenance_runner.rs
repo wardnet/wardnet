@@ -6,7 +6,9 @@ use async_trait::async_trait;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
-use crate::db_maintenance_runner::{DbMaintenanceRunner, run_daily_maintenance, run_vacuum};
+use crate::db_maintenance_runner::{
+    DbMaintenanceRunner, run_checkpoint, run_daily_maintenance, run_vacuum,
+};
 use crate::error::AppError;
 use crate::maintenance::MaintenanceService;
 use wardnetd_data::repository::WalCheckpointOutcome;
@@ -15,6 +17,9 @@ use wardnetd_data::repository::WalCheckpointOutcome;
 
 struct MockMaintenance {
     result: anyhow::Result<u64>,
+    /// When the service is `ok`, whether the checkpoint reports `busy`
+    /// (a reader blocked the truncation) rather than a clean truncate.
+    checkpoint_busy: bool,
     /// Calls to `run_incremental_vacuum`.
     calls: Mutex<u32>,
     /// Calls to `run_wal_checkpoint`.
@@ -27,6 +32,19 @@ impl MockMaintenance {
     fn ok(reclaimed: u64) -> Arc<Self> {
         Arc::new(Self {
             result: Ok(reclaimed),
+            checkpoint_busy: false,
+            calls: Mutex::new(0),
+            checkpoint_calls: Mutex::new(0),
+            optimize_calls: Mutex::new(0),
+        })
+    }
+
+    /// Like [`ok`](Self::ok) but the checkpoint reports `busy` so the
+    /// runner's reader-active log branch is exercised.
+    fn ok_busy_checkpoint() -> Arc<Self> {
+        Arc::new(Self {
+            result: Ok(0),
+            checkpoint_busy: true,
             calls: Mutex::new(0),
             checkpoint_calls: Mutex::new(0),
             optimize_calls: Mutex::new(0),
@@ -36,6 +54,7 @@ impl MockMaintenance {
     fn err() -> Arc<Self> {
         Arc::new(Self {
             result: Err(anyhow::anyhow!("synthetic vacuum error")),
+            checkpoint_busy: false,
             calls: Mutex::new(0),
             checkpoint_calls: Mutex::new(0),
             optimize_calls: Mutex::new(0),
@@ -69,7 +88,7 @@ impl MaintenanceService for MockMaintenance {
         *self.checkpoint_calls.lock().unwrap() += 1;
         match &self.result {
             Ok(_) => Ok(WalCheckpointOutcome {
-                busy: false,
+                busy: self.checkpoint_busy,
                 wal_frames: 0,
                 checkpointed_frames: 0,
             }),
@@ -136,6 +155,23 @@ async fn run_daily_maintenance_continues_past_errors() {
     assert_eq!(repo.call_count(), 1);
     assert_eq!(repo.checkpoint_count(), 1);
     assert_eq!(repo.optimize_count(), 1);
+}
+
+/// A busy checkpoint (reader held a snapshot) takes the reader-active log
+/// branch without panicking and still counts as a call.
+#[tokio::test]
+async fn run_checkpoint_handles_busy_outcome() {
+    let repo = MockMaintenance::ok_busy_checkpoint();
+    run_checkpoint(repo.as_ref(), &admin_ctx()).await; // must not panic
+    assert_eq!(repo.checkpoint_count(), 1);
+}
+
+/// A checkpoint error is logged and swallowed, not propagated.
+#[tokio::test]
+async fn run_checkpoint_warns_and_does_not_panic_on_error() {
+    let repo = MockMaintenance::err();
+    run_checkpoint(repo.as_ref(), &admin_ctx()).await; // must not panic
+    assert_eq!(repo.checkpoint_count(), 1);
 }
 
 // ── Runner integration tests ──────────────────────────────────────────────────
