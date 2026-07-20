@@ -25,15 +25,19 @@ on:
     - cron: "0 1 * * *"  # 01:00 UTC daily
   workflow_dispatch:     # allow manual triggering for debugging
 
+# Minimal top-level default; the write scopes are granted only to the
+# job that actually needs them (see below).
 permissions:
-  contents: write        # required to squash-merge PRs and delete their branches
-  pull-requests: write
+  contents: read
 
 jobs:
   auto-merge:
     name: Auto-merge Dependabot patch/minor PRs
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: write        # required to squash-merge PRs and delete their branches
+      pull-requests: write
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
