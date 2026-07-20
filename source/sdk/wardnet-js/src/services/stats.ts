@@ -68,6 +68,9 @@ export class StatsService {
     if (q.fallback_label_key) {
       parts.push(`fallback_label_key=${enc(q.fallback_label_key)}`);
     }
+    if (q.bucket) {
+      parts.push(`bucket=${enc(q.bucket)}`);
+    }
     return this.client.request<StatsTopResponse>(`/stats/top?${parts.join("&")}`);
   }
 }

@@ -115,6 +115,10 @@ export function useDnsStatsDashboard(
           statsService.top({
             metric: "dns.queries.by_domain",
             label_key: "domain",
+            // Rank over the tier matching the selected window so a 7d/12mo
+            // range ranks the whole period, not just the last ~25h of
+            // intraday data.
+            bucket,
             from: topFrom,
             to: topTo,
             limit: 10,
@@ -131,6 +135,7 @@ export function useDnsStatsDashboard(
             // grouping by its client IP rather than being dropped.
             label_key: "device_id",
             fallback_label_key: "client",
+            bucket,
             from: topFrom,
             to: topTo,
             limit: 10,
@@ -282,4 +287,194 @@ export function useDnsTopBlockedDomains(limit = 10) {
     },
     refetchInterval: 30_000,
   });
+}
+
+/**
+ * Top trackers blocked over `range`, ranked by operating company.
+ *
+ * Backed by `dns.blocked.by_tracker` — a bounded counter the daemon records
+ * only for blocked queries whose domain matches its curated tracker
+ * catalogue. Ranks over the tier matching the window (like the top-domains
+ * query) so a 7d/12mo range covers the whole period. Honours the same
+ * `topOverride` (chart zoom) contract as `useDnsStatsDashboard`.
+ */
+export function useDnsTopTrackers(
+  range: StatsRange,
+  topOverride?: { from: string; to: string },
+  limit = 10,
+) {
+  const { from, to, bucket } = useMemo(() => makeWindow(range), [range]);
+  const topFrom = topOverride?.from ?? from;
+  const topTo = topOverride?.to ?? to;
+
+  return useQuery({
+    queryKey: ["stats", "dns-top-trackers", range, topFrom, topTo, limit],
+    queryFn: () =>
+      statsService.top({
+        metric: "dns.blocked.by_tracker",
+        label_key: "company",
+        bucket,
+        from: topFrom,
+        to: topTo,
+        limit,
+      }),
+    refetchInterval: 30_000,
+  });
+}
+
+export interface DnsPeriodTotals {
+  total: number;
+  blocked: number;
+  blockedPercent: number;
+}
+
+export interface DnsPeriodComparison {
+  current: DnsPeriodTotals;
+  previous: DnsPeriodTotals;
+  /** Signed percentage change in total queries vs the previous period. */
+  totalChangePercent: number;
+  /** Signed percentage change in blocked queries vs the previous period. */
+  blockedChangePercent: number;
+}
+
+function sumTotals(
+  series: { value: number; labels: string }[] | undefined,
+): DnsPeriodTotals {
+  let total = 0;
+  let blocked = 0;
+  for (const point of series ?? []) {
+    total += point.value;
+    if (parseLabels(point.labels).outcome === "blocked") blocked += point.value;
+  }
+  return {
+    total: Math.round(total),
+    blocked: Math.round(blocked),
+    blockedPercent: total > 0 ? (blocked / total) * 100 : 0,
+  };
+}
+
+function percentChange(current: number, previous: number): number {
+  if (previous === 0) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}
+
+/**
+ * Period-over-period comparison of DNS volume for `range` (this window vs the
+ * immediately-preceding window of equal length) — e.g. week-over-week when
+ * `range` is `"7d"`. Two `dns.queries` series queries, summed client-side.
+ */
+export function useDnsPeriodComparison(range: StatsRange): {
+  data: DnsPeriodComparison | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+} {
+  // eslint-disable-next-line security/detect-object-injection -- key is a StatsRange union member indexing Record<StatsRange, number>, not remote input
+  const hours = RANGE_HOURS[range];
+
+  const [currentResult, previousResult] = useQueries({
+    queries: [
+      {
+        queryKey: ["stats", "dns-period-current", range],
+        queryFn: () => {
+          const now = new Date();
+          const from = new Date(now.getTime() - hours * 3_600_000);
+          const bucket: StatsBucket =
+            hours <= 24 ? "minute" : hours <= 168 ? "hour" : "day";
+          return statsService.query({
+            metric: "dns.queries",
+            from: from.toISOString(),
+            to: now.toISOString(),
+            bucket,
+          });
+        },
+        refetchInterval: 30_000,
+      },
+      {
+        queryKey: ["stats", "dns-period-previous", range],
+        queryFn: () => {
+          const now = new Date();
+          const to = new Date(now.getTime() - hours * 3_600_000);
+          const from = new Date(to.getTime() - hours * 3_600_000);
+          const bucket: StatsBucket =
+            hours <= 24 ? "minute" : hours <= 168 ? "hour" : "day";
+          return statsService.query({
+            metric: "dns.queries",
+            from: from.toISOString(),
+            to: to.toISOString(),
+            bucket,
+          });
+        },
+        refetchInterval: 30_000,
+      },
+    ],
+  });
+
+  const data = useMemo((): DnsPeriodComparison | undefined => {
+    if (!currentResult.data || !previousResult.data) return undefined;
+    const current = sumTotals(currentResult.data.series);
+    const previous = sumTotals(previousResult.data.series);
+    return {
+      current,
+      previous,
+      totalChangePercent: percentChange(current.total, previous.total),
+      blockedChangePercent: percentChange(current.blocked, previous.blocked),
+    };
+  }, [currentResult.data, previousResult.data]);
+
+  return {
+    data,
+    isLoading: currentResult.isLoading || previousResult.isLoading,
+    isError: currentResult.isError || previousResult.isError,
+    error: currentResult.error ?? previousResult.error,
+  };
+}
+
+export interface DevicePoint {
+  ts: string;
+  total: number;
+}
+
+/**
+ * Per-device query timeseries over `range`, backed by `dns.queries.by_device`
+ * (a device-keyed counter, so the series does not fragment when the device's
+ * IP changes). Disabled until a `deviceId` is selected.
+ */
+export function useDnsPerDeviceStats(
+  deviceId: string | null,
+  range: StatsRange,
+): {
+  data: DevicePoint[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+} {
+  const { from, to, bucket } = useMemo(() => makeWindow(range), [range]);
+
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ["stats", "dns-per-device", deviceId, range],
+    enabled: deviceId != null,
+    queryFn: () =>
+      statsService.query({
+        metric: "dns.queries.by_device",
+        label_filter: JSON.stringify({ device_id: deviceId }),
+        from,
+        to,
+        bucket,
+      }),
+    refetchInterval: 30_000,
+  });
+
+  const points = useMemo((): DevicePoint[] | undefined => {
+    if (!data) return undefined;
+    const byTs = new Map<string, number>();
+    for (const point of data.series ?? []) {
+      byTs.set(point.ts, (byTs.get(point.ts) ?? 0) + point.value);
+    }
+    return Array.from(byTs.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([ts, total]) => ({ ts, total: Math.round(total) }));
+  }, [data]);
+
+  return { data: points, isLoading, isError, error };
 }
