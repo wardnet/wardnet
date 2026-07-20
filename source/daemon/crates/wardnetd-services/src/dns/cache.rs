@@ -7,7 +7,7 @@ use hickory_proto::rr::RecordType;
 
 use wardnet_common::dns::UpstreamId;
 
-use crate::dns_filter::filter::normalize;
+use crate::dns_filter::filter::normalize_owned;
 
 type CacheKey = (UpstreamId, String, RecordType);
 
@@ -325,7 +325,8 @@ fn age_record_ttls(response: &mut Message, elapsed_secs: u64, remaining_secs: u6
 /// Canonical cache-key form of a domain: lowercase, no trailing dot. The
 /// server inserts wire-format FQDNs ("foo.com.") while eviction callers pass
 /// bare names ("foo.com"); both must map to the same key. Delegates to the
-/// filter's normalizer so every DNS path agrees on canonical form.
+/// filter's owned normalizer so every DNS path agrees on canonical form —
+/// the key is always owned, so the single-pass `normalize_owned` fits here.
 fn canonical_domain(domain: &str) -> String {
-    normalize(domain)
+    normalize_owned(domain)
 }
