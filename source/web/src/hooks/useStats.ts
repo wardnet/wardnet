@@ -22,6 +22,28 @@ export const RANGE_HOURS: Record<StatsRange, number> = {
   "12mo": 12 * 30 * 24,
 };
 
+// Retention ceilings per storage tier, in hours, mirroring the daemon's stats
+// maintenance (intraday ~25h, hourly 8d, daily 13mo). A tier only answers for
+// data newer than its ceiling, so a query reaching further back must step up to
+// a coarser tier or it reads an empty range.
+const INTRADAY_RETENTION_HOURS = 25;
+const HOURLY_RETENTION_HOURS = 8 * 24;
+
+/**
+ * Finest stats tier whose retention still covers `lookbackHours` of history.
+ *
+ * Single source of truth for tier selection: pass the age of the *oldest* point
+ * a query needs (for a plain window that is its duration; for a period-over-
+ * period comparison it is twice the duration, since the previous window starts
+ * that far back). Picking the tier from the range duration alone silently reads
+ * trimmed-away rows when the lookback exceeds the tier's retention.
+ */
+function bucketForLookback(lookbackHours: number): StatsBucket {
+  if (lookbackHours <= INTRADAY_RETENTION_HOURS) return "minute";
+  if (lookbackHours <= HOURLY_RETENTION_HOURS) return "hour";
+  return "day";
+}
+
 function makeWindow(range: StatsRange): {
   from: string;
   to: string;
@@ -31,9 +53,11 @@ function makeWindow(range: StatsRange): {
   const hours = RANGE_HOURS[range];
   const to = new Date();
   const from = new Date(to.getTime() - hours * 3_600_000);
-  const bucket: StatsBucket =
-    hours <= 24 ? "minute" : hours <= 168 ? "hour" : "day";
-  return { from: from.toISOString(), to: to.toISOString(), bucket };
+  return {
+    from: from.toISOString(),
+    to: to.toISOString(),
+    bucket: bucketForLookback(hours),
+  };
 }
 
 export function parseLabels(json: string): Record<string, string> {
@@ -331,10 +355,21 @@ export interface DnsPeriodTotals {
 export interface DnsPeriodComparison {
   current: DnsPeriodTotals;
   previous: DnsPeriodTotals;
-  /** Signed percentage change in total queries vs the previous period. */
-  totalChangePercent: number;
-  /** Signed percentage change in blocked queries vs the previous period. */
-  blockedChangePercent: number;
+  /**
+   * Signed percentage change in total queries vs the previous period, or
+   * `null` when the previous period had zero queries (no baseline to compute a
+   * ratio from — the UI shows this as "new" rather than a misleading +100%).
+   */
+  totalChangePercent: number | null;
+  /** Signed percentage change in blocked queries vs the previous period, or `null`. */
+  blockedChangePercent: number | null;
+  /**
+   * Whether the previous window reaches past the retention of the tier used,
+   * so `previous` is only partial and the change figures understate reality.
+   * True for the 12mo range, whose previous year exceeds the ~13mo daily
+   * retention. The UI surfaces this rather than presenting a bogus delta.
+   */
+  previousPartial: boolean;
 }
 
 function sumTotals(
@@ -353,8 +388,13 @@ function sumTotals(
   };
 }
 
-function percentChange(current: number, previous: number): number {
-  if (previous === 0) return current > 0 ? 100 : 0;
+/**
+ * Signed percentage change of `current` against `previous`, or `null` when
+ * `previous` is 0 and `current` is positive — there is no baseline, so any
+ * finite percentage would be arbitrary (a jump from 0 is "new", not "+100%").
+ */
+function percentChange(current: number, previous: number): number | null {
+  if (previous === 0) return current === 0 ? 0 : null;
   return ((current - previous) / previous) * 100;
 }
 
@@ -362,6 +402,12 @@ function percentChange(current: number, previous: number): number {
  * Period-over-period comparison of DNS volume for `range` (this window vs the
  * immediately-preceding window of equal length) — e.g. week-over-week when
  * `range` is `"7d"`. Two `dns.queries` series queries, summed client-side.
+ *
+ * Both windows use a single bucket sized to keep the *previous* window inside
+ * the tier's retention (a lookback of `2 × range`); choosing the tier from the
+ * range duration alone would query a tier whose data for the previous window
+ * has already been trimmed, making every comparison read ~+100%. The coarser
+ * bucket also keeps the payload small, since only the summed totals are used.
  */
 export function useDnsPeriodComparison(range: StatsRange): {
   data: DnsPeriodComparison | undefined;
@@ -371,6 +417,12 @@ export function useDnsPeriodComparison(range: StatsRange): {
 } {
   // eslint-disable-next-line security/detect-object-injection -- key is a StatsRange union member indexing Record<StatsRange, number>, not remote input
   const hours = RANGE_HOURS[range];
+  // The oldest point needed is the start of the previous window: 2 × range.
+  const bucket = bucketForLookback(2 * hours);
+  // The daily tier only retains ~13 months, so a 12mo comparison (previous
+  // window 12–24 months ago) is necessarily partial; flag it for the UI.
+  const previousPartial =
+    2 * hours > HOURLY_RETENTION_HOURS && range === "12mo";
 
   const [currentResult, previousResult] = useQueries({
     queries: [
@@ -379,8 +431,6 @@ export function useDnsPeriodComparison(range: StatsRange): {
         queryFn: () => {
           const now = new Date();
           const from = new Date(now.getTime() - hours * 3_600_000);
-          const bucket: StatsBucket =
-            hours <= 24 ? "minute" : hours <= 168 ? "hour" : "day";
           return statsService.query({
             metric: "dns.queries",
             from: from.toISOString(),
@@ -396,8 +446,6 @@ export function useDnsPeriodComparison(range: StatsRange): {
           const now = new Date();
           const to = new Date(now.getTime() - hours * 3_600_000);
           const from = new Date(to.getTime() - hours * 3_600_000);
-          const bucket: StatsBucket =
-            hours <= 24 ? "minute" : hours <= 168 ? "hour" : "day";
           return statsService.query({
             metric: "dns.queries",
             from: from.toISOString(),
@@ -419,8 +467,9 @@ export function useDnsPeriodComparison(range: StatsRange): {
       previous,
       totalChangePercent: percentChange(current.total, previous.total),
       blockedChangePercent: percentChange(current.blocked, previous.blocked),
+      previousPartial,
     };
-  }, [currentResult.data, previousResult.data]);
+  }, [currentResult.data, previousResult.data, previousPartial]);
 
   return {
     data,

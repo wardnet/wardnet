@@ -200,6 +200,27 @@ describe("useDnsPeriodComparison", () => {
     expect(data.previous.total).toBe(50);
     expect(data.totalChangePercent).toBe(100); // (100-50)/50
     expect(data.blockedChangePercent).toBe(300); // (40-10)/10
+    // 7d looks back 14d, past the 8d hourly retention, so the tier must step
+    // up to "day" for both windows or the previous week reads empty.
+    expect(statsService.query.mock.calls[0][0].bucket).toBe("day");
+    expect(statsService.query.mock.calls[1][0].bucket).toBe("day");
+  });
+
+  it("reports a null change when the previous period had no queries", async () => {
+    // Current window has traffic, previous window is empty (e.g. a brand-new
+    // tracker): the change is undefined, not a misleading +100%.
+    statsService.query
+      .mockResolvedValueOnce({
+        series: [seriesPoint("2026-07-10T00:00:00Z", 5000)],
+      })
+      .mockResolvedValueOnce({ series: [] });
+    const { result } = renderHook(() => useDnsPeriodComparison("24h"), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const data = result.current.data!;
+    expect(data.previous.total).toBe(0);
+    expect(data.totalChangePercent).toBeNull();
   });
 });
 
@@ -220,10 +241,9 @@ describe("useDnsPerDeviceStats", () => {
         seriesPoint("2026-07-02T00:00:00Z", 3),
       ],
     });
-    const { result } = renderHook(
-      () => useDnsPerDeviceStats("dev-1", "24h"),
-      { wrapper: wrapper() },
-    );
+    const { result } = renderHook(() => useDnsPerDeviceStats("dev-1", "24h"), {
+      wrapper: wrapper(),
+    });
     await waitFor(() => expect(result.current.data).toBeDefined());
     expect(statsService.query.mock.calls[0][0]).toMatchObject({
       metric: "dns.queries.by_device",

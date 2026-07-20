@@ -8,10 +8,7 @@ import {
   YAxis,
 } from "recharts";
 
-import {
-  ChartContainer,
-  type ChartConfig,
-} from "@/components/core/ui/chart";
+import { ChartContainer, type ChartConfig } from "@/components/core/ui/chart";
 import {
   Card,
   CardContent,
@@ -118,23 +115,31 @@ export function DnsAnalyticsSection({ range }: Props) {
           </CardHeader>
           <CardContent>
             {comparison ? (
-              <div className="grid grid-cols-2 gap-4">
-                <ComparisonTile
-                  label="Queries"
-                  current={comparison.current.total}
-                  changePercent={comparison.totalChangePercent}
-                  testId="dns-comparison-queries"
-                />
-                <ComparisonTile
-                  label="Blocked"
-                  current={comparison.current.blocked}
-                  changePercent={comparison.blockedChangePercent}
-                  // More blocking is not "worse" — keep the sign neutral so a
-                  // rise in blocks does not read as a red regression.
-                  neutral
-                  testId="dns-comparison-blocked"
-                />
-              </div>
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <ComparisonTile
+                    label="Queries"
+                    current={comparison.current.total}
+                    changePercent={comparison.totalChangePercent}
+                    testId="dns-comparison-queries"
+                  />
+                  <ComparisonTile
+                    label="Blocked"
+                    current={comparison.current.blocked}
+                    changePercent={comparison.blockedChangePercent}
+                    // More blocking is not "worse" — keep the sign neutral so a
+                    // rise in blocks does not read as a red regression.
+                    neutral
+                    testId="dns-comparison-blocked"
+                  />
+                </div>
+                {comparison.previousPartial && (
+                  <Text as="p" size="2xs" className="mt-2 text-ink-3">
+                    Previous period predates stored history, so the change is
+                    approximate.
+                  </Text>
+                )}
+              </>
             ) : (
               <Text as="p" size="sm" className="text-ink-3">
                 No data yet.
@@ -154,10 +159,7 @@ export function DnsAnalyticsSection({ range }: Props) {
           <div className="flex items-center justify-between gap-3">
             <CardTitle>Per-device queries</CardTitle>
             {devices.length > 0 && (
-              <Select
-                value={effectiveDevice}
-                onValueChange={setSelectedDevice}
-              >
+              <Select value={effectiveDevice} onValueChange={setSelectedDevice}>
                 <SelectTrigger
                   data-testid="dns-per-device-select"
                   className="w-48"
@@ -251,21 +253,30 @@ function ComparisonTile({
 }: {
   label: string;
   current: number;
-  changePercent: number;
+  changePercent: number | null;
   neutral?: boolean;
   testId?: string;
 }) {
-  const rounded = Math.round(changePercent);
-  const arrow = rounded > 0 ? "▲" : rounded < 0 ? "▼" : "–";
+  // `null` means the previous period was zero — a genuinely new value rather
+  // than a computable percentage. Show "new" instead of a misleading +100%.
+  // Compare against null inline so TypeScript narrows `changePercent` to a
+  // number in the non-null branches.
+  const rounded = changePercent === null ? 0 : Math.round(changePercent);
+  const delta =
+    changePercent === null
+      ? "new"
+      : `${rounded > 0 ? "▲" : rounded < 0 ? "▼" : "–"} ${Math.abs(rounded)}%`;
   // Colour only when direction carries meaning: fewer queries is greener,
-  // more is amber. Blocked passes `neutral` so it stays ink-coloured.
-  const tone = neutral
-    ? "text-ink-3"
-    : rounded > 0
-      ? "text-amber-600"
-      : rounded < 0
-        ? "text-emerald-600"
-        : "text-ink-3";
+  // more is amber. Blocked passes `neutral` so it stays ink-coloured; a "new"
+  // value has no prior direction, so it stays neutral too.
+  const tone =
+    neutral || changePercent === null
+      ? "text-ink-3"
+      : rounded > 0
+        ? "text-amber-600"
+        : rounded < 0
+          ? "text-emerald-600"
+          : "text-ink-3";
   return (
     <div className="rounded-md bg-surface-2 p-3" data-testid={testId}>
       <Text as="p" size="2xs" className="text-ink-3">
@@ -275,7 +286,7 @@ function ComparisonTile({
         {current.toLocaleString()}
       </Text>
       <Text as="p" size="xs" className={`mt-1 tabular-nums ${tone}`}>
-        {arrow} {Math.abs(rounded)}%
+        {delta}
       </Text>
     </div>
   );

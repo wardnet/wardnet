@@ -48,12 +48,14 @@ const mockComparison = vi.mocked(useDnsPeriodComparison);
 const mockPerDevice = vi.mocked(useDnsPerDeviceStats);
 const mockTrackers = vi.mocked(useDnsTopTrackers);
 
-function setup(opts: {
-  devices?: { id: string; name?: string; device_type?: string }[];
-  comparison?: unknown;
-  trackers?: unknown;
-  perDevice?: unknown;
-} = {}) {
+function setup(
+  opts: {
+    devices?: { id: string; name?: string; device_type?: string }[];
+    comparison?: unknown;
+    trackers?: unknown;
+    perDevice?: unknown;
+  } = {},
+) {
   mockDevices.mockReturnValue({
     data: { devices: opts.devices ?? [] },
   } as never);
@@ -86,9 +88,7 @@ describe("DnsAnalyticsSection", () => {
     });
     renderWithProviders(<DnsAnalyticsSection range="7d" />);
     // Period noun for 7d.
-    expect(
-      screen.getByText("Compared to previous week"),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Compared to previous week")).toBeInTheDocument();
     expect(screen.getByTestId("dns-comparison-queries")).toHaveTextContent(
       "100",
     );
@@ -97,6 +97,25 @@ describe("DnsAnalyticsSection", () => {
     );
     expect(screen.getByTestId("dns-comparison-blocked")).toHaveTextContent(
       "300%",
+    );
+  });
+
+  it("renders a null change as 'new' rather than a percentage", () => {
+    setup({
+      comparison: {
+        current: { total: 5000, blocked: 200, blockedPercent: 4 },
+        previous: { total: 0, blocked: 0, blockedPercent: 0 },
+        totalChangePercent: null,
+        blockedChangePercent: null,
+        previousPartial: false,
+      },
+    });
+    renderWithProviders(<DnsAnalyticsSection range="24h" />);
+    expect(screen.getByTestId("dns-comparison-queries")).toHaveTextContent(
+      "new",
+    );
+    expect(screen.getByTestId("dns-comparison-queries")).not.toHaveTextContent(
+      "%",
     );
   });
 
