@@ -621,11 +621,11 @@ impl QueryPipeline {
         //    versa).
         let cached = {
             let cache_guard = self.cache.read().await;
-            cache_guard.get(upstream_id, &domain, rtype)
+            cache_guard.get(upstream_id, &domain, rtype, id)
         };
-        if let Some(mut response) = cached {
-            response.metadata.id = id;
-            let bytes = response.to_bytes()?;
+        if let Some(bytes) = cached {
+            // The cache already stamped our transaction id and aged the TTLs;
+            // the buffer is send-ready with no per-hit clone or re-encode.
             reply.send_to(&bytes, src).await?;
             tracing::trace!(%domain, ?rtype, ?upstream_id, "cache hit");
             record_query(
@@ -929,11 +929,27 @@ async fn forward_via_default_resolver(
     pass_result: &str,
     upstream_id: UpstreamId,
 ) -> anyhow::Result<()> {
-    let resolver_guard = resolver.read().await;
-    let lookup: Result<Lookup, _> = resolver_guard.lookup(domain, rtype).await;
+    // Clone the Arc-backed resolver out and drop the read guard before the
+    // upstream round-trip. tokio's RwLock is write-preferring, so holding the
+    // guard across `.lookup().await` lets an `update_config` resolver rebuild
+    // (the queued writer) block every new query until the slowest in-flight
+    // lookup returns — a single config edit could otherwise stall DNS for all
+    // clients for as long as the upstream timeout.
+    let resolver = resolver.read().await.clone();
+    let lookup: Result<Lookup, _> = resolver.lookup(domain, rtype).await;
 
-    let cfg = config.read().await;
-    let upstream = upstream_label(&cfg.upstream_servers);
+    // Snapshot the config fields we need, then drop the guard, so the response
+    // and cache work below doesn't hold the config lock across its awaits
+    // either.
+    let (upstream, rebinding_protection, ttl_min, ttl_max) = {
+        let cfg = config.read().await;
+        (
+            upstream_label(&cfg.upstream_servers),
+            cfg.rebinding_protection,
+            cfg.cache_ttl_min_secs,
+            cfg.cache_ttl_max_secs,
+        )
+    };
 
     match lookup {
         Ok(lookup) => {
@@ -951,9 +967,9 @@ async fn forward_via_default_resolver(
                 pass_result,
                 upstream_id,
                 upstream,
-                cfg.rebinding_protection,
-                cfg.cache_ttl_min_secs,
-                cfg.cache_ttl_max_secs,
+                rebinding_protection,
+                ttl_min,
+                ttl_max,
                 lookup.answers(),
             )
             .await?;
@@ -979,8 +995,8 @@ async fn forward_via_default_resolver(
                 upstream,
                 nx_domain,
                 e.into_soa(),
-                cfg.cache_ttl_min_secs,
-                cfg.cache_ttl_max_secs,
+                ttl_min,
+                ttl_max,
             )
             .await?;
         }
@@ -1072,12 +1088,13 @@ async fn send_resolved(
     socket.send_to(&bytes, src).await?;
 
     if min_ttl < u32::MAX && min_ttl > 0 {
+        // Cache the exact bytes we just sent — no separate encode.
         let mut cache_guard = cache.write().await;
         cache_guard.insert(
             upstream_id,
             domain,
             rtype,
-            response,
+            bytes,
             min_ttl,
             cache_ttl_min_secs,
             cache_ttl_max_secs,
@@ -1340,11 +1357,13 @@ async fn forward_via_tunnel(
         if raw_ttl > 0 {
             let cfg = config.read().await;
             let mut cache_guard = cache.write().await;
+            // Cache the raw upstream datagram we relayed, not a re-encode of
+            // the parsed message.
             cache_guard.insert(
                 upstream_id,
                 domain,
                 rtype,
-                parsed,
+                buf.clone(),
                 raw_ttl,
                 cfg.cache_ttl_min_secs,
                 cfg.cache_ttl_max_secs,
@@ -1423,7 +1442,7 @@ async fn send_negative(
     request: &Message,
     nx_domain: bool,
     authority: Option<hickory_proto::rr::Record>,
-) -> anyhow::Result<Message> {
+) -> anyhow::Result<Vec<u8>> {
     let mut response = Message::response(id, OpCode::Query);
     response.metadata.recursion_desired = true;
     response.metadata.recursion_available = true;
@@ -1438,7 +1457,9 @@ async fn send_negative(
     }
     let bytes = response.to_bytes()?;
     socket.send_to(&bytes, src).await?;
-    Ok(response)
+    // Returns the wire bytes (not the `Message`) so the negative-cache path can
+    // store exactly what was sent without re-encoding.
+    Ok(bytes)
 }
 
 /// Shared negative-answer responder for the recursive and forwarding paths:
@@ -1495,7 +1516,7 @@ async fn relay_negative(
         (None, 0)
     };
 
-    let response = send_negative(socket, src, id, request, nx_domain, authority).await?;
+    let bytes = send_negative(socket, src, id, request, nx_domain, authority).await?;
 
     if negative_ttl > 0 {
         let mut cache_guard = cache.write().await;
@@ -1503,7 +1524,7 @@ async fn relay_negative(
             upstream_id,
             domain,
             rtype,
-            response,
+            bytes,
             negative_ttl,
             cache_ttl_min_secs,
             cache_ttl_max_secs,
@@ -1830,11 +1851,12 @@ async fn forward_via_conditional(
         if raw_ttl > 0 {
             let cfg = config.read().await;
             let mut cache_guard = cache.write().await;
+            // Cache the raw upstream datagram we relayed, not a re-encode.
             cache_guard.insert(
                 upstream_id,
                 domain,
                 rtype,
-                parsed,
+                buf.clone(),
                 raw_ttl,
                 cfg.cache_ttl_min_secs,
                 cfg.cache_ttl_max_secs,

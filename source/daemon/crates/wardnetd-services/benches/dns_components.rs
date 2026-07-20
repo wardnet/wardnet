@@ -17,6 +17,7 @@ use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
 use std::time::Instant;
 
+use arc_swap::ArcSwap;
 use chrono::Utc;
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use hickory_proto::op::{Message, OpCode, Query};
@@ -27,13 +28,23 @@ use uuid::Uuid;
 use wardnet_common::dns::{
     ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsRecordType, UpstreamId,
 };
-use wardnetd_services::dns::DnsCache;
+use wardnetd_data::repository::QueryLogRow;
 use wardnetd_services::dns::authoritative::AuthoritativeView;
 use wardnetd_services::dns::filter_parser::parse_line;
-use wardnetd_services::dns_filter::{DnsFilter, DnsFilterInputs};
+use wardnetd_services::dns::{DnsCache, row_to_event};
+use wardnetd_services::dns_filter::{DnsFilter, DnsFilterInputs, RuntimeDnsFilterProfile};
 
-fn response() -> Message {
-    Message::response(0, OpCode::Query)
+/// A one-answer A response as the wire bytes the cache now stores — a
+/// realistic hit payload, so the get-hit bench reflects the buffer copy +
+/// TTL-aging walk over an actual record rather than an empty message.
+fn response_wire() -> Vec<u8> {
+    let mut resp = Message::response(0, OpCode::Query);
+    resp.add_answer(Record::from_rdata(
+        Name::from_str_relaxed("example.com.").expect("answer name"),
+        300,
+        RData::A(A(Ipv4Addr::new(93, 184, 216, 34))),
+    ));
+    resp.to_bytes().expect("encode response")
 }
 
 /// `DnsCache` lookup + insert — the per-query cache path. Hit and miss are
@@ -48,13 +59,18 @@ fn bench_cache(c: &mut Criterion) {
             UpstreamId::Default,
             "example.com",
             RecordType::A,
-            response(),
+            response_wire(),
             300,
             0,
             86400,
         );
         b.iter(|| {
-            black_box(cache.get(UpstreamId::Default, black_box("example.com"), RecordType::A));
+            black_box(cache.get(
+                UpstreamId::Default,
+                black_box("example.com"),
+                RecordType::A,
+                0,
+            ));
         });
     });
 
@@ -67,6 +83,7 @@ fn bench_cache(c: &mut Criterion) {
                 UpstreamId::Default,
                 black_box("absent.example.com"),
                 RecordType::A,
+                0,
             ));
         });
     });
@@ -79,7 +96,7 @@ fn bench_cache(c: &mut Criterion) {
                     UpstreamId::Default,
                     black_box("example.com"),
                     RecordType::A,
-                    response(),
+                    response_wire(),
                     300,
                     0,
                     86400,
@@ -113,7 +130,7 @@ fn bench_cache_concurrent(c: &mut Criterion) {
                     UpstreamId::Default,
                     "example.com",
                     RecordType::A,
-                    response(),
+                    response_wire(),
                     300,
                     0,
                     86400,
@@ -134,6 +151,7 @@ fn bench_cache_concurrent(c: &mut Criterion) {
                                         UpstreamId::Default,
                                         black_box("example.com"),
                                         RecordType::A,
+                                        0,
                                     ));
                                 }
                             })
@@ -275,6 +293,40 @@ fn bench_filter(c: &mut Criterion) {
         });
     }
 
+    let build_10k = || {
+        DnsFilter::build(DnsFilterInputs {
+            blocked_domains: (0..10_000)
+                .map(|i| format!("blocked{i}.example.com"))
+                .collect(),
+            allowlist: vec![],
+            custom_rules: vec![],
+        })
+    };
+
+    // Owned normalize path: a mixed-case, trailing-dot name (the one shape
+    // `check` still has to allocate and lowercase, vs the borrow it takes for
+    // the canonical names the pipeline normally hands down).
+    group.bench_function("check_uncanonical", |b| {
+        let filter = build_10k();
+        b.iter(|| {
+            black_box(filter.check(black_box("Allowed.Example.Org."), RecordType::A, client));
+        });
+    });
+
+    // The real profile path: `RuntimeDnsFilterProfile::check` fans one query
+    // across each source, loading every one through its `ArcSwap` and
+    // aggregating outcomes — the cost a query actually pays when a profile
+    // stacks several blocklists, not `DnsFilter::check` in isolation.
+    group.bench_function("profile_check_pass", |b| {
+        let filters: Vec<Arc<ArcSwap<DnsFilter>>> = (0..4)
+            .map(|_| Arc::new(ArcSwap::from_pointee(build_10k())))
+            .collect();
+        let profile = RuntimeDnsFilterProfile::new(Uuid::nil(), "bench".to_string(), filters);
+        b.iter(|| {
+            black_box(profile.check(black_box("allowed.example.org"), RecordType::A, client));
+        });
+    });
+
     group.finish();
 }
 
@@ -317,6 +369,34 @@ fn bench_message(c: &mut Criterion) {
     group.finish();
 }
 
+/// `row_to_event` — the WS-event projection `DnsLogSink::record` builds per
+/// query (~6 string clones). It's pure waste when no live-log viewer is
+/// connected (the normal state); `record` now skips it when there are no
+/// subscribers, so this tracks the cost that gating elides.
+fn bench_log_sink(c: &mut Criterion) {
+    let mut group = c.benchmark_group("dns_log_sink");
+
+    let row = QueryLogRow {
+        timestamp: "2026-05-05T00:00:00Z".to_owned(),
+        client_ip: "10.0.0.1".to_owned(),
+        domain: "metrics.analytics-node.example".to_owned(),
+        query_type: "A".to_owned(),
+        result: "forwarded".to_owned(),
+        upstream: Some("1.1.1.1:53".to_owned()),
+        latency_ms: 1.0,
+        device_id: None,
+        protocol: "udp".to_owned(),
+    };
+
+    group.bench_function("row_to_event", |b| {
+        b.iter(|| {
+            black_box(row_to_event(black_box(&row)));
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_cache,
@@ -324,5 +404,6 @@ criterion_group!(
     bench_authoritative,
     bench_filter,
     bench_message,
+    bench_log_sink,
 );
 criterion_main!(benches);
