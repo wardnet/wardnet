@@ -204,7 +204,10 @@ pub async fn init_db_pools_from_connection_string(conn: &str) -> anyhow::Result<
                 // the sidecar back down instead of letting it grow unbounded.
                 // Set on every connection because `journal_size_limit` is a
                 // per-connection setting in SQLite.
-                .pragma("journal_size_limit", WAL_JOURNAL_SIZE_LIMIT_BYTES.to_string())
+                .pragma(
+                    "journal_size_limit",
+                    WAL_JOURNAL_SIZE_LIMIT_BYTES.to_string(),
+                )
         };
 
         // Writer first — migrations run on it and they must complete
