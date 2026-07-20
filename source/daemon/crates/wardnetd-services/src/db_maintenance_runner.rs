@@ -1,10 +1,22 @@
 //! Daily database-maintenance runner.
 //!
-//! Calls [`MaintenanceService::run_incremental_vacuum`] once per calendar day
-//! to return freed `SQLite` pages to the filesystem. Fires independently of
-//! any domain-level feature flag so it benefits **all** retention-driven
-//! tables (DNS query log, future event logs, audit trails), not just the ones
-//! whose per-feature runner happens to be active.
+//! Runs three maintenance operations once per calendar day, in order:
+//!
+//! 1. [`MaintenanceService::run_incremental_vacuum`] — return freed
+//!    `SQLite` pages to the filesystem.
+//! 2. [`MaintenanceService::run_wal_checkpoint`] — truncate the WAL
+//!    sidecar back to ~0. Automatic checkpoints are always `PASSIVE` and
+//!    never shrink the `-wal` file, so without this it parks at its
+//!    high-water mark (observed at 530 MiB in the field) and drags every
+//!    read and write.
+//! 3. [`MaintenanceService::run_optimize`] — refresh the query planner's
+//!    statistics (`ANALYZE` via `PRAGMA optimize`) so it keeps picking
+//!    good indexes as tables grow.
+//!
+//! Fires independently of any domain-level feature flag so it benefits
+//! **all** retention-driven tables (DNS query log, future event logs,
+//! audit trails), not just the ones whose per-feature runner happens to be
+//! active.
 //!
 //! Like every background component, it calls the auth-gated service under an
 //! admin [`crate::auth_context`] rather than holding a repository directly.
@@ -102,11 +114,26 @@ async fn runner_loop(
                 let today_now = today();
                 if today_now != last_vacuum_day {
                     last_vacuum_day = today_now;
-                    run_vacuum(maintenance.as_ref(), &admin_ctx).await;
+                    run_daily_maintenance(maintenance.as_ref(), &admin_ctx).await;
                 }
             }
         }
     }
+}
+
+/// Run the full daily maintenance sequence: vacuum, WAL checkpoint,
+/// optimize. Each step is independent — a failure in one is logged and
+/// the next still runs, so a busy checkpoint never skips the planner
+/// refresh. The order matters: vacuum first moves freed pages onto the
+/// freelist (writing WAL frames), then the checkpoint folds them in and
+/// truncates the sidecar, then optimize refreshes statistics.
+pub(crate) async fn run_daily_maintenance(
+    maintenance: &dyn MaintenanceService,
+    admin_ctx: &AuthContext,
+) {
+    run_vacuum(maintenance, admin_ctx).await;
+    run_checkpoint(maintenance, admin_ctx).await;
+    run_optimize(maintenance, admin_ctx).await;
 }
 
 pub(crate) async fn run_vacuum(maintenance: &dyn MaintenanceService, admin_ctx: &AuthContext) {
@@ -122,6 +149,42 @@ pub(crate) async fn run_vacuum(maintenance: &dyn MaintenanceService, admin_ctx: 
         Ok(_) => {}
         Err(e) => {
             tracing::warn!(error = %e, "incremental vacuum failed: {e}");
+        }
+    }
+}
+
+pub(crate) async fn run_checkpoint(maintenance: &dyn MaintenanceService, admin_ctx: &AuthContext) {
+    match auth_context::with_context(admin_ctx.clone(), maintenance.run_wal_checkpoint()).await {
+        Ok(outcome) if outcome.busy => {
+            // A reader held a snapshot, so the WAL couldn't be truncated
+            // this pass. Not an error — the next daily tick retries.
+            tracing::info!(
+                wal_frames = outcome.wal_frames,
+                checkpointed_frames = outcome.checkpointed_frames,
+                "WAL checkpoint could not truncate (reader active); will retry next tick"
+            );
+        }
+        Ok(outcome) => {
+            tracing::info!(
+                wal_frames = outcome.wal_frames,
+                checkpointed_frames = outcome.checkpointed_frames,
+                "WAL checkpoint truncated sidecar: checkpointed_frames={checkpointed_frames}",
+                checkpointed_frames = outcome.checkpointed_frames,
+            );
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "WAL checkpoint failed: {e}");
+        }
+    }
+}
+
+pub(crate) async fn run_optimize(maintenance: &dyn MaintenanceService, admin_ctx: &AuthContext) {
+    match auth_context::with_context(admin_ctx.clone(), maintenance.run_optimize()).await {
+        Ok(()) => {
+            tracing::debug!("database optimize (ANALYZE via PRAGMA optimize) complete");
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "database optimize failed: {e}");
         }
     }
 }

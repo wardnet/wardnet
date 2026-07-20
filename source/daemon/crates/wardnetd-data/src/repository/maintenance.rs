@@ -1,12 +1,34 @@
 //! Database-wide maintenance operations that don't belong to any
 //! domain repository.
 //!
-//! Today there's exactly one — [`incremental_vacuum`](MaintenanceRepository::incremental_vacuum)
-//! — driven by the DNS query-log cleanup runner after a bulk DELETE.
-//! Future operations of the same shape (e.g. `PRAGMA wal_checkpoint`,
-//! `ANALYZE`) belong here.
+//! Driven daily by [`crate::db::DbPools`]'s owner, the
+//! [`DbMaintenanceRunner`]: reclaim freed pages
+//! ([`incremental_vacuum`](MaintenanceRepository::incremental_vacuum)),
+//! shrink the WAL sidecar back to ~0
+//! ([`wal_checkpoint_truncate`](MaintenanceRepository::wal_checkpoint_truncate)),
+//! and refresh the query planner's statistics
+//! ([`optimize`](MaintenanceRepository::optimize)).
+//!
+//! [`DbMaintenanceRunner`]: https://docs.rs/wardnetd-services
 
 use async_trait::async_trait;
+
+/// Result of a `PRAGMA wal_checkpoint(TRUNCATE)`.
+///
+/// Mirrors the single row `SQLite` returns: `(busy, log, checkpointed)`.
+/// A [`busy`](Self::busy) checkpoint means a concurrent reader still held
+/// a snapshot of some WAL frames, so the file could **not** be truncated
+/// this pass; the next daily tick retries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalCheckpointOutcome {
+    /// `true` when `SQLite` reported `busy = 1` — a reader blocked the
+    /// checkpoint from completing and the WAL was left in place.
+    pub busy: bool,
+    /// Total number of frames in the WAL at checkpoint time.
+    pub wal_frames: i64,
+    /// Number of frames successfully moved into the main database.
+    pub checkpointed_frames: i64,
+}
 
 /// Cross-cutting database maintenance.
 #[async_trait]
@@ -22,6 +44,31 @@ pub trait MaintenanceRepository: Send + Sync {
     /// return doesn't imply failure (it can mean the freelist was
     /// already empty, or the file is on `auto_vacuum=NONE`).
     async fn incremental_vacuum(&self) -> anyhow::Result<u64>;
+
+    /// Fold the WAL into the main database and truncate the `-wal`
+    /// sidecar back to zero bytes via `PRAGMA wal_checkpoint(TRUNCATE)`.
+    ///
+    /// `SQLite`'s automatic checkpoints are always `PASSIVE`: they mark WAL
+    /// space reusable but never shrink the file on disk, so without a
+    /// periodic explicit truncation the WAL parks at its high-water mark
+    /// indefinitely. This is that periodic truncation — run daily so the
+    /// sidecar returns to ~0 instead of dragging every read and write.
+    ///
+    /// Runs against the writer connection. A [`WalCheckpointOutcome::busy`]
+    /// result is not an error — it means a reader held a snapshot and the
+    /// file was left in place for the next tick to retry.
+    async fn wal_checkpoint_truncate(&self) -> anyhow::Result<WalCheckpointOutcome>;
+
+    /// Refresh the query planner's statistics via `PRAGMA optimize`.
+    ///
+    /// `PRAGMA optimize` runs `ANALYZE` only on the tables whose row
+    /// counts have shifted enough since the last run to matter, so it is
+    /// cheap to call routinely — unlike a bare `ANALYZE`, which rescans
+    /// every table. Bounded by `PRAGMA analysis_limit` so a single index
+    /// scan can't monopolise the writer on a large table. Without this the
+    /// planner works from stale `sqlite_stat1` data and can pick bad
+    /// indexes as tables like `dns_query_log` grow.
+    async fn optimize(&self) -> anyhow::Result<()>;
 
     /// Cheap connectivity probe — runs `SELECT 1` against the read pool and
     /// returns `Ok(())` if the database answered. Used by the health

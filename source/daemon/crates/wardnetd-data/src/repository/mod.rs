@@ -37,7 +37,7 @@ pub use dns_local::{
     ZoneUpdate,
 };
 pub use inbound_wg::{InboundWgPeerRepository, InboundWgPeerRow};
-pub use maintenance::MaintenanceRepository;
+pub use maintenance::{MaintenanceRepository, WalCheckpointOutcome};
 pub use network_zone::NetworkZoneRepository;
 pub use notification::{NewNotification, NotificationRepository, StoredNotification};
 pub use private_dns::{PrivateDnsGrantRepository, PrivateDnsGrantRow};

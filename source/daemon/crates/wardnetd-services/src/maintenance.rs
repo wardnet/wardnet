@@ -13,7 +13,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use wardnetd_data::repository::MaintenanceRepository;
+use wardnetd_data::repository::{MaintenanceRepository, WalCheckpointOutcome};
 
 use crate::auth_context;
 use crate::error::AppError;
@@ -26,6 +26,14 @@ pub trait MaintenanceService: Send + Sync {
     /// Release free database pages back to the filesystem in a single
     /// bounded step. Returns the number of pages reclaimed (best-effort).
     async fn run_incremental_vacuum(&self) -> Result<u64, AppError>;
+
+    /// Truncate the WAL sidecar back to ~0 via
+    /// `PRAGMA wal_checkpoint(TRUNCATE)`. Returns the checkpoint outcome so
+    /// the caller can log a [`WalCheckpointOutcome::busy`] result.
+    async fn run_wal_checkpoint(&self) -> Result<WalCheckpointOutcome, AppError>;
+
+    /// Refresh the query planner's statistics via `PRAGMA optimize`.
+    async fn run_optimize(&self) -> Result<(), AppError>;
 }
 
 pub struct MaintenanceServiceImpl {
@@ -47,5 +55,18 @@ impl MaintenanceService for MaintenanceServiceImpl {
             .incremental_vacuum()
             .await
             .map_err(AppError::Internal)
+    }
+
+    async fn run_wal_checkpoint(&self) -> Result<WalCheckpointOutcome, AppError> {
+        auth_context::require_admin()?;
+        self.repo
+            .wal_checkpoint_truncate()
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    async fn run_optimize(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.repo.optimize().await.map_err(AppError::Internal)
     }
 }

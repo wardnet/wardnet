@@ -208,6 +208,38 @@ async fn init_db_pools_with_file_path_creates_migrates_and_runs_the_restore_guar
 }
 
 #[tokio::test]
+async fn file_pools_cap_the_wal_journal_size_limit() {
+    // Regression for the 530 MiB WAL bloat: every file-backed connection
+    // must open with `journal_size_limit` set so a passive auto-checkpoint
+    // truncates the sidecar back down instead of letting it grow unbounded.
+    // A limit of 0 (SQLite's default) means "never truncate" — the bug.
+    let dir = std::env::temp_dir();
+    let db = dir.join(format!("wardnet-wal-limit-{}.db", Uuid::new_v4()));
+
+    let pools = init_db_pools_from_connection_string(db.to_str().unwrap())
+        .await
+        .expect("file-based pool creation should succeed");
+
+    for pool in [&pools.write, &pools.read] {
+        let limit: i64 = sqlx::query_scalar("PRAGMA journal_size_limit")
+            .fetch_one(pool)
+            .await
+            .expect("journal_size_limit query should succeed");
+        assert_eq!(
+            limit,
+            64 * 1024 * 1024,
+            "every file connection must cap the WAL at 64 MiB, got {limit}"
+        );
+    }
+
+    pools.write.close().await;
+    pools.read.close().await;
+    for s in ["", "-wal", "-shm"] {
+        let _ = tokio::fs::remove_file(sidecar(&db, s)).await;
+    }
+}
+
+#[tokio::test]
 async fn discard_stale_wal_tolerates_unremovable_sidecar_and_marker() {
     // The guard must never panic on filesystem errors. Make both the
     // `-wal` sidecar and the marker directories so `remove_file` fails
