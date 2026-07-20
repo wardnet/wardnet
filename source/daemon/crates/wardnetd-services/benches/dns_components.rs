@@ -28,9 +28,10 @@ use uuid::Uuid;
 use wardnet_common::dns::{
     ConditionalForwardingRule, CustomDnsRecord, DnsRecordSource, DnsRecordType, UpstreamId,
 };
-use wardnetd_services::dns::DnsCache;
+use wardnetd_data::repository::QueryLogRow;
 use wardnetd_services::dns::authoritative::AuthoritativeView;
 use wardnetd_services::dns::filter_parser::parse_line;
+use wardnetd_services::dns::{DnsCache, row_to_event};
 use wardnetd_services::dns_filter::{DnsFilter, DnsFilterInputs, RuntimeDnsFilterProfile};
 
 fn response() -> Message {
@@ -354,6 +355,34 @@ fn bench_message(c: &mut Criterion) {
     group.finish();
 }
 
+/// `row_to_event` — the WS-event projection `DnsLogSink::record` builds per
+/// query (~6 string clones). It's pure waste when no live-log viewer is
+/// connected (the normal state); `record` now skips it when there are no
+/// subscribers, so this tracks the cost that gating elides.
+fn bench_log_sink(c: &mut Criterion) {
+    let mut group = c.benchmark_group("dns_log_sink");
+
+    let row = QueryLogRow {
+        timestamp: "2026-05-05T00:00:00Z".to_owned(),
+        client_ip: "10.0.0.1".to_owned(),
+        domain: "metrics.analytics-node.example".to_owned(),
+        query_type: "A".to_owned(),
+        result: "forwarded".to_owned(),
+        upstream: Some("1.1.1.1:53".to_owned()),
+        latency_ms: 1.0,
+        device_id: None,
+        protocol: "udp".to_owned(),
+    };
+
+    group.bench_function("row_to_event", |b| {
+        b.iter(|| {
+            black_box(row_to_event(black_box(&row)));
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_cache,
@@ -361,5 +390,6 @@ criterion_group!(
     bench_authoritative,
     bench_filter,
     bench_message,
+    bench_log_sink,
 );
 criterion_main!(benches);

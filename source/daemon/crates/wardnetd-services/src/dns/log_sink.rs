@@ -146,7 +146,12 @@ impl DnsLogSink {
         if let Some(ref inst) = self.stat_instruments {
             record_dns_stats(inst, &row);
         }
-        let event = row_to_event(&row);
+        // Build the broadcast event only when a live-stream viewer is
+        // connected. With none — the normal state — `send` would fail and
+        // discard it anyway, so `row_to_event`'s handful of string clones
+        // would be pure waste on every query. Computed here, before `row` is
+        // moved into the persist send below.
+        let event = (self.stream_tx.receiver_count() > 0).then(|| row_to_event(&row));
         // Forward to capture runner only when a device is identified.
         // Avoid cloning when the channel is already known-full — check
         // capacity first to skip the heap allocation on a saturated buffer.
@@ -164,8 +169,12 @@ impl DnsLogSink {
         if let Err(mpsc::error::TrySendError::Full(_)) = self.persist_tx.try_send(row) {
             self.dropped_entries.fetch_add(1, Ordering::Relaxed);
         }
-        // Closed/no-subscriber broadcast errors are normal and ignored.
-        let _ = self.stream_tx.send(event);
+        // Closed/no-subscriber broadcast errors are normal and ignored. A
+        // subscriber that raced in after the `receiver_count` check above just
+        // misses this one event — live-stream is best-effort.
+        if let Some(event) = event {
+            let _ = self.stream_tx.send(event);
+        }
     }
 
     /// Subscribe to the live-stream broadcast.
