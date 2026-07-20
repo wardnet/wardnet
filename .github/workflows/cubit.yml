@@ -21,6 +21,14 @@ name: Cubit
 
 on:
   workflow_call:
+    secrets:
+      PERF_REPORTS_TOKEN:
+        description: >-
+          Fine-grained token with contents write on wardnet/perf-reports, the
+          central Pages hub PR dashboards are published to. Optional: the
+          record path (ci.yml) never publishes, and a compare run without it
+          falls back to linking the report artifact from the PR comment.
+        required: false
 
 # Workflow-level stays read-only; the job below elevates to the writes it needs,
 # which the caller (pr.yml / ci.yml cubit job) must grant to the same ceiling.
@@ -70,3 +78,11 @@ jobs:
             -p wardnetd --bench dns_resolution --features bench-internals
             -- --warm-up-time 3 --measurement-time 5 || true
           paired: "true"
+          # Publish each PR's dashboard to the org's central Pages hub so the
+          # sticky comment links a clickable page
+          # (https://wardnet.github.io/perf-reports/wardnet/pr-<n>/) instead of
+          # an artifact zip. Best-effort inside the action: a missing token
+          # (fork PRs get no secrets) or a failed push falls back to linking
+          # the artifact download.
+          pages-repo: wardnet/perf-reports
+          pages-token: ${{ secrets.PERF_REPORTS_TOKEN }}

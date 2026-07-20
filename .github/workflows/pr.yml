@@ -202,6 +202,10 @@ jobs:
       contents: write # cubit pushes/reads the cubit-state baseline branch
       pull-requests: write # cubit posts the sticky performance comment
     uses: ./.github/workflows/cubit.yml
+    # PERF_REPORTS_TOKEN (org secret) — lets cubit publish the PR's dashboard
+    # to the wardnet/perf-reports Pages hub. ci.yml's record path never
+    # publishes, so only this caller passes secrets.
+    secrets: inherit
 
   # Aggregator for branch protection. Lists every other job as a
   # dependency, runs unconditionally (if: always()), and passes iff
