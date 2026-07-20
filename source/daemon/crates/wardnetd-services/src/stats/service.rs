@@ -93,12 +93,16 @@ impl StatsService for StatsServiceImpl {
         auth_context::require_admin()?;
         let from = q.from.timestamp();
         let to = q.to.timestamp();
+        // Default to the intraday tier when unspecified so existing callers
+        // keep their short-window behaviour; longer windows pass Hour/Day.
+        let bucket = q.bucket.unwrap_or(StatsBucket::Minute);
         let entries = self
             .repo
             .top_n(
                 &q.metric,
                 &q.label_key,
                 q.fallback_label_key.as_deref(),
+                bucket,
                 from,
                 to,
                 q.limit,

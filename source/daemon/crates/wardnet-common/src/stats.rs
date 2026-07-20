@@ -73,6 +73,12 @@ pub struct StatsTopQuery {
     /// `"client"` for queries from sources with no known device).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback_label_key: Option<String>,
+    /// Storage tier to rank over. Defaults to `Minute` (intraday) when
+    /// omitted, preserving the original short-window behaviour; pass `Hour`
+    /// or `Day` to rank over the longer hourly/daily tiers so top-N covers
+    /// the same window as a matching time-series query.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bucket: Option<StatsBucket>,
     pub from: DateTime<Utc>,
     pub to: DateTime<Utc>,
     pub limit: u32,
