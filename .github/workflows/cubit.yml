@@ -9,12 +9,15 @@ name: Cubit
 # out of pr.yml's `all-checks-passed` aggregator so it can't gate a merge. The
 # PR comment and trend dashboard inform a human go/no-go.
 #
-# Runs the daemon micro-benchmarks (criterion) and hands their output to cubit.
-# The bench step is `continue-on-error` so a bench that fails to build stays
-# visible in the UI without failing the job — cubit then posts its "no data"
-# fallback. Short criterion windows keep CI fast; the numbers are noisy on shared
-# runners by design (the trend dashboard's variance band is how a human reads
-# them).
+# PAIRED same-runner comparison: cubit runs the daemon micro-benchmarks on BOTH
+# the PR head and the base commit on this same runner and compares the two
+# directly (paired: true), cancelling the machine-to-machine variance a stored
+# baseline can't. This roughly doubles the bench time per PR — the accepted
+# trade for trustworthy deltas. `fetch-depth: 0` is required so the base commit
+# is available to check out and bench. The bench-command trails `|| true` so a
+# bench that fails to build leaves cubit to post its "no data" fallback rather
+# than failing this advisory job. On push to main (record) only the head is
+# benched.
 
 on:
   workflow_call:
@@ -28,7 +31,9 @@ jobs:
   cubit:
     name: cubit
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Paired benches two commits (head + base) on one runner, so allow for two
+    # cold-cache compiles.
+    timeout-minutes: 45
     permissions:
       contents: write # push the cubit-state baseline branch (record, on main)
       pull-requests: write # post/update the sticky performance comment (compare, on PRs)
@@ -39,20 +44,20 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0 # paired needs the base commit available to bench it
 
       - uses: ./.github/actions/setup-rust
 
-      - name: Run daemon micro-benchmarks
-        # continue-on-error: a bench that fails to compile shows as failed in the
-        # UI but does not fail this advisory job — cubit falls back to a "no data"
-        # comment. Short criterion windows keep the leaf fast.
-        continue-on-error: true
-        working-directory: source/daemon
-        run: cargo bench -p wardnetd-services --bench dns_components -- --warm-up-time 1 --measurement-time 2
-
       # Moving major tag: cubit advances `v0` on each 0.x release, so fixes flow
       # here without a wardnet bump (same pattern as bulwark's @v1). Pin to an
-      # exact version once cubit reaches 1.0.
+      # exact version once cubit reaches 1.0. cubit runs bench-command itself
+      # (once for record, twice for a paired compare).
       - uses: wardnet/cubit@v0
         with:
           criterion-dir: source/daemon/target/criterion
+          bench-command: >-
+            cargo bench --manifest-path source/daemon/Cargo.toml
+            -p wardnetd-services --bench dns_components
+            -- --warm-up-time 1 --measurement-time 2 || true
+          paired: "true"
