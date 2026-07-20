@@ -142,7 +142,8 @@ Full walkthrough, configuration reference, and guides in the [**user documentati
 ## Documentation
 
 - [**User documentation**](https://wardnet.network/docs): installation, configuration, setup walkthrough, guides
-- [**Development guide**](docs/DEVELOPMENT.md): build, run locally, deploy, contribute
+- [**Contributing guide**](CONTRIBUTING.md): reporting bugs, the PR process, conventions, licensing
+- [**Development guide**](docs/DEVELOPMENT.md): build, run locally, deploy
 - [**Security policy & release signing**](SECURITY.md): reporting vulnerabilities, verifying releases
 - [**AI declaration**](ai-declaration.md): where and how much AI is used in developing Wardnet
 - [**Release notes**](docs/releases/): per-version changelogs
@@ -156,7 +157,9 @@ Wardnet is in active development. It's daily-driven on a single Pi at home, but 
 
 ## Contributing
 
-Contributions welcome. Start with the [development guide](docs/DEVELOPMENT.md) and the [agent/contributor conventions](AGENTS.md). For security issues, please use [GitHub's private vulnerability reporting](https://github.com/wardnet/wardnet/security/advisories/new), see [SECURITY.md](SECURITY.md) for details.
+Contributions welcome — start with [CONTRIBUTING.md](CONTRIBUTING.md), which covers reporting bugs, local setup, the checks that gate a push, and how pull requests are reviewed. The [development guide](docs/DEVELOPMENT.md) is the deeper build and architecture reference.
+
+For security issues, please don't open a public issue: use [GitHub's private vulnerability reporting](https://github.com/wardnet/wardnet/security/advisories/new), see [SECURITY.md](SECURITY.md) for details.
 
 ## License
 

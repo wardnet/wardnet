@@ -1,6 +1,6 @@
 # Wardnet — Development guide
 
-This guide covers everything you need to build, run, and contribute to Wardnet. For the project overview and user-facing install instructions, see the [README](../README.md).
+This guide covers how to build and run Wardnet, and how the project is put together. For the contribution process — reporting bugs, the PR flow, review expectations, licensing — see [CONTRIBUTING.md](../CONTRIBUTING.md). For the project overview and user-facing install instructions, see the [README](../README.md).
 
 ## Project status
 
