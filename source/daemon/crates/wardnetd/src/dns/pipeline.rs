@@ -929,11 +929,27 @@ async fn forward_via_default_resolver(
     pass_result: &str,
     upstream_id: UpstreamId,
 ) -> anyhow::Result<()> {
-    let resolver_guard = resolver.read().await;
-    let lookup: Result<Lookup, _> = resolver_guard.lookup(domain, rtype).await;
+    // Clone the Arc-backed resolver out and drop the read guard before the
+    // upstream round-trip. tokio's RwLock is write-preferring, so holding the
+    // guard across `.lookup().await` lets an `update_config` resolver rebuild
+    // (the queued writer) block every new query until the slowest in-flight
+    // lookup returns — a single config edit could otherwise stall DNS for all
+    // clients for as long as the upstream timeout.
+    let resolver = resolver.read().await.clone();
+    let lookup: Result<Lookup, _> = resolver.lookup(domain, rtype).await;
 
-    let cfg = config.read().await;
-    let upstream = upstream_label(&cfg.upstream_servers);
+    // Snapshot the config fields we need, then drop the guard, so the response
+    // and cache work below doesn't hold the config lock across its awaits
+    // either.
+    let (upstream, rebinding_protection, ttl_min, ttl_max) = {
+        let cfg = config.read().await;
+        (
+            upstream_label(&cfg.upstream_servers),
+            cfg.rebinding_protection,
+            cfg.cache_ttl_min_secs,
+            cfg.cache_ttl_max_secs,
+        )
+    };
 
     match lookup {
         Ok(lookup) => {
@@ -951,9 +967,9 @@ async fn forward_via_default_resolver(
                 pass_result,
                 upstream_id,
                 upstream,
-                cfg.rebinding_protection,
-                cfg.cache_ttl_min_secs,
-                cfg.cache_ttl_max_secs,
+                rebinding_protection,
+                ttl_min,
+                ttl_max,
                 lookup.answers(),
             )
             .await?;
@@ -979,8 +995,8 @@ async fn forward_via_default_resolver(
                 upstream,
                 nx_domain,
                 e.into_soa(),
-                cfg.cache_ttl_min_secs,
-                cfg.cache_ttl_max_secs,
+                ttl_min,
+                ttl_max,
             )
             .await?;
         }
