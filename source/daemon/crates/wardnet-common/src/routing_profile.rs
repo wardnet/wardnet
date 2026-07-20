@@ -122,8 +122,8 @@ pub fn pattern_specificity(pattern: &str) -> u32 {
     let (base, exact_bonus) = pattern
         .strip_prefix("*.")
         .map_or((pattern, 1), |base| (base, 0));
-    let labels = u32::try_from(base.split('.').filter(|l| !l.is_empty()).count())
-        .unwrap_or(u32::MAX / 2);
+    let labels =
+        u32::try_from(base.split('.').filter(|l| !l.is_empty()).count()).unwrap_or(u32::MAX / 2);
     labels * 2 + exact_bonus
 }
 

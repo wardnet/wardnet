@@ -7,9 +7,9 @@
 
 use axum::Json;
 use axum::extract::{Path, State};
-use uuid::Uuid;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use uuid::Uuid;
 
 use wardnet_common::api::{
     CreateDomainRoutingRuleRequest, CreateDomainRoutingRuleResponse, CreateRoutingProfileRequest,
@@ -206,7 +206,13 @@ pub async fn create_rule(
     _auth: AdminAuth,
     Path(id): Path<Uuid>,
     Json(req): Json<CreateDomainRoutingRuleRequest>,
-) -> Result<(axum::http::StatusCode, Json<CreateDomainRoutingRuleResponse>), AppError> {
+) -> Result<
+    (
+        axum::http::StatusCode,
+        Json<CreateDomainRoutingRuleResponse>,
+    ),
+    AppError,
+> {
     let rule = state
         .routing_profile_service()
         .create_rule(id, &req.pattern, req.target, req.enabled)

@@ -1974,14 +1974,15 @@ impl RoutingService for RoutingServiceImpl {
                     }
                 };
                 if tunnel.status == TunnelStatus::Down
-                    && let Err(e) = self.tunnels.bring_up_internal(*tunnel_id).await {
-                        tracing::warn!(
-                            error = %e,
-                            tunnel_id = %tunnel_id,
-                            "failed to bring up tunnel for domain route; skipping"
-                        );
-                        return Ok(());
-                    }
+                    && let Err(e) = self.tunnels.bring_up_internal(*tunnel_id).await
+                {
+                    tracing::warn!(
+                        error = %e,
+                        tunnel_id = %tunnel_id,
+                        "failed to bring up tunnel for domain route; skipping"
+                    );
+                    return Ok(());
+                }
                 let Some(index) = parse_interface_index(&tunnel.interface_name) else {
                     tracing::warn!(
                         interface = %tunnel.interface_name,
@@ -2103,9 +2104,9 @@ impl RoutingService for RoutingServiceImpl {
                     .netlink
                     .remove_domain_route_rule(&src, &dst, table, DOMAIN_ROUTE_RULE_PRIORITY)
                     .await
-                {
-                    tracing::warn!(error = %e, src, dst, "failed to prune orphan domain-route rule");
-                }
+            {
+                tracing::warn!(error = %e, src, dst, "failed to prune orphan domain-route rule");
+            }
         }
 
         Ok(())

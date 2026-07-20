@@ -19,10 +19,10 @@ use uuid::Uuid;
 use crate::state::AppState;
 use crate::tests::stubs::{
     AlwaysAdminAuth, StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer,
-    StubDhcpService, StubDiscoveryService, StubDnsFilterService, StubDnsLocalService, StubDnsServer,
-    StubDnsService, StubEventPublisher, StubJobService, StubLogService, StubNetworkZoneService,
-    StubProviderService, StubRoutingService, StubRuleRequestService, StubStatsService,
-    StubSystemService, StubTlsService, StubTunnelService, StubUpdateService,
+    StubDhcpService, StubDiscoveryService, StubDnsFilterService, StubDnsLocalService,
+    StubDnsServer, StubDnsService, StubEventPublisher, StubJobService, StubLogService,
+    StubNetworkZoneService, StubProviderService, StubRoutingService, StubRuleRequestService,
+    StubStatsService, StubSystemService, StubTlsService, StubTunnelService, StubUpdateService,
     StubZoneExceptionService,
 };
 use wardnet_common::routing_profile::RoutingProfile;
@@ -262,11 +262,7 @@ async fn direct_rule_create_list_and_bad_pattern() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::CREATED);
 
-    let resp = app
-        .clone()
-        .oneshot(get_req(&rules_path))
-        .await
-        .unwrap();
+    let resp = app.clone().oneshot(get_req(&rules_path)).await.unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
     let v = body_json(resp).await;
     assert_eq!(v["rules"].as_array().unwrap().len(), 1);
@@ -315,10 +311,7 @@ async fn assigning_unknown_profile_is_rejected() {
     let app = app().await;
     let path = format!("/api/routing/devices/{DEVICE_ID}/profiles");
     let resp = app
-        .oneshot(put_req(
-            &path,
-            &json!({ "profile_ids": [Uuid::new_v4()] }),
-        ))
+        .oneshot(put_req(&path, &json!({ "profile_ids": [Uuid::new_v4()] })))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);

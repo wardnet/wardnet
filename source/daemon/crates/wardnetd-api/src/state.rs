@@ -561,8 +561,10 @@ struct NoopRoutingProfileService;
 impl RoutingProfileService for NoopRoutingProfileService {
     async fn list_profiles(
         &self,
-    ) -> Result<Vec<wardnet_common::routing_profile::RoutingProfile>, wardnetd_services::error::AppError>
-    {
+    ) -> Result<
+        Vec<wardnet_common::routing_profile::RoutingProfile>,
+        wardnetd_services::error::AppError,
+    > {
         Ok(Vec::new())
     }
     async fn get_profile(
@@ -608,8 +610,10 @@ impl RoutingProfileService for NoopRoutingProfileService {
         _pattern: &str,
         _target: wardnet_common::routing_profile::DomainRoutingTarget,
         _enabled: bool,
-    ) -> Result<wardnet_common::routing_profile::DomainRoutingRule, wardnetd_services::error::AppError>
-    {
+    ) -> Result<
+        wardnet_common::routing_profile::DomainRoutingRule,
+        wardnetd_services::error::AppError,
+    > {
         Err(not_configured())
     }
     async fn update_rule(
@@ -618,14 +622,13 @@ impl RoutingProfileService for NoopRoutingProfileService {
         _pattern: Option<String>,
         _target: Option<wardnet_common::routing_profile::DomainRoutingTarget>,
         _enabled: Option<bool>,
-    ) -> Result<wardnet_common::routing_profile::DomainRoutingRule, wardnetd_services::error::AppError>
-    {
+    ) -> Result<
+        wardnet_common::routing_profile::DomainRoutingRule,
+        wardnetd_services::error::AppError,
+    > {
         Err(not_configured())
     }
-    async fn delete_rule(
-        &self,
-        _id: uuid::Uuid,
-    ) -> Result<(), wardnetd_services::error::AppError> {
+    async fn delete_rule(&self, _id: uuid::Uuid) -> Result<(), wardnetd_services::error::AppError> {
         Err(not_configured())
     }
     async fn get_device_profiles(

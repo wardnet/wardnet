@@ -170,7 +170,7 @@ impl UdpDnsServer {
     // `events` is consumed (subscribed once, then dropped) — keeping the
     // by-value signature mirrors the other Arc params and lets call
     // sites read like a plain construction.
-    #[allow(clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
     #[must_use]
     pub fn with_bind_addr(
         config: DnsConfig,
