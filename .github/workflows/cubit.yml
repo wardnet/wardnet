@@ -65,8 +65,8 @@ jobs:
           bench-command: >-
             cargo bench --manifest-path source/daemon/Cargo.toml
             -p wardnetd-services --bench dns_components
-            -- --warm-up-time 1 --measurement-time 2 || true ;
+            -- --warm-up-time 3 --measurement-time 5 || true ;
             cargo bench --manifest-path source/daemon/Cargo.toml
             -p wardnetd --bench dns_resolution --features bench-internals
-            -- --warm-up-time 1 --measurement-time 2 || true
+            -- --warm-up-time 3 --measurement-time 5 || true
           paired: "true"
