@@ -56,8 +56,17 @@ jobs:
       - uses: wardnet/cubit@v0
         with:
           criterion-dir: source/daemon/target/criterion
+          # Two bench targets, both writing to source/daemon/target/criterion
+          # (which cubit ingests): the wardnetd-services micro benches, and the
+          # wardnetd macro resolution bench (needs the bench-internals feature —
+          # a dev-only seam, never compiled into a production build). Each trails
+          # `|| true` so a bench build failure leaves cubit to post its "no data"
+          # fallback rather than failing this advisory job.
           bench-command: >-
             cargo bench --manifest-path source/daemon/Cargo.toml
             -p wardnetd-services --bench dns_components
+            -- --warm-up-time 1 --measurement-time 2 || true ;
+            cargo bench --manifest-path source/daemon/Cargo.toml
+            -p wardnetd --bench dns_resolution --features bench-internals
             -- --warm-up-time 1 --measurement-time 2 || true
           paired: "true"
