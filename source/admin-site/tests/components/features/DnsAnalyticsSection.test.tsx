@@ -166,4 +166,68 @@ describe("DnsAnalyticsSection", () => {
     expect(screen.getByTestId("dns-per-device-select")).toBeInTheDocument();
     expect(screen.getByText("Per-device queries")).toBeInTheDocument();
   });
+
+  it("shows a loading state while the per-device series loads", () => {
+    setup({
+      devices: [{ id: "dev-1", name: "Laptop", device_type: "computer" }],
+    });
+    mockPerDevice.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+      error: null,
+    } as never);
+    renderWithProviders(<DnsAnalyticsSection range="24h" />);
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+  });
+
+  it("shows an empty state when the selected device has no queries", () => {
+    setup({
+      devices: [{ id: "dev-1", name: "Laptop", device_type: "computer" }],
+      perDevice: [],
+    });
+    renderWithProviders(<DnsAnalyticsSection range="24h" />);
+    expect(
+      screen.getByText("No queries recorded for this device yet."),
+    ).toBeInTheDocument();
+  });
+
+  it("flags an approximate comparison when the previous period is partial", () => {
+    setup({
+      comparison: {
+        current: { total: 100, blocked: 10, blockedPercent: 10 },
+        previous: { total: 40, blocked: 5, blockedPercent: 12.5 },
+        totalChangePercent: 150,
+        blockedChangePercent: 100,
+        previousPartial: true,
+      },
+    });
+    renderWithProviders(<DnsAnalyticsSection range="12mo" />);
+    // Partial-period note plus the 12mo period noun ("year").
+    expect(screen.getByText(/predates stored history/)).toBeInTheDocument();
+    expect(screen.getByText("Compared to previous year")).toBeInTheDocument();
+  });
+
+  it("phrases the comparison period for each range", () => {
+    const cases = [
+      ["1h", "Compared to previous hour"],
+      ["12h", "Compared to previous 12 hours"],
+    ] as const;
+    for (const [range, text] of cases) {
+      setup({
+        comparison: {
+          current: { total: 1, blocked: 0, blockedPercent: 0 },
+          previous: { total: 1, blocked: 0, blockedPercent: 0 },
+          totalChangePercent: 0,
+          blockedChangePercent: 0,
+          previousPartial: false,
+        },
+      });
+      const { unmount } = renderWithProviders(
+        <DnsAnalyticsSection range={range} />,
+      );
+      expect(screen.getByText(text)).toBeInTheDocument();
+      unmount();
+    }
+  });
 });
