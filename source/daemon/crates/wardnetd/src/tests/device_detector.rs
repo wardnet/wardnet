@@ -123,6 +123,8 @@ struct MockDiscovery {
     departure_count: Arc<AtomicUsize>,
     /// Number of times `resolve_hostname` was called.
     resolve_count: Arc<AtomicUsize>,
+    /// Number of times `rebuild_trusted_subnets` was called.
+    rebuild_count: Arc<AtomicUsize>,
     /// Result to return from `process_observation`.
     observation_result: ObservationResultFactory,
 }
@@ -143,6 +145,7 @@ impl MockDiscovery {
             flush_count: Arc::new(AtomicUsize::new(0)),
             departure_count: Arc::new(AtomicUsize::new(0)),
             resolve_count: Arc::new(AtomicUsize::new(0)),
+            rebuild_count: Arc::new(AtomicUsize::new(0)),
             observation_result: factory,
         }
     }
@@ -173,6 +176,7 @@ impl DeviceDiscoveryService for MockDiscovery {
 
     async fn rebuild_trusted_subnets(&self) -> Result<(), AppError> {
         expect_admin_context();
+        self.rebuild_count.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
@@ -331,6 +335,39 @@ async fn start_and_shutdown() {
     );
 
     // Shutdown should complete without hanging or panicking.
+    detector.shutdown().await;
+}
+
+#[tokio::test]
+async fn zone_change_triggers_trusted_subnet_rebuild() {
+    let discovery = Arc::new(MockDiscovery::new(ObservationResultFactory::Seen));
+    let capture: Arc<dyn PacketCapture> = Arc::new(MockCapture::new(Arc::new(AtomicUsize::new(0))));
+    let rebuild_count = discovery.rebuild_count.clone();
+
+    // Keep the bus alive so we can publish into the zone-subnet listener; a
+    // temporary would drop its sender and close the listener immediately.
+    let events = test_events();
+    let detector = DeviceDetector::start(
+        capture,
+        discovery as Arc<dyn DeviceDiscoveryService>,
+        stub_system_config(),
+        &events,
+        &fast_config(),
+        "eth0".to_owned(),
+        &test_span(),
+    );
+
+    events.publish(WardnetEvent::NetworkZoneChanged {
+        zone_id: Uuid::new_v4(),
+        timestamp: chrono::Utc::now(),
+    });
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert!(
+        rebuild_count.load(Ordering::SeqCst) >= 1,
+        "NetworkZoneChanged should trigger a trusted-subnet rebuild under an admin context"
+    );
+
     detector.shutdown().await;
 }
 

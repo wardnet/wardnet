@@ -1181,7 +1181,40 @@ fn svc_with_device() -> DeviceServiceImpl {
     )
 }
 
+/// Build a service whose repo resolves every id to `None` (no such device).
+fn svc_without_device() -> DeviceServiceImpl {
+    DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: None,
+            rule: None,
+            all_rules: vec![],
+        }),
+        Arc::new(RowsDnsEventsRepo { rows: vec![] }),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
+        Arc::new(MockEventPublisher),
+    )
+}
+
 const SAMPLE_ID: &str = "00000000-0000-0000-0000-000000000001";
+
+#[tokio::test]
+async fn fetch_pending_dns_events_not_found_for_unknown_device() {
+    let svc = svc_without_device();
+    // Even an admin gets NotFound when the device row is gone: the guard
+    // resolves the device first to know whose events it would return.
+    let result =
+        auth_context::with_context(admin_ctx(), svc.fetch_pending_dns_events(SAMPLE_ID, 0, 100))
+            .await;
+    assert!(matches!(result, Err(crate::error::AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn ack_dns_events_not_found_for_unknown_device() {
+    let svc = svc_without_device();
+    let result = auth_context::with_context(admin_ctx(), svc.ack_dns_events(SAMPLE_ID, 42)).await;
+    assert!(matches!(result, Err(crate::error::AppError::NotFound(_))));
+}
 
 #[tokio::test]
 async fn fetch_pending_dns_events_rejects_anonymous() {
