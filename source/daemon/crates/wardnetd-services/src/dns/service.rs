@@ -450,6 +450,7 @@ impl DnsService for DnsServiceImpl {
     }
 
     async fn get_dns_config(&self) -> Result<DnsConfig, AppError> {
+        auth_context::require_admin()?;
         self.load_config().await
     }
 

@@ -1842,3 +1842,44 @@ async fn check_for_device_falls_back_to_the_default_context_for_unknown_devices(
         "unknown device + unknown IP resolve through the default context"
     );
 }
+
+/// The rebuild/handle methods run only from `DnsFilterRunner` inside an
+/// admin context, but each still guards its entry so a caller that forgets to
+/// establish one is rejected rather than silently mutating filter state.
+#[tokio::test]
+async fn rebuild_methods_reject_non_admin_caller() {
+    async fn anon<F: Future>(fut: F) -> F::Output {
+        auth_context::with_context(AuthContext::Anonymous, fut).await
+    }
+
+    let h = build().await;
+    let id = Uuid::new_v4();
+    let ip_changed = h
+        .service
+        .handle_device_ip_changed(id, "10.0.0.1", "10.0.0.2");
+
+    assert!(matches!(
+        anon(h.service.rebuild_all()).await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        anon(h.service.rebuild_blocklist_filter(id)).await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        anon(h.service.rebuild_profile(id)).await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        anon(h.service.rebuild_device(id)).await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        anon(h.service.rebuild_default_context()).await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        anon(ip_changed).await,
+        Err(AppError::Forbidden(_))
+    ));
+}
