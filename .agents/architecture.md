@@ -136,18 +136,22 @@ Zones, custom records, and conditional forwarding rules managed via the admin UI
 
 Key design rule: records whose zone has `enabled = false` are excluded even if the record itself is enabled. Records with no zone are included when their own flag is set. Forwarding rules are sorted longest-domain-first so the first suffix match is always the most specific one.
 
+The view also carries a **reverse (PTR) index**: every enabled A record whose value is a private/internal IPv4 (RFC 1918, link-local, RFC 6598 CGN) is inverted into an `IPv4 → records` map. This is the complement of the DHCP `.lan` forward integration — the same `{hostname}.lan → IP` records the `DhcpLanRunner` writes become the source of reverse answers, so the index rides the existing `DnsLocalChanged` rebuild with no extra data source or event. It lets the gateway answer `in-addr.arpa` PTR queries for private ranges locally (RFC 6303) rather than leaking them upstream.
+
 ### Resolution pipeline (per-query order)
 
 | Step | What happens | Notes |
 |---|---|---|
 | **0 — upstream selection** | Client IP → `UpstreamId` from routing snapshot | Miss = `Default` (system-wide upstream) |
+| **0.4 — reverse PTR** | Private-range `in-addr.arpa` PTR answered locally: hostname from the reverse index, else authoritative NXDOMAIN + synthetic SOA | RFC 6303; a conditional-forwarding rule on the reverse name wins. Returns `Authoritative` / `AuthoritativeNxdomain` |
 | **0.5 — authoritative** | `AuthoritativeView::lookup` — answers directly, sets AA bit | Bypasses cache and filter entirely; returns `DnsQueryResult::Authoritative` |
 | **0.6 — conditional forwarding rule match** | `AuthoritativeView::match_forwarding_rule` — selects per-domain upstream | Captured before the cache check; forwarding fires at step 3 if filter passes |
 | **1 — cache** | Per-`UpstreamId` response cache | Tunnel and LAN devices have separate cache namespaces |
 | **2 — filter** | `DnsFilterService::check` — block / rewrite / pass | Applies even to conditionally-forwarded domains |
+| **2.5 — rate limit** | Per-client-IP token bucket, checked **only here** — right before a query leaves for an upstream | `rate_limit_per_second == 0` disables. Local answers (authoritative, reverse PTR, cache hit, filter block/rewrite) returned above and are exempt; the limiter exists to protect upstreams |
 | **3 — forward** | Conditional upstream (if matched at 0.6 and filter passed), otherwise default or tunnel upstream | `forward_via_conditional` binds an undeviced socket; `forward_via_tunnel` uses `SO_BINDTODEVICE` |
 
-Authoritative answers fully short-circuit the pipeline (no cache store, no filter). CNAME handling: for A/AAAA queries on a domain that has only a CNAME record in the view, the CNAME goes into the answer section and the target A/AAAA record (if also in the view) goes into the additional section.
+Authoritative answers fully short-circuit the pipeline (no cache store, no filter). The rate limiter guards only the upstream-bound path (step 2.5): its purpose is to protect upstream resolvers, so a burst of locally-answerable queries — e.g. a mesh node's RFC1918 PTR storm — is answered every time and never REFUSED, which is what stops such a client's REFUSED-driven retry loop from self-amplifying. CNAME handling: for A/AAAA queries on a domain that has only a CNAME record in the view, the CNAME goes into the answer section and the target A/AAAA record (if also in the view) goes into the additional section.
 
 ### Event-driven rebuild
 

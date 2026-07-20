@@ -37,7 +37,9 @@ use wardnet_common::net::is_private_ip;
 use wardnetd_data::repository::{QueryLogRow, TunnelRepository};
 use wardnetd_services::DnsFilterService;
 use wardnetd_services::dns::DnsLogSink;
-use wardnetd_services::dns::authoritative::{AuthoritativeView, parse_conditional_upstream};
+use wardnetd_services::dns::authoritative::{
+    AuthoritativeView, build_soa, parse_conditional_upstream, parse_ptr_ipv4, private_reverse_zone,
+};
 use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::DnsSocket;
 
@@ -294,30 +296,15 @@ impl QueryPipeline {
         };
         let log_sink = self.log_sink.as_deref();
 
-        // 1. Rate limit (per-client token bucket). 0 disables; shed flooding
-        // clients before any resolution work, returning REFUSED. The rate is
-        // read lock-free from the limiter (no config lock on the hot path).
-        //
-        // Only IP-attributed clients are limited here. A device-authenticated
-        // transport (DoT) already rate-limits per grant token at the listener
-        // — its `src` is the TCP peer, which for a relayed roaming device is a
-        // shared loopback/relay address, so limiting by `src.ip()` here would
-        // pool every device into one bucket (and double-charge LAN clients).
-        if matches!(client, ClientIdentity::Ip(_)) && !self.rate_limiter.check(src.ip()) {
-            send_refused(reply, src, id, &request).await?;
-            record_query(
-                log_sink,
-                &domain,
-                rtype,
-                src,
-                attribution,
-                DnsQueryResult::RateLimited.as_str(),
-                None,
-                start.elapsed(),
-            );
-            tracing::debug!(%domain, %src, "rate-limited DNS query");
-            return Ok(());
-        }
+        // NOTE: the per-client rate limiter is applied later, right before a
+        // query is forwarded upstream (see stage 3) — not here. Its purpose is
+        // to protect upstreams, so locally-answerable queries (authoritative
+        // records, reverse PTR for private ranges, cache hits, filter
+        // block/rewrite) must never be shed by it. Gating only the
+        // upstream-bound path is what breaks the RFC1918 PTR flood: a mesh node
+        // hammering private reverse lookups is answered locally every time and
+        // so never trips the limiter into REFUSED — the response that was
+        // driving its retry loop.
 
         // 0. Resolve upstream pool for this client.
         let upstream_id = self
@@ -329,6 +316,103 @@ impl QueryPipeline {
 
         let domain_lower = domain.trim_end_matches('.').to_ascii_lowercase();
         let view = self.authoritative_view.load();
+
+        // 0.4. Reverse PTR for private ranges (RFC 6303). A PTR (or ANY) query
+        //      for a private/internal IPv4 (RFC 1918, link-local, or RFC 6598
+        //      CGN) is answered locally — the hostname when a forward record
+        //      names the address, otherwise an authoritative NXDOMAIN with a
+        //      synthetic SOA so the negative is cacheable (RFC 2308). Either way
+        //      it never leaks upstream and, being local, is exempt from the rate
+        //      limiter — which is what stops the mesh nodes' RFC1918 PTR storm
+        //      from self-amplifying into a REFUSED-driven retry loop. A
+        //      conditional-forwarding rule covering the reverse name still wins
+        //      (checked last so the cheap parse/zone gates reject non-reverse
+        //      names before the O(rules) scan runs), matching the zone-authority
+        //      precedence below.
+        if matches!(
+            rtype,
+            hickory_proto::rr::RecordType::PTR | hickory_proto::rr::RecordType::ANY
+        ) && let Some(ptr_ip) = parse_ptr_ipv4(&domain_lower)
+            && let Some(zone) = private_reverse_zone(ptr_ip)
+            && view.match_forwarding_rule(&domain_lower).is_none()
+        {
+            let ptr_records: Vec<(String, u32)> = view
+                .reverse_lookup(ptr_ip)
+                .map(|recs| recs.iter().map(|r| (r.domain.clone(), r.ttl)).collect())
+                .unwrap_or_default();
+            // The address "exists" in the zone iff some forward record names it;
+            // that decides NODATA vs NXDOMAIN below even if every target then
+            // fails to render.
+            let name_exists = !ptr_records.is_empty();
+            drop(view);
+
+            let name = Name::from_str_relaxed(&domain)?;
+            let mut response = Message::response(id, OpCode::Query);
+            response.metadata.recursion_desired = true;
+            response.metadata.recursion_available = true;
+            response.metadata.authoritative = true;
+            response.add_queries(request.queries.clone());
+
+            for (target, ttl) in &ptr_records {
+                match Name::from_str_relaxed(target) {
+                    Ok(tname) => {
+                        response.add_answer(Record::from_rdata(
+                            name.clone(),
+                            *ttl,
+                            hickory_proto::rr::RData::PTR(hickory_proto::rr::rdata::PTR(tname)),
+                        ));
+                    }
+                    Err(e) => tracing::warn!(
+                        %target,
+                        error = %e,
+                        "skipping malformed reverse-PTR target name"
+                    ),
+                }
+            }
+
+            let result = if response.answers.is_empty() {
+                // No servable answer. Attach the reverse zone's synthetic SOA so
+                // the negative is cacheable (RFC 2308). If no record names the
+                // address it truly does not exist (NXDOMAIN); if one does but we
+                // couldn't render it, the name exists with no data (NODATA) —
+                // NXDOMAIN there would wrongly poison the negative cache.
+                if !name_exists {
+                    response.metadata.response_code = ResponseCode::NXDomain;
+                }
+                match build_soa(&zone, 1) {
+                    Ok(soa) => {
+                        response.add_authority(soa);
+                    }
+                    Err(e) => tracing::warn!(
+                        %zone,
+                        error = %e,
+                        "failed to build synthetic SOA for reverse zone; omitting it"
+                    ),
+                }
+                if name_exists {
+                    DnsQueryResult::AuthoritativeNodata.as_str()
+                } else {
+                    DnsQueryResult::AuthoritativeNxdomain.as_str()
+                }
+            } else {
+                DnsQueryResult::Authoritative.as_str()
+            };
+
+            let bytes = response.to_bytes()?;
+            reply.send_to(&bytes, src).await?;
+            tracing::trace!(%domain, %ptr_ip, result, "authoritative reverse PTR answer");
+            record_query(
+                log_sink,
+                &domain,
+                rtype,
+                src,
+                attribution,
+                result,
+                None,
+                start.elapsed(),
+            );
+            return Ok(());
+        }
 
         // 0.5. Authoritative answer — BEFORE cache, bypasses filter.
         let is_any = rtype == hickory_proto::rr::RecordType::ANY;
@@ -630,6 +714,37 @@ impl QueryPipeline {
                 return Ok(());
             }
             FilterAction::Pass => {}
+        }
+
+        // 2.5. Rate limit — the last gate before the query leaves for an
+        //      upstream. Only queries that reach here consume a token: every
+        //      locally-answered path (authoritative record, reverse PTR, cache
+        //      hit, filter block/rewrite) has already returned, so a flood of
+        //      those is never REFUSED. The limiter's job is to protect
+        //      upstreams from a client amplifying its query rate, so gating it
+        //      to the upstream-bound path is both its true purpose and the fix
+        //      for the RFC1918 PTR storm.
+        //
+        //      Only IP-attributed clients are limited here. A device-
+        //      authenticated transport (DoT) already rate-limits per grant
+        //      token at its listener — its `src` is the TCP peer, which for a
+        //      relayed roaming device is a shared loopback/relay address, so
+        //      limiting by `src.ip()` here would pool every device into one
+        //      bucket (and double-charge LAN clients).
+        if matches!(client, ClientIdentity::Ip(_)) && !self.rate_limiter.check(src.ip()) {
+            send_refused(reply, src, id, &request).await?;
+            record_query(
+                log_sink,
+                &domain,
+                rtype,
+                src,
+                attribution,
+                DnsQueryResult::RateLimited.as_str(),
+                None,
+                start.elapsed(),
+            );
+            tracing::debug!(%domain, %src, "rate-limited DNS query");
+            return Ok(());
         }
 
         // 3. Forward to upstream — conditional forwarding overrides upstream_id.
