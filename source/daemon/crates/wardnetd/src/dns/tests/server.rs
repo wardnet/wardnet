@@ -343,6 +343,7 @@ fn build_test_server(config: DnsConfig, bind_addr: SocketAddr) -> UdpDnsServer {
         config,
         bind_addr,
         stub_filter(),
+        None,
         empty_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
@@ -695,6 +696,7 @@ async fn server_records_query_after_handling_it() {
         DnsConfig::default(),
         loopback_ephemeral(),
         stub_filter(),
+        None,
         empty_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
@@ -968,6 +970,7 @@ fn build_with_filter(
         config,
         loopback_ephemeral(),
         filter,
+        None,
         empty_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
@@ -1090,6 +1093,7 @@ async fn handle_query_tunnel_branch_records_upstream_error_when_forward_fails() 
         DnsConfig::default(),
         loopback_ephemeral(),
         filter,
+        None,
         snapshot,
         empty_device_snapshot(),
         tunnel_repo,
@@ -1576,6 +1580,7 @@ async fn dns_filter_rebuilt_event_flushes_response_cache() {
         cfg,
         loopback_ephemeral(),
         filter.clone() as Arc<dyn wardnetd_services::DnsFilterService>,
+        None,
         empty_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
@@ -2457,6 +2462,7 @@ async fn recursor_unavailable_falls_back_to_forwarding_when_upstreams_set() {
         std::time::Instant::now(),
         "forwarded",
         UpstreamId::Default,
+        None,
     )
     .await
     .expect("resolve_via_recursor");
@@ -2516,6 +2522,7 @@ async fn recursor_unavailable_servfails_when_no_upstreams() {
         std::time::Instant::now(),
         "forwarded",
         UpstreamId::Default,
+        None,
     )
     .await
     .expect("resolve_via_recursor");
@@ -2621,6 +2628,7 @@ async fn run_recursor_outcome(
         std::time::Instant::now(),
         "forwarded",
         UpstreamId::Default,
+        None,
     )
     .await
     .expect("handle_recursor_outcome");
@@ -2875,6 +2883,7 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
         std::time::Instant::now(),
         "forwarded",
         UpstreamId::Default,
+        None,
     )
     .await
     .expect("resolve_via_recursor");

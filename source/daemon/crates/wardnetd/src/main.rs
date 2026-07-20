@@ -669,6 +669,7 @@ async fn run(
         wardnetd::dns::server::UdpDnsServer::new(
             wardnet_common::dns::DnsConfig::default(),
             services.dns_filter.clone(),
+            Some(services.routing_profile.clone()),
             services.routing.dns_upstream_snapshot(),
             services.device_ip_snapshot.snapshot(),
             services.tunnel_repo.clone(),
@@ -693,6 +694,22 @@ async fn run(
         &root_span,
         Duration::from_mins(1),
     );
+
+    // Drain matched-domain resolutions from the DNS server and install their
+    // per-destination `ip rule`s, plus expire TTL'd leases (issue #241).
+    let domain_route_runner = services
+        .domain_route_rx
+        .lock()
+        .expect("domain_route_rx mutex poisoned")
+        .take()
+        .map(|rx| {
+            wardnetd_services::routing_profile::DomainRouteRunner::start(
+                services.routing_profile.clone(),
+                services.routing.clone(),
+                rx,
+                &root_span,
+            )
+        });
 
     // Auto-register `{hostname}.lan` A records as DHCP leases are assigned
     // or renewed. Goes through the auth-gated local-DNS service so the
@@ -1135,6 +1152,9 @@ async fn run(
     dhcp_runner.shutdown().await;
     dns_runner.shutdown().await;
     dns_filter_runner.shutdown().await;
+    if let Some(runner) = domain_route_runner {
+        runner.shutdown().await;
+    }
     dhcp_lan_runner.shutdown().await;
     session_cleanup_runner.shutdown().await;
     dns_query_log_runner.shutdown().await;
