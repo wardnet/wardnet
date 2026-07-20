@@ -13,6 +13,7 @@ import {
   DnsService,
   DnsFilterService,
   DnsLocalService,
+  RoutingProfilesService,
   DnsLogStreamService,
   JobsService,
   LogService,
@@ -41,6 +42,7 @@ export const dhcpService = new DhcpService(client);
 export const dnsService = new DnsService(client);
 export const dnsFilterService = new DnsFilterService(client);
 export const dnsLocalService = new DnsLocalService(client);
+export const routingProfilesService = new RoutingProfilesService(client);
 export const dnsLogStreamService = new DnsLogStreamService(
   client,
   window.location.origin,
