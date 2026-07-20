@@ -44,7 +44,10 @@ wardnet-common = { path = "../crates/wardnet-common" }
 wardnetd-data = { path = "../crates/wardnetd-data" }
 # `fuzz-internals` exposes the synchronous unpack core so the
 # archiver_unpack harness can skip spawn_blocking + the per-input
-# buffer clone that AgeArchiver::unpack pays.
+# buffer clone that AgeArchiver::unpack pays. It also exposes the
+# DNS-response parse+classify core (`dns::response`) so the dns_response
+# harness can drive the upstream-response trust boundary (Message
+# wire-parse + our caching classifier) with no socket or runtime.
 wardnetd-services = { path = "../crates/wardnetd-services", features = ["fuzz-internals"] }
 
 # Enable debug info in release so crash stacks symbolicate cleanly.
@@ -68,6 +71,13 @@ bench = false
 [[bin]]
 name = "bundle_manifest"
 path = "fuzz_targets/bundle_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "dns_response"
+path = "fuzz_targets/dns_response.rs"
 test = false
 doc = false
 bench = false

@@ -2,12 +2,14 @@ name: Fuzzing (scheduled)
 
 # ClusterFuzzLite batch-mode fuzzing on a 12-hour cadence.
 #
-# Runs twice daily against the three trust-boundary targets in
+# Runs twice daily against the trust-boundary targets in
 # source/daemon/fuzz/:
 #
 #   - archiver_unpack   (AgeArchiver::unpack on untrusted bytes)
 #   - sqlite_restore    (SqliteDumper::restore on untrusted bytes)
 #   - bundle_manifest   (serde_json::from_slice::<BundleManifest>)
+#   - dns_response      (Message::from_bytes + caching classifier on
+#                        untrusted upstream-response bytes)
 #
 # Corpus is persisted in a companion repo wardnet/wardnet-fuzz-corpus
 # via a fine-grained PAT stored as FUZZ_CORPUS_PAT. See
