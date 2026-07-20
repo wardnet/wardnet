@@ -187,6 +187,12 @@ impl DeviceService for MockDeviceService {
     ) -> Result<HashMap<Uuid, wardnet_common::routing::RoutingTarget>, AppError> {
         unimplemented!("not exercised by private-dns tests")
     }
+    async fn get_rule_for_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<wardnet_common::routing::RoutingTarget>, AppError> {
+        unimplemented!("not exercised by private-dns tests")
+    }
     async fn update_admin_locked(&self, _device_id: &str, _locked: bool) -> Result<(), AppError> {
         unimplemented!("not exercised by private-dns tests")
     }

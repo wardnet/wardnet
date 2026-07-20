@@ -68,6 +68,9 @@ impl DeviceRepository for MockDeviceRepo {
     async fn insert(&self, _device: &DeviceRow) -> anyhow::Result<()> {
         unimplemented!("not exercised by DeviceSnapshotListener")
     }
+    async fn clear_last_ip(&self, _id: &str) -> anyhow::Result<()> {
+        unimplemented!("not exercised by DeviceSnapshotListener")
+    }
     async fn update_last_seen_and_ip(
         &self,
         _id: &str,

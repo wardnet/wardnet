@@ -58,6 +58,16 @@ pub trait DeviceService: Send + Sync {
     /// Requires admin privileges via the [`AuthContext`].
     async fn current_rules(&self) -> Result<HashMap<Uuid, RoutingTarget>, AppError>;
 
+    /// Return the current routing target for a single device by its ID, if it
+    /// has one.
+    ///
+    /// Resolves the rule directly from the device ID rather than round-tripping
+    /// through the device's `last_ip` — a departed device's `last_ip` is cleared,
+    /// so an IP-keyed lookup would either miss the rule or resolve to a
+    /// different device. Requires admin privileges via the [`AuthContext`].
+    async fn get_rule_for_device(&self, device_id: &str)
+    -> Result<Option<RoutingTarget>, AppError>;
+
     /// Update the `admin_locked` flag for a device.
     ///
     /// Requires admin privileges via the [`AuthContext`].
@@ -382,6 +392,21 @@ impl DeviceService for DeviceServiceImpl {
             .map_err(AppError::Internal)?;
 
         Ok(rules.into_iter().map(|r| (r.device_id, r.target)).collect())
+    }
+
+    async fn get_rule_for_device(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<RoutingTarget>, AppError> {
+        auth_context::require_admin()?;
+
+        let rule = self
+            .devices
+            .find_rule_for_device(device_id)
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(rule.map(|r| r.target))
     }
 
     async fn update_admin_locked(&self, device_id: &str, locked: bool) -> Result<(), AppError> {

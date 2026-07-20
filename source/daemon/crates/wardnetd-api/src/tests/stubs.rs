@@ -162,6 +162,12 @@ impl DeviceService for StubDeviceService {
     ) -> Result<std::collections::HashMap<Uuid, RoutingTarget>, AppError> {
         unimplemented!()
     }
+    async fn get_rule_for_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<RoutingTarget>, AppError> {
+        unimplemented!()
+    }
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
         unimplemented!()
     }
