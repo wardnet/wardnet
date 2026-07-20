@@ -22,6 +22,19 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 /// VACUUM kicks in for a legacy `auto_vacuum=NONE` database. ~25k pages
 /// at the default 4 KiB page size is ~100 MiB of reclaimable space.
 const VACUUM_FREELIST_THRESHOLD_PAGES: i64 = 25_000;
+/// Cap the on-disk `-wal` sidecar so a burst of writes (e.g. the daily
+/// DNS query-log retention `DELETE`) can't leave the WAL parked at a
+/// multi-hundred-MiB high-water mark forever. `SQLite`'s automatic
+/// checkpoints are always `PASSIVE` — they let WAL space be *reused* but
+/// never *shrink the file*; without this limit the WAL only grows to its
+/// historical peak and stays there, slowing every subsequent operation.
+/// With the limit set, the checkpointer truncates the file back down to
+/// this size once its frames have been folded into the main database.
+/// 64 MiB is comfortably above the largest single transaction yet small
+/// enough for the Raspberry-Pi-class targets this runs on. The daily
+/// [`MaintenanceRepository::wal_checkpoint_truncate`] resets it the rest
+/// of the way to ~0.
+const WAL_JOURNAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
 const MEMORY_CONNECTION_STRING: &str = ":memory:";
 /// File-name suffix for the sentinel a backup restore drops next to the
 /// database. Its presence on startup means the `<db>` file was just
@@ -187,6 +200,14 @@ pub async fn init_db_pools_from_connection_string(conn: &str) -> anyhow::Result<
                 .auto_vacuum(SqliteAutoVacuum::Incremental)
                 .busy_timeout(BUSY_TIMEOUT)
                 .foreign_keys(true)
+                // Bound the on-disk WAL so a passive auto-checkpoint truncates
+                // the sidecar back down instead of letting it grow unbounded.
+                // Set on every connection because `journal_size_limit` is a
+                // per-connection setting in SQLite.
+                .pragma(
+                    "journal_size_limit",
+                    WAL_JOURNAL_SIZE_LIMIT_BYTES.to_string(),
+                )
         };
 
         // Writer first — migrations run on it and they must complete

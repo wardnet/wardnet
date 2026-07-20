@@ -90,6 +90,102 @@ async fn incremental_vacuum_reduces_freelist() {
     let _ = std::fs::remove_file(path.with_extension("db-shm"));
 }
 
+/// After writes have grown the `-wal` sidecar, `wal_checkpoint_truncate`
+/// truncates it back toward zero.
+///
+/// This is the exact behaviour the field bug lacked: `SQLite`'s automatic
+/// checkpoints are `PASSIVE`, which backfill frames into the main database
+/// but leave the `-wal` file parked at its high-water mark on disk. The
+/// explicit `TRUNCATE` checkpoint is what shrinks the file, so the
+/// assertion that matters is `wal_after < wal_before`.
+#[tokio::test]
+async fn wal_checkpoint_truncate_shrinks_wal_file() {
+    let (pool, path) = make_incremental_pool().await;
+    let wal = path.with_extension("db-wal");
+
+    // Generate enough WAL frames to grow the sidecar well past the point a
+    // passive auto-checkpoint leaves it (it never truncates the file).
+    sqlx::query("CREATE TABLE _wal_scratch (data TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let payload = "y".repeat(500);
+    for _ in 0..2_000 {
+        sqlx::query("INSERT INTO _wal_scratch (data) VALUES (?)")
+            .bind(&payload)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let wal_before = std::fs::metadata(&wal).map_or(0, |m| m.len());
+    assert!(
+        wal_before > 64 * 1024,
+        "expected a non-trivial -wal after inserts, got {wal_before} bytes"
+    );
+
+    let repo = SqliteMaintenanceRepository::new(pool.clone());
+    let outcome = repo.wal_checkpoint_truncate().await.unwrap();
+    assert!(
+        !outcome.busy,
+        "checkpoint should complete with no competing reader"
+    );
+
+    let wal_after = std::fs::metadata(&wal).map_or(0, |m| m.len());
+    assert!(
+        wal_after < wal_before,
+        "TRUNCATE checkpoint should shrink the -wal: before={wal_before}, after={wal_after}"
+    );
+
+    pool.close().await;
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(&wal);
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
+
+/// `optimize` runs `PRAGMA analysis_limit` + `PRAGMA optimize` and refreshes
+/// planner statistics without error on a live database.
+#[tokio::test]
+async fn optimize_runs_and_populates_stat_table() {
+    let (pool, path) = make_incremental_pool().await;
+
+    // A table with an index gives `PRAGMA optimize` something to analyze.
+    sqlx::query("CREATE TABLE _opt_scratch (id INTEGER PRIMARY KEY, k TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("CREATE INDEX _opt_scratch_k ON _opt_scratch (k)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    for i in 0..500 {
+        sqlx::query("INSERT INTO _opt_scratch (k) VALUES (?)")
+            .bind(format!("key-{i}"))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let repo = SqliteMaintenanceRepository::new(pool.clone());
+    repo.optimize().await.expect("optimize should succeed");
+
+    // `PRAGMA optimize` should have run `ANALYZE`, creating `sqlite_stat1`.
+    let stat_tables: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sqlite_master WHERE name = 'sqlite_stat1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        stat_tables, 1,
+        "optimize should have created sqlite_stat1 via ANALYZE"
+    );
+
+    pool.close().await;
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
+
 /// `ping` runs `SELECT 1` against the read pool and returns `Ok` while the
 /// database is live — the health monitor's `database` probe (issue #214).
 #[tokio::test]
