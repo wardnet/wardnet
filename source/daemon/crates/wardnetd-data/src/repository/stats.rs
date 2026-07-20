@@ -125,6 +125,13 @@ pub trait StatsRepository: Send + Sync {
     /// (13 mo). `from`/`to` are Unix seconds regardless of tier; the daily tier
     /// converts them to calendar days internally. This lets top-N honour the
     /// same window the caller charts rather than being pinned to intraday.
+    ///
+    /// Each tier reflects only data the rollup has already folded into it, so a
+    /// coarse tier omits the still-accumulating current period: the `Day` tier
+    /// has no row for today (rollup lands yesterday's) and the `Hour` tier lacks
+    /// the current partial hour. A ranking therefore trails wall-clock by up to
+    /// one bucket — negligible against a multi-day/-month window, but callers
+    /// wanting the live tail should use the finer tier for it.
     #[allow(clippy::too_many_arguments)]
     async fn top_n(
         &self,
