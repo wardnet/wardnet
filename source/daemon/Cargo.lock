@@ -6150,6 +6150,7 @@ dependencies = [
  "argon2",
  "async-trait",
  "chrono",
+ "futures",
  "libc",
  "serde",
  "serde_json",

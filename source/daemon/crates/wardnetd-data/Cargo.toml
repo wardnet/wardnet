@@ -36,6 +36,10 @@ anyhow.workspace = true
 toml.workspace = true
 # https://crates.io/crates/async-trait
 async-trait.workspace = true
+# https://crates.io/crates/futures — streaming the blocklist-domain load row
+# by row (`BoxStream`) so a ~2.2M-domain feed never materialises as an
+# intermediate `Vec` before the filter set is built.
+futures.workspace = true
 # https://crates.io/crates/libc — statvfs(3) for the startup-VACUUM disk-space guard
 libc.workspace = true
 

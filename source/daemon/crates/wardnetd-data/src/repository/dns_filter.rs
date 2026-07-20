@@ -156,7 +156,25 @@ pub trait DnsFilterRepository: Send + Sync {
 
     /// Load the domain list backing one blocklist. Empty when the blocklist
     /// has not yet been downloaded or has been disabled.
+    ///
+    /// Materialises every row into a `Vec` up front; prefer
+    /// [`Self::stream_blocklist_domains`] on the hot rebuild path where a
+    /// multi-million-row feed would otherwise double peak memory.
     async fn load_blocklist_domains(&self, blocklist_id: Uuid) -> anyhow::Result<Vec<String>>;
+
+    /// Stream the domain list backing one blocklist row by row.
+    ///
+    /// The active generation of a threat-intel feed is ~2.2M domains.
+    /// Returning them as a `Vec` and *then* folding them into the filter's
+    /// `HashSet` holds two full copies at once; streaming lets the caller
+    /// insert each domain and drop it, keeping peak memory to a single set.
+    /// The stream borrows the bulk-read pool, whose statement logging is
+    /// disabled, so this inherently slow load never trips the slow-statement
+    /// alert.
+    fn stream_blocklist_domains(
+        &self,
+        blocklist_id: Uuid,
+    ) -> futures::stream::BoxStream<'_, anyhow::Result<String>>;
 
     // ── Per-device settings ─────────────────────────────────────────────
 

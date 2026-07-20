@@ -1378,20 +1378,40 @@ async fn rebuild_blocklist_filter_loads_domains() {
             .await
             .unwrap();
 
+        // Compose the profile first with an empty blocklist, so the default
+        // context already holds this blocklist's `Arc<ArcSwap<DnsFilter>>`.
+        h.service.rebuild_all().await.unwrap();
+
+        // Now populate the blocklist and rebuild ONLY the per-source filter.
+        // The single rebuild must land in the live runtime cache through the
+        // shared `ArcSwap` without a full profile recompose.
         h.repo
             .replace_blocklist_domains(bl.blocklist.id, &["x.test".to_owned(), "y.test".to_owned()])
             .await
             .unwrap();
-
-        // Rebuild the per-source filter — should pull the freshly-replaced
-        // domains into the runtime cache. Verified indirectly via the
-        // hot-path `check`.
         h.service
             .rebuild_blocklist_filter(bl.blocklist.id)
             .await
             .unwrap();
     })
     .await;
+
+    // A random IP falls through to the default (Ad Blocking) context, which
+    // now composes the freshly-rebuilt blocklist filter. Both replaced
+    // domains must block via the hot path — the streaming rebuild actually
+    // populated the set.
+    let ip = "10.77.77.77".parse::<IpAddr>().unwrap();
+    for domain in ["x.test", "y.test"] {
+        let outcome = h.service.check(domain, RecordType::A, ip).await;
+        assert_eq!(
+            outcome.action,
+            FilterAction::Block,
+            "expected {domain} to be blocked after single-blocklist rebuild",
+        );
+    }
+    // A domain that was never in the list still passes.
+    let outcome = h.service.check("allowed.test", RecordType::A, ip).await;
+    assert_eq!(outcome.action, FilterAction::Pass);
 }
 
 #[tokio::test]

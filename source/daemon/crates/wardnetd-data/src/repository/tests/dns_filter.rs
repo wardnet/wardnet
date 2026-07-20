@@ -660,7 +660,14 @@ async fn on_disk_pools(acquire_timeout: std::time::Duration) -> (crate::db::DbPo
 
     sqlx::migrate!("./migrations").run(&write).await.unwrap();
 
-    (crate::db::DbPools { read, write }, path_str)
+    (
+        crate::db::DbPools {
+            bulk_read: read.clone(),
+            read,
+            write,
+        },
+        path_str,
+    )
 }
 
 /// Regression guard: importing a large blocklist must not hold the daemon's
