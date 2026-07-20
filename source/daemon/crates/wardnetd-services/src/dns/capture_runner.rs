@@ -89,10 +89,13 @@ impl DnsCaptureRunner {
 
 /// Load the capture-enabled device-id set from the DB under the runner's admin
 /// context. Returns `None` (and logs) on error so the caller can decide whether
-/// to start empty or keep its existing cache.
+/// to start empty or keep its existing cache. `phase` names the call site so a
+/// startup load failure stays distinguishable from a post-lag re-sync failure
+/// in the logs.
 async fn load_enabled_ids(
     device_service: &dyn DeviceService,
     admin_ctx: &AuthContext,
+    phase: &str,
 ) -> Option<HashSet<String>> {
     match auth_context::with_context(
         admin_ctx.clone(),
@@ -102,7 +105,7 @@ async fn load_enabled_ids(
     {
         Ok(ids) => Some(ids.into_iter().collect()),
         Err(e) => {
-            tracing::error!(error = %e, "failed to load capture-enabled device IDs: {e}");
+            tracing::error!(error = %e, "failed to load capture-enabled device IDs {phase}: {e}");
             None
         }
     }
@@ -124,7 +127,7 @@ async fn runner_loop(
     };
 
     // Populate the hot-path cache from DB on startup.
-    let mut enabled = load_enabled_ids(device_service.as_ref(), &admin_ctx)
+    let mut enabled = load_enabled_ids(device_service.as_ref(), &admin_ctx, "on startup")
         .await
         .unwrap_or_default();
     tracing::info!(
@@ -199,7 +202,8 @@ async fn runner_loop(
                         // DeviceCaptureSettingsChanged — reload from DB so the
                         // in-memory cache is not permanently stale.
                         if let Some(ids) =
-                            load_enabled_ids(device_service.as_ref(), &admin_ctx).await
+                            load_enabled_ids(device_service.as_ref(), &admin_ctx, "after event-bus lag")
+                                .await
                         {
                             enabled = ids;
                         }

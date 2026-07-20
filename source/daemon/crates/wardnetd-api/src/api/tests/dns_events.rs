@@ -14,6 +14,7 @@ use uuid::Uuid;
 use wardnet_common::api::{
     DeviceMeResponse, DnsCaptureSettingsResponse, DnsEventItem, SetMyRuleResponse,
 };
+use wardnet_common::auth::AuthContext;
 use wardnet_common::device::{Device, DeviceType};
 use wardnet_common::routing::RoutingTarget;
 
@@ -136,6 +137,10 @@ struct MockDnsEventsDeviceService {
     pending: Vec<DnsEventItem>,
     /// When `true`, `fetch_pending_dns_events` returns an error.
     fetch_error: bool,
+    /// Records the `AuthContext` observed inside `fetch_pending_dns_events`, so
+    /// a test can assert the SSE handler propagated the request's identity into
+    /// the detached flush task.
+    observed_ctx: Arc<std::sync::Mutex<Option<AuthContext>>>,
 }
 
 impl MockDnsEventsDeviceService {
@@ -144,6 +149,7 @@ impl MockDnsEventsDeviceService {
             device: Some(sample_device()),
             pending,
             fetch_error: false,
+            observed_ctx: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -152,6 +158,7 @@ impl MockDnsEventsDeviceService {
             device: None,
             pending: vec![],
             fetch_error: false,
+            observed_ctx: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -160,7 +167,13 @@ impl MockDnsEventsDeviceService {
             device: Some(sample_device()),
             pending: vec![],
             fetch_error: true,
+            observed_ctx: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    /// Handle to the slot recording the context seen by the flush task.
+    fn ctx_recorder(&self) -> Arc<std::sync::Mutex<Option<AuthContext>>> {
+        self.observed_ctx.clone()
     }
 }
 
@@ -239,6 +252,7 @@ impl DeviceService for MockDnsEventsDeviceService {
         _after_id: i64,
         _limit: i64,
     ) -> Result<Vec<DnsEventItem>, AppError> {
+        *self.observed_ctx.lock().unwrap() = wardnetd_services::auth_context::try_current();
         if self.fetch_error {
             return Err(AppError::Internal(anyhow::anyhow!("db error")));
         }
@@ -458,6 +472,53 @@ async fn stream_emits_flush_event_from_mock() {
     assert!(
         body.contains("id: 7"),
         "expected SSE event id: 7, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn stream_propagates_request_auth_context_to_flush_task() {
+    let pending = vec![DnsEventItem {
+        id: 9,
+        domain: "captured.example".to_owned(),
+        status: "allowed".to_owned(),
+        captured_at: "2026-06-12T00:00:00Z".to_owned(),
+    }];
+    let svc = MockDnsEventsDeviceService::with_device(pending);
+    let recorder = svc.ctx_recorder();
+    let app = dns_events_router(build_state(svc));
+
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap(),
+    };
+
+    // Drive the request inside an admin context. The flush task is spawned
+    // detached, so it does NOT inherit this task-local — the only way the mock
+    // observes the admin context is if the handler captured it and re-wrapped
+    // the task in `with_context`. Dropping that wrap would leave the flush task
+    // context-less and fail this assertion.
+    let resp = wardnetd_services::auth_context::with_context(
+        admin_ctx,
+        app.oneshot(
+            Request::builder()
+                .uri("/api/devices/me/dns-events/stream")
+                .extension(client_connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        ),
+    )
+    .await
+    .unwrap();
+
+    // Reading the body drives the flush phase to completion, so the mock's
+    // fetch call (and its context capture) has run by the time we assert.
+    let _ = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .unwrap_or_default();
+
+    let observed = recorder.lock().unwrap().clone();
+    assert!(
+        matches!(observed, Some(AuthContext::Admin { .. })),
+        "flush task must run under the request's admin context, got: {observed:?}"
     );
 }
 
