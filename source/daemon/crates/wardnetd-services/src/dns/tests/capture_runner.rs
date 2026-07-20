@@ -16,6 +16,7 @@ use wardnet_common::routing::RoutingTarget;
 use wardnetd_data::repository::QueryLogRow;
 use wardnetd_data::repository::dns_events::{DnsCaptureStats, DnsEventsRepository};
 
+use crate::auth_context;
 use crate::device::DeviceService;
 use crate::dns::DnsCaptureRunner;
 use crate::error::AppError;
@@ -30,6 +31,9 @@ struct MockDeviceService {
     device: Option<Device>,
     /// When `true`, `get_device_capture_settings` returns an error.
     error_on_settings: bool,
+    /// When `true`, `list_capture_enabled_device_ids` returns an error,
+    /// exercising the runner's start-empty-on-load-failure path.
+    error_on_list: bool,
 }
 
 #[async_trait]
@@ -98,23 +102,27 @@ impl DeviceService for MockDeviceService {
     ) -> Result<Vec<DnsEventItem>, AppError> {
         unimplemented!()
     }
-    async fn mark_dns_events_synced(
-        &self,
-        _device_id: &str,
-        _up_to_id: i64,
-    ) -> Result<(), AppError> {
-        unimplemented!()
-    }
     async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
         unimplemented!()
     }
     async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError> {
+        // Regression: the runner runs outside the HTTP middleware and must
+        // establish an admin context before calling the service (issue #839).
+        auth_context::require_admin().expect(
+            "DnsCaptureRunner must call list_capture_enabled_device_ids under admin context",
+        );
+        if self.error_on_list {
+            return Err(AppError::Internal(anyhow::anyhow!("db error")));
+        }
         Ok(self.enabled_ids.clone())
     }
     async fn get_device_capture_settings(
         &self,
         _device_id: &str,
     ) -> Result<Option<(bool, i64, i64)>, AppError> {
+        // Regression: the prune path must also carry an admin context (#839).
+        auth_context::require_admin()
+            .expect("DnsCaptureRunner must call get_device_capture_settings under admin context");
         if self.error_on_settings {
             return Err(AppError::Internal(anyhow::anyhow!("db error")));
         }
@@ -188,9 +196,6 @@ impl DnsEventsRepository for RecordingDnsEventsRepo {
     ) -> anyhow::Result<Vec<wardnetd_data::repository::DnsEventRow>> {
         Ok(vec![])
     }
-    async fn mark_synced_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
-        Ok(0)
-    }
     async fn delete_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
         Ok(0)
     }
@@ -253,9 +258,6 @@ impl DnsEventsRepository for PruningDnsEventsRepo {
         _limit: i64,
     ) -> anyhow::Result<Vec<wardnetd_data::repository::DnsEventRow>> {
         Ok(vec![])
-    }
-    async fn mark_synced_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
-        Ok(0)
     }
     async fn delete_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
         Ok(0)
@@ -335,6 +337,7 @@ async fn rows_with_enabled_device_are_inserted() {
         enabled_ids: vec![DEV1.to_owned()],
         device: Some(sample_device(true)),
         error_on_settings: false,
+        error_on_list: false,
     });
     let dns_repo = RecordingDnsEventsRepo::new();
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -363,12 +366,52 @@ async fn rows_with_enabled_device_are_inserted() {
 }
 
 #[tokio::test]
+async fn start_load_failure_begins_with_empty_cache() {
+    let (tx, rx) = mpsc::channel(16);
+    // The startup load of capture-enabled IDs errors, so the runner logs and
+    // begins with an empty cache — a row for an otherwise-enabled device is
+    // therefore dropped rather than captured.
+    let device_service: Arc<dyn DeviceService> = Arc::new(MockDeviceService {
+        enabled_ids: vec![DEV1.to_owned()],
+        device: Some(sample_device(true)),
+        error_on_settings: false,
+        error_on_list: true,
+    });
+    let dns_repo = RecordingDnsEventsRepo::new();
+    let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
+        Arc::clone(&dns_repo) as Arc<dyn DnsEventsRepository>;
+    let events: Arc<dyn EventPublisher> = TestEventBus::new();
+
+    let runner = DnsCaptureRunner::start(
+        rx,
+        device_service,
+        dns_repo_dyn,
+        Arc::clone(&events),
+        &tracing::Span::current(),
+    );
+
+    tx.send(sample_row(Some(DEV1), "example.com"))
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    runner.shutdown().await;
+
+    let inserts = dns_repo.recorded_inserts().await;
+    assert!(
+        inserts.is_empty(),
+        "a startup load failure must start the cache empty, dropping the row: {inserts:?}"
+    );
+}
+
+#[tokio::test]
 async fn rows_without_device_id_are_skipped() {
     let (tx, rx) = mpsc::channel(16);
     let device_service: Arc<dyn DeviceService> = Arc::new(MockDeviceService {
         enabled_ids: vec![DEV1.to_owned()],
         device: None,
         error_on_settings: false,
+        error_on_list: false,
     });
     let dns_repo = RecordingDnsEventsRepo::new();
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -401,6 +444,7 @@ async fn rows_for_non_enabled_device_are_skipped() {
         enabled_ids: vec![],
         device: Some(sample_device(false)),
         error_on_settings: false,
+        error_on_list: false,
     });
     let dns_repo = RecordingDnsEventsRepo::new();
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -434,6 +478,7 @@ async fn settings_changed_event_enables_device() {
         enabled_ids: vec![],
         device: None,
         error_on_settings: false,
+        error_on_list: false,
     });
     let dns_repo = RecordingDnsEventsRepo::new();
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -483,6 +528,7 @@ async fn settings_changed_event_disables_device() {
         enabled_ids: vec![DEV1.to_owned()],
         device: Some(sample_device(true)),
         error_on_settings: false,
+        error_on_list: false,
     });
     let dns_repo = RecordingDnsEventsRepo::new();
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -532,6 +578,7 @@ async fn shutdown_completes() {
         enabled_ids: vec![],
         device: None,
         error_on_settings: false,
+        error_on_list: false,
     });
     let dns_repo: Arc<dyn DnsEventsRepository> = RecordingDnsEventsRepo::new();
     let events: Arc<dyn EventPublisher> = TestEventBus::new();
@@ -555,6 +602,7 @@ async fn channel_closed_exits_runner() {
         enabled_ids: vec![],
         device: None,
         error_on_settings: false,
+        error_on_list: false,
     });
     let dns_repo: Arc<dyn DnsEventsRepository> = RecordingDnsEventsRepo::new();
     let events: Arc<dyn EventPublisher> = TestEventBus::new();
@@ -580,6 +628,7 @@ async fn prune_loop_calls_prune_for_enabled_device() {
         enabled_ids: vec![DEV1.to_owned()],
         device: Some(sample_device(true)),
         error_on_settings: false,
+        error_on_list: false,
     });
     let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -613,6 +662,7 @@ async fn prune_loop_deletes_data_for_disabled_device() {
         enabled_ids: vec![],
         device: Some(sample_device(false)),
         error_on_settings: false,
+        error_on_list: false,
     });
     let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -646,6 +696,7 @@ async fn prune_loop_deletes_data_for_unknown_device() {
         enabled_ids: vec![],
         device: None, // device has been deleted from the DB
         error_on_settings: false,
+        error_on_list: false,
     });
     let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
@@ -681,6 +732,7 @@ async fn prune_loop_warns_on_device_settings_error() {
         enabled_ids: vec![],
         device: None,
         error_on_settings: true,
+        error_on_list: false,
     });
     let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
     let dns_repo_dyn: Arc<dyn DnsEventsRepository> =

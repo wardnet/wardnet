@@ -53,10 +53,6 @@ pub trait DnsEventsRepository: Send + Sync {
         limit: i64,
     ) -> anyhow::Result<Vec<DnsEventRow>>;
 
-    /// Mark all rows with `id <= up_to_id` for `device_id` as synced.
-    /// Returns the number of rows updated.
-    async fn mark_synced_up_to(&self, device_id: &str, up_to_id: i64) -> anyhow::Result<u64>;
-
     /// Delete all rows with `id <= up_to_id` for `device_id`.
     /// Returns the number of rows deleted.
     async fn delete_up_to(&self, device_id: &str, up_to_id: i64) -> anyhow::Result<u64>;

@@ -226,13 +226,6 @@ impl DeviceService for MockDeviceService {
     ) -> Result<Vec<wardnet_common::api::DnsEventItem>, AppError> {
         unimplemented!("not exercised by private-dns tests")
     }
-    async fn mark_dns_events_synced(
-        &self,
-        _device_id: &str,
-        _up_to_id: i64,
-    ) -> Result<(), AppError> {
-        unimplemented!("not exercised by private-dns tests")
-    }
     async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
         unimplemented!("not exercised by private-dns tests")
     }
