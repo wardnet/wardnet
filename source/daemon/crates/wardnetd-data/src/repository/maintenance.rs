@@ -1,15 +1,13 @@
 //! Database-wide maintenance operations that don't belong to any
 //! domain repository.
 //!
-//! Driven daily by [`crate::db::DbPools`]'s owner, the
-//! [`DbMaintenanceRunner`]: reclaim freed pages
+//! Driven daily by the `DbMaintenanceRunner` background task (in the
+//! `wardnetd-services` crate): reclaim freed pages
 //! ([`incremental_vacuum`](MaintenanceRepository::incremental_vacuum)),
 //! shrink the WAL sidecar back to ~0
 //! ([`wal_checkpoint_truncate`](MaintenanceRepository::wal_checkpoint_truncate)),
 //! and refresh the query planner's statistics
 //! ([`optimize`](MaintenanceRepository::optimize)).
-//!
-//! [`DbMaintenanceRunner`]: https://docs.rs/wardnetd-services
 
 use async_trait::async_trait;
 
@@ -54,9 +52,11 @@ pub trait MaintenanceRepository: Send + Sync {
     /// indefinitely. This is that periodic truncation — run daily so the
     /// sidecar returns to ~0 instead of dragging every read and write.
     ///
-    /// Runs against the writer connection. A [`WalCheckpointOutcome::busy`]
-    /// result is not an error — it means a reader held a snapshot and the
-    /// file was left in place for the next tick to retry.
+    /// Runs against the writer connection under a short busy timeout so a
+    /// TRUNCATE stuck behind a long-lived reader can't monopolise the
+    /// writer. A [`WalCheckpointOutcome::busy`] result is not an error — it
+    /// means a reader held a snapshot and the file was left in place for
+    /// the next tick to retry.
     async fn wal_checkpoint_truncate(&self) -> anyhow::Result<WalCheckpointOutcome>;
 
     /// Refresh the query planner's statistics via `PRAGMA optimize`.

@@ -181,7 +181,9 @@ pub(crate) async fn run_checkpoint(maintenance: &dyn MaintenanceService, admin_c
 pub(crate) async fn run_optimize(maintenance: &dyn MaintenanceService, admin_ctx: &AuthContext) {
     match auth_context::with_context(admin_ctx.clone(), maintenance.run_optimize()).await {
         Ok(()) => {
-            tracing::debug!("database optimize (ANALYZE via PRAGMA optimize) complete");
+            // Logged at info! to match the vacuum and checkpoint steps so
+            // the full daily maintenance cycle is visible at one log level.
+            tracing::info!("database optimize (ANALYZE via PRAGMA optimize) complete");
         }
         Err(e) => {
             tracing::warn!(error = %e, "database optimize failed: {e}");

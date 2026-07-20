@@ -212,7 +212,8 @@ async fn file_pools_cap_the_wal_journal_size_limit() {
     // Regression for the 530 MiB WAL bloat: every file-backed connection
     // must open with `journal_size_limit` set so a passive auto-checkpoint
     // truncates the sidecar back down instead of letting it grow unbounded.
-    // A limit of 0 (SQLite's default) means "never truncate" — the bug.
+    // SQLite's default is -1 (no limit) — the bug — so an unset connection
+    // lets the WAL grow without bound; here we assert the explicit cap.
     let dir = std::env::temp_dir();
     let db = dir.join(format!("wardnet-wal-limit-{}.db", Uuid::new_v4()));
 
