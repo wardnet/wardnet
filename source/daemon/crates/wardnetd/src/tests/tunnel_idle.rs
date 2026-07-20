@@ -239,6 +239,19 @@ impl RoutingService for MockRoutingService {
         Ok(())
     }
 
+    async fn route_resolved_domain(
+        &self,
+        _device_ip: &str,
+        _resolved_ips: &[std::net::IpAddr],
+        _target: &wardnet_common::routing_profile::DomainRoutingTarget,
+        _ttl_secs: u32,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn gc_domain_routes(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
     async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
         Ok(())
     }

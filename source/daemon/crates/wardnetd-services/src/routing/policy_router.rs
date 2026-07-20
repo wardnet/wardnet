@@ -64,6 +64,45 @@ pub trait PolicyRouter: Send + Sync {
     /// carve-outs on reconcile.
     async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>>;
 
+    // --- Domain routing (per-domain routing profiles) ---
+    //
+    // When the local DNS server resolves a domain matched by a device's routing
+    // profile, the destination IP is pinned to a specific routing table for that
+    // device: `ip rule from <device_ip>/32 to <resolved_ip>/32 lookup <table>
+    // priority <priority>`. `table` is a per-tunnel table (route the domain
+    // through that tunnel) or `main` (254, carve the domain out of the device's
+    // tunnel back to the WAN). The priority sits above the kernel's per-tunnel
+    // source rules so the per-destination decision wins, and in its own band
+    // (distinct from switchback's) so the two never prune each other.
+
+    /// Install `ip rule from <src_ip>/32 to <dst_ip>/32 lookup <table> priority
+    /// <priority>`. Idempotent: an already-present rule is treated as success.
+    async fn add_domain_route_rule(
+        &self,
+        src_ip: &str,
+        dst_ip: &str,
+        table: u32,
+        priority: u32,
+    ) -> anyhow::Result<()>;
+
+    /// Remove the domain-route rule for `(src_ip, dst_ip, table, priority)`.
+    /// Idempotent: a missing rule is treated as success.
+    async fn remove_domain_route_rule(
+        &self,
+        src_ip: &str,
+        dst_ip: &str,
+        table: u32,
+        priority: u32,
+    ) -> anyhow::Result<()>;
+
+    /// List every rule at the given domain-route priority as
+    /// `(src_ip, dst_ip, table)`, so the routing service can prune expired or
+    /// orphaned per-destination rules on reconcile.
+    async fn list_domain_route_rules(
+        &self,
+        priority: u32,
+    ) -> anyhow::Result<Vec<(String, String, u32)>>;
+
     /// Flush conntrack entries whose original source matches `src_ip`.
     ///
     /// Changing an `ip rule` only affects *new* flows — existing connections

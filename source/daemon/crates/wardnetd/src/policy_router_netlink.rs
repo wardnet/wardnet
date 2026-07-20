@@ -454,6 +454,151 @@ impl PolicyRouter for NetlinkPolicyRouter {
         Ok(result)
     }
 
+    async fn add_domain_route_rule(
+        &self,
+        src_ip: &str,
+        dst_ip: &str,
+        table: u32,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        let src: Ipv4Addr = src_ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid domain-route src IP {src_ip}: {e}"))?;
+        let dst: Ipv4Addr = dst_ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid domain-route dst IP {dst_ip}: {e}"))?;
+
+        // `ip rule from <src>/32 to <dst>/32 lookup <table> priority <priority>`.
+        let result = self
+            .handle
+            .rule()
+            .add()
+            .v4()
+            .source_prefix(src, 32)
+            .destination_prefix(dst, 32)
+            .table_id(table)
+            .priority(priority)
+            .action(RuleAction::ToTable)
+            .execute()
+            .await;
+
+        match result {
+            Ok(()) => Ok(()),
+            Err(rtnetlink::Error::NetlinkError(msg)) if msg.to_string().contains("File exists") => {
+                tracing::debug!(
+                    src_ip,
+                    dst_ip,
+                    table,
+                    priority,
+                    "domain-route rule already exists, skipping"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                anyhow::bail!(
+                    "failed to add domain-route rule from {src_ip} to {dst_ip} \
+                     lookup {table} priority {priority}: {e}"
+                )
+            }
+        }
+    }
+
+    async fn remove_domain_route_rule(
+        &self,
+        src_ip: &str,
+        dst_ip: &str,
+        table: u32,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        let src: Ipv4Addr = src_ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid domain-route src IP {src_ip}: {e}"))?;
+        let dst: Ipv4Addr = dst_ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid domain-route dst IP {dst_ip}: {e}"))?;
+
+        let table_u8 = u8::try_from(table).ok();
+        let mut rule_msg = RuleMessage::default();
+        rule_msg.header.family = AddressFamily::Inet;
+        rule_msg.header.src_len = 32;
+        rule_msg.header.dst_len = 32;
+        rule_msg.header.action = RuleAction::ToTable;
+        // Tables <= 255 live in the header; wider tables live in an attribute.
+        if let Some(t) = table_u8 {
+            rule_msg.header.table = t;
+        } else {
+            rule_msg.attributes.push(RuleAttribute::Table(table));
+        }
+        rule_msg.attributes.push(RuleAttribute::Source(src.into()));
+        rule_msg
+            .attributes
+            .push(RuleAttribute::Destination(dst.into()));
+        rule_msg.attributes.push(RuleAttribute::Priority(priority));
+
+        let result = self.handle.rule().del(rule_msg).execute().await;
+        match result {
+            Ok(()) => Ok(()),
+            Err(rtnetlink::Error::NetlinkError(msg))
+                if {
+                    let s = msg.to_string();
+                    s.contains("No such file or directory") || s.contains("No such process")
+                } =>
+            {
+                tracing::debug!(
+                    src_ip,
+                    dst_ip,
+                    table,
+                    priority,
+                    "domain-route rule not present, nothing to remove"
+                );
+                Ok(())
+            }
+            Err(e) => {
+                anyhow::bail!(
+                    "failed to remove domain-route rule from {src_ip} to {dst_ip} \
+                     lookup {table} priority {priority}: {e}"
+                )
+            }
+        }
+    }
+
+    async fn list_domain_route_rules(
+        &self,
+        priority: u32,
+    ) -> anyhow::Result<Vec<(String, String, u32)>> {
+        let mut rules_stream = self.handle.rule().get(rtnetlink::IpVersion::V4).execute();
+        let mut result = Vec::new();
+
+        while let Some(rule) = rules_stream.try_next().await? {
+            // Domain-route rules are identified by their dedicated priority band,
+            // so the reconcile prune never touches a switchback or unrelated rule.
+            let Some(rule_priority) = rule.attributes.iter().find_map(|a| match a {
+                RuleAttribute::Priority(p) => Some(*p),
+                _ => None,
+            }) else {
+                continue;
+            };
+            if rule_priority != priority {
+                continue;
+            }
+
+            let src = rule.attributes.iter().find_map(|a| match a {
+                RuleAttribute::Source(addr) => Some(format!("{addr}")),
+                _ => None,
+            });
+            let dst = rule.attributes.iter().find_map(|a| match a {
+                RuleAttribute::Destination(addr) => Some(format!("{addr}")),
+                _ => None,
+            });
+
+            if let (Some(src), Some(dst)) = (src, dst) {
+                result.push((src, dst, rule_table(&rule)));
+            }
+        }
+
+        Ok(result)
+    }
+
     async fn flush_conntrack(&self, src_ip: &str) -> anyhow::Result<()> {
         // Conntrack flush via CLI — no mature pure-Rust netlink crate for
         // NFNL_SUBSYS_CTNETLINK. Filed as future work.

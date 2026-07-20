@@ -6,11 +6,13 @@ use std::time::Duration;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use tokio::sync::Mutex;
+use tokio::time::Instant;
 use uuid::Uuid;
 use wardnet_common::device::Device;
 use wardnet_common::dns::UpstreamId;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::routing::{RoutingRule, RoutingTarget};
+use wardnet_common::routing_profile::DomainRoutingTarget;
 use wardnet_common::tunnel::TunnelStatus;
 
 use crate::TunnelService;
@@ -131,6 +133,35 @@ pub trait RoutingService: Send + Sync {
         target_cidrs: Vec<String>,
     ) -> Result<(), AppError>;
 
+    /// Pin a device's traffic to a set of resolved destination IPs, as decided
+    /// by the device's routing profiles when the local DNS server answered a
+    /// matched domain.
+    ///
+    /// For each IPv4 address, installs `ip rule from <device_ip> to <ip>/32
+    /// lookup <table> priority [`DOMAIN_ROUTE_RULE_PRIORITY`]`, where `table` is
+    /// the target tunnel's table (routing the domain through that tunnel) or
+    /// `main` (a `direct` carve-out). The lease expires `ttl_secs` after
+    /// installation (clamped), and is renewed on each subsequent resolution.
+    /// Re-resolving to the same target only extends the lease; a changed target
+    /// swaps the rule. A tunnel target ensures the tunnel's table exists first.
+    ///
+    /// No auth guard — invoked from the domain-route runner, which runs inside
+    /// an established admin `auth_context`.
+    async fn route_resolved_domain(
+        &self,
+        device_ip: &str,
+        resolved_ips: &[IpAddr],
+        target: &DomainRoutingTarget,
+        ttl_secs: u32,
+    ) -> Result<(), AppError>;
+
+    /// Remove expired domain-route leases from the kernel and prune any
+    /// orphaned rules at [`DOMAIN_ROUTE_RULE_PRIORITY`] with no tracked lease
+    /// (e.g. left behind by a crash). Driven on a timer by the domain-route
+    /// runner. No auth guard — internal maintenance, run inside an admin
+    /// `auth_context`.
+    async fn gc_domain_routes(&self) -> Result<(), AppError>;
+
     /// Update the global default routing policy.
     ///
     /// Validates `policy` (must be `"direct"` or a tunnel UUID),
@@ -191,6 +222,33 @@ pub trait RoutingService: Send + Sync {
 /// `local` table rule (priority 0), so on-box delivery is unaffected.
 pub const SWITCHBACK_RULE_PRIORITY: u32 = 1000;
 
+/// Priority of the per-domain routing carve-out `ip rule`s.
+///
+/// Sits in its own band, numerically higher than [`SWITCHBACK_RULE_PRIORITY`]
+/// (so a switchback carve-out still wins for its narrow cross-zone pair) yet far
+/// below the kernel's per-tunnel source rules (~32764), so a `from <device_ip>
+/// to <resolved_ip> lookup <table>` decision wins over the device's own
+/// `from <device_ip> lookup <deviceTable>` rule for that one destination.
+pub const DOMAIN_ROUTE_RULE_PRIORITY: u32 = 2000;
+
+/// The kernel `main` routing table id (254), used as the target table for a
+/// `direct` domain rule — carving a domain out of the device's tunnel back to
+/// the WAN.
+const RT_TABLE_MAIN: u32 = 254;
+
+/// TTL clamp for a domain-route lease. A record's own TTL drives expiry, floored
+/// so a 0-TTL CDN answer cannot thrash the kernel and capped so a very long TTL
+/// cannot pin a stale IP indefinitely.
+const MIN_DOMAIN_ROUTE_TTL_SECS: u64 = 30;
+const MAX_DOMAIN_ROUTE_TTL_SECS: u64 = 3600;
+
+/// A per-destination domain-route lease: the routing table the destination is
+/// pinned to, and when the lease expires (from the DNS record's TTL).
+struct DomainRouteEntry {
+    table: u32,
+    expiry: Instant,
+}
+
 /// Tracks kernel state that has been applied for a single device.
 struct AppliedRule {
     /// The device's IP address for which kernel rules are configured.
@@ -223,6 +281,11 @@ struct RoutingState {
     /// on the next reconcile knows what to add/remove. Present only for
     /// tunnel-bound devices with a non-empty desired set.
     applied_switchback: HashMap<Uuid, Vec<String>>,
+    /// Per-destination domain-route leases, keyed by `(device_ip, dst_ip)`.
+    /// Installed by [`RoutingService::route_resolved_domain`] as the DNS server
+    /// resolves matched domains, and expired by
+    /// [`RoutingService::gc_domain_routes`] once their TTL lapses.
+    domain_routes: HashMap<(String, String), DomainRouteEntry>,
 }
 
 /// Default implementation of [`RoutingService`].
@@ -284,6 +347,7 @@ impl RoutingServiceImpl {
                 tunnel_tables: HashSet::new(),
                 switchback_targets: HashMap::new(),
                 applied_switchback: HashMap::new(),
+                domain_routes: HashMap::new(),
             }),
             dns_upstream_snapshot: Arc::new(ArcSwap::from_pointee(HashMap::new())),
         }
@@ -1453,6 +1517,35 @@ impl RoutingService for RoutingServiceImpl {
             // The desired target set (owned by the zone enforcer) is preserved so
             // tunnel-bound devices re-materialize their carve-outs on re-apply.
             state.applied_switchback.clear();
+            // Domain-route leases are rebuilt as the DNS server re-resolves
+            // matched domains; drop the in-memory tracking here and prune the
+            // surviving kernel rules just below.
+            state.domain_routes.clear();
+        }
+
+        // The nftables flush above does not touch `ip rule`s, so domain-route
+        // carve-outs survive a reconcile. With the in-memory tracking cleared,
+        // every kernel rule at our priority is now an orphan — remove them so the
+        // slate matches; they re-install on the next matched resolution.
+        match self
+            .netlink
+            .list_domain_route_rules(DOMAIN_ROUTE_RULE_PRIORITY)
+            .await
+        {
+            Ok(rules) => {
+                for (src, dst, table) in rules {
+                    if let Err(e) = self
+                        .netlink
+                        .remove_domain_route_rule(&src, &dst, table, DOMAIN_ROUTE_RULE_PRIORITY)
+                        .await
+                    {
+                        tracing::warn!(error = %e, src, dst, "failed to prune domain-route rule during reconcile");
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to list domain-route rules during reconcile")
+            }
         }
 
         // Load all devices and apply rules for those that have them.
@@ -1847,6 +1940,175 @@ impl RoutingService for RoutingServiceImpl {
             // Materialize now if (and only if) the device is tunnel-bound.
             self.reconcile_switchback_for_device(&mut state, device_id)
                 .await;
+        }
+
+        Ok(())
+    }
+
+    async fn route_resolved_domain(
+        &self,
+        device_ip: &str,
+        resolved_ips: &[IpAddr],
+        target: &DomainRoutingTarget,
+        ttl_secs: u32,
+    ) -> Result<(), AppError> {
+        // No auth guard — invoked from the domain-route runner inside an admin
+        // `auth_context` (mirrors `handle_default_policy_changed`).
+
+        // Resolve the destination routing table. A tunnel target brings the
+        // tunnel up and ensures its table exists before any rule points at it,
+        // exactly as `apply_rule` does for a per-device binding.
+        let mut state = self.state.lock().await;
+        let table = match target {
+            DomainRoutingTarget::Direct => RT_TABLE_MAIN,
+            DomainRoutingTarget::Tunnel { tunnel_id } => {
+                let tunnel = match self.tunnels.get_tunnel(*tunnel_id).await {
+                    Ok(tunnel) => tunnel,
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            tunnel_id = %tunnel_id,
+                            "domain route references an unavailable tunnel; skipping"
+                        );
+                        return Ok(());
+                    }
+                };
+                if tunnel.status == TunnelStatus::Down {
+                    if let Err(e) = self.tunnels.bring_up_internal(*tunnel_id).await {
+                        tracing::warn!(
+                            error = %e,
+                            tunnel_id = %tunnel_id,
+                            "failed to bring up tunnel for domain route; skipping"
+                        );
+                        return Ok(());
+                    }
+                }
+                let Some(index) = parse_interface_index(&tunnel.interface_name) else {
+                    tracing::warn!(
+                        interface = %tunnel.interface_name,
+                        "could not parse interface index for domain route; skipping"
+                    );
+                    return Ok(());
+                };
+                let table = table_for_index(index);
+                if let Err(e) = self
+                    .ensure_tunnel_table(&mut state, &tunnel.interface_name, table)
+                    .await
+                {
+                    tracing::warn!(
+                        error = %e,
+                        table,
+                        "failed to ensure tunnel table for domain route; skipping"
+                    );
+                    return Ok(());
+                }
+                table
+            }
+        };
+
+        let ttl = u64::from(ttl_secs).clamp(MIN_DOMAIN_ROUTE_TTL_SECS, MAX_DOMAIN_ROUTE_TTL_SECS);
+        let expiry = Instant::now() + Duration::from_secs(ttl);
+
+        for ip in resolved_ips {
+            // v1 enforces IPv4 only — the `ip rule` primitive is v4.
+            let IpAddr::V4(v4) = ip else { continue };
+            let dst = v4.to_string();
+            let key = (device_ip.to_owned(), dst.clone());
+            match state.domain_routes.get(&key).map(|e| e.table) {
+                Some(existing) if existing == table => {
+                    // Same decision — just extend the lease.
+                    if let Some(entry) = state.domain_routes.get_mut(&key) {
+                        entry.expiry = expiry;
+                    }
+                }
+                Some(existing) => {
+                    // Target changed for this destination — swap the rule.
+                    if let Err(e) = self
+                        .netlink
+                        .remove_domain_route_rule(
+                            device_ip,
+                            &dst,
+                            existing,
+                            DOMAIN_ROUTE_RULE_PRIORITY,
+                        )
+                        .await
+                    {
+                        tracing::warn!(error = %e, device_ip, dst, "failed to remove stale domain-route rule");
+                    }
+                    if let Err(e) = self
+                        .netlink
+                        .add_domain_route_rule(device_ip, &dst, table, DOMAIN_ROUTE_RULE_PRIORITY)
+                        .await
+                    {
+                        tracing::warn!(error = %e, device_ip, dst, table, "failed to add domain-route rule");
+                        state.domain_routes.remove(&key);
+                        continue;
+                    }
+                    state
+                        .domain_routes
+                        .insert(key, DomainRouteEntry { table, expiry });
+                }
+                None => {
+                    if let Err(e) = self
+                        .netlink
+                        .add_domain_route_rule(device_ip, &dst, table, DOMAIN_ROUTE_RULE_PRIORITY)
+                        .await
+                    {
+                        tracing::warn!(error = %e, device_ip, dst, table, "failed to add domain-route rule");
+                        continue;
+                    }
+                    state
+                        .domain_routes
+                        .insert(key, DomainRouteEntry { table, expiry });
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn gc_domain_routes(&self) -> Result<(), AppError> {
+        // No auth guard — periodic maintenance from the domain-route runner.
+        let mut state = self.state.lock().await;
+
+        let now = Instant::now();
+        let expired: Vec<(String, String, u32)> = state
+            .domain_routes
+            .iter()
+            .filter(|(_, entry)| entry.expiry <= now)
+            .map(|((src, dst), entry)| (src.clone(), dst.clone(), entry.table))
+            .collect();
+        for (src, dst, table) in expired {
+            if let Err(e) = self
+                .netlink
+                .remove_domain_route_rule(&src, &dst, table, DOMAIN_ROUTE_RULE_PRIORITY)
+                .await
+            {
+                tracing::warn!(error = %e, src, dst, "failed to remove expired domain-route rule");
+            }
+            state.domain_routes.remove(&(src, dst));
+        }
+
+        // Prune kernel rules at our priority with no tracked lease — e.g. rules
+        // left behind by a crash before the lease was persisted in memory.
+        let kernel = self
+            .netlink
+            .list_domain_route_rules(DOMAIN_ROUTE_RULE_PRIORITY)
+            .await
+            .map_err(AppError::Internal)?;
+        for (src, dst, table) in kernel {
+            if !state
+                .domain_routes
+                .contains_key(&(src.clone(), dst.clone()))
+            {
+                if let Err(e) = self
+                    .netlink
+                    .remove_domain_route_rule(&src, &dst, table, DOMAIN_ROUTE_RULE_PRIORITY)
+                    .await
+                {
+                    tracing::warn!(error = %e, src, dst, "failed to prune orphan domain-route rule");
+                }
+            }
         }
 
         Ok(())

@@ -186,6 +186,30 @@ impl PolicyRouter for RecordingPolicy {
     async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>> {
         Ok(Vec::new())
     }
+    async fn add_domain_route_rule(
+        &self,
+        _src_ip: &str,
+        _dst_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn remove_domain_route_rule(
+        &self,
+        _src_ip: &str,
+        _dst_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn list_domain_route_rules(
+        &self,
+        _priority: u32,
+    ) -> anyhow::Result<Vec<(String, String, u32)>> {
+        Ok(Vec::new())
+    }
     async fn flush_conntrack(&self, src_ip: &str) -> anyhow::Result<()> {
         self.calls
             .lock()
@@ -315,6 +339,18 @@ impl RoutingService for RecordingRouting {
             .lock()
             .await
             .push(format!("{device_id}={device_ip}={target_cidrs:?}"));
+        Ok(())
+    }
+    async fn route_resolved_domain(
+        &self,
+        _device_ip: &str,
+        _resolved_ips: &[std::net::IpAddr],
+        _target: &wardnet_common::routing_profile::DomainRoutingTarget,
+        _ttl_secs: u32,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn gc_domain_routes(&self) -> Result<(), AppError> {
         Ok(())
     }
     async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
