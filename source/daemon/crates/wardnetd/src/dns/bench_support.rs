@@ -1,7 +1,9 @@
 //! Feature-gated bench seam for the DNS resolution pipeline.
 //!
-//! Compiled only under `cfg(test)` or the `bench-internals` feature — NEVER in
-//! a production build. It exposes just enough of the crate-private query path
+//! Compiled only under the `bench-internals` feature — NEVER in a production
+//! build, and deliberately NOT under a plain `cfg(test)` (no test uses it), so
+//! its bench-only stubs stay out of the coverage build. It exposes just enough
+//! of the crate-private query path
 //! for `benches/dns_resolution.rs` to stand a [`QueryPipeline`] up and drive it
 //! directly: an in-process UDP stub upstream, a settable filter, empty routing
 //! and device snapshots, a no-op tunnel repository, and helpers to populate the
