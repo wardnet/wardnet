@@ -7,6 +7,7 @@ import {
   Server,
   Network,
   Globe,
+  Waypoints,
   Save,
   Radio,
   Smartphone,
@@ -29,6 +30,13 @@ const FEATURES: Feature[] = [
     description:
       "Route each device through a specific VPN tunnel, direct internet, or the network default.",
     href: "/docs/device-routing",
+  },
+  {
+    icon: <Waypoints size={28} />,
+    title: "Domain-based routing",
+    description:
+      "Send traffic to a domain, like netflix.com, through a chosen tunnel and exit country, on every device.",
+    href: "/docs/domain-routing",
   },
   {
     icon: <Shield size={28} />,
