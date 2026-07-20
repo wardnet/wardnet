@@ -620,6 +620,8 @@ enum ObsAction {
 #[async_trait]
 impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     async fn restore_devices(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
         // Fold the configured zone subnets into the trusted set before we start
         // processing observations, so a device inside a zone subnet isn't dropped
         // in the window between startup and the first zone-change event.
@@ -712,6 +714,8 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         &self,
         obs: &ObservedDevice,
     ) -> Result<ObservationResult, AppError> {
+        auth_context::require_admin()?;
+
         // Filter out observations from IPs outside every trusted subnet (the LAN
         // `/24` plus any configured Network-Zone subnet). When the Pi is the
         // gateway, return traffic from the internet arrives with the router's MAC
@@ -824,6 +828,8 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     }
 
     async fn flush_last_seen(&self) -> Result<u64, AppError> {
+        auth_context::require_admin()?;
+
         let updates: Vec<(String, String)> = {
             let state = self.state.read().await;
             let now = chrono::Utc::now().to_rfc3339();
@@ -846,6 +852,8 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     }
 
     async fn scan_departures(&self, timeout_secs: u64) -> Result<Vec<Uuid>, AppError> {
+        auth_context::require_admin()?;
+
         let timeout = std::time::Duration::from_secs(timeout_secs);
 
         let departed: Vec<(Uuid, String, String)> = {
@@ -871,6 +879,8 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     }
 
     async fn resolve_hostname(&self, mac: &str, ip: &str) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
         // The MAC may belong to a device the registry hasn't seen yet (e.g.
         // a lease event arriving before packet capture observes the device).
         // Treat that as a no-op rather than an error; the next observation

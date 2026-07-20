@@ -222,7 +222,7 @@ async fn fetch_pending_respects_after_id_cursor() {
 }
 
 #[tokio::test]
-async fn fetch_pending_empty_after_mark_synced() {
+async fn fetch_pending_empty_after_delete_up_to() {
     let pool = test_pool().await;
     insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
     let repo = SqliteDnsEventsRepository::new(pool);
@@ -235,11 +235,11 @@ async fn fetch_pending_empty_after_mark_synced() {
         .await
         .unwrap();
 
-    let affected = repo.mark_synced_up_to(DEV1, id).await.unwrap();
-    assert_eq!(affected, 2, "both rows should be marked synced");
+    let deleted = repo.delete_up_to(DEV1, id).await.unwrap();
+    assert_eq!(deleted, 2, "both rows should be deleted on ack");
 
     let rows = repo.fetch_pending(DEV1, 0, 100).await.unwrap();
-    assert!(rows.is_empty(), "no pending rows after mark_synced_up_to");
+    assert!(rows.is_empty(), "no pending rows after delete_up_to");
 }
 
 #[tokio::test]
@@ -265,7 +265,7 @@ async fn delete_up_to_scoped_to_device() {
 }
 
 #[tokio::test]
-async fn mark_synced_up_to_returns_affected_count() {
+async fn delete_up_to_returns_affected_count() {
     let pool = test_pool().await;
     insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
     let repo = SqliteDnsEventsRepository::new(pool);
@@ -281,10 +281,10 @@ async fn mark_synced_up_to_returns_affected_count() {
         .await
         .unwrap();
 
-    let affected = repo.mark_synced_up_to(DEV1, id3).await.unwrap();
-    assert_eq!(affected, 3, "all 3 rows should be marked synced");
+    let deleted = repo.delete_up_to(DEV1, id3).await.unwrap();
+    assert_eq!(deleted, 3, "all 3 rows should be deleted");
 
-    // Calling again is idempotent — no rows remain with sync_state='pending'.
-    let affected2 = repo.mark_synced_up_to(DEV1, id3).await.unwrap();
-    assert_eq!(affected2, 0, "second call should affect 0 rows");
+    // Calling again is idempotent — the rows are already gone.
+    let deleted2 = repo.delete_up_to(DEV1, id3).await.unwrap();
+    assert_eq!(deleted2, 0, "second call should delete 0 rows");
 }

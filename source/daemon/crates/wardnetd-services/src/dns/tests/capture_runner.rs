@@ -16,6 +16,7 @@ use wardnet_common::routing::RoutingTarget;
 use wardnetd_data::repository::QueryLogRow;
 use wardnetd_data::repository::dns_events::{DnsCaptureStats, DnsEventsRepository};
 
+use crate::auth_context;
 use crate::device::DeviceService;
 use crate::dns::DnsCaptureRunner;
 use crate::error::AppError;
@@ -98,23 +99,24 @@ impl DeviceService for MockDeviceService {
     ) -> Result<Vec<DnsEventItem>, AppError> {
         unimplemented!()
     }
-    async fn mark_dns_events_synced(
-        &self,
-        _device_id: &str,
-        _up_to_id: i64,
-    ) -> Result<(), AppError> {
-        unimplemented!()
-    }
     async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
         unimplemented!()
     }
     async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError> {
+        // Regression: the runner runs outside the HTTP middleware and must
+        // establish an admin context before calling the service (issue #839).
+        auth_context::require_admin().expect(
+            "DnsCaptureRunner must call list_capture_enabled_device_ids under admin context",
+        );
         Ok(self.enabled_ids.clone())
     }
     async fn get_device_capture_settings(
         &self,
         _device_id: &str,
     ) -> Result<Option<(bool, i64, i64)>, AppError> {
+        // Regression: the prune path must also carry an admin context (#839).
+        auth_context::require_admin()
+            .expect("DnsCaptureRunner must call get_device_capture_settings under admin context");
         if self.error_on_settings {
             return Err(AppError::Internal(anyhow::anyhow!("db error")));
         }
@@ -188,9 +190,6 @@ impl DnsEventsRepository for RecordingDnsEventsRepo {
     ) -> anyhow::Result<Vec<wardnetd_data::repository::DnsEventRow>> {
         Ok(vec![])
     }
-    async fn mark_synced_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
-        Ok(0)
-    }
     async fn delete_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
         Ok(0)
     }
@@ -253,9 +252,6 @@ impl DnsEventsRepository for PruningDnsEventsRepo {
         _limit: i64,
     ) -> anyhow::Result<Vec<wardnetd_data::repository::DnsEventRow>> {
         Ok(vec![])
-    }
-    async fn mark_synced_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
-        Ok(0)
     }
     async fn delete_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
         Ok(0)

@@ -104,6 +104,15 @@ impl PacketCapture for SingleObservationCapture {
 // Mock: DeviceDiscoveryService
 // ---------------------------------------------------------------------------
 
+/// Assert the calling background task established an admin context before
+/// reaching the discovery service. A missing `with_context` wrap in
+/// `device_detector.rs` would surface here as a panic instead of a silent
+/// `Forbidden` (issue #839).
+fn expect_admin_context() {
+    wardnetd_services::auth_context::require_admin()
+        .expect("device_detector must call the discovery service under an admin context");
+}
+
 /// Mock discovery service that records calls and returns configurable results.
 struct MockDiscovery {
     /// Number of times `process_observation` was called.
@@ -163,6 +172,7 @@ impl DeviceDiscoveryService for MockDiscovery {
     }
 
     async fn rebuild_trusted_subnets(&self) -> Result<(), AppError> {
+        expect_admin_context();
         Ok(())
     }
 
@@ -170,6 +180,7 @@ impl DeviceDiscoveryService for MockDiscovery {
         &self,
         _obs: &ObservedDevice,
     ) -> Result<ObservationResult, AppError> {
+        expect_admin_context();
         self.process_count.fetch_add(1, Ordering::SeqCst);
         match self.observation_result {
             ObservationResultFactory::NewDevice => Ok(ObservationResult::NewDevice {
@@ -190,16 +201,19 @@ impl DeviceDiscoveryService for MockDiscovery {
     }
 
     async fn flush_last_seen(&self) -> Result<u64, AppError> {
+        expect_admin_context();
         self.flush_count.fetch_add(1, Ordering::SeqCst);
         Ok(0)
     }
 
     async fn scan_departures(&self, _timeout_secs: u64) -> Result<Vec<Uuid>, AppError> {
+        expect_admin_context();
         self.departure_count.fetch_add(1, Ordering::SeqCst);
         Ok(vec![])
     }
 
     async fn resolve_hostname(&self, _mac: &str, _ip: &str) -> Result<(), AppError> {
+        expect_admin_context();
         self.resolve_count.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }

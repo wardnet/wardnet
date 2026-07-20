@@ -19,9 +19,11 @@ use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use uuid::Uuid;
+use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::{DnsEventsRepository, QueryLogRow};
 
+use crate::auth_context;
 use crate::device::DeviceService;
 use crate::event::EventPublisher;
 
@@ -85,6 +87,27 @@ impl DnsCaptureRunner {
     }
 }
 
+/// Load the capture-enabled device-id set from the DB under the runner's admin
+/// context. Returns `None` (and logs) on error so the caller can decide whether
+/// to start empty or keep its existing cache.
+async fn load_enabled_ids(
+    device_service: &dyn DeviceService,
+    admin_ctx: &AuthContext,
+) -> Option<HashSet<String>> {
+    match auth_context::with_context(
+        admin_ctx.clone(),
+        device_service.list_capture_enabled_device_ids(),
+    )
+    .await
+    {
+        Ok(ids) => Some(ids.into_iter().collect()),
+        Err(e) => {
+            tracing::error!(error = %e, "failed to load capture-enabled device IDs: {e}");
+            None
+        }
+    }
+}
+
 async fn runner_loop(
     mut capture_rx: mpsc::Receiver<QueryLogRow>,
     device_service: Arc<dyn DeviceService>,
@@ -93,15 +116,17 @@ async fn runner_loop(
     prune_interval: Duration,
     cancel: CancellationToken,
 ) {
-    // Populate the hot-path cache from DB on startup.
-    let mut enabled: HashSet<String> = match device_service.list_capture_enabled_device_ids().await
-    {
-        Ok(ids) => ids.into_iter().collect(),
-        Err(e) => {
-            tracing::error!(error = %e, "failed to load capture-enabled device IDs: {e}");
-            HashSet::new()
-        }
+    // This runner lives outside the HTTP middleware, so it establishes its own
+    // system/admin context (`Uuid::nil()`) around every service call, per
+    // `.agents/auth.md`.
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
     };
+
+    // Populate the hot-path cache from DB on startup.
+    let mut enabled = load_enabled_ids(device_service.as_ref(), &admin_ctx)
+        .await
+        .unwrap_or_default();
     tracing::info!(
         count = enabled.len(),
         "DNS capture runner started: count={count}",
@@ -173,12 +198,10 @@ async fn runner_loop(
                         // Events in the skipped window may include
                         // DeviceCaptureSettingsChanged — reload from DB so the
                         // in-memory cache is not permanently stale.
-                        match device_service.list_capture_enabled_device_ids().await {
-                            Ok(ids) => enabled = ids.into_iter().collect(),
-                            Err(e) => tracing::error!(
-                                error = %e,
-                                "failed to re-sync capture-enabled IDs after lag: {e}"
-                            ),
+                        if let Some(ids) =
+                            load_enabled_ids(device_service.as_ref(), &admin_ctx).await
+                        {
+                            enabled = ids;
                         }
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
@@ -188,13 +211,17 @@ async fn runner_loop(
                 }
             }
             _ = prune_ticker.tick() => {
-                run_prune(device_service.as_ref(), dns_events_repo.as_ref()).await;
+                run_prune(device_service.as_ref(), dns_events_repo.as_ref(), &admin_ctx).await;
             }
         }
     }
 }
 
-async fn run_prune(device_service: &dyn DeviceService, dns_events_repo: &dyn DnsEventsRepository) {
+async fn run_prune(
+    device_service: &dyn DeviceService,
+    dns_events_repo: &dyn DnsEventsRepository,
+    admin_ctx: &AuthContext,
+) {
     // Fetch all devices that have stored events.
     let ids_with_data = match dns_events_repo.find_device_ids_with_data().await {
         Ok(ids) => ids,
@@ -205,7 +232,12 @@ async fn run_prune(device_service: &dyn DeviceService, dns_events_repo: &dyn Dns
     };
 
     for device_id in &ids_with_data {
-        match device_service.get_device_capture_settings(device_id).await {
+        match auth_context::with_context(
+            admin_ctx.clone(),
+            device_service.get_device_capture_settings(device_id),
+        )
+        .await
+        {
             Ok(Some((true, cap_count, cap_days))) => {
                 if let Err(e) = dns_events_repo
                     .prune_for_device(device_id, cap_count, cap_days)

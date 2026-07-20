@@ -406,11 +406,14 @@ async fn run(
         .restore_tunnels()
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    services
-        .discovery
-        .restore_devices()
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        },
+        services.discovery.restore_devices(),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Capture the root span so background tasks can create child spans that
     // inherit the `wardnetd{version=...}` context.

@@ -650,6 +650,35 @@ struct TestHarness {
     system_config: Arc<MockSystemConfig>,
 }
 
+/// Thin wrappers that run the admin-guarded discovery methods under an admin
+/// [`AuthContext`], mirroring how the background `device_detector` tasks wrap
+/// every call. Tests that specifically exercise the auth guard call `svc`
+/// directly with the context they want.
+impl TestHarness {
+    async fn restore_devices(&self) -> Result<(), AppError> {
+        auth_context::with_context(admin_ctx(), self.svc.restore_devices()).await
+    }
+
+    async fn process_observation(
+        &self,
+        obs: &ObservedDevice,
+    ) -> Result<ObservationResult, AppError> {
+        auth_context::with_context(admin_ctx(), self.svc.process_observation(obs)).await
+    }
+
+    async fn flush_last_seen(&self) -> Result<u64, AppError> {
+        auth_context::with_context(admin_ctx(), self.svc.flush_last_seen()).await
+    }
+
+    async fn scan_departures(&self, timeout_secs: u64) -> Result<Vec<Uuid>, AppError> {
+        auth_context::with_context(admin_ctx(), self.svc.scan_departures(timeout_secs)).await
+    }
+
+    async fn resolve_hostname(&self, mac: &str, ip: &str) -> Result<(), AppError> {
+        auth_context::with_context(admin_ctx(), self.svc.resolve_hostname(mac, ip)).await
+    }
+}
+
 fn build_harness() -> TestHarness {
     build_harness_with_devices(Vec::new())
 }
@@ -755,7 +784,7 @@ async fn process_observation_accepts_zone_subnet_ip() {
     h.svc.rebuild_trusted_subnets().await.unwrap();
 
     let obs = sample_observation("aa:bb:cc:dd:ee:10", "10.0.100.50");
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
 
     assert!(
         !matches!(result, ObservationResult::Ignored),
@@ -778,7 +807,7 @@ async fn process_observation_ignores_wan_ip_outside_all_subnets() {
     h.svc.rebuild_trusted_subnets().await.unwrap();
 
     let obs = sample_observation("aa:bb:cc:dd:ee:11", "8.8.8.8");
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
 
     assert!(
         matches!(result, ObservationResult::Ignored),
@@ -800,7 +829,7 @@ async fn rebuild_trusted_subnets_picks_up_new_zone_subnet() {
     h.svc.rebuild_trusted_subnets().await.unwrap();
 
     let obs = sample_observation("aa:bb:cc:dd:ee:12", "10.0.100.50");
-    let before = h.svc.process_observation(&obs).await.unwrap();
+    let before = h.process_observation(&obs).await.unwrap();
     assert!(
         matches!(before, ObservationResult::Ignored),
         "expected the zone-subnet IP to be ignored before the subnet is configured, got {before:?}"
@@ -810,7 +839,7 @@ async fn rebuild_trusted_subnets_picks_up_new_zone_subnet() {
     zones.set_zones(vec![zone_with_subnet("10.0.100.0/24")]);
     h.svc.rebuild_trusted_subnets().await.unwrap();
 
-    let after = h.svc.process_observation(&obs).await.unwrap();
+    let after = h.process_observation(&obs).await.unwrap();
     assert!(
         !matches!(after, ObservationResult::Ignored),
         "expected the observation to be processed after the zone subnet is added, got {after:?}"
@@ -822,7 +851,7 @@ async fn process_observation_new_device() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
 
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
     assert!(
         matches!(result, ObservationResult::NewDevice { .. }),
         "expected NewDevice, got {result:?}"
@@ -851,13 +880,13 @@ async fn process_observation_known_device_same_ip() {
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
 
     // First observation registers the device.
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
 
     // Clear events from the first observation.
     h.events.events.lock().unwrap().clear();
 
     // Second observation with same MAC and IP.
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
     assert!(
         matches!(result, ObservationResult::Seen(_)),
         "expected Seen, got {result:?}"
@@ -872,14 +901,14 @@ async fn process_observation_known_device_same_ip() {
 async fn process_observation_known_device_different_ip() {
     let h = build_harness();
     let obs1 = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    h.svc.process_observation(&obs1).await.unwrap();
+    h.process_observation(&obs1).await.unwrap();
 
     // Clear events.
     h.events.events.lock().unwrap().clear();
 
     // Second observation with same MAC but different IP.
     let obs2 = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.20");
-    let result = h.svc.process_observation(&obs2).await.unwrap();
+    let result = h.process_observation(&obs2).await.unwrap();
     assert!(
         matches!(
             &result,
@@ -910,19 +939,19 @@ async fn process_observation_gone_device_returns() {
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
 
     // Register device.
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
 
     // Mark it as departed (use a tiny timeout so it departs immediately).
     // We need to wait a small amount of time for the Instant to advance.
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    let departed = h.svc.scan_departures(0).await.unwrap();
+    let departed = h.scan_departures(0).await.unwrap();
     assert_eq!(departed.len(), 1);
 
     // Clear events.
     h.events.events.lock().unwrap().clear();
 
     // Device reappears.
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
     assert!(
         matches!(result, ObservationResult::Reappeared(_)),
         "expected Reappeared, got {result:?}"
@@ -938,9 +967,9 @@ async fn process_observation_gone_device_returns() {
 async fn flush_last_seen_updates_batch() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
 
-    let count = h.svc.flush_last_seen().await.unwrap();
+    let count = h.flush_last_seen().await.unwrap();
     assert_eq!(count, 1);
 
     let batch = h.repo.batch_updates.lock().unwrap();
@@ -951,14 +980,14 @@ async fn flush_last_seen_updates_batch() {
 async fn scan_departures_emits_device_gone() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
 
     // Clear events from registration.
     h.events.events.lock().unwrap().clear();
 
     // Wait briefly and scan with a zero timeout to force departure.
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    let departed = h.svc.scan_departures(0).await.unwrap();
+    let departed = h.scan_departures(0).await.unwrap();
     assert_eq!(departed.len(), 1);
 
     // Verify DeviceGone event was emitted.
@@ -980,14 +1009,14 @@ async fn scan_departures_emits_device_gone() {
 async fn scan_departures_clears_departed_last_ip() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
 
     // Precondition: the freshly discovered device resolves by its IP.
     assert!(h.repo.find_by_ip("192.168.1.10").await.unwrap().is_some());
 
     // Force the departure sweep.
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    let departed = h.svc.scan_departures(0).await.unwrap();
+    let departed = h.scan_departures(0).await.unwrap();
     assert_eq!(departed.len(), 1);
 
     // The departed device's IP is cleared: its row no longer resolves by that
@@ -1013,13 +1042,13 @@ async fn scan_departures_clears_departed_last_ip() {
 async fn scan_departures_tolerates_clear_last_ip_failure() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
     h.repo
         .fail_clear_last_ip
         .store(true, std::sync::atomic::Ordering::SeqCst);
 
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    let departed = h.svc.scan_departures(0).await.unwrap();
+    let departed = h.scan_departures(0).await.unwrap();
     assert_eq!(departed.len(), 1);
 
     // The clear failed, so the IP is left in place — but the sweep still
@@ -1039,12 +1068,12 @@ async fn scan_departures_tolerates_clear_last_ip_failure() {
 async fn scan_departures_does_not_clear_ip_of_reconnected_device() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
 
     // Depart, then immediately reconnect at the same address before asserting.
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    h.svc.scan_departures(0).await.unwrap();
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    h.scan_departures(0).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
     assert!(
         matches!(result, ObservationResult::Reappeared(_)),
         "expected Reappeared, got {result:?}"
@@ -1064,7 +1093,7 @@ async fn scan_departures_does_not_clear_ip_of_reconnected_device() {
 async fn mark_peer_gone_clears_departed_last_ip() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
     let device_id = h.repo.find_by_ip("192.168.1.10").await.unwrap().unwrap().id;
 
     // A zero timeout marks the peer gone once its last_seen has elapsed.
@@ -1088,13 +1117,13 @@ async fn mark_peer_gone_clears_departed_last_ip() {
 async fn scan_departures_ignores_recent() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
 
     // Clear events.
     h.events.events.lock().unwrap().clear();
 
     // Scan with a very large timeout -- device should not be departed.
-    let departed = h.svc.scan_departures(3600).await.unwrap();
+    let departed = h.scan_departures(3600).await.unwrap();
     assert!(departed.is_empty());
 
     // No events emitted.
@@ -1313,8 +1342,7 @@ async fn resolve_hostname_falls_back_to_reverse_dns() {
     mappings.insert("192.168.1.10".to_owned(), "myphone.local".to_owned());
     let h = build_harness_with_resolver(vec![device], mappings);
 
-    h.svc
-        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
+    h.resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -1334,8 +1362,7 @@ async fn resolve_hostname_no_result_does_not_update_db() {
     // Empty resolver and no DHCP lease: nothing to write.
     let h = build_harness_with_resolver(vec![device], HashMap::new());
 
-    h.svc
-        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
+    h.resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -1367,8 +1394,7 @@ async fn resolve_hostname_prefers_dhcp_over_reverse_dns() {
     )]);
     let h = build_harness_with_resolver_and_dhcp(vec![device], mappings, dhcp);
 
-    h.svc
-        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
+    h.resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -1392,8 +1418,7 @@ async fn resolve_hostname_falls_back_when_dhcp_value_empty() {
     let dhcp = MockDhcpRepository::with_lease_hostnames(vec![("aa:bb:cc:dd:ee:01", Some("   "))]);
     let h = build_harness_with_resolver_and_dhcp(vec![device], mappings, dhcp);
 
-    h.svc
-        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
+    h.resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -1416,8 +1441,7 @@ async fn resolve_hostname_falls_back_when_no_active_lease() {
     let h =
         build_harness_with_resolver_and_dhcp(vec![device], mappings, MockDhcpRepository::empty());
 
-    h.svc
-        .resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
+    h.resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -1433,8 +1457,7 @@ async fn resolve_hostname_no_op_when_device_not_registered() {
     let dhcp = MockDhcpRepository::with_lease_hostnames(vec![("aa:bb:cc:dd:ee:99", Some("ghost"))]);
     let h = build_harness_with_resolver_and_dhcp(vec![], HashMap::new(), dhcp);
 
-    h.svc
-        .resolve_hostname("aa:bb:cc:dd:ee:99", "192.168.1.99")
+    h.resolve_hostname("aa:bb:cc:dd:ee:99", "192.168.1.99")
         .await
         .unwrap();
 
@@ -1464,8 +1487,7 @@ async fn resolve_hostname_tolerates_mixed_case_caller() {
     let h = build_harness_with_resolver_and_dhcp(vec![device], HashMap::new(), dhcp);
 
     // Caller uses uppercase; both lookups must still hit.
-    h.svc
-        .resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
+    h.resolve_hostname("AA:BB:CC:DD:EE:01", "192.168.1.10")
         .await
         .unwrap();
 
@@ -1484,12 +1506,12 @@ async fn restore_devices_populates_in_memory_state() {
     );
     let h = build_harness_with_devices(vec![device]);
 
-    h.svc.restore_devices().await.unwrap();
+    h.restore_devices().await.unwrap();
 
     // After restore, processing the same MAC should not create a new device
     // because restore marks devices as gone; re-observing should reappear them.
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
     assert!(
         matches!(result, ObservationResult::Reappeared(_)),
         "expected Reappeared after restore, got {result:?}"
@@ -1505,7 +1527,7 @@ async fn restore_devices_empty_repo() {
     let h = build_harness();
 
     // Restore with no devices should succeed.
-    h.svc.restore_devices().await.unwrap();
+    h.restore_devices().await.unwrap();
 }
 
 #[tokio::test]
@@ -1564,14 +1586,14 @@ async fn get_device_by_id_success() {
 async fn flush_last_seen_with_gone_devices_skips_them() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
 
     // Mark device as departed.
     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    h.svc.scan_departures(0).await.unwrap();
+    h.scan_departures(0).await.unwrap();
 
     // Flush should skip gone devices.
-    let count = h.svc.flush_last_seen().await.unwrap();
+    let count = h.flush_last_seen().await.unwrap();
     assert_eq!(count, 0, "gone devices should not be flushed");
 }
 
@@ -1588,7 +1610,7 @@ async fn process_observation_reappear_from_db_not_memory() {
     // Do NOT call restore_devices, so the in-memory map is empty.
     // Observing should find the device in the DB and reappear it.
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.20");
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
     assert!(
         matches!(result, ObservationResult::Reappeared(_)),
         "expected Reappeared from DB, got {result:?}"
@@ -1611,7 +1633,7 @@ async fn quarantine_on_new_device_publishes_event() {
     h.system_config.set_quarantine(true);
 
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
     assert!(matches!(result, ObservationResult::NewDevice { .. }));
 
     let events = h.events.published_events();
@@ -1636,7 +1658,7 @@ async fn quarantine_off_new_device_publishes_no_quarantine_event() {
     // Toggle left at its default (off).
 
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    h.svc.process_observation(&obs).await.unwrap();
+    h.process_observation(&obs).await.unwrap();
 
     let events = h.events.published_events();
     assert!(
@@ -1661,7 +1683,7 @@ async fn quarantine_on_reappearing_device_is_not_requarantined() {
     h.system_config.set_quarantine(true);
 
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
     assert!(
         matches!(result, ObservationResult::Reappeared(_)),
         "expected Reappeared, got {result:?}"
@@ -1693,7 +1715,7 @@ async fn process_peer_observation_reappears_gone_device_as_remote() {
     let h = build_harness_with_devices(vec![device]);
 
     // Restore marks every device gone in the in-memory map.
-    h.svc.restore_devices().await.unwrap();
+    h.restore_devices().await.unwrap();
     h.events.events.lock().unwrap().clear();
 
     // Peer IPs live in the inbound-WG subnet, outside the LAN subnet — the
@@ -1868,7 +1890,7 @@ async fn observation_claiming_our_own_lan_ip_is_ignored() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:02", OWN_LAN_IP);
 
-    let result = h.svc.process_observation(&obs).await.unwrap();
+    let result = h.process_observation(&obs).await.unwrap();
 
     assert!(
         matches!(result, ObservationResult::Ignored),
@@ -1891,13 +1913,11 @@ async fn observation_claiming_our_own_lan_ip_is_ignored() {
 async fn known_device_flapping_onto_our_own_lan_ip_is_ignored() {
     let h = build_harness();
     let mac = "aa:bb:cc:dd:ee:03";
-    h.svc
-        .process_observation(&sample_observation(mac, "192.168.1.40"))
+    h.process_observation(&sample_observation(mac, "192.168.1.40"))
         .await
         .unwrap();
 
     let result = h
-        .svc
         .process_observation(&sample_observation(mac, OWN_LAN_IP))
         .await
         .unwrap();
@@ -1927,15 +1947,13 @@ async fn mac_flapping_across_many_ips_stops_being_trusted() {
 
     // Establish the device, then flap it across distinct addresses.
     for ip in ["192.168.1.4", "192.168.1.22", "192.168.1.59"] {
-        h.svc
-            .process_observation(&sample_observation(mac, ip))
+        h.process_observation(&sample_observation(mac, ip))
             .await
             .unwrap();
     }
 
     // One address too many, inside the window: the MAC is now untrustworthy.
     let result = h
-        .svc
         .process_observation(&sample_observation(mac, "192.168.1.77"))
         .await
         .unwrap();
@@ -1958,13 +1976,11 @@ async fn mac_flapping_across_many_ips_stops_being_trusted() {
 async fn a_device_changing_ip_normally_is_still_trusted() {
     let h = build_harness();
     let mac = "aa:bb:cc:dd:ee:05";
-    h.svc
-        .process_observation(&sample_observation(mac, "192.168.1.50"))
+    h.process_observation(&sample_observation(mac, "192.168.1.50"))
         .await
         .unwrap();
 
     let result = h
-        .svc
         .process_observation(&sample_observation(mac, "192.168.1.51"))
         .await
         .unwrap();
@@ -1987,13 +2003,11 @@ async fn own_ip_claims_count_toward_the_flap_threshold() {
 
     // The recorded #886 trace: .4, .22, <own IP>, .59 from one MAC.
     for ip in ["192.168.1.4", "192.168.1.22", OWN_LAN_IP] {
-        h.svc
-            .process_observation(&sample_observation(mac, ip))
+        h.process_observation(&sample_observation(mac, ip))
             .await
             .unwrap();
     }
     let result = h
-        .svc
         .process_observation(&sample_observation(mac, "192.168.1.59"))
         .await
         .unwrap();
@@ -2026,8 +2040,7 @@ async fn flap_ignored_observations_still_count_as_presence() {
         "192.168.1.63",
         "192.168.1.64",
     ] {
-        h.svc
-            .process_observation(&sample_observation(mac, ip))
+        h.process_observation(&sample_observation(mac, ip))
             .await
             .unwrap();
     }
@@ -2037,13 +2050,12 @@ async fn flap_ignored_observations_still_count_as_presence() {
     // presence.
     tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
     let result = h
-        .svc
         .process_observation(&sample_observation(mac, "192.168.1.64"))
         .await
         .unwrap();
     assert!(matches!(result, ObservationResult::Ignored));
 
-    let departed = h.svc.scan_departures(1).await.unwrap();
+    let departed = h.scan_departures(1).await.unwrap();
     assert!(
         departed.is_empty(),
         "a flapping-but-present MAC must not be marked gone (#886): {departed:?}"
@@ -2063,7 +2075,7 @@ async fn restore_devices_repairs_a_row_claiming_our_own_ip() {
     );
     let h = build_harness_with_devices(vec![poisoned]);
 
-    h.svc.restore_devices().await.unwrap();
+    h.restore_devices().await.unwrap();
 
     let updates = h.repo.last_seen_updates.lock().unwrap();
     assert!(
@@ -2071,5 +2083,60 @@ async fn restore_devices_repairs_a_row_claiming_our_own_ip() {
             .iter()
             .any(|(id, ip, _, _)| id == "0a0a0a0a-0000-0000-0000-000000000001" && ip.is_empty()),
         "the poisoned row's last_ip must be cleared at startup (#886): {updates:?}"
+    );
+}
+
+// -- Auth guards ----------------------------------------------------------
+
+/// Every admin-guarded background method rejects an anonymous caller with
+/// `Forbidden` rather than silently doing its work. These run outside the HTTP
+/// middleware, so a bug that let them execute unguarded would have no other
+/// backstop.
+#[tokio::test]
+async fn guarded_methods_reject_anonymous_caller() {
+    let h = build_harness();
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
+
+    let anon = AuthContext::Anonymous;
+    assert!(matches!(
+        auth_context::with_context(anon.clone(), h.svc.restore_devices()).await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        auth_context::with_context(anon.clone(), h.svc.process_observation(&obs)).await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        auth_context::with_context(anon.clone(), h.svc.flush_last_seen()).await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        auth_context::with_context(anon.clone(), h.svc.scan_departures(0)).await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        auth_context::with_context(
+            anon,
+            h.svc.resolve_hostname("aa:bb:cc:dd:ee:01", "192.168.1.10")
+        )
+        .await,
+        Err(AppError::Forbidden(_))
+    ));
+}
+
+/// The nil-admin context the `device_detector` background tasks establish
+/// reaches the service and is accepted, so the guard does not break the runner.
+#[tokio::test]
+async fn process_observation_accepts_nil_admin_context() {
+    let h = build_harness();
+    let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
+
+    let nil_admin = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+    let result = auth_context::with_context(nil_admin, h.svc.process_observation(&obs)).await;
+    assert!(
+        matches!(result, Ok(ObservationResult::NewDevice { .. })),
+        "nil-admin observation should register the device: {result:?}"
     );
 }

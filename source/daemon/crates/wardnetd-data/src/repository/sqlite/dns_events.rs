@@ -148,18 +148,6 @@ impl DnsEventsRepository for SqliteDnsEventsRepository {
             .collect())
     }
 
-    async fn mark_synced_up_to(&self, device_id: &str, up_to_id: i64) -> anyhow::Result<u64> {
-        let result = sqlx::query(
-            "UPDATE dns_events SET sync_state = 'synced' \
-             WHERE device_id = ? AND id <= ? AND sync_state = 'pending'",
-        )
-        .bind(device_id)
-        .bind(up_to_id)
-        .execute(&self.pools.write)
-        .await?;
-        Ok(result.rows_affected())
-    }
-
     async fn delete_up_to(&self, device_id: &str, up_to_id: i64) -> anyhow::Result<u64> {
         let result = sqlx::query("DELETE FROM dns_events WHERE device_id = ? AND id <= ?")
             .bind(device_id)
