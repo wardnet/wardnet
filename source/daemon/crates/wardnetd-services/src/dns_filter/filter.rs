@@ -260,6 +260,42 @@ fn matches_subdomain(domain: &str, set: &HashSet<String>) -> bool {
     false
 }
 
+/// Incrementally assembles the blocked-domain set of a *pure blocklist*
+/// [`DnsFilter`] — one with no allowlist and no custom rules, which is
+/// exactly what a single blocklist compiles to.
+///
+/// The blocklist rebuild path streams its domains straight from the
+/// database (a threat-intel feed is ~2.2M rows). Feeding them through this
+/// builder inserts each one into the final [`HashSet`] and drops it, so the
+/// set is the only large allocation that ever exists — no intermediate
+/// `Vec` doubling peak memory. Normalisation matches [`DnsFilter::build`].
+#[derive(Debug, Default)]
+pub struct BlocklistFilterBuilder {
+    blocked_domains: HashSet<String>,
+}
+
+impl BlocklistFilterBuilder {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Normalise and insert one blocked domain.
+    pub fn insert(&mut self, domain: &str) {
+        self.blocked_domains.insert(normalize_owned(domain));
+    }
+
+    /// Finish, yielding a filter whose only rules are the accumulated
+    /// blocked domains.
+    #[must_use]
+    pub fn finish(self) -> DnsFilter {
+        DnsFilter {
+            blocked_domains: self.blocked_domains,
+            ..DnsFilter::default()
+        }
+    }
+}
+
 /// Canonical form of a domain: lowercase, no trailing dot.
 ///
 /// Borrows when the input is already canonical — the common case on the

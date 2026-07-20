@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 use chrono::{NaiveDateTime, TimeZone, Utc};
+use futures::stream::{BoxStream, StreamExt, TryStreamExt};
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
@@ -16,6 +17,16 @@ use crate::repository::dns_filter::{
 
 const TS_FMT: &str = "%Y-%m-%dT%H:%M:%SZ";
 const KEY_DNS_FILTERING_ENABLED: &str = "dns_filtering_enabled";
+
+/// Domains backing one blocklist's *active* generation. Shared by the
+/// streaming loader (`stream_blocklist_domains`) and the collecting one
+/// (`load_blocklist_domains`) so the two can never drift apart while still
+/// running on different pools.
+const BLOCKLIST_DOMAINS_QUERY: &str = "SELECT bd.domain \
+     FROM dns_filter_blocked_domains bd \
+     JOIN dns_filter_blocklists bl \
+       ON bd.blocklist_id = bl.id AND bd.generation = bl.active_generation \
+     WHERE bl.id = ?";
 
 fn now_iso() -> String {
     Utc::now().format(TS_FMT).to_string()
@@ -801,18 +812,31 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         })
     }
 
-    async fn load_blocklist_domains(&self, blocklist_id: Uuid) -> anyhow::Result<Vec<String>> {
+    fn stream_blocklist_domains(
+        &self,
+        blocklist_id: Uuid,
+    ) -> BoxStream<'_, anyhow::Result<String>> {
         let id = blocklist_id.to_string();
-        let domains: Vec<String> = sqlx::query_scalar(
-            "SELECT bd.domain \
-             FROM dns_filter_blocked_domains bd \
-             JOIN dns_filter_blocklists bl \
-               ON bd.blocklist_id = bl.id AND bd.generation = bl.active_generation \
-             WHERE bl.id = ?",
-        )
-        .bind(&id)
-        .fetch_all(&self.pools.read)
-        .await?;
+        sqlx::query_scalar::<_, String>(BLOCKLIST_DOMAINS_QUERY)
+            .bind(id)
+            // Bulk-read pool: statement logging is disabled there, so this
+            // inherently slow multi-million-row load never trips the 1 s
+            // slow-statement alert that guards the normal `read` pool.
+            .fetch(&self.pools.bulk_read)
+            .map_err(anyhow::Error::from)
+            .boxed()
+    }
+
+    async fn load_blocklist_domains(&self, blocklist_id: Uuid) -> anyhow::Result<Vec<String>> {
+        // Deliberately the normal `read` pool, NOT `bulk_read`: this
+        // convenience collector has no built-in row-count ceiling, so any
+        // caller must keep the 1 s slow-statement alert. The streaming
+        // `stream_blocklist_domains` is the one exempted path.
+        let id = blocklist_id.to_string();
+        let domains: Vec<String> = sqlx::query_scalar::<_, String>(BLOCKLIST_DOMAINS_QUERY)
+            .bind(id)
+            .fetch_all(&self.pools.read)
+            .await?;
         Ok(domains)
     }
 
