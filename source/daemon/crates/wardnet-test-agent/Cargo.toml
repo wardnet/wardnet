@@ -26,6 +26,11 @@ tracing-subscriber.workspace = true
 clap.workspace = true
 # https://crates.io/crates/regex
 regex.workspace = true
+# https://crates.io/crates/reqwest
+# Forwards HTTP from a LAN client to the daemon for the `POST /proxy`
+# route, binding the caller's source IP so wardnetd classifies the
+# request as that device (source-IP identity for the /devices/me flows).
+reqwest.workspace = true
 # https://crates.io/crates/anyhow
 anyhow.workspace = true
 # https://crates.io/crates/pnet
