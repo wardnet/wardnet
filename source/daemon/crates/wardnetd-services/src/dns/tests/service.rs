@@ -12,6 +12,7 @@ use wardnet_common::dns::ForwarderSelectionMode::{self, Failover, Fastest, Singl
 use super::admin;
 use crate::dns::service::{DnsService, DnsServiceImpl, resolve_forwarder_selection};
 use crate::error::AppError;
+use wardnet_common::auth::AuthContext;
 use wardnetd_data::repository::{
     DnsRepository, QueryLogFilter, QueryLogRow, SystemConfigRepository,
 };
@@ -245,4 +246,21 @@ async fn single_mode_with_unlisted_server_is_rejected() {
     .await
     .unwrap_err();
     assert!(matches!(err, AppError::BadRequest(_)));
+}
+
+#[tokio::test]
+async fn get_dns_config_rejects_anonymous_caller() {
+    let svc = service();
+    let err = crate::auth_context::with_context(AuthContext::Anonymous, svc.get_dns_config())
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::Forbidden(_)));
+}
+
+#[tokio::test]
+async fn get_dns_config_allows_admin_caller() {
+    let svc = service();
+    crate::auth_context::with_context(admin(), svc.get_dns_config())
+        .await
+        .expect("admin caller can read the DNS config");
 }

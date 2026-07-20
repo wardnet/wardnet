@@ -759,6 +759,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
     }
 
     async fn rebuild_all(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         self.refresh_config().await?;
 
         // Wipe everything; rebuild from scratch.
@@ -1373,6 +1374,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
     }
 
     async fn rebuild_blocklist_filter(&self, blocklist_id: Uuid) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         self.rebuild_blocklist_inner(blocklist_id).await?;
         // After a blocklist swap, the profile's filter list still references
         // the same Arc, so no profile rebuild needed; but the source filter
@@ -1390,6 +1392,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
     }
 
     async fn rebuild_profile(&self, profile_id: Uuid) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         // Re-fetch this profile's blocklists to make sure all per-source
         // filters exist before we re-stitch.
         let blocklists = self
@@ -1423,10 +1426,12 @@ impl DnsFilterService for DnsFilterServiceImpl {
     }
 
     async fn rebuild_device(&self, device_id: Uuid) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         self.rebuild_device_inner(device_id).await
     }
 
     async fn rebuild_default_context(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         self.refresh_config().await?;
         self.rebuild_default_context_inner().await
     }
@@ -1437,6 +1442,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
         old_ip: &str,
         new_ip: &str,
     ) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         let mut by_ip = self.contexts.write().await;
         let entry = old_ip
             .parse::<IpAddr>()
