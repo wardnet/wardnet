@@ -358,7 +358,7 @@ jobs:
             done
           done
 
-      - uses: wardnet/bulwark@v1
+      - uses: wardnet/bulwark@v1.6.0
         with:
           dir: source
           tests-mode: skip
