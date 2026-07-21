@@ -24,6 +24,13 @@ export const TEST_DEBIAN_AGENT =
   process.env.WARDNET_TEST_DEBIAN_AGENT ?? "http://test_debian:3001";
 export const TEST_UBUNTU_AGENT =
   process.env.WARDNET_TEST_UBUNTU_AGENT ?? "http://test_ubuntu:3001";
+// The wardnetd container also hosts the test-agent in *server* mode on
+// :3001 (baked in via Dockerfile.test). It exposes kernel state the
+// daemon manipulates — `/ip-rules`, `/nft-rules`, `/link/{iface}` — so
+// specs can assert against the real routing tables. Same URL scheme as
+// the LAN client agents, different (server) route set.
+export const DAEMON_AGENT =
+  process.env.WARDNET_DAEMON_AGENT ?? "http://wardnetd:3001";
 
 // Setup-wizard credentials. Generated per-process so a leaked log line
 // can't be replayed against a real instance. `randomBytes` (vs
@@ -418,6 +425,26 @@ export async function findDeviceByIp(
 }
 
 /**
+ * Like [`findDeviceByIp`] but returns `null` instead of throwing on
+ * timeout, mirroring [`findDeviceByIpRangeOrNull`]. Specs use it to fall
+ * back to `ctx.skip()` when the daemon's packet-capture device discovery
+ * isn't reaching `wardnet_lan` in the test environment — a documented
+ * architectural limitation, not a code defect (see the note above
+ * `findDeviceByIpRangeOrNull`).
+ */
+export async function findDeviceByIpOrNull(
+  client: WardnetClient,
+  ip: string,
+  timeoutMs = 60_000,
+): Promise<Device | null> {
+  try {
+    return await findDeviceByIp(client, ip, timeoutMs);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Idempotent DNS-on switch that tolerates the transient `EADDRINUSE` we
  * see under singleFork when two specs both observe `enabled=false` and
  * race the runner's restart cycle. Retries once on the 500 path then
@@ -556,6 +583,124 @@ export async function findDeviceByIpRange(
   }
   throw new Error(
     `no device with last_ip in ${startInclusive}-${endInclusive} found within ${timeoutMs}ms (saw: ${last.map((d) => d.last_ip).join(", ")})`,
+  );
+}
+
+/** Envelope returned by the client agent's `POST /proxy`. */
+export interface ProxyDaemonResponse<T = unknown> {
+  /**
+   * The daemon's HTTP status. A 4xx/5xx here (e.g. the 403 an admin-locked
+   * device gets) is still a *successful* proxy call — only a transport
+   * failure surfaces as the agent's own non-2xx (which `agentPost` throws on).
+   */
+  status: number;
+  /** The daemon's response body, parsed as JSON when possible. */
+  body: T;
+}
+
+export interface ProxyDaemonOptions {
+  method?: "GET" | "PUT" | "POST" | "PATCH" | "DELETE";
+  /** Path on the daemon, e.g. `/api/devices/me`. */
+  path: string;
+  /**
+   * Local address to bind the outgoing socket to. The daemon classifies
+   * self-service callers by TCP source IP (no forwarded headers trusted),
+   * so pass the device's DHCP-leased IP to be identified as that device.
+   * A LAN client holds both its docker-IPAM IP and its lease on the same
+   * interface; only the lease is a discovered device.
+   */
+  sourceIp?: string;
+  /** Optional JSON request body. */
+  body?: unknown;
+}
+
+/**
+ * Drive a LAN client agent's `POST /proxy` so wardnetd sees the request
+ * as originating from the client's own LAN address. This is the only way
+ * to exercise the source-IP-classified `/api/devices/me` self-service
+ * flows from the test suite: the runner sits on the management network,
+ * so its own requests carry the wrong source IP.
+ */
+export async function proxyToDaemon<T = unknown>(
+  agent: string,
+  opts: ProxyDaemonOptions,
+): Promise<ProxyDaemonResponse<T>> {
+  return agentPost<ProxyDaemonResponse<T>>(agent, "/proxy", {
+    method: opts.method ?? "GET",
+    path: opts.path,
+    ...(opts.sourceIp !== undefined ? { source_ip: opts.sourceIp } : {}),
+    ...(opts.body !== undefined ? { body: opts.body } : {}),
+  });
+}
+
+/** A single parsed entry from the daemon agent's `GET /ip-rules`. */
+export interface DaemonIpRule {
+  priority: number;
+  from: string;
+  table: string;
+}
+
+export interface DaemonIpRulesResponse {
+  rules: DaemonIpRule[];
+  raw: string;
+}
+
+/**
+ * Read the daemon's live `ip rule` set via the test-agent running in
+ * server mode inside the wardnetd container (`http://wardnetd:3001`, see
+ * `arp-failover.spec.ts`). The per-device routing rules the daemon
+ * installs (`from <ip>/32 lookup <table>`) show up here, so specs can
+ * assert kernel state rather than only observable behaviour.
+ */
+export async function daemonIpRules(
+  daemonAgent: string,
+): Promise<DaemonIpRulesResponse> {
+  return agentGet<DaemonIpRulesResponse>(daemonAgent, "/ip-rules");
+}
+
+/**
+ * True for a Wardnet per-device routing rule: a rule bound to a specific
+ * host source (`from` is an address, not the kernel's catch-all `all`)
+ * pointing at a dedicated tunnel table (the daemon numbers those `>= 100`).
+ * Deliberately IP-agnostic — a client's `last_ip` can be either its DHCP
+ * lease or its docker-IPAM address depending on last-observed traffic, and
+ * the daemon installs the rule for whichever the device currently holds.
+ * `ip rule list` may render the host with or without a `/32` suffix
+ * depending on the iproute2 version, so we match on "not `all`" rather than
+ * a fixed IP shape. The kernel's own rules never match: their source is
+ * `all` and their table is a name (`main`/`local`/`default`), not a number.
+ */
+export function isDeviceTunnelRule(rule: DaemonIpRule): boolean {
+  return rule.from !== "all" && Number(rule.table) >= 100;
+}
+
+/**
+ * Poll [`daemonIpRules`] until a per-device tunnel rule (see
+ * [`isDeviceTunnelRule`]) is present (`want = true`) or gone
+ * (`want = false`), returning the matching rule (or `undefined` when it
+ * should be absent). Throws on timeout. The daemon applies rules
+ * asynchronously off a `RoutingRuleChanged` event, so a mutation is never
+ * visible on the first read. In the daemon e2e stack only one device is
+ * tunnel-routed at a time, so "any device tunnel rule" unambiguously
+ * reflects the device under test.
+ */
+export async function waitForTunnelRule(
+  daemonAgent: string,
+  want: boolean,
+  timeoutMs = 30_000,
+): Promise<DaemonIpRule | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  let last: DaemonIpRule[] = [];
+  while (Date.now() < deadline) {
+    last = (await daemonIpRules(daemonAgent)).rules;
+    const match = last.find(isDeviceTunnelRule);
+    if (want === Boolean(match)) return match;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(
+    `a per-device tunnel rule was ${want ? "not present" : "still present"} after ${timeoutMs}ms (rules: ${last
+      .map((r) => `${r.from}->${r.table}`)
+      .join(", ")})`,
   );
 }
 
