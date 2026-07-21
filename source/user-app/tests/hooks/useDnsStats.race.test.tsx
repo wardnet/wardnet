@@ -89,4 +89,34 @@ describe("useDnsStats — stale-date race", () => {
     expect(result.current.headline.blocked).toBe(5);
     expect(result.current.loading).toBe(false);
   });
+
+  it("blanks the previous day's counts while the newly selected day loads", async () => {
+    let resolveA!: (s: DnsStatsSnapshot) => void;
+    const pendingA = new Promise<DnsStatsSnapshot>((r) => {
+      resolveA = r;
+    });
+    // Date B's read stays in flight for the duration of the assertion.
+    const pendingB = new Promise<DnsStatsSnapshot>(() => {});
+
+    loadDnsStats.mockResolvedValue(snapshot(0));
+    loadDnsStats.mockReturnValueOnce(pendingA).mockReturnValueOnce(pendingB);
+
+    const { result, rerender } = renderHook(({ d }) => useDnsStats(d), {
+      initialProps: { d: "2026-07-01" },
+    });
+    resolveA(snapshot(7));
+    await waitFor(() => expect(result.current.headline.blocked).toBe(7));
+
+    // Switch to day B; its read has not resolved yet.
+    await act(async () => {
+      rerender({ d: "2026-07-02" });
+      await Promise.resolve();
+    });
+
+    // Day A's counts must not still be attributed to day B — the day-specific
+    // fields are blanked and the hook reports loading until B resolves.
+    expect(result.current.headline.blocked).toBe(0);
+    expect(result.current.topBlocked).toEqual([]);
+    expect(result.current.loading).toBe(true);
+  });
 });

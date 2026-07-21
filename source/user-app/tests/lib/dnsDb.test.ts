@@ -17,6 +17,7 @@ import {
   type DailyStat,
   type DnsEventItem,
 } from "../../src/lib/dnsDb";
+import { getAllRows as getAll, putDaily } from "../helpers/idb";
 
 function ev(overrides: Partial<DnsEventItem> = {}): DnsEventItem {
   return {
@@ -26,23 +27,6 @@ function ev(overrides: Partial<DnsEventItem> = {}): DnsEventItem {
     captured_at: "2026-07-02T12:00:00Z",
     ...overrides,
   };
-}
-
-function getAll<T>(db: IDBDatabase, store: string): Promise<T[]> {
-  return new Promise((resolve, reject) => {
-    const req = db.transaction(store, "readonly").objectStore(store).getAll();
-    req.onsuccess = () => resolve(req.result as T[]);
-    req.onerror = () => reject(req.error);
-  });
-}
-
-function putDaily(db: IDBDatabase, row: DailyStat): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(DAILY_STORE, "readwrite");
-    tx.objectStore(DAILY_STORE).put(row);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
 }
 
 function getMeta(db: IDBDatabase, key: string): Promise<unknown> {

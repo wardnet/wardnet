@@ -9,6 +9,7 @@ import {
   type DailyStat,
   type DnsEventItem,
 } from "../../src/lib/dnsDb";
+import { getAllRows, putDaily } from "../helpers/idb";
 import { useDnsEventsSync } from "../../src/hooks/useDnsEventsSync";
 
 /** Minimal controllable EventSource stand-in. */
@@ -58,30 +59,18 @@ async function countEvents(): Promise<number> {
 
 async function dailyDates(): Promise<string[]> {
   const db = await openDb();
-  const rows = await new Promise<DailyStat[]>((resolve, reject) => {
-    const req = db
-      .transaction(DAILY_STORE, "readonly")
-      .objectStore(DAILY_STORE)
-      .getAll();
-    req.onsuccess = () => resolve(req.result as DailyStat[]);
-    req.onerror = () => reject(req.error);
-  });
+  const rows = await getAllRows<DailyStat>(db, DAILY_STORE);
   db.close();
   return rows.map((r) => r.date);
 }
 
 async function seedStaleDaily(): Promise<void> {
   const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(DAILY_STORE, "readwrite");
-    tx.objectStore(DAILY_STORE).put({
-      date: "2000-01-01",
-      domain: "stale.com",
-      blocked: 1,
-      allowed: 0,
-    } satisfies DailyStat);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+  await putDaily(db, {
+    date: "2000-01-01",
+    domain: "stale.com",
+    blocked: 1,
+    allowed: 0,
   });
   db.close();
 }
