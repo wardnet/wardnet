@@ -59,7 +59,7 @@ describe("RecentErrorsCard", () => {
   });
 
   it("renders the remediation hint when present", () => {
-    const errors: Diagnostic[] = [
+    const errors: SystemDiagnostic[] = [
       diag({ message: "tunnel down", hint: "check the endpoint and keys" }),
     ];
     renderWithProviders(<RecentErrorsCard errors={errors} />);
