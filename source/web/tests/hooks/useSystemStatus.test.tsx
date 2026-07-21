@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createQueryWrapper } from "../test-utils";
 
 const { systemService, client } = vi.hoisted(() => ({
-  systemService: { getStatus: vi.fn(), acknowledgeShutdown: vi.fn() },
+  systemService: {
+    getStatus: vi.fn(),
+    acknowledgeShutdown: vi.fn(),
+    getRecentErrors: vi.fn(),
+  },
   client: { request: vi.fn() },
 }));
 vi.mock("../../src/lib/sdk", () => ({ systemService, client }));
@@ -38,12 +42,13 @@ describe("useSystemStatus", () => {
     expect(systemService.acknowledgeShutdown).toHaveBeenCalledOnce();
   });
 
-  it("fetches recent errors from the raw client endpoint", async () => {
-    client.request.mockResolvedValue({ errors: [] });
+  it("fetches recent errors through SystemService", async () => {
+    systemService.getRecentErrors.mockResolvedValue({ errors: [] });
     const { result } = renderHook(() => useRecentErrors(), {
       wrapper: createQueryWrapper(),
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(client.request).toHaveBeenCalledWith("/system/errors");
+    expect(systemService.getRecentErrors).toHaveBeenCalledOnce();
+    expect(client.request).not.toHaveBeenCalled();
   });
 });

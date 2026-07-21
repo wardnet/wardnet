@@ -51,7 +51,7 @@ afterEach(() => {
 
 describe("WardnetClient transport seam", () => {
   it("routes BackupService.export through buildHeaders (auth header preserved)", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: string, _init?: RequestInit) =>
       fakeResponse({ blob: new Blob(["bundle-bytes"]) }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -71,7 +71,7 @@ describe("WardnetClient transport seam", () => {
   });
 
   it("routes BackupService.previewImport through buildHeaders without forcing a content type", async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = vi.fn(async (_input: string, _init?: RequestInit) =>
       fakeResponse({
         json: {
           manifest: {},
@@ -115,7 +115,9 @@ describe("SystemService.getRecentErrors", () => {
         },
       ],
     };
-    const fetchMock = vi.fn(async () => fakeResponse({ json: payload }));
+    const fetchMock = vi.fn(async (_input: string, _init?: RequestInit) =>
+      fakeResponse({ json: payload }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const system = new SystemService(new WardnetClient({ baseUrl: "/api" }));
@@ -130,7 +132,9 @@ describe("SystemService.getRecentErrors", () => {
 
 describe("header normalization", () => {
   it("preserves headers passed as a Headers instance", async () => {
-    const fetchMock = vi.fn(async () => fakeResponse({ json: {} }));
+    const fetchMock = vi.fn(async (_input: string, _init?: RequestInit) =>
+      fakeResponse({ json: {} }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new WardnetClient({ baseUrl: "/api" });
@@ -145,7 +149,9 @@ describe("header normalization", () => {
   });
 
   it("preserves headers passed as an entries array", async () => {
-    const fetchMock = vi.fn(async () => fakeResponse({ json: {} }));
+    const fetchMock = vi.fn(async (_input: string, _init?: RequestInit) =>
+      fakeResponse({ json: {} }),
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new WardnetClient({ baseUrl: "/api" });
