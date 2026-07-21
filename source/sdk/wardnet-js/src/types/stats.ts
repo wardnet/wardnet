@@ -45,6 +45,13 @@ export interface StatsTopQuery {
    * for queries from sources with no known device).
    */
   fallback_label_key?: string;
+  /**
+   * Storage tier to rank over. Omitted defaults to `"minute"` (intraday,
+   * ~25h) server-side; pass `"hour"` or `"day"` to rank over the longer
+   * tiers so the ranking covers the same window as a matching time-series
+   * query (e.g. top trackers over the last 7 days).
+   */
+  bucket?: StatsBucket;
   from: string;
   to: string;
   limit: number;

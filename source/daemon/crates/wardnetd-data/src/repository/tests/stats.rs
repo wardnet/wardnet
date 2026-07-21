@@ -3,6 +3,7 @@
 use super::test_pool;
 use crate::repository::SqliteStatsRepository;
 use crate::repository::stats::{HourlyStatRow, IntradayStatRow, StatsRepository};
+use wardnet_common::stats::StatsBucket;
 
 fn intraday(metric: &str, labels: &str, bucket_ts: i64, value: f64, kind: &str) -> IntradayStatRow {
     IntradayStatRow {
@@ -214,7 +215,15 @@ async fn top_n_returns_results_sorted_by_total_desc() {
     .await
     .unwrap();
     let entries = repo
-        .top_n("dns.queries", "domain", None, 0, 9999, 2)
+        .top_n(
+            "dns.queries",
+            "domain",
+            None,
+            StatsBucket::Minute,
+            0,
+            9999,
+            2,
+        )
         .await
         .unwrap();
     assert_eq!(entries.len(), 2, "limit of 2 must be respected");
@@ -262,6 +271,7 @@ async fn top_n_fallback_groups_unattributed_by_fallback_key() {
             "dns.queries.by_client",
             "device_id",
             Some("client"),
+            StatsBucket::Minute,
             0,
             9999,
             10,
@@ -273,6 +283,101 @@ async fn top_n_fallback_groups_unattributed_by_fallback_key() {
     assert!(entries[0].labels.contains("dev-a"));
     assert_eq!(entries[1].total, 5.0);
     assert!(entries[1].labels.contains("10.0.0.77"));
+}
+
+/// Top-N over the hourly tier ranks `stats_hourly`, not intraday — the
+/// mid-length window path.
+#[tokio::test]
+async fn top_n_hour_bucket_ranks_over_hourly_tier() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    repo.upsert_hourly(&[
+        hourly(
+            "dns.blocked.by_tracker",
+            r#"{"company":"Google"}"#,
+            3600,
+            30.0,
+            "counter",
+        ),
+        hourly(
+            "dns.blocked.by_tracker",
+            r#"{"company":"Meta"}"#,
+            3600,
+            12.0,
+            "counter",
+        ),
+    ])
+    .await
+    .unwrap();
+    // A same-metric intraday decoy must be ignored by the hourly ranking.
+    repo.upsert_intraday(&[intraday(
+        "dns.blocked.by_tracker",
+        r#"{"company":"Adobe"}"#,
+        3600,
+        999.0,
+        "counter",
+    )])
+    .await
+    .unwrap();
+    let entries = repo
+        .top_n(
+            "dns.blocked.by_tracker",
+            "company",
+            None,
+            StatsBucket::Hour,
+            0,
+            99999,
+            5,
+        )
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 2, "only the two hourly-tier companies");
+    assert_eq!(entries[0].total, 30.0);
+    assert!(entries[0].labels.contains("Google"));
+}
+
+/// Top-N over the daily tier ranks `stats_daily`, converting the Unix-second
+/// bounds to calendar days — the long-window (week/month) path.
+#[tokio::test]
+async fn top_n_day_bucket_ranks_over_daily_tier() {
+    let pool = test_pool().await;
+    let repo = SqliteStatsRepository::new(pool);
+    // day_base is 2026-01-15 00:00:00 UTC.
+    let day_base = 1_768_435_200_i64;
+    repo.upsert_intraday(&[
+        intraday(
+            "dns.blocked.by_tracker",
+            r#"{"company":"Google"}"#,
+            day_base,
+            25.0,
+            "counter",
+        ),
+        intraday(
+            "dns.blocked.by_tracker",
+            r#"{"company":"Criteo"}"#,
+            day_base,
+            9.0,
+            "counter",
+        ),
+    ])
+    .await
+    .unwrap();
+    repo.rollup_daily("2026-01-15").await.unwrap();
+    let entries = repo
+        .top_n(
+            "dns.blocked.by_tracker",
+            "company",
+            None,
+            StatsBucket::Day,
+            day_base,
+            day_base + 86_400,
+            5,
+        )
+        .await
+        .unwrap();
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].total, 25.0);
+    assert!(entries[0].labels.contains("Google"));
 }
 
 #[tokio::test]

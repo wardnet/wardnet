@@ -19,6 +19,7 @@ import { DashboardUsageBar } from "@/components/compound/DashboardUsageBar";
 import { UpstreamServersCard } from "@/components/features/UpstreamServersCard";
 import { SecuritySettingsCard } from "@/components/features/SecuritySettingsCard";
 import { DnsStatsSection } from "@/components/features/DnsStatsSection";
+import { DnsAnalyticsSection } from "@/components/features/DnsAnalyticsSection";
 import { Tabs, TabsList, TabsTrigger } from "@wardnet/web";
 import {
   Select,
@@ -342,6 +343,7 @@ export default function Dns() {
               </Tabs>
             </div>
             <DnsStatsSection range={range} />
+            <DnsAnalyticsSection range={range} />
           </div>
         </div>
       )}

@@ -120,11 +120,13 @@ impl StatsRepository for MemoryStatsRepo {
             .collect())
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn top_n(
         &self,
         metric: &str,
         label_key: &str,
         fallback_label_key: Option<&str>,
+        bucket: StatsBucket,
         from: i64,
         to: i64,
         limit: u32,
@@ -138,18 +140,55 @@ impl StatsRepository for MemoryStatsRepo {
                 .as_str()
                 .map(ToOwned::to_owned)
         };
-        let guard = self.intraday.lock().unwrap();
+        // Gather (labels, value) pairs from the tier `bucket` selects, matching
+        // the SQL implementation's tier routing.
+        let matched: Vec<(String, f64)> = match bucket {
+            StatsBucket::Minute => self
+                .intraday
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.metric == metric && r.bucket_ts >= from && r.bucket_ts <= to)
+                .map(|r| (r.labels.clone(), r.value))
+                .collect(),
+            StatsBucket::Hour => self
+                .hourly
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|r| r.metric == metric && r.hour_ts >= from && r.hour_ts <= to)
+                .map(|r| (r.labels.clone(), r.value))
+                .collect(),
+            StatsBucket::Day => {
+                let from_day = chrono::DateTime::from_timestamp(from, 0)
+                    .unwrap_or_default()
+                    .date_naive()
+                    .to_string();
+                let to_day = chrono::DateTime::from_timestamp(to, 0)
+                    .unwrap_or_default()
+                    .date_naive()
+                    .to_string();
+                self.daily
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|r| {
+                        r.metric == metric
+                            && r.day.as_str() >= from_day.as_str()
+                            && r.day.as_str() <= to_day.as_str()
+                    })
+                    .map(|r| (r.labels.clone(), r.value))
+                    .collect()
+            }
+        };
         let mut totals: std::collections::HashMap<String, (String, f64)> =
             std::collections::HashMap::new();
-        for r in guard
-            .iter()
-            .filter(|r| r.metric == metric && r.bucket_ts >= from && r.bucket_ts <= to)
-        {
-            let key = extract(&r.labels, label_key)
-                .or_else(|| fallback_label_key.and_then(|f| extract(&r.labels, f)));
+        for (labels, value) in &matched {
+            let key = extract(labels, label_key)
+                .or_else(|| fallback_label_key.and_then(|f| extract(labels, f)));
             let Some(key) = key else { continue };
-            let entry = totals.entry(key).or_insert_with(|| (r.labels.clone(), 0.0));
-            entry.1 += r.value;
+            let entry = totals.entry(key).or_insert_with(|| (labels.clone(), 0.0));
+            entry.1 += value;
         }
         let mut entries: Vec<StatsTopEntry> = totals
             .into_values()
@@ -186,6 +225,16 @@ fn hourly(metric: &str, labels: &str, hour_ts: i64, value: f64, kind: &str) -> H
         hour_ts,
         value,
         kind: kind.to_owned(),
+    }
+}
+
+fn daily(metric: &str, labels: &str, day: &str, value: f64) -> DailyStatRow {
+    DailyStatRow {
+        metric: metric.to_owned(),
+        labels: labels.to_owned(),
+        day: day.to_owned(),
+        value,
+        kind: "counter".to_owned(),
     }
 }
 
@@ -515,6 +564,7 @@ async fn top_returns_forbidden_without_admin_context() {
         metric: "m".to_owned(),
         label_key: "outcome".to_owned(),
         fallback_label_key: None,
+        bucket: None,
         from: Utc::now(),
         to: Utc::now(),
         limit: 5,
@@ -546,6 +596,7 @@ async fn top_with_admin_context() {
         metric: "dns.queries".to_owned(),
         label_key: "domain".to_owned(),
         fallback_label_key: None,
+        bucket: None,
         from: Utc::now() - chrono::Duration::hours(1),
         to: Utc::now() + chrono::Duration::hours(1),
         limit: 5,
@@ -556,6 +607,61 @@ async fn top_with_admin_context() {
     assert_eq!(resp.metric, "dns.queries");
     assert_eq!(resp.entries.len(), 2);
     assert_eq!(resp.entries[0].total, 10.0);
+}
+
+#[tokio::test]
+async fn top_day_bucket_ranks_over_the_daily_tier() {
+    // Rank trackers over a multi-day window: with `bucket: Day` the ranking
+    // must read the daily tier, not intraday — the long-window path this
+    // enables. Intraday holds a decoy that must be ignored.
+    let repo = Arc::new(MemoryStatsRepo::default());
+    let today = Utc::now().date_naive().to_string();
+    {
+        let mut d = repo.daily.lock().unwrap();
+        d.push(daily(
+            "dns.blocked.by_tracker",
+            r#"{"company":"Google"}"#,
+            &today,
+            40.0,
+        ));
+        d.push(daily(
+            "dns.blocked.by_tracker",
+            r#"{"company":"Meta"}"#,
+            &today,
+            12.0,
+        ));
+    }
+    {
+        // A stale intraday row for the same metric must not leak into a
+        // daily-tier ranking.
+        let mut i = repo.intraday.lock().unwrap();
+        i.push(intraday(
+            "dns.blocked.by_tracker",
+            r#"{"company":"Adobe"}"#,
+            Utc::now().timestamp(),
+            999.0,
+        ));
+    }
+    let svc = StatsServiceImpl::new(repo);
+    let q = StatsTopQuery {
+        metric: "dns.blocked.by_tracker".to_owned(),
+        label_key: "company".to_owned(),
+        fallback_label_key: None,
+        bucket: Some(StatsBucket::Day),
+        from: Utc::now() - chrono::Duration::days(7),
+        to: Utc::now() + chrono::Duration::days(1),
+        limit: 5,
+    };
+    let resp = auth_context::with_context(admin_ctx(), svc.top(q))
+        .await
+        .unwrap();
+    assert_eq!(resp.entries.len(), 2, "only the two daily-tier companies");
+    assert_eq!(resp.entries[0].total, 40.0);
+    assert!(
+        resp.entries[0].labels.contains("Google"),
+        "top tracker should be Google, got {}",
+        resp.entries[0].labels
+    );
 }
 
 // ── run_maintenance ───────────────────────────────────────────────────────────
