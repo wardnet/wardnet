@@ -8,6 +8,13 @@ exclude-files = [
     "crates/wardnetd/src/main.rs",
     "crates/wctl/src/main.rs",
     "crates/wardnetd/src/wireguard_real.rs",
+    # Real netlink policy-router backend: like `wireguard_real.rs`, its
+    # rtnetlink socket calls have no mockable boundary (they need a real
+    # kernel) and are exercised by the e2e harness. The pure helpers extracted
+    # from it (`is_removable_host_route`, `rule_table`) keep their unit tests in
+    # `tests/policy_router_netlink.rs`; those still run, they just no longer
+    # count toward coverage.
+    "crates/wardnetd/src/policy_router_netlink.rs",
     "crates/wardnetd/src/wireguard_noop.rs",
     "crates/wardnetd/src/packet_capture_noop.rs",
     "crates/wardnetd/src/hostname_resolver_noop.rs",
