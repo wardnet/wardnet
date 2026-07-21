@@ -392,3 +392,22 @@ async fn rule_update_then_delete() {
     let v = body_json(resp).await;
     assert!(v["rules"].as_array().unwrap().is_empty());
 }
+
+#[tokio::test]
+async fn duplicate_rule_pattern_in_profile_conflicts() {
+    let app = app().await;
+    let profile = create_profile(&app, "Dup Rules").await;
+    let rules_path = format!("/api/routing/profiles/{}/rules", profile.id);
+    let body = json!({
+        "pattern": "dup.example.com",
+        "target": { "type": "direct" },
+        "enabled": true
+    });
+
+    let resp = app.clone().oneshot(post(&rules_path, &body)).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+
+    // The same pattern in the same profile is a conflict, not a second row.
+    let resp = app.oneshot(post(&rules_path, &body)).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::CONFLICT);
+}
