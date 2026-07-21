@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   BackupService,
   SystemService,
@@ -8,6 +8,13 @@ import {
   type UpdateTunnelDnsOverrideRequest,
   type UpdateTunnelDnsOverrideResponse,
 } from "@wardnet/js";
+
+/**
+ * `fetch` call signature. Typing the mocks with it (rather than adding unused
+ * parameters to their implementations) makes `mock.calls` a `[url, init?]`
+ * tuple so the assertions below can read the outgoing URL and headers.
+ */
+type FetchFn = (url: string, init?: RequestInit) => Promise<Response>;
 
 /**
  * Client that attaches a marker header through the `buildHeaders` seam — the
@@ -39,9 +46,9 @@ function fakeResponse(init: {
   } as unknown as Response;
 }
 
-function lastFetchHeaders(mock: ReturnType<typeof vi.fn>): Headers {
+function lastFetchHeaders(mock: Mock<FetchFn>): Headers {
   const calls = mock.mock.calls;
-  const init = calls[calls.length - 1]?.[1] as RequestInit | undefined;
+  const init = calls[calls.length - 1]?.[1];
   return new Headers(init?.headers);
 }
 
@@ -51,7 +58,7 @@ afterEach(() => {
 
 describe("WardnetClient transport seam", () => {
   it("routes BackupService.export through buildHeaders (auth header preserved)", async () => {
-    const fetchMock = vi.fn(async (_input: string, _init?: RequestInit) =>
+    const fetchMock = vi.fn<FetchFn>(async () =>
       fakeResponse({ blob: new Blob(["bundle-bytes"]) }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -71,7 +78,7 @@ describe("WardnetClient transport seam", () => {
   });
 
   it("routes BackupService.previewImport through buildHeaders without forcing a content type", async () => {
-    const fetchMock = vi.fn(async (_input: string, _init?: RequestInit) =>
+    const fetchMock = vi.fn<FetchFn>(async () =>
       fakeResponse({
         json: {
           manifest: {},
@@ -115,7 +122,7 @@ describe("SystemService.getRecentErrors", () => {
         },
       ],
     };
-    const fetchMock = vi.fn(async (_input: string, _init?: RequestInit) =>
+    const fetchMock = vi.fn<FetchFn>(async () =>
       fakeResponse({ json: payload }),
     );
     vi.stubGlobal("fetch", fetchMock);
@@ -132,9 +139,7 @@ describe("SystemService.getRecentErrors", () => {
 
 describe("header normalization", () => {
   it("preserves headers passed as a Headers instance", async () => {
-    const fetchMock = vi.fn(async (_input: string, _init?: RequestInit) =>
-      fakeResponse({ json: {} }),
-    );
+    const fetchMock = vi.fn<FetchFn>(async () => fakeResponse({ json: {} }));
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new WardnetClient({ baseUrl: "/api" });
@@ -149,9 +154,7 @@ describe("header normalization", () => {
   });
 
   it("preserves headers passed as an entries array", async () => {
-    const fetchMock = vi.fn(async (_input: string, _init?: RequestInit) =>
-      fakeResponse({ json: {} }),
-    );
+    const fetchMock = vi.fn<FetchFn>(async () => fakeResponse({ json: {} }));
     vi.stubGlobal("fetch", fetchMock);
 
     const client = new WardnetClient({ baseUrl: "/api" });
