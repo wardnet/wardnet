@@ -5557,6 +5557,11 @@ __metadata:
     prettier: "npm:3.9.4"
     tsup: "npm:8.5.1"
     typescript: "npm:6.0.3"
+  peerDependencies:
+    consola: ^3.4.2
+  peerDependenciesMeta:
+    consola:
+      optional: true
   languageName: unknown
   linkType: soft
 
@@ -5703,6 +5708,7 @@ __metadata:
     "@wardnet/js": "workspace:*"
     "@wardnet/ui": "npm:^0.3.0"
     clsx: "npm:2.1.1"
+    consola: "npm:^3.4.2"
     cronstrue: "npm:3.24.0"
     eslint: "npm:10.7.0"
     eslint-config-prettier: "npm:10.1.8"
