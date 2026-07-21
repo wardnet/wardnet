@@ -25716,7 +25716,7 @@
       },
       "GetDeviceRoutingProfilesResponse": {
         "type": "object",
-        "description": "Response for GET /api/routing/devices/{device_id}/profiles.",
+        "description": "Response for GET /`api/routing/devices/{device_id}/profiles`.",
         "required": [
           "profile_ids"
         ],
@@ -27570,7 +27570,7 @@
       },
       "SetDeviceRoutingProfilesRequest": {
         "type": "object",
-        "description": "Request body for PUT /api/routing/devices/{device_id}/profiles.",
+        "description": "Request body for PUT /`api/routing/devices/{device_id}/profiles`.",
         "required": [
           "profile_ids"
         ],
@@ -27587,7 +27587,7 @@
       },
       "SetDeviceRoutingProfilesResponse": {
         "type": "object",
-        "description": "Response for PUT /api/routing/devices/{device_id}/profiles.",
+        "description": "Response for PUT /`api/routing/devices/{device_id}/profiles`.",
         "required": [
           "message"
         ],
@@ -29625,6 +29625,10 @@
     {
       "name": "providers",
       "description": "VPN provider integration"
+    },
+    {
+      "name": "routing",
+      "description": "Domain routing profiles: per-domain egress selection over tunnels/providers"
     },
     {
       "name": "dhcp",

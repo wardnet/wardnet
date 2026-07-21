@@ -1,7 +1,7 @@
 //! Repository for the routing-profile subsystem.
 //!
 //! Owns CRUD over the three tables seeded by the
-//! `20260720000000_routing_profiles.sql` migration: `routing_profiles` (named
+//! `20260721000000_routing_profiles.sql` migration: `routing_profiles` (named
 //! profiles), `routing_profile_rules` (domain → target rules, FK onto a
 //! profile), and `routing_device_profile` (the ordered many-to-many device →
 //! profile assignment).
