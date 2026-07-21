@@ -101,9 +101,16 @@ export function suggestHostnameForMac(
 
 /** Format bytes into a human-readable string (e.g. "1.2 GB"). */
 export function formatBytes(bytes: number): string {
-  if (bytes === 0) return "0 B";
+  // Non-positive input has no magnitude: `Math.log(0)` is `-Infinity` and
+  // `Math.log(<0)` is `NaN`, either of which would produce a garbage index.
+  if (bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  // Clamp to the largest known unit so values past 1 PB still render as
+  // "N TB" rather than indexing past the array and printing "undefined".
+  const i = Math.min(
+    Math.floor(Math.log(bytes) / Math.log(1024)),
+    units.length - 1,
+  );
   const value = bytes / Math.pow(1024, i);
   // eslint-disable-next-line security/detect-object-injection -- i is a numeric magnitude index into a local const unit array; no attacker-controlled key
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
