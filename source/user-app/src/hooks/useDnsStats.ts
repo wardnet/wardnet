@@ -27,17 +27,23 @@ const EMPTY: DnsStatsData = {
 export function useDnsStats(date: string): DnsStatsData {
   const [data, setData] = useState<DnsStatsData>(EMPTY);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<DnsStatsData> => {
     const snapshot = await loadDnsStats(date, recentDates(TREND_DAYS));
-    setData({ ...snapshot, loading: false });
+    return { ...snapshot, loading: false };
   }, [date]);
 
   useEffect(() => {
     let active = true;
     const run = () => {
-      load().catch(() => {
-        if (active) setData((d) => ({ ...d, loading: false }));
-      });
+      load()
+        .then((next) => {
+          // Guard the commit: a slow read for a previously-selected date must
+          // not overwrite the current one after the effect has been torn down.
+          if (active) setData(next);
+        })
+        .catch(() => {
+          if (active) setData((d) => ({ ...d, loading: false }));
+        });
     };
     run();
 
