@@ -1,5 +1,5 @@
 //! Tests for [`LogServiceImpl`] — the orchestrator that combines the log
-//! stream and error notifier behind a single unified trait.
+//! stream and the recent-diagnostics buffer behind a single unified trait.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -7,21 +7,30 @@ use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
+use wardnet_common::event::WardnetEvent;
 
 use crate::auth_context;
+use crate::diagnostics::{Diagnostic, DiagnosticSink, DiagnosticStore};
 use crate::error::AppError;
-use crate::logging::error_notifier::ErrorNotifierService;
 use crate::logging::service::{LogService, LogServiceImpl};
 use crate::logging::stream::LogStreamService;
 
 /// Build a fresh log service with a unique temp log path and default capacities.
 fn build_service() -> (LogServiceImpl, PathBuf) {
+    let (svc, _store, dir) = build_service_with_store();
+    (svc, dir)
+}
+
+/// Like [`build_service`] but also returns the diagnostics store handle, so a
+/// test can record diagnostics and observe them through the service.
+fn build_service_with_store() -> (LogServiceImpl, DiagnosticStore, PathBuf) {
     let stream = Arc::new(LogStreamService::new(64));
-    let errors = Arc::new(ErrorNotifierService::new(15));
+    let store = DiagnosticStore::new(15);
     // Use a per-test unique directory so parallel tests don't collide.
     let dir = std::env::temp_dir().join(format!("wardnet-test-logs-{}", Uuid::new_v4()));
     let log_path = dir.join("wardnetd.log");
-    (LogServiceImpl::new(stream, errors, log_path.clone()), dir)
+    let svc = LogServiceImpl::new(stream, Arc::new(store.clone()), log_path);
+    (svc, store, dir)
 }
 
 fn admin_ctx() -> AuthContext {
@@ -36,13 +45,15 @@ fn new_service_is_constructable() {
 }
 
 #[test]
-fn tracing_layers_returns_two_layers() {
+fn tracing_layers_returns_only_the_stream_layer() {
     let (svc, _dir) = build_service();
     let layers = svc.tracing_layers();
+    // Diagnostics are fed off the event bus, not the tracing pipeline, so the
+    // only tracing layer is the live-log stream.
     assert_eq!(
         layers.len(),
-        2,
-        "stream + error_notifier components expected"
+        1,
+        "only the stream component is a tracing layer"
     );
 }
 
@@ -163,30 +174,46 @@ async fn download_log_file_rejects_path_traversal() {
 }
 
 #[tokio::test]
-async fn layers_published_via_service_capture_events() {
+async fn stream_layer_published_via_service_captures_events() {
     let (svc, _dir) = build_service();
     svc.start_all();
     let mut rx = auth_context::with_context(admin_ctx(), async { svc.subscribe() })
         .await
         .unwrap();
 
-    // The subscriber type would be awkward to spell with two boxed layers, so
-    // compose the Vec<BoxedLayer> directly — `Vec<L>` implements `Layer<S>`.
     let layers = svc.tracing_layers();
     let subscriber = tracing_subscriber::registry().with(layers);
     let _guard = tracing::subscriber::set_default(subscriber);
 
     tracing::error!(target: "t", "service-level error");
 
-    // Stream receives the event.
+    // The live-log stream receives the event. Diagnostics no longer come from
+    // tracing, so an error log alone does not populate the recent-errors feed.
     let entry = rx.recv().await.unwrap();
     assert_eq!(entry.level, "ERROR");
-    // Error notifier captures it too.
+    let recent = auth_context::with_context(admin_ctx(), async { svc.get_recent_errors() })
+        .await
+        .unwrap();
+    assert!(recent.is_empty());
+}
+
+#[tokio::test]
+async fn get_recent_errors_returns_recorded_diagnostics() {
+    let (svc, store, _dir) = build_service_with_store();
+    store.record(
+        Diagnostic::from_event(&WardnetEvent::RouteTableLost {
+            table: 51_820,
+            timestamp: chrono::Utc::now(),
+        })
+        .unwrap(),
+    );
+
     let recent = auth_context::with_context(admin_ctx(), async { svc.get_recent_errors() })
         .await
         .unwrap();
     assert_eq!(recent.len(), 1);
-    assert_eq!(recent[0].level, "ERROR");
+    assert!(recent[0].message.contains("51820"));
+    assert!(!recent[0].hint.is_empty());
 }
 
 #[tokio::test]
@@ -333,26 +360,23 @@ async fn list_log_files_orders_by_modified_desc() {
 }
 
 #[tokio::test]
-async fn start_all_activates_both_components() {
+async fn start_all_activates_the_stream_component() {
     use crate::logging::component::LogComponent;
     let stream = Arc::new(LogStreamService::new(8));
-    let errors = Arc::new(ErrorNotifierService::new(8));
+    let store = DiagnosticStore::new(8);
     let svc = LogServiceImpl::new(
         stream.clone(),
-        errors.clone(),
+        Arc::new(store),
         PathBuf::from("/tmp/wardnet-test.log"),
     );
 
     assert!(!stream.is_active());
-    assert!(!errors.is_active());
 
     svc.start_all();
     assert!(stream.is_active());
-    assert!(errors.is_active());
 
     svc.stop_all();
     assert!(!stream.is_active());
-    assert!(!errors.is_active());
 }
 
 #[test]

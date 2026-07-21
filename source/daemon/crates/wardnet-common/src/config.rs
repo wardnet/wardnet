@@ -227,18 +227,19 @@ pub struct LoggingConfig {
     pub rotation: LogRotation,
     /// Maximum number of rotated log files to keep.
     pub max_log_files: usize,
-    /// Maximum number of recent errors kept in the ring buffer.
+    /// Maximum number of recent diagnostics kept in the ring buffer that backs
+    /// the dashboard's recent-errors panel.
     pub max_recent_errors: usize,
     /// Channel capacity for the WebSocket log broadcast.
     pub broadcast_capacity: usize,
-    /// Tracing targets hidden from the admin-facing log surfaces (the
-    /// WebSocket log stream and the recent-errors buffer).
+    /// Tracing targets hidden from the admin-facing live-log stream (the
+    /// WebSocket log view).
     ///
     /// Matched as a prefix against the event target, so
     /// `hickory_resolver::recursor` also covers
     /// `hickory_resolver::recursor::handle`. Entries here are **not** filtered
     /// out of the log file or the `OTel` exporters — the full detail stays on
-    /// disk for debugging; this only keeps the admin UI free of events an
+    /// disk for debugging; this only keeps the admin log view free of events an
     /// admin cannot act on.
     pub ui_suppressed_targets: Vec<String>,
 }
@@ -257,10 +258,10 @@ impl Default for LoggingConfig {
             // Warns once per failed recursive lookup ("lookup error: no records
             // found ..."). On a busy resolver that is one warning per client
             // query for an ordinary negative DNS answer — it would drown the
-            // live log view and evict real errors from the recent-errors
-            // buffer. Unlike the netlink noise silenced in `to_filter_string`,
-            // this is worth keeping on disk: it names the query that failed, so
-            // it is genuinely useful when debugging resolution.
+            // live log view. Unlike the netlink noise silenced in
+            // `to_filter_string`, this is worth keeping on disk: it names the
+            // query that failed, so it is genuinely useful when debugging
+            // resolution.
             ui_suppressed_targets: vec!["hickory_resolver::recursor".to_owned()],
         }
     }

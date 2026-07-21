@@ -18316,11 +18316,11 @@
         "tags": [
           "system"
         ],
-        "description": "Return the most recent warnings and errors captured by the in-memory error notifier ring buffer (currently the last 15 entries). Powers the dashboard's \"recent issues\" panel. Admin only.",
+        "description": "Return the most recent admin-facing diagnostics: typed error conditions raised by daemon components, each with a message and a remediation hint. Fed by the domain event bus rather than by scraping log lines. Powers the dashboard's \"recent errors\" panel. Admin only.",
         "operationId": "recent_errors",
         "responses": {
           "200": {
-            "description": "Recent warnings and errors",
+            "description": "Recent diagnostics",
             "content": {
               "application/json": {
                 "schema": {
@@ -21960,6 +21960,45 @@
           }
         }
       },
+      "ApiDiagnostic": {
+        "type": "object",
+        "description": "API-layer mirror of [`wardnetd_services::diagnostics::Diagnostic`] that\ncarries an `OpenAPI` schema. The service-layer type lives in a crate that\ndoes not depend on `utoipa`; mirroring it here keeps the schema boundary\naligned with the HTTP API without leaking the docs dependency into the\nservices crate. The `code` and `severity` enums are flattened to their\nstable string forms.",
+        "required": [
+          "timestamp",
+          "code",
+          "severity",
+          "component",
+          "message",
+          "hint"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable class identifier, e.g. `tunnel_start_failed`."
+          },
+          "component": {
+            "type": "string",
+            "description": "The subsystem that raised it."
+          },
+          "hint": {
+            "type": "string",
+            "description": "What the admin can do about it."
+          },
+          "message": {
+            "type": "string",
+            "description": "Plain-language description of what happened."
+          },
+          "severity": {
+            "type": "string",
+            "description": "One of `error`, `warning`, `info`."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the underlying condition occurred."
+          }
+        }
+      },
       "ApiError": {
         "type": "object",
         "description": "Standard API error response.",
@@ -21982,31 +22021,6 @@
               "null"
             ],
             "description": "Request ID for correlation with server logs."
-          }
-        }
-      },
-      "ApiErrorEntry": {
-        "type": "object",
-        "description": "API-layer mirror of [`wardnetd_services::logging::error_notifier::ErrorEntry`] that\ncarries an `OpenAPI` schema. The service-layer type lives in a crate that does\nnot depend on `utoipa`; duplicating the small struct here keeps the schema\nboundary aligned with the HTTP API without leaking the docs dependency into\nthe services crate.",
-        "required": [
-          "timestamp",
-          "level",
-          "target",
-          "message"
-        ],
-        "properties": {
-          "level": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "target": {
-            "type": "string"
-          },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -25826,7 +25840,7 @@
           "errors": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ApiErrorEntry"
+              "$ref": "#/components/schemas/ApiDiagnostic"
             }
           }
         }

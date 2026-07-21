@@ -11,7 +11,7 @@ pub type BoxedLayer = Box<dyn tracing_subscriber::Layer<Registry> + Send + Sync>
 ///
 /// # Lifecycle
 ///
-/// 1. Component is created (e.g. `ErrorNotifierService::new(15)`)
+/// 1. Component is created (e.g. `LogStreamService::new(256)`)
 /// 2. `tracing_layer()` is called once to extract the layer for subscriber composition
 /// 3. The daemon builds the subscriber with all collected layers
 /// 4. `start()` is called to activate the component

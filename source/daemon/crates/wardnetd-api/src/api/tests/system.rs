@@ -579,8 +579,8 @@ async fn recent_errors_returns_empty_list() {
 
 #[tokio::test]
 async fn recent_errors_returns_populated_errors() {
+    use wardnetd_services::diagnostics::Diagnostic;
     use wardnetd_services::logging::component::BoxedLayer;
-    use wardnetd_services::logging::error_notifier::ErrorEntry;
     use wardnetd_services::logging::service::LogFileInfo;
     use wardnetd_services::logging::stream::LogEntry;
 
@@ -594,20 +594,23 @@ async fn recent_errors_returns_populated_errors() {
             drop(tx);
             Ok(rx)
         }
-        fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+        fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
+            use wardnet_common::event::WardnetEvent;
             Ok(vec![
-                ErrorEntry {
-                    level: "ERROR".to_owned(),
-                    message: "boom".to_owned(),
-                    target: "test".to_owned(),
+                Diagnostic::from_event(&WardnetEvent::TunnelStartFailed {
+                    tunnel_id: Uuid::new_v4(),
+                    interface_name: "wg-work".to_owned(),
+                    error: "boom".to_owned(),
                     timestamp: chrono::Utc::now(),
-                },
-                ErrorEntry {
-                    level: "WARN".to_owned(),
-                    message: "careful".to_owned(),
-                    target: "test".to_owned(),
+                })
+                .unwrap(),
+                Diagnostic::from_event(&WardnetEvent::DhcpConflictDetected {
+                    mac: "aa:bb:cc:dd:ee:ff".to_owned(),
+                    ip: "192.168.1.2".to_owned(),
+                    details: "careful".to_owned(),
                     timestamp: chrono::Utc::now(),
-                },
+                })
+                .unwrap(),
             ])
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
@@ -669,8 +672,11 @@ async fn recent_errors_returns_populated_errors() {
     let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
     let errors = json["errors"].as_array().unwrap();
     assert_eq!(errors.len(), 2);
-    assert_eq!(errors[0]["level"], "ERROR");
-    assert_eq!(errors[1]["level"], "WARN");
+    assert_eq!(errors[0]["code"], "tunnel_start_failed");
+    assert_eq!(errors[0]["severity"], "error");
+    assert!(!errors[0]["hint"].as_str().unwrap().is_empty());
+    assert_eq!(errors[1]["code"], "dhcp_conflict");
+    assert_eq!(errors[1]["severity"], "warning");
 }
 
 #[tokio::test]
@@ -719,8 +725,8 @@ async fn download_logs_requires_authentication() {
 
 #[tokio::test]
 async fn download_logs_returns_text_when_log_exists() {
+    use wardnetd_services::diagnostics::Diagnostic;
     use wardnetd_services::logging::component::BoxedLayer;
-    use wardnetd_services::logging::error_notifier::ErrorEntry;
     use wardnetd_services::logging::service::LogFileInfo;
     use wardnetd_services::logging::stream::LogEntry;
 
@@ -736,7 +742,7 @@ async fn download_logs_returns_text_when_log_exists() {
             drop(tx);
             Ok(rx)
         }
-        fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+        fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
             Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
@@ -820,8 +826,8 @@ async fn download_logs_returns_text_when_log_exists() {
 
 #[tokio::test]
 async fn download_logs_formats_non_json_lines_as_is() {
+    use wardnetd_services::diagnostics::Diagnostic;
     use wardnetd_services::logging::component::BoxedLayer;
-    use wardnetd_services::logging::error_notifier::ErrorEntry;
     use wardnetd_services::logging::service::LogFileInfo;
     use wardnetd_services::logging::stream::LogEntry;
 
@@ -834,7 +840,7 @@ async fn download_logs_formats_non_json_lines_as_is() {
             drop(tx);
             Ok(rx)
         }
-        fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+        fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
             Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
@@ -902,8 +908,8 @@ async fn download_logs_formats_non_json_lines_as_is() {
 
 #[tokio::test]
 async fn download_logs_finds_dated_file() {
+    use wardnetd_services::diagnostics::Diagnostic;
     use wardnetd_services::logging::component::BoxedLayer;
-    use wardnetd_services::logging::error_notifier::ErrorEntry;
     use wardnetd_services::logging::service::LogFileInfo;
     use wardnetd_services::logging::stream::LogEntry;
 
@@ -916,7 +922,7 @@ async fn download_logs_finds_dated_file() {
             drop(tx);
             Ok(rx)
         }
-        fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+        fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
             Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
@@ -984,8 +990,8 @@ async fn download_logs_finds_dated_file() {
 
 #[tokio::test]
 async fn download_logs_no_file_returns_500() {
+    use wardnetd_services::diagnostics::Diagnostic;
     use wardnetd_services::logging::component::BoxedLayer;
-    use wardnetd_services::logging::error_notifier::ErrorEntry;
     use wardnetd_services::logging::service::LogFileInfo;
     use wardnetd_services::logging::stream::LogEntry;
 
@@ -998,7 +1004,7 @@ async fn download_logs_no_file_returns_500() {
             drop(tx);
             Ok(rx)
         }
-        fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+        fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
             Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
