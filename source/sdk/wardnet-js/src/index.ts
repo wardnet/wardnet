@@ -1,6 +1,6 @@
 // Logging
-export { createLogger, setLevel } from "./logger.js";
-export type { Logger, LogLevel } from "./logger.js";
+export { createLogger, setLevel, setAdapter, consoleAdapter } from "./logger.js";
+export type { Logger, LogLevel, EmittedLevel, LogAdapter } from "./logger.js";
 
 // Client
 export { WardnetClient, WardnetApiError } from "./client.js";

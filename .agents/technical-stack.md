@@ -16,7 +16,8 @@
 - `wardnetd-mock` — local dev binary: full API with no-op network backends, on-disk or in-memory SQLite, real file-backed secret store under `/tmp/wardnet-mock/secrets`
 
 ## SDK (`@wardnet/js`)
-- TypeScript 5.9, zero runtime dependencies
+- TypeScript 5.9, zero required runtime dependencies
+- Logging ships a zero-dependency console adapter by default; `consola` is an **optional** peer dependency — consumers that want richer output enable it via `setAdapter(createConsolaAdapter())` from the `@wardnet/js/consola` subpath
 - Uses native `fetch` (works in browser and Node 18+)
 - No DOM types — minimal `globals.d.ts` for cross-environment support
 - Linked via Yarn `portal:` protocol from all app surfaces (`"@wardnet/js": "portal:../sdk/wardnet-js"`)

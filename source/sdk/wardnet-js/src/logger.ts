@@ -1,6 +1,7 @@
-import { createConsola } from "consola";
-
 export type LogLevel = "silent" | "error" | "warn" | "info" | "debug";
+
+/** The levels that actually reach an adapter (`silent` filters everything out). */
+export type EmittedLevel = Exclude<LogLevel, "silent">;
 
 const NUMERIC: Record<LogLevel, number> = {
   silent: -1,
@@ -10,8 +11,47 @@ const NUMERIC: Record<LogLevel, number> = {
   debug: 5,
 };
 
-// consola instance at max level — we own all level filtering.
-const _root = createConsola({ level: 5 });
+/**
+ * Output sink for log records. The SDK owns level filtering; an adapter only
+ * has to write records it is handed. This is the seam that keeps the package
+ * dependency-free by default: the built-in {@link consoleAdapter} needs
+ * nothing, and richer sinks (e.g. the `consola` adapter under
+ * `@wardnet/js/consola`) are opt-in via {@link setAdapter}.
+ */
+export interface LogAdapter {
+  log(level: EmittedLevel, tag: string, args: unknown[]): void;
+}
+
+const CONSOLE_METHOD: Record<EmittedLevel, (...args: unknown[]) => void> = {
+  error: (...args) => console.error(...args),
+  warn: (...args) => console.warn(...args),
+  info: (...args) => console.info(...args),
+  debug: (...args) => console.debug(...args),
+};
+
+/**
+ * Zero-dependency default adapter. Writes to the matching `console` method,
+ * prefixing the record with its `[tag]` so scoped loggers stay
+ * distinguishable in plain terminal or DevTools output.
+ */
+export const consoleAdapter: LogAdapter = {
+  log(level, tag, args) {
+    // eslint-disable-next-line security/detect-object-injection -- level is an EmittedLevel union member indexing a fixed Record, never external input
+    CONSOLE_METHOD[level](`[${tag}]`, ...args);
+  },
+};
+
+let _adapter: LogAdapter = consoleAdapter;
+
+/**
+ * Swap the output sink used by every logger, current and future. Apps that
+ * bundle `consola` call this once at startup with the adapter from
+ * `@wardnet/js/consola`; leaving it unset keeps the zero-dependency
+ * {@link consoleAdapter}.
+ */
+export function setAdapter(adapter: LogAdapter): void {
+  _adapter = adapter;
+}
 
 const _overrides = new Map<string, LogLevel>();
 const _resolved = new Map<string, LogLevel>();
@@ -53,28 +93,20 @@ export interface Logger {
 }
 
 export function createLogger(tag: string): Logger {
-  const scoped = _root.withTag(tag);
-  // eslint-disable-next-line security/detect-object-injection -- keys are LogLevel union members indexing a Record<LogLevel, number>, never external input
-  const enabled = (level: LogLevel) => NUMERIC[resolveLevel(tag)] >= NUMERIC[level];
-  // Cast to satisfy TypeScript's strict spread-into-rest rules while keeping
-  // our public interface typed as unknown[].
-  type AnyArgs = [unknown, ...unknown[]];
+  const enabled = (level: EmittedLevel) => NUMERIC[resolveLevel(tag)] >= NUMERIC[level];
+  const emit =
+    (level: EmittedLevel) =>
+    (...args: unknown[]) => {
+      if (enabled(level)) _adapter.log(level, tag, args);
+    };
   return {
     get tag() {
       return tag;
     },
-    error: (...args) => {
-      if (enabled("error")) scoped.error(...(args as AnyArgs));
-    },
-    warn: (...args) => {
-      if (enabled("warn")) scoped.warn(...(args as AnyArgs));
-    },
-    info: (...args) => {
-      if (enabled("info")) scoped.info(...(args as AnyArgs));
-    },
-    debug: (...args) => {
-      if (enabled("debug")) scoped.debug(...(args as AnyArgs));
-    },
+    error: emit("error"),
+    warn: emit("warn"),
+    info: emit("info"),
+    debug: emit("debug"),
   };
 }
 

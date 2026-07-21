@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./consola": {
+      "types": "./dist/consola.d.ts",
+      "import": "./dist/consola.js"
     }
   },
   "files": [
@@ -25,12 +29,18 @@
     "format:check": "prettier --check src/"
   },
   "devDependencies": {
+    "consola": "^3.4.2",
     "prettier": "3.9.4",
     "tsup": "8.5.1",
     "typescript": "6.0.3"
   },
-  "packageManager": "yarn@4.17.0",
-  "dependencies": {
+  "peerDependencies": {
     "consola": "^3.4.2"
-  }
+  },
+  "peerDependenciesMeta": {
+    "consola": {
+      "optional": true
+    }
+  },
+  "packageManager": "yarn@4.17.0"
 }

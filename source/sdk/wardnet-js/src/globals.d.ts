@@ -10,6 +10,19 @@ declare function fetch(input: string | URL, init?: RequestInit): Promise<Respons
 declare function setTimeout(callback: () => void, ms: number): ReturnType<typeof setTimeout>;
 declare function clearTimeout(id: ReturnType<typeof setTimeout>): void;
 
+/**
+ * Console — available in both browsers and Node. Only the methods the
+ * default log adapter writes through are declared; consumers wanting richer
+ * output swap the sink via `setAdapter` (e.g. the `@wardnet/js/consola`
+ * adapter) rather than relying on more of this surface.
+ */
+declare const console: {
+  error(...args: unknown[]): void;
+  warn(...args: unknown[]): void;
+  info(...args: unknown[]): void;
+  debug(...args: unknown[]): void;
+};
+
 interface RequestInit {
   method?: string;
   headers?: Record<string, string>;
