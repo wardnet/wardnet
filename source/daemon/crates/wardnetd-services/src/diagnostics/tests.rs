@@ -1,15 +1,20 @@
 //! Unit tests for [`Diagnostic`] event mapping and the [`DiagnosticStore`]
 //! ring buffer.
 
+use std::sync::Arc;
+use std::time::Duration;
+
 use chrono::Utc;
 use uuid::Uuid;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::update::InstallPhase;
 
+use super::listener::DiagnosticsListener;
 use super::{
     Diagnostic, DiagnosticCode, DiagnosticSeverity, DiagnosticSink, DiagnosticStore,
     RecentDiagnostics,
 };
+use crate::event::{BroadcastEventBus, EventPublisher};
 
 fn tunnel_start_failed() -> WardnetEvent {
     WardnetEvent::TunnelStartFailed {
@@ -140,5 +145,71 @@ fn severity_and_code_string_forms_are_stable() {
         DiagnosticCode::TunnelStartFailed.as_str(),
         "tunnel_start_failed"
     );
+    assert_eq!(DiagnosticCode::UpdateFailed.as_str(), "update_failed");
     assert_eq!(DiagnosticCode::DhcpConflict.as_str(), "dhcp_conflict");
+    assert_eq!(DiagnosticCode::RouteTableLost.as_str(), "route_table_lost");
+}
+
+#[test]
+fn every_code_has_a_non_empty_hint() {
+    for code in [
+        DiagnosticCode::TunnelStartFailed,
+        DiagnosticCode::UpdateFailed,
+        DiagnosticCode::DhcpConflict,
+        DiagnosticCode::RouteTableLost,
+    ] {
+        assert!(!code.hint().is_empty(), "{code:?} must have a hint");
+    }
+}
+
+/// Poll `pred` for up to ~500 ms, yielding to let the listener task run.
+async fn eventually(pred: impl Fn() -> bool) -> bool {
+    for _ in 0..100 {
+        if pred() {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    pred()
+}
+
+#[tokio::test]
+async fn listener_records_error_events_and_ignores_the_rest() {
+    let bus: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+    let store = DiagnosticStore::new(8);
+    let listener =
+        DiagnosticsListener::start(&bus, Arc::new(store.clone()), &tracing::Span::current());
+
+    // `start` subscribes synchronously before spawning, so events published now
+    // are guaranteed to be seen by the task.
+    bus.publish(tunnel_start_failed());
+    bus.publish(WardnetEvent::DnsServerStarted {
+        timestamp: Utc::now(),
+    });
+
+    assert!(
+        eventually(|| store.recent().len() == 1).await,
+        "the error event should be recorded and the non-error one ignored"
+    );
+    assert_eq!(store.recent()[0].code, DiagnosticCode::TunnelStartFailed);
+
+    listener.shutdown().await;
+}
+
+#[tokio::test]
+async fn listener_exits_when_the_event_bus_closes() {
+    let bus: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(4));
+    let store = DiagnosticStore::new(4);
+    let listener =
+        DiagnosticsListener::start(&bus, Arc::new(store.clone()), &tracing::Span::current());
+
+    // Dropping the only bus handle drops the broadcast sender, so the listener's
+    // recv() returns Closed and the task exits on its own. The sleep lets it
+    // observe the close before we cancel, exercising that branch.
+    drop(bus);
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // shutdown() still completes cleanly against the already-finished task.
+    listener.shutdown().await;
+    assert!(store.recent().is_empty());
 }
