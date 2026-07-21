@@ -346,7 +346,7 @@ impl RoutingProfileService for RoutingProfileServiceImpl {
         // from the runner's startup bootstrap.
         let assignments = self
             .repo
-            .list_device_assignments_with_ips()
+            .list_device_assignments()
             .await
             .map_err(AppError::Internal)?;
         let all_rules = self

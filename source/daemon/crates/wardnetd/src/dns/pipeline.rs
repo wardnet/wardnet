@@ -763,6 +763,20 @@ impl QueryPipeline {
             DnsQueryResult::Forwarded.as_str()
         };
 
+        // Domain routing (#241) enforcement installs an `ip rule` keyed on the
+        // querying device's forwarding source IP. Only an IP-attributed client
+        // guarantees `src.ip()` IS that address; a device-authenticated (DoT)
+        // client's `src` may be a shared relay/loopback peer (see the
+        // rate-limiter note above), so keying a rule on it would install one
+        // that never matches the device's traffic — or, worse, matches the
+        // relay's. Enforce domain routes only for IP-attributed clients; the
+        // hook is a no-op for the rest.
+        let routing_profile = if matches!(client, ClientIdentity::Ip(_)) {
+            self.routing_profile.as_ref()
+        } else {
+            None
+        };
+
         if let Some(cond_upstream) = conditional_upstream {
             if let Err(e) = forward_via_conditional(
                 cond_upstream,
@@ -826,7 +840,7 @@ impl QueryPipeline {
                         start,
                         pass_result,
                         upstream_id,
-                        self.routing_profile.as_ref(),
+                        routing_profile,
                     )
                     .await?;
                 } else {
@@ -845,7 +859,7 @@ impl QueryPipeline {
                         start,
                         pass_result,
                         upstream_id,
-                        self.routing_profile.as_ref(),
+                        routing_profile,
                     )
                     .await?;
                 }
@@ -875,7 +889,7 @@ impl QueryPipeline {
                             start,
                             pass_result,
                             upstream_id,
-                            self.routing_profile.as_ref(),
+                            routing_profile,
                         )
                         .await
                         {

@@ -16,13 +16,16 @@ CREATE TABLE IF NOT EXISTS routing_profiles (
 -- 2. Domain routing rules. `target_kind` is 'tunnel' (route matched traffic
 --    through `tunnel_id`) or 'direct' (carve the domain out of the device's
 --    tunnel back to the WAN — `tunnel_id` is then NULL). One pattern per
---    profile keeps a profile's rule set unambiguous.
+--    profile keeps a profile's rule set unambiguous. A 'tunnel' rule FK-refs
+--    the tunnel it targets so deleting the tunnel cascades the now-meaningless
+--    rule away rather than leaving it dangling at a nonexistent tunnel; a
+--    'direct' rule has `tunnel_id` NULL and is unaffected.
 CREATE TABLE IF NOT EXISTS routing_profile_rules (
     id          TEXT PRIMARY KEY NOT NULL,
     profile_id  TEXT NOT NULL REFERENCES routing_profiles(id) ON DELETE CASCADE,
     pattern     TEXT NOT NULL,
     target_kind TEXT NOT NULL,
-    tunnel_id   TEXT,
+    tunnel_id   TEXT REFERENCES tunnels(id) ON DELETE CASCADE,
     enabled     INTEGER NOT NULL DEFAULT 1,
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),

@@ -1958,9 +1958,14 @@ impl RoutingService for RoutingServiceImpl {
         // Resolve the destination routing table. A tunnel target brings the
         // tunnel up and ensures its table exists before any rule points at it,
         // exactly as `apply_rule` does for a per-device binding.
-        let mut state = self.state.lock().await;
-        let table = match target {
-            DomainRoutingTarget::Direct => RT_TABLE_MAIN,
+        // Resolve the destination routing table WITHOUT holding the `state`
+        // lock. A tunnel target may require an on-demand bring-up, which can
+        // take seconds; holding the serialize-everything `state` mutex across it
+        // would stall every other routing operation (device rule changes, tunnel
+        // up/down handling, GC). This mirrors `apply_rule`'s "Phase 2: tunnel
+        // operations (no lock held)".
+        let (table, tunnel_iface) = match target {
+            DomainRoutingTarget::Direct => (RT_TABLE_MAIN, None),
             DomainRoutingTarget::Tunnel { tunnel_id } => {
                 let tunnel = match self.tunnels.get_tunnel(*tunnel_id).await {
                     Ok(tunnel) => tunnel,
@@ -1990,21 +1995,24 @@ impl RoutingService for RoutingServiceImpl {
                     );
                     return Ok(());
                 };
-                let table = table_for_index(index);
-                if let Err(e) = self
-                    .ensure_tunnel_table(&mut state, &tunnel.interface_name, table)
-                    .await
-                {
-                    tracing::warn!(
-                        error = %e,
-                        table,
-                        "failed to ensure tunnel table for domain route; skipping"
-                    );
-                    return Ok(());
-                }
-                table
+                (table_for_index(index), Some(tunnel.interface_name))
             }
         };
+
+        // Take the lock only for the kernel-state mutations below.
+        let mut state = self.state.lock().await;
+        if let Some(interface_name) = &tunnel_iface
+            && let Err(e) = self
+                .ensure_tunnel_table(&mut state, interface_name, table)
+                .await
+        {
+            tracing::warn!(
+                error = %e,
+                table,
+                "failed to ensure tunnel table for domain route; skipping"
+            );
+            return Ok(());
+        }
 
         let ttl = u64::from(ttl_secs).clamp(MIN_DOMAIN_ROUTE_TTL_SECS, MAX_DOMAIN_ROUTE_TTL_SECS);
         let expiry = Instant::now() + Duration::from_secs(ttl);
@@ -2069,34 +2077,58 @@ impl RoutingService for RoutingServiceImpl {
 
     async fn gc_domain_routes(&self) -> Result<(), AppError> {
         // No auth guard — periodic maintenance from the domain-route runner.
-        let mut state = self.state.lock().await;
 
-        let now = Instant::now();
-        let expired: Vec<(String, String, u32)> = state
-            .domain_routes
-            .iter()
-            .filter(|(_, entry)| entry.expiry <= now)
-            .map(|((src, dst), entry)| (src.clone(), dst.clone(), entry.table))
-            .collect();
-        for (src, dst, table) in expired {
-            if let Err(e) = self
-                .netlink
-                .remove_domain_route_rule(&src, &dst, table, DOMAIN_ROUTE_RULE_PRIORITY)
-                .await
-            {
-                tracing::warn!(error = %e, src, dst, "failed to remove expired domain-route rule");
+        // Phase 1 (short lock): expire lapsed leases, removing the map entry and
+        // its kernel rule together so the "map entry present ⟺ kernel rule
+        // present" invariant that `route_resolved_domain`'s lease-extend fast
+        // path relies on is preserved. Snapshot the surviving keys for the
+        // orphan sweep below.
+        let tracked: HashSet<(String, String)> = {
+            let mut state = self.state.lock().await;
+            let now = Instant::now();
+            let expired: Vec<(String, String, u32)> = state
+                .domain_routes
+                .iter()
+                .filter(|(_, entry)| entry.expiry <= now)
+                .map(|((src, dst), entry)| (src.clone(), dst.clone(), entry.table))
+                .collect();
+            for (src, dst, table) in expired {
+                if let Err(e) = self
+                    .netlink
+                    .remove_domain_route_rule(&src, &dst, table, DOMAIN_ROUTE_RULE_PRIORITY)
+                    .await
+                {
+                    tracing::warn!(error = %e, src, dst, "failed to remove expired domain-route rule");
+                }
+                state.domain_routes.remove(&(src, dst));
             }
-            state.domain_routes.remove(&(src, dst));
-        }
+            state.domain_routes.keys().cloned().collect()
+        };
 
-        // Prune kernel rules at our priority with no tracked lease — e.g. rules
-        // left behind by a crash before the lease was persisted in memory.
+        // Phase 2 (no lock): dump the kernel rules at our priority. This is a
+        // read-only netlink query, so it must NOT hold the routing `state`
+        // mutex — keeping the periodic dump off the lock is what stops the GC
+        // tick from stalling every other routing operation.
         let kernel = self
             .netlink
             .list_domain_route_rules(DOMAIN_ROUTE_RULE_PRIORITY)
             .await
             .map_err(AppError::Internal)?;
-        for (src, dst, table) in kernel {
+        let orphans: Vec<(String, String, u32)> = kernel
+            .into_iter()
+            .filter(|(src, dst, _)| !tracked.contains(&(src.clone(), dst.clone())))
+            .collect();
+        if orphans.is_empty() {
+            return Ok(());
+        }
+
+        // Phase 3 (short lock): prune kernel rules with no tracked lease — e.g.
+        // left behind by a crash before the lease was persisted. Re-check each
+        // candidate against the live map under the lock so a lease inserted by a
+        // concurrent `route_resolved_domain` between phases is not mistaken for
+        // a crash orphan and removed out from under it.
+        let state = self.state.lock().await;
+        for (src, dst, table) in orphans {
             if !state
                 .domain_routes
                 .contains_key(&(src.clone(), dst.clone()))

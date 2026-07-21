@@ -47,14 +47,13 @@ pub struct RoutingRuleUpdate {
     pub enabled: Option<bool>,
 }
 
-/// A device's routing-profile assignment together with its last-known IP, as
-/// needed to compile the per-IP routing contexts the DNS pipeline consults.
+/// A device's ordered routing-profile assignment, as needed to compile the
+/// per-device routing contexts the DNS pipeline consults.
 #[derive(Debug, Clone)]
-pub struct DeviceAssignmentWithIp {
+pub struct DeviceAssignment {
     pub device_id: Uuid,
     /// Assigned profile ids in priority order (lowest `position` first).
     pub profile_ids: Vec<Uuid>,
-    pub ip: Option<String>,
 }
 
 #[async_trait]
@@ -102,7 +101,6 @@ pub trait RoutingProfileRepository: Send + Sync {
         profile_ids: &[Uuid],
     ) -> anyhow::Result<()>;
     /// Every device that has at least one profile assigned, with its ordered
-    /// profile ids and last-known IP. Drives the runtime context refresh.
-    async fn list_device_assignments_with_ips(&self)
-    -> anyhow::Result<Vec<DeviceAssignmentWithIp>>;
+    /// profile ids. Drives the runtime context refresh.
+    async fn list_device_assignments(&self) -> anyhow::Result<Vec<DeviceAssignment>>;
 }

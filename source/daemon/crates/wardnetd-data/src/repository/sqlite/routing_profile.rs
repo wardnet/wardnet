@@ -9,7 +9,7 @@ use wardnet_common::routing_profile::{DomainRoutingRule, DomainRoutingTarget, Ro
 
 use crate::db::DbPools;
 use crate::repository::routing_profile::{
-    DeviceAssignmentWithIp, RoutingProfileRepository, RoutingProfileRow, RoutingProfileUpdate,
+    DeviceAssignment, RoutingProfileRepository, RoutingProfileRow, RoutingProfileUpdate,
     RoutingRuleRow, RoutingRuleUpdate,
 };
 
@@ -313,9 +313,7 @@ impl RoutingProfileRepository for SqliteRoutingProfileRepository {
         Ok(())
     }
 
-    async fn list_device_assignments_with_ips(
-        &self,
-    ) -> anyhow::Result<Vec<DeviceAssignmentWithIp>> {
+    async fn list_device_assignments(&self) -> anyhow::Result<Vec<DeviceAssignment>> {
         let device_ids: Vec<String> =
             sqlx::query_scalar("SELECT DISTINCT device_id FROM routing_device_profile")
                 .fetch_all(&self.pools.read)
@@ -325,15 +323,9 @@ impl RoutingProfileRepository for SqliteRoutingProfileRepository {
         for did in device_ids {
             let device_id: Uuid = did.parse()?;
             let profile_ids = self.get_device_profiles(device_id).await?;
-            let ip: Option<String> = sqlx::query_scalar("SELECT last_ip FROM devices WHERE id = ?")
-                .bind(&did)
-                .fetch_optional(&self.pools.read)
-                .await?
-                .flatten();
-            out.push(DeviceAssignmentWithIp {
+            out.push(DeviceAssignment {
                 device_id,
                 profile_ids,
-                ip,
             });
         }
         Ok(out)

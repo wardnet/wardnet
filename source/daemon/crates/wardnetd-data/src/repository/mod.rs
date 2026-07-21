@@ -44,7 +44,7 @@ pub use notification::{NewNotification, NotificationRepository, StoredNotificati
 pub use private_dns::{PrivateDnsGrantRepository, PrivateDnsGrantRow};
 pub use push::{NewPushSubscription, PushRepository, StoredPushSubscription};
 pub use routing_profile::{
-    DeviceAssignmentWithIp, RoutingProfileRepository, RoutingProfileRow, RoutingProfileUpdate,
+    DeviceAssignment, RoutingProfileRepository, RoutingProfileRow, RoutingProfileUpdate,
     RoutingRuleRow, RoutingRuleUpdate,
 };
 pub use rule_request::RuleRequestRepository;

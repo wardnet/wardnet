@@ -31,6 +31,18 @@ async fn insert_device(pool: &sqlx::SqlitePool, id: &str, ip: &str) {
     .unwrap();
 }
 
+async fn insert_tunnel(pool: &sqlx::SqlitePool, id: &str, interface: &str) {
+    sqlx::query(
+        "INSERT INTO tunnels (id, label, country_code, interface_name, endpoint) \
+         VALUES (?, 'test', 'US', ?, '1.2.3.4:51820')",
+    )
+    .bind(id)
+    .bind(interface)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 fn profile_row(name: &str) -> RoutingProfileRow {
     RoutingProfileRow {
         id: Uuid::new_v4().to_string(),
@@ -90,9 +102,11 @@ async fn update_missing_profile_returns_none() {
 
 #[tokio::test]
 async fn rule_crud_with_tunnel_and_direct_targets() {
-    let repo = SqliteRoutingProfileRepository::new(test_pool().await);
+    let pool = test_pool().await;
+    let repo = SqliteRoutingProfileRepository::new(pool.clone());
     let profile = repo.create_profile(&profile_row("P")).await.unwrap();
     let tunnel_id = Uuid::new_v4();
+    insert_tunnel(&pool, &tunnel_id.to_string(), "wg-rulecrud0").await;
 
     let tunnel_rule = repo
         .create_rule(&RoutingRuleRow {
@@ -145,6 +159,36 @@ async fn rule_crud_with_tunnel_and_direct_targets() {
 
     assert!(repo.delete_rule(direct_rule.id).await.unwrap());
     assert_eq!(repo.list_rules(profile.id).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn tunnel_rule_cascades_on_tunnel_delete() {
+    let pool = test_pool().await;
+    let repo = SqliteRoutingProfileRepository::new(pool.clone());
+    let profile = repo.create_profile(&profile_row("P")).await.unwrap();
+    let tunnel_id = Uuid::new_v4();
+    insert_tunnel(&pool, &tunnel_id.to_string(), "wg-cascade0").await;
+
+    repo.create_rule(&RoutingRuleRow {
+        id: Uuid::new_v4().to_string(),
+        profile_id: profile.id,
+        pattern: "*.example.com".to_owned(),
+        target: DomainRoutingTarget::Tunnel { tunnel_id },
+        enabled: true,
+    })
+    .await
+    .unwrap();
+    assert_eq!(repo.list_rules(profile.id).await.unwrap().len(), 1);
+
+    // Deleting the tunnel cascades its now-meaningless routing rule away, but
+    // the profile itself survives.
+    sqlx::query("DELETE FROM tunnels WHERE id = ?")
+        .bind(tunnel_id.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert!(repo.list_rules(profile.id).await.unwrap().is_empty());
+    assert!(repo.get_profile(profile.id).await.unwrap().is_some());
 }
 
 #[tokio::test]
@@ -223,7 +267,7 @@ async fn device_profiles_preserve_priority_order() {
 }
 
 #[tokio::test]
-async fn list_assignments_joins_ip_and_order() {
+async fn list_assignments_orders_by_position() {
     let pool = test_pool().await;
     let dev = "00000000-0000-0000-0000-0000000000e0";
     insert_device(&pool, dev, "10.0.0.9").await;
@@ -236,10 +280,9 @@ async fn list_assignments_joins_ip_and_order() {
         .await
         .unwrap();
 
-    let assignments = repo.list_device_assignments_with_ips().await.unwrap();
+    let assignments = repo.list_device_assignments().await.unwrap();
     assert_eq!(assignments.len(), 1);
     assert_eq!(assignments[0].device_id, device_id);
-    assert_eq!(assignments[0].ip.as_deref(), Some("10.0.0.9"));
     assert_eq!(assignments[0].profile_ids, vec![p2.id, p1.id]);
 }
 
