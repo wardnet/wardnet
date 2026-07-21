@@ -659,16 +659,19 @@ export async function daemonIpRules(
 }
 
 /**
- * True for a Wardnet per-device routing rule: a host (`/32`) source
+ * True for a Wardnet per-device routing rule: a rule bound to a specific
+ * host source (`from` is an address, not the kernel's catch-all `all`)
  * pointing at a dedicated tunnel table (the daemon numbers those `>= 100`).
  * Deliberately IP-agnostic — a client's `last_ip` can be either its DHCP
  * lease or its docker-IPAM address depending on last-observed traffic, and
  * the daemon installs the rule for whichever the device currently holds.
- * The kernel's own rules (`from all lookup main/local/default`) never match:
- * their source is `all` and their table is a name, not a number.
+ * `ip rule list` may render the host with or without a `/32` suffix
+ * depending on the iproute2 version, so we match on "not `all`" rather than
+ * a fixed IP shape. The kernel's own rules never match: their source is
+ * `all` and their table is a name (`main`/`local`/`default`), not a number.
  */
 export function isDeviceTunnelRule(rule: DaemonIpRule): boolean {
-  return /^\d+\.\d+\.\d+\.\d+\/32$/.test(rule.from) && Number(rule.table) >= 100;
+  return rule.from !== "all" && Number(rule.table) >= 100;
 }
 
 /**
