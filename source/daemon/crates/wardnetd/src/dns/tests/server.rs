@@ -3237,3 +3237,181 @@ async fn prober_active_publishes_snapshot_for_each_upstream() {
     assert_eq!(snap[0].address, "127.0.0.1");
     cancel.cancel();
 }
+
+// -- Domain-routing post-resolution hook (#241) ----------------------------
+
+/// A `RoutingProfileService` that records every `note_resolution` call so the
+/// pipeline's post-resolution hook can be asserted. Only `note_resolution` is
+/// exercised.
+#[derive(Default)]
+struct RecordingRoutingProfile {
+    calls: StdMutex<Vec<(Uuid, String, usize, u32)>>,
+}
+
+#[async_trait]
+impl wardnetd_services::RoutingProfileService for RecordingRoutingProfile {
+    fn note_resolution(
+        &self,
+        device_id: Uuid,
+        _device_ip: IpAddr,
+        name: &str,
+        answer_ips: &[IpAddr],
+        ttl_secs: u32,
+    ) {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((device_id, name.to_owned(), answer_ips.len(), ttl_secs));
+    }
+
+    async fn list_profiles(
+        &self,
+    ) -> Result<
+        Vec<wardnet_common::routing_profile::RoutingProfile>,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn get_profile(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, wardnetd_services::error::AppError>
+    {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn create_profile(
+        &self,
+        _name: &str,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, wardnetd_services::error::AppError>
+    {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn rename_profile(
+        &self,
+        _id: Uuid,
+        _name: &str,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, wardnetd_services::error::AppError>
+    {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn delete_profile(&self, _id: Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn list_rules(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<
+        Vec<wardnet_common::routing_profile::DomainRoutingRule>,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn create_rule(
+        &self,
+        _profile_id: Uuid,
+        _pattern: &str,
+        _target: wardnet_common::routing_profile::DomainRoutingTarget,
+        _enabled: bool,
+    ) -> Result<
+        wardnet_common::routing_profile::DomainRoutingRule,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn update_rule(
+        &self,
+        _id: Uuid,
+        _pattern: Option<String>,
+        _target: Option<wardnet_common::routing_profile::DomainRoutingTarget>,
+        _enabled: Option<bool>,
+    ) -> Result<
+        wardnet_common::routing_profile::DomainRoutingRule,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn delete_rule(&self, _id: Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn get_device_profiles(
+        &self,
+        _device_id: Uuid,
+    ) -> Result<Vec<Uuid>, wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn set_device_profiles(
+        &self,
+        _device_id: Uuid,
+        _profile_ids: &[Uuid],
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn refresh_view(&self) -> Result<(), wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+}
+
+#[tokio::test]
+async fn resolved_answer_notifies_routing_profile_for_attributed_device() {
+    use hickory_proto::op::{Message, OpCode};
+    use hickory_proto::rr::rdata::A;
+    use hickory_proto::rr::{Name, RData, Record};
+
+    // A recursor answer carrying a single public A record.
+    let mut answer = Message::response(0xCAFE, OpCode::Query);
+    let name = Name::from_ascii("foo.com.").unwrap();
+    answer.add_answer(Record::from_rdata(
+        name,
+        300,
+        RData::A(A(Ipv4Addr::new(93, 184, 216, 34))),
+    ));
+
+    let upstream_addr = spawn_stub_upstream().await;
+    let upstreams = vec![udp_upstream(upstream_addr)];
+    let resolver = Arc::new(RwLock::new(build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    )));
+    let config = Arc::new(RwLock::new(DnsConfig {
+        resolution_mode: DnsResolutionMode::Recursive,
+        upstream_servers: upstreams,
+        ..DnsConfig::default()
+    }));
+    let cache = Arc::new(RwLock::new(DnsCache::new(1000)));
+    let sent = Arc::new(StdMutex::new(Vec::new()));
+    let socket: Arc<dyn DnsSocket> = Arc::new(RecordingSocket { sent });
+    let src: SocketAddr = SocketAddr::from(([10, 0, 0, 5], 5353));
+    let device_id = Uuid::new_v4();
+    let recorder = Arc::new(RecordingRoutingProfile::default());
+    let recorder_dyn: Arc<dyn wardnetd_services::RoutingProfileService> = recorder.clone();
+
+    handle_recursor_outcome(
+        Some(Ok(answer)),
+        &resolver,
+        &socket,
+        &config,
+        &cache,
+        None,
+        foo_com_request(),
+        0xCAFE,
+        src,
+        QueryAttribution {
+            device_id: Some(device_id),
+            protocol: TransportProtocol::Udp,
+        },
+        "foo.com",
+        RecordType::A,
+        std::time::Instant::now(),
+        "forwarded",
+        UpstreamId::Default,
+        Some(&recorder_dyn),
+    )
+    .await
+    .expect("handle_recursor_outcome");
+
+    // The post-resolution hook queued this device's resolved A record for
+    // routing-profile enforcement.
+    let calls = recorder.calls.lock().unwrap().clone();
+    assert_eq!(calls, vec![(device_id, "foo.com".to_owned(), 1, 300)]);
+}
