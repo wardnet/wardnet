@@ -169,6 +169,8 @@ export function CronSchedulePicker({
         <PopoverTrigger asChild>
           <Button
             variant="outline"
+            /* ds-typography-allow: combobox trigger reads as an input value, not a
+               button label — its normal weight has no <Text>/<Button> prop equivalent */
             className="w-full justify-between font-normal"
           >
             <span className="flex min-w-0 items-center gap-2">

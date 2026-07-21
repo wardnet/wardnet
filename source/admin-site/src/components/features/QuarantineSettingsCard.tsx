@@ -135,7 +135,7 @@ function PendingDeviceRow({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 py-3">
       <div className="flex flex-col">
-        <Text size="sm" className="font-medium">
+        <Text size="sm" weight="medium">
           {deviceDisplayName(device)}
         </Text>
         <Text size="xs" className="text-ink-3">

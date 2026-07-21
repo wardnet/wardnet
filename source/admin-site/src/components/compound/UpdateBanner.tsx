@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { Text } from "@wardnet/web";
 
 interface Props {
   /** Whether an update is available. When false, nothing is rendered. */
@@ -21,9 +22,11 @@ export function UpdateBanner({ updateAvailable, latestVersion }: Props) {
   return (
     <Link
       to="/settings"
-      className="block rounded-md bg-accent/10 px-3 py-2 text-xs font-medium text-accent hover:bg-accent/15"
+      className="block rounded-md bg-accent/10 px-3 py-2 text-accent hover:bg-accent/15"
     >
-      Update available: v{latestVersion}
+      <Text as="span" size="xs" weight="medium">
+        Update available: v{latestVersion}
+      </Text>
     </Link>
   );
 }

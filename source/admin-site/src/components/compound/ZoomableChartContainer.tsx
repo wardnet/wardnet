@@ -1,4 +1,5 @@
 import { Button } from "@wardnet/web";
+import { Text } from "@wardnet/web";
 import { ChartContainer, type ChartConfig } from "@/components/core/ui/chart";
 import { cn } from "@wardnet/web";
 import type { ComponentProps } from "react";
@@ -39,11 +40,13 @@ export function ZoomableChartContainer({
           size="sm"
           onClick={onResetZoom}
           className={cn(
-            "absolute right-2 top-2 z-10 h-6 px-2 text-[10px] text-ink-3",
+            "absolute right-2 top-2 z-10 h-6 px-2 text-ink-3",
             "hover:text-ink-1",
           )}
         >
-          Reset zoom
+          <Text as="span" size="2xs">
+            Reset zoom
+          </Text>
         </Button>
       )}
     </div>

@@ -1,4 +1,5 @@
 import type { Device } from "@wardnet/js";
+import { Text } from "@wardnet/web";
 
 /**
  * MAC-keyed lookup map for matching DHCP/lease records to known devices.
@@ -44,7 +45,11 @@ export function HostCell({
       <div className="col">
         <div className="name">{primary}</div>
         {secondary && <div className="mac mono">{secondary}</div>}
-        {note && <div className="text-ink-3 text-xs">{note}</div>}
+        {note && (
+          <Text as="div" size="xs" className="text-ink-3">
+            {note}
+          </Text>
+        )}
         {extra}
       </div>
     </div>
