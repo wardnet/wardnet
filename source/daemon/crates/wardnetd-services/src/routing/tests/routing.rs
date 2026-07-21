@@ -2974,3 +2974,97 @@ async fn domain_route_gc_removes_expired_lease() {
         "expired lease was not removed"
     );
 }
+
+#[tokio::test]
+async fn domain_route_target_change_swaps_the_rule() {
+    // Re-resolving the same destination to a different target must remove the
+    // stale rule and install the new one, not stack two rules for one dst.
+    let ts = setup();
+    let ip: std::net::IpAddr = "1.2.3.4".parse().unwrap();
+
+    ts.routing
+        .route_resolved_domain(
+            "192.168.1.5",
+            &[ip],
+            &wardnet_common::routing_profile::DomainRoutingTarget::Direct,
+            60,
+        )
+        .await
+        .unwrap();
+    // Direct -> tunnel: table 254 gives way to the tunnel's table 100.
+    ts.routing
+        .route_resolved_domain("192.168.1.5", &[ip], &domain_target_tunnel(), 60)
+        .await
+        .unwrap();
+
+    let calls = ts.netlink_calls.lock().await.clone();
+    assert!(
+        calls.iter().any(|c| c
+            == &format!(
+                "remove_domain_route_rule:192.168.1.5:1.2.3.4:254:{DOMAIN_ROUTE_RULE_PRIORITY}"
+            )),
+        "the stale direct rule must be removed on a target change, got: {calls:?}"
+    );
+    assert!(
+        calls.iter().any(|c| c
+            == &format!(
+                "add_domain_route_rule:192.168.1.5:1.2.3.4:100:{DOMAIN_ROUTE_RULE_PRIORITY}"
+            )),
+        "the new tunnel rule must be installed on a target change, got: {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn domain_route_skips_ipv6_answers() {
+    // v1 enforcement is IPv4-only: an AAAA in the answer set is skipped while
+    // the A alongside it is still installed.
+    let ts = setup();
+    let v6: std::net::IpAddr = "2606:2800:220:1:248:1893:25c8:1946".parse().unwrap();
+    let v4: std::net::IpAddr = "1.2.3.4".parse().unwrap();
+
+    ts.routing
+        .route_resolved_domain(
+            "192.168.1.8",
+            &[v6, v4],
+            &wardnet_common::routing_profile::DomainRoutingTarget::Direct,
+            60,
+        )
+        .await
+        .unwrap();
+
+    let calls = ts.netlink_calls.lock().await.clone();
+    let installs: Vec<_> = calls
+        .iter()
+        .filter(|c| c.starts_with("add_domain_route_rule:192.168.1.8:"))
+        .collect();
+    assert_eq!(
+        installs,
+        vec![&format!(
+            "add_domain_route_rule:192.168.1.8:1.2.3.4:254:{DOMAIN_ROUTE_RULE_PRIORITY}"
+        )],
+        "only the IPv4 answer should install a rule, got: {installs:?}"
+    );
+}
+
+#[tokio::test]
+async fn domain_route_unavailable_tunnel_is_skipped() {
+    // A rule targeting a tunnel the service can't resolve is logged and
+    // skipped — no rule is installed and the call still succeeds (fail-open to
+    // the device's normal routing).
+    let ts = setup_with_devices_and_tunnel(vec![], HashMap::new(), None, None, "direct".to_owned());
+    let ip: std::net::IpAddr = "1.2.3.4".parse().unwrap();
+
+    ts.routing
+        .route_resolved_domain("192.168.1.9", &[ip], &domain_target_tunnel(), 60)
+        .await
+        .unwrap();
+
+    assert!(
+        !ts.netlink_calls
+            .lock()
+            .await
+            .iter()
+            .any(|c| c.starts_with("add_domain_route_rule")),
+        "no rule may be installed for an unresolvable tunnel"
+    );
+}
