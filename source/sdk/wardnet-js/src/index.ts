@@ -93,6 +93,8 @@ export type { LoginRequest, LoginResponse, MeResponse } from "./types/auth.js";
 export type {
   LastShutdownState,
   LastShutdownStatus,
+  SystemDiagnostic,
+  RecentErrorsResponse,
   SetDefaultPolicyRequest,
   SetDefaultPolicyResponse,
   SystemStatusResponse,
@@ -168,6 +170,8 @@ export type {
   TunnelTestResponse,
   TunnelSpeedTestResult,
   TunnelSpeedTestHistoryResponse,
+  UpdateTunnelDnsOverrideRequest,
+  UpdateTunnelDnsOverrideResponse,
   ListProvidersResponse,
   ValidateCredentialsRequest,
   ValidateCredentialsResponse,

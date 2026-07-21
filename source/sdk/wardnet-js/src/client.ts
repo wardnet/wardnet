@@ -37,13 +37,47 @@ export class WardnetClient {
     this.baseUrl = options?.baseUrl ?? "/api";
   }
 
+  /**
+   * Build the header set for an outgoing request.
+   *
+   * This is the single seam a subclass overrides to attach cross-cutting
+   * headers — most commonly `Authorization`. Every network call in the SDK
+   * routes its header construction through here: the JSON path in `request`,
+   * and the raw octet-stream / multipart calls in `BackupService` (which use
+   * {@link authorizedFetch} directly because they don't fit the JSON-in /
+   * JSON-out shape). Because the seam is shared, an override applies to all
+   * of them uniformly instead of silently missing the endpoints that bypass
+   * `request`.
+   */
+  protected buildHeaders(init?: RequestInit): Record<string, string> {
+    return { ...init?.headers };
+  }
+
+  /**
+   * Perform a `fetch` against the daemon API with the client's shared
+   * transport policy applied: base-URL prefixing, `credentials: "include"`
+   * (so the browser session cookie rides along), and headers routed through
+   * {@link buildHeaders} so subclass auth overrides take effect.
+   *
+   * Callers own the request and response body shapes. `request` uses this
+   * for the JSON path; `BackupService` calls it directly for its
+   * octet-stream (`export`) and multipart (`previewImport`) endpoints.
+   */
+  async authorizedFetch(path: string, init?: RequestInit): Promise<Response> {
+    return fetch(`${this.baseUrl}${path}`, {
+      credentials: "include",
+      ...init,
+      headers: this.buildHeaders(init),
+    });
+  }
+
   /** Send a typed HTTP request to the daemon API.
    *
    * Returns `undefined` (cast to `T`) on `204 No Content` so callers
    * with `Promise<void>` can route through the same path as JSON-
    * returning calls — important because subclasses (e.g. `AuthedClient`
-   * in the e2e harness) override `request` to attach an
-   * `Authorization` header. Bypassing `request` means bypassing
+   * in the e2e harness) override `buildHeaders` to attach an
+   * `Authorization` header. Bypassing the client means bypassing
    * those overrides; routing through it keeps the auth path uniform.
    */
   async request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -61,11 +95,11 @@ export class WardnetClient {
       }
     }
 
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      ...init,
-    });
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...init?.headers,
+    };
+    const res = await this.authorizedFetch(path, { ...init, headers });
 
     if (!res.ok) {
       const requestId = res.headers.get("X-Request-Id") ?? undefined;
