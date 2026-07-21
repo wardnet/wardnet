@@ -15,7 +15,7 @@ use std::hint::black_box;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::{Arc, Barrier, RwLock};
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use chrono::Utc;
@@ -335,6 +335,18 @@ fn bench_filter(c: &mut Criterion) {
 /// is the last thing every response path does.
 fn bench_message(c: &mut Criterion) {
     let mut group = c.benchmark_group("dns_message");
+
+    // Both routines here land in the hundreds-of-nanoseconds range, so criterion
+    // already runs each one millions of times per invocation — the reported
+    // figure is a mean, not a single shot. What moves run-to-run is the width of
+    // that estimate, not the number of executions. Spending a larger sampling
+    // budget (more samples over a longer window) tightens the confidence
+    // interval so a real regression clears the noise floor instead of hiding in
+    // the few-percent drift the defaults leave on sub-microsecond work.
+    group
+        .warm_up_time(Duration::from_secs(3))
+        .measurement_time(Duration::from_secs(10))
+        .sample_size(500);
 
     let mut query = Message::query();
     query.metadata.id = 0x1234;
