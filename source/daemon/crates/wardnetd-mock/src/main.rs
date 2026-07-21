@@ -31,6 +31,7 @@ use wardnetd_mock::backends::noop_latency_prober::NoopLatencyProber;
 use wardnetd_mock::backends::noop_network_inspector::NoopNetworkInspector;
 use wardnetd_mock::backends::noop_network_probe::NoopNetworkProbe;
 use wardnetd_mock::backends::noop_power_ops::NoopSystemPowerOps;
+use wardnetd_mock::backends::noop_private_dns::MockPrivateDnsService;
 use wardnetd_mock::backends::noop_remote_access::{
     MockDdnsService, MockRemoteAccessState, MockTlsService,
 };
@@ -401,6 +402,9 @@ async fn run(
     )
     .with_push_service(services.push.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
+    // Private DNS reaches the live DDNS/TLS/secret store, which the mock stands
+    // in for offline; swap in the stateful in-memory fake, mirroring DDNS/TLS.
+    .with_private_dns_service(Arc::new(MockPrivateDnsService::default()))
     .with_entitlement(services.entitlement.clone())
     .with_health_monitor(health_monitor);
 

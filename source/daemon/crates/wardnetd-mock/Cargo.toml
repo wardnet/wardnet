@@ -36,6 +36,8 @@ clap.workspace = true
 ipnetwork.workspace = true
 # https://crates.io/crates/rand
 rand.workspace = true
+# https://crates.io/crates/rcgen — self-signed cert for the mock's signed Private DNS profile
+rcgen.workspace = true
 # https://crates.io/crates/reqwest
 reqwest.workspace = true
 # https://crates.io/crates/serde

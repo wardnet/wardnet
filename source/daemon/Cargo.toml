@@ -53,7 +53,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # https://crates.io/crates/uuid
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
 # https://crates.io/crates/chrono
 chrono = { version = "0.4", features = ["serde"] }
 
@@ -259,6 +259,29 @@ rcgen = "0.14.8"
 # https://crates.io/crates/x509-parser — parse `not_after` from the issued
 # chain to schedule renewal.
 x509-parser = "0.18"
+# https://crates.io/crates/cms — CMS SignedData types that wrap the iOS
+# `.mobileconfig` so Apple shows "Verified" (issue #914). Pure-Rust RustCrypto
+# stack (der/spki/x509-cert), no OpenSSL. The `builder` feature is deliberately
+# OFF: it drags in `rsa` (RUSTSEC-2023-0071, Marvin timing sidechannel) for RSA
+# signing we never do, so the SignedData is assembled from the base types and
+# signed with `p256` directly — the same reason the web-push `vapid` feature is
+# disabled above.
+cms = { version = "0.2.3", default-features = false, features = ["std", "alloc"] }
+# https://crates.io/crates/x509-cert — parse the issued chain into the DER
+# certificate + issuer/serial the CMS signer embeds.
+x509-cert = { version = "0.2", features = ["pem"] }
+# https://crates.io/crates/p256 — sign the CMS SignerInfo with the leaf's
+# ECDSA P-256 key (rcgen generates a P-256 leaf), matching the cert's algorithm.
+p256 = { version = "0.13", features = ["ecdsa", "pem", "pkcs8"] }
+# https://crates.io/crates/der — encode the `.mobileconfig` bytes as the CMS
+# encapsulated content (OctetString → Any).
+der = { version = "0.7", features = ["oid"] }
+# https://crates.io/crates/const-oid — the id-data / SHA-256 OIDs the CMS
+# structure references.
+const-oid = "0.9"
+# https://crates.io/crates/spki — the SHA-256 AlgorithmIdentifier for the CMS
+# digest algorithms set.
+spki = "0.7"
 # https://crates.io/crates/rustls — install the aws-lc-rs crypto provider as the
 # process default for :443 TLS (both ring + aws-lc-rs are in the tree, so rustls
 # 0.23 can't auto-pick).

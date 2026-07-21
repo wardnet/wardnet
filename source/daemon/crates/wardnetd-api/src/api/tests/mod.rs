@@ -19,6 +19,7 @@ mod network;
 mod network_zone;
 mod openapi;
 mod panic_isolation;
+mod private_dns;
 mod providers;
 mod push;
 mod request_context;
