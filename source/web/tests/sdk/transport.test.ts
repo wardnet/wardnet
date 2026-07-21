@@ -40,7 +40,8 @@ function fakeResponse(init: {
 }
 
 function lastFetchHeaders(mock: ReturnType<typeof vi.fn>): Headers {
-  const init = mock.mock.calls.at(-1)?.[1] as RequestInit | undefined;
+  const calls = mock.mock.calls;
+  const init = calls[calls.length - 1]?.[1] as RequestInit | undefined;
   return new Headers(init?.headers);
 }
 
@@ -124,6 +125,34 @@ describe("SystemService.getRecentErrors", () => {
     expect(url).toBe("/api/system/errors");
     const first: SystemDiagnostic = result.errors[0];
     expect(first.message).toBe("upstream timeout");
+  });
+});
+
+describe("header normalization", () => {
+  it("preserves headers passed as a Headers instance", async () => {
+    const fetchMock = vi.fn(async () => fakeResponse({ json: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new WardnetClient({ baseUrl: "/api" });
+    await client.request("/thing", {
+      headers: new Headers({ "X-Custom": "yes" }),
+    });
+
+    const headers = lastFetchHeaders(fetchMock);
+    expect(headers.get("X-Custom")).toBe("yes");
+    // The JSON default is still applied on top of the caller's headers.
+    expect(headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("preserves headers passed as an entries array", async () => {
+    const fetchMock = vi.fn(async () => fakeResponse({ json: {} }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new WardnetClient({ baseUrl: "/api" });
+    await client.request("/thing", { headers: [["X-Custom", "yes"]] });
+
+    const headers = lastFetchHeaders(fetchMock);
+    expect(headers.get("X-Custom")).toBe("yes");
   });
 });
 

@@ -7,6 +7,26 @@ export interface WardnetClientOptions {
   baseUrl?: string;
 }
 
+/**
+ * Coerce any accepted `headers` value into a plain record so it can be merged
+ * with a spread. A plain object (the SDK's own call sites, and the type it
+ * advertises) is spread directly — no `Headers` is allocated on the request
+ * hot path. A `Headers` instance or `[name, value][]` (which a browser
+ * consumer may hand in) is enumerated via the platform `Headers`, which would
+ * otherwise spread to `{}` and silently drop every header.
+ */
+function toHeaderRecord(headers: RequestInit["headers"]): Record<string, string> {
+  if (headers == null) return {};
+  if (headers instanceof Headers || Array.isArray(headers)) {
+    const record: Record<string, string> = {};
+    new Headers(headers).forEach((value, name) => {
+      record[name] = value;
+    });
+    return record;
+  }
+  return { ...headers };
+}
+
 /** Error thrown when an API request fails. */
 export class WardnetApiError extends Error {
   /** Server-generated request ID for correlating with server logs. */
@@ -50,7 +70,7 @@ export class WardnetClient {
    * `request`.
    */
   protected buildHeaders(init?: RequestInit): Record<string, string> {
-    return { ...init?.headers };
+    return toHeaderRecord(init?.headers);
   }
 
   /**
@@ -97,7 +117,7 @@ export class WardnetClient {
 
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      ...init?.headers,
+      ...toHeaderRecord(init?.headers),
     };
     const res = await this.authorizedFetch(path, { ...init, headers });
 

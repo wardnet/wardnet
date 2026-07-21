@@ -124,6 +124,12 @@ describe("formatBytes", () => {
     expect(formatBytes(1024 ** 5)).toBe("1024.0 TB");
     expect(formatBytes(5 * 1024 ** 5)).toBe("5120.0 TB");
   });
+  // A positive value below 1 byte gives a negative magnitude; without the
+  // lower clamp the index went to -1 and printed "undefined".
+  it("clamps positive sub-byte input to the B unit", () => {
+    expect(formatBytes(0.5)).toBe("1 B");
+    expect(formatBytes(0.001)).toBe("0 B");
+  });
 });
 
 describe("formatMbps / formatMs", () => {

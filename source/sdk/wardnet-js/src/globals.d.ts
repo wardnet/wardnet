@@ -25,7 +25,11 @@ declare const console: {
 
 interface RequestInit {
   method?: string;
-  headers?: Record<string, string>;
+  // Mirrors what the platform `fetch` accepts. The SDK's own call sites pass a
+  // plain object; the wider union keeps consumers who hand in a `Headers`
+  // instance or entries array (valid in the browser) from being silently
+  // dropped — `WardnetClient` normalizes all three forms.
+  headers?: Record<string, string> | Headers | string[][];
   body?: string | Blob | FormData | null;
   credentials?: "include" | "omit" | "same-origin";
   signal?: AbortSignal;
@@ -67,7 +71,17 @@ declare class FormData {
 interface Headers {
   get(name: string): string | null;
   has(name: string): boolean;
+  forEach(callback: (value: string, name: string) => void): void;
 }
+
+/**
+ * `Headers` constructor — available natively in browsers and Node 18+. The
+ * SDK uses it only to normalize a caller-supplied `Headers`/entries value into
+ * a plain record; it accepts the same inputs as the platform constructor.
+ */
+declare const Headers: {
+  new (init?: Record<string, string> | Headers | string[][]): Headers;
+};
 
 interface AbortSignal {
   aborted: boolean;

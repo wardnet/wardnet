@@ -105,12 +105,11 @@ export function formatBytes(bytes: number): string {
   // `Math.log(<0)` is `NaN`, either of which would produce a garbage index.
   if (bytes <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];
-  // Clamp to the largest known unit so values past 1 PB still render as
-  // "N TB" rather than indexing past the array and printing "undefined".
-  const i = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
-    units.length - 1,
-  );
+  // Clamp both ends: values in (0, 1) give a negative magnitude and values
+  // past 1 PB give one beyond the last unit — either would index off the
+  // array and print "undefined". Keep i within [0, units.length - 1].
+  const magnitude = Math.floor(Math.log(bytes) / Math.log(1024));
+  const i = Math.min(Math.max(magnitude, 0), units.length - 1);
   const value = bytes / Math.pow(1024, i);
   // eslint-disable-next-line security/detect-object-injection -- i is a numeric magnitude index into a local const unit array; no attacker-controlled key
   return `${value.toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
