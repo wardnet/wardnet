@@ -9,6 +9,7 @@ import {
   localDate,
   notifyStatsChanged,
   openDb,
+  pruneDaily,
   pruneEvents,
   recentDates,
   subscribeStats,
@@ -32,6 +33,15 @@ function getAll<T>(db: IDBDatabase, store: string): Promise<T[]> {
     const req = db.transaction(store, "readonly").objectStore(store).getAll();
     req.onsuccess = () => resolve(req.result as T[]);
     req.onerror = () => reject(req.error);
+  });
+}
+
+function putDaily(db: IDBDatabase, row: DailyStat): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(DAILY_STORE, "readwrite");
+    tx.objectStore(DAILY_STORE).put(row);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
   });
 }
 
@@ -207,6 +217,46 @@ describe("pruneEvents", () => {
     expect(events).toHaveLength(500);
     const ids = events.map((e) => e.id).sort((a, b) => a - b);
     expect(ids[0]).toBe(3);
+    db.close();
+  });
+});
+
+describe("pruneDaily", () => {
+  function daily(date: string, domain: string): DailyStat {
+    return { date, domain, blocked: 1, allowed: 0 };
+  }
+
+  it("deletes rows older than the retention window, keeps the rest", async () => {
+    const db = await openDb();
+    // recentDates(7) is the retention window (today + prior six days), oldest
+    // first; recentDates(8)[0] is the day just outside it.
+    const window = recentDates(7);
+    const oldestKept = window[0];
+    const today = window[6];
+    const justOutside = recentDates(8)[0];
+
+    await putDaily(db, daily("2000-01-01", "ancient.com"));
+    await putDaily(db, daily(justOutside, "expired.com"));
+    await putDaily(db, daily(oldestKept, "edge.com"));
+    await putDaily(db, daily(today, "today.com"));
+
+    await pruneDaily(db);
+
+    const rows = await getAll<DailyStat>(db, DAILY_STORE);
+    const dates = rows.map((r) => r.date).sort();
+    expect(dates).toEqual([oldestKept, today].sort());
+    db.close();
+  });
+
+  it("is a no-op when every row is within the window", async () => {
+    const db = await openDb();
+    const window = recentDates(7);
+    for (const date of window) {
+      await putDaily(db, daily(date, "x.com"));
+    }
+    await pruneDaily(db);
+    const rows = await getAll<DailyStat>(db, DAILY_STORE);
+    expect(rows).toHaveLength(window.length);
     db.close();
   });
 });

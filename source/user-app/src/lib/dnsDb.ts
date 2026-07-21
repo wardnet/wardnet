@@ -22,6 +22,10 @@ export const DAILY_STORE = "daily";
 export const META_STORE = "meta";
 
 const EVENTS_RING_CAP = 500;
+// The Stats page only ever reads today plus the prior six days (the trend
+// window — TREND_DAYS in useDnsStats). Keep the aggregate store bounded to the
+// same window so it doesn't grow without limit on a long-lived installed PWA.
+const DAILY_RETENTION_DAYS = 7;
 const CURSOR_KEY = "lastAggregatedId";
 
 export interface DnsEventItem {
@@ -165,6 +169,29 @@ export function pruneEvents(db: IDBDatabase): Promise<void> {
         }
       };
     };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error("transaction aborted"));
+  });
+}
+
+/**
+ * Trim the `daily` aggregate store to the trend window the Stats page reads.
+ * Rows keyed by a `date` older than the oldest retained day are deleted; the
+ * newest DAILY_RETENTION_DAYS days (today included) are kept. Mirrors
+ * `pruneEvents` and runs on the same ack/prune cadence.
+ */
+export function pruneDaily(db: IDBDatabase): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // Oldest date we keep; anything strictly before it is expired.
+    const cutoff = recentDates(DAILY_RETENTION_DAYS)[0];
+    const tx = db.transaction(DAILY_STORE, "readwrite");
+    const store = tx.objectStore(DAILY_STORE);
+    // Composite key [date, domain]. [cutoff, ""] is the smallest possible key
+    // for the cutoff day, so an exclusive upper bound there deletes every row
+    // whose date is earlier than the cutoff while keeping the cutoff day itself.
+    const range = IDBKeyRange.upperBound([cutoff, ""], true);
+    store.delete(range);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new Error("transaction aborted"));

@@ -5,6 +5,7 @@ import {
   type DnsEventItem,
   notifyStatsChanged,
   openDb,
+  pruneDaily,
   pruneEvents,
 } from "../lib/dnsDb.js";
 
@@ -60,6 +61,9 @@ export function useDnsEventsSync(): void {
         });
         if (db) {
           pruneEvents(db).catch(() => {
+            // Pruning is best-effort housekeeping.
+          });
+          pruneDaily(db).catch(() => {
             // Pruning is best-effort housekeeping.
           });
         }
