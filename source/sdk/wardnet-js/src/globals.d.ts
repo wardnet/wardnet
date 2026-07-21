@@ -72,6 +72,7 @@ interface Headers {
   get(name: string): string | null;
   has(name: string): boolean;
   forEach(callback: (value: string, name: string) => void): void;
+  entries(): IterableIterator<[string, string]>;
 }
 
 /**

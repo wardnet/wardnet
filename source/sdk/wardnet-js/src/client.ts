@@ -18,11 +18,9 @@ export interface WardnetClientOptions {
 function toHeaderRecord(headers: RequestInit["headers"]): Record<string, string> {
   if (headers == null) return {};
   if (headers instanceof Headers || Array.isArray(headers)) {
-    const record: Record<string, string> = {};
-    new Headers(headers).forEach((value, name) => {
-      record[name] = value;
-    });
-    return record;
+    // `Object.fromEntries` copies each header as an own property (no computed
+    // writes, so no prototype-pollution surface).
+    return Object.fromEntries(new Headers(headers).entries());
   }
   return { ...headers };
 }

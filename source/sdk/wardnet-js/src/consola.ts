@@ -35,7 +35,19 @@ export function createConsolaAdapter(instance?: ConsolaInstance): LogAdapter {
 
   return {
     log(level: EmittedLevel, tag: string, args: unknown[]) {
-      const write = withTag(tag)[level] as (...a: unknown[]) => void;
+      const scoped = withTag(tag);
+      // Explicit dispatch rather than `scoped[level]` — avoids a computed
+      // member access. The cast normalizes consola's overloaded log signature
+      // to a plain rest-parameter form so `args` can be spread through.
+      const write = (
+        level === "error"
+          ? scoped.error
+          : level === "warn"
+            ? scoped.warn
+            : level === "info"
+              ? scoped.info
+              : scoped.debug
+      ) as (...a: unknown[]) => void;
       write(...args);
     },
   };

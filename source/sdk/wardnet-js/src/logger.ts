@@ -93,6 +93,7 @@ export interface Logger {
 }
 
 export function createLogger(tag: string): Logger {
+  // eslint-disable-next-line security/detect-object-injection -- keys are LogLevel union members indexing a Record<LogLevel, number>, never external input
   const enabled = (level: EmittedLevel) => NUMERIC[resolveLevel(tag)] >= NUMERIC[level];
   const emit =
     (level: EmittedLevel) =>
