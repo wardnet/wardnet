@@ -56,4 +56,37 @@ describe("useDnsStats — stale-date race", () => {
     });
     expect(result.current.headline.blocked).toBe(2);
   });
+
+  it("ignores a previous day's load that rejects after the day switched", async () => {
+    let rejectA!: (e: unknown) => void;
+    let resolveB!: (s: DnsStatsSnapshot) => void;
+    const pendingA = new Promise<DnsStatsSnapshot>((_, reject) => {
+      rejectA = reject;
+    });
+    const pendingB = new Promise<DnsStatsSnapshot>((r) => {
+      resolveB = r;
+    });
+
+    loadDnsStats.mockResolvedValue(snapshot(0));
+    loadDnsStats.mockReturnValueOnce(pendingA).mockReturnValueOnce(pendingB);
+
+    const { result, rerender } = renderHook(({ d }) => useDnsStats(d), {
+      initialProps: { d: "2026-07-01" },
+    });
+    rerender({ d: "2026-07-02" });
+
+    resolveB(snapshot(5));
+    await waitFor(() => expect(result.current.headline.blocked).toBe(5));
+
+    // The stale A read now fails after its effect was torn down (active = false).
+    // The error path must also be a no-op — it must not force loading nor reset
+    // the current day's stats.
+    await act(async () => {
+      rejectA(new Error("stale read failed"));
+      await pendingA.catch(() => {});
+      await Promise.resolve();
+    });
+    expect(result.current.headline.blocked).toBe(5);
+    expect(result.current.loading).toBe(false);
+  });
 });

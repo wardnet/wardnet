@@ -259,6 +259,22 @@ describe("pruneDaily", () => {
     expect(rows).toHaveLength(window.length);
     db.close();
   });
+
+  it("rejects when the transaction aborts", async () => {
+    const db = await openDb();
+    const realTx = db.transaction.bind(db);
+    const tx = realTx(DAILY_STORE, "readwrite");
+    const spy = vi.spyOn(db, "transaction").mockReturnValue(tx);
+    const promise = pruneDaily(db);
+    tx.abort();
+    let rejected = false;
+    await promise.catch(() => {
+      rejected = true;
+    });
+    expect(rejected).toBe(true);
+    spy.mockRestore();
+    db.close();
+  });
 });
 
 describe("stats pub/sub", () => {
