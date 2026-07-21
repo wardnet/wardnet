@@ -21,7 +21,8 @@ use axum::response::Response;
 use axum::routing::{get, post};
 use base64::Engine as _;
 use serde_json::json;
-use tokio::net::UdpSocket;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::net::{TcpListener, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 use tokio_tungstenite::tungstenite::Message;
@@ -30,10 +31,10 @@ use wardnetd_data::secret_store::SecretStore;
 
 use crate::cloud::TenantsClient;
 use crate::cloud::tunneller::{
-    self, FRAME_CLOSE, FRAME_CONNECT, FRAME_DATA, FRAME_PING, FRAME_PONG, Frame,
+    self, FRAME_CLOSE, FRAME_CONNECT, FRAME_DATA, FRAME_PING, FRAME_PONG, FRAME_READY, Frame,
 };
 use crate::cloud::tunneller_runner::{
-    Backoff, Conn, TunnelerConnector, TunnelerRunner, handle_frame,
+    Backoff, Conn, TunnelerConnector, TunnelerRunner, connect_dot_relay, handle_frame,
 };
 use crate::ddns::region::RegionEndpoint;
 
@@ -65,6 +66,14 @@ fn encode_close_and_pong_have_fixed_shape() {
 }
 
 #[test]
+fn encode_ready_has_fixed_shape() {
+    // FRAME_READY is [type, conn_id:u32be] — the TCP path's "local connect ok".
+    assert_eq!(tunneller::encode_ready(9), vec![FRAME_READY, 0, 0, 0, 9]);
+    // It only ever flows daemon→node, so it must not decode as an inbound frame.
+    assert_eq!(tunneller::decode(&tunneller::encode_ready(9)), None);
+}
+
+#[test]
 fn decode_connect_reads_dest_port() {
     // [FRAME_CONNECT, conn_id=9, dest_port=0x0050 (80)]
     let bytes = [FRAME_CONNECT, 0, 0, 0, 9, 0x00, 0x50];
@@ -91,8 +100,8 @@ fn decode_ping_requires_zero_conn_id() {
 fn decode_rejects_short_unknown_and_unused_frames() {
     // Too short (< 5 bytes).
     assert_eq!(tunneller::decode(&[FRAME_DATA, 0, 0]), None);
-    // FRAME_READY (0x02) is the TCP path's signal, unused for UDP → ignored.
-    assert_eq!(tunneller::decode(&[0x02, 0, 0, 0, 1]), None);
+    // FRAME_READY (0x02) is daemon→node only, never a valid inbound frame → ignored.
+    assert_eq!(tunneller::decode(&[FRAME_READY, 0, 0, 0, 1]), None);
     // A CONNECT truncated before its dest_port.
     assert_eq!(tunneller::decode(&[FRAME_CONNECT, 0, 0, 0, 1]), None);
 }
@@ -260,6 +269,38 @@ fn connector_with_config(port: u16) -> (Arc<TunnelerConnector>, Arc<MockSystemCo
     (connector, system_config)
 }
 
+/// Build a connector with the two feature gates set explicitly, so a test can drive
+/// the per-frame gating (WG-only / private-DNS-only / both off). The gateway/secret
+/// fields are unused placeholders — only the config flags are exercised.
+fn connector_with_gates(wg: bool, private_dns: bool) -> Arc<TunnelerConnector> {
+    let system_config = Arc::new(MockSystemConfig::with(&[
+        ("inbound_wg_enabled", if wg { "true" } else { "false" }),
+        (
+            "private_dns_enabled",
+            if private_dns { "true" } else { "false" },
+        ),
+        ("inbound_wg_listen_port", "9000"),
+        ("ddns_region", "test"),
+    ]));
+    let secrets = Arc::new(MockSecretStore::default());
+    let tenants = Arc::new(TenantsClient::new(
+        reqwest::Client::new(),
+        "http://unused".to_owned(),
+    ));
+    let catalog = vec![RegionEndpoint {
+        slug: "test".to_owned(),
+        gateway_base_url: "http://unused".to_owned(),
+        health_url: String::new(),
+    }];
+    Arc::new(TunnelerConnector::new(
+        system_config,
+        secrets,
+        tenants,
+        crate::entitlement::Entitlement::shared(),
+        catalog,
+    ))
+}
+
 /// A relay opener that succeeds with a throwaway loopback socket (no reader task,
 /// no real target) — stands in for `open_relay` when a test only cares about the
 /// bookkeeping around it.
@@ -270,6 +311,13 @@ async fn fake_open_ok(
 ) -> std::io::Result<Conn> {
     let socket = UdpSocket::bind(("127.0.0.1", 0)).await?;
     Ok(Conn::new_for_test(Arc::new(socket)))
+}
+
+/// A TCP relay opener that succeeds with a throwaway write channel — stands in for
+/// `open_tcp_relay` when a test only cares about the bookkeeping around it.
+async fn fake_open_tcp_ok(_conn_id: u32, _out_tx: mpsc::Sender<Message>) -> std::io::Result<Conn> {
+    let (tx, _rx) = mpsc::channel::<Vec<u8>>(8);
+    Ok(Conn::new_tcp_for_test(tx))
 }
 
 /// Decode a single binary frame off the out-channel, asserting it is a `FRAME_CLOSE`
@@ -304,6 +352,7 @@ async fn open_relay_failure_sends_close() {
         &out_tx,
         &mut conns,
         &open,
+        &fake_open_tcp_ok,
     )
     .await;
 
@@ -320,7 +369,7 @@ async fn ninth_concurrent_conn_is_rejected_at_cap() {
     let (out_tx, mut out_rx) = mpsc::channel::<Message>(256);
     let mut conns = HashMap::new();
 
-    // The first MAX_CONNS (8) flows are accepted with no FRAME_CLOSE.
+    // The first MAX_UDP_CONNS (8) flows are accepted with no FRAME_CLOSE.
     for conn_id in 1..=8u32 {
         handle_frame(
             &connect_frame(conn_id, 51_820),
@@ -329,6 +378,7 @@ async fn ninth_concurrent_conn_is_rejected_at_cap() {
             &out_tx,
             &mut conns,
             &fake_open_ok,
+            &fake_open_tcp_ok,
         )
         .await;
     }
@@ -346,6 +396,7 @@ async fn ninth_concurrent_conn_is_rejected_at_cap() {
         &out_tx,
         &mut conns,
         &fake_open_ok,
+        &fake_open_tcp_ok,
     )
     .await;
     assert_eq!(conns.len(), 8, "9th conn_id rejected - cap holds");
@@ -381,6 +432,7 @@ async fn connect_rereads_listen_port_per_flow() {
         &out_tx,
         &mut conns,
         &open,
+        &fake_open_tcp_ok,
     )
     .await;
     // Admin changes the listen port live between flows.
@@ -393,6 +445,7 @@ async fn connect_rereads_listen_port_per_flow() {
         &out_tx,
         &mut conns,
         &open,
+        &fake_open_tcp_ok,
     )
     .await;
 
@@ -401,6 +454,291 @@ async fn connect_rereads_listen_port_per_flow() {
         vec![1111, 2222],
         "each new flow re-reads the live inbound_wg_listen_port"
     );
+}
+
+// ── Unit: per-frame gating (issue #913) ───────────────────────────────────────────
+
+/// Drive a single CONNECT through `handle_frame` and report whether it was accepted
+/// (recorded in `conns`) or rejected with a `FRAME_CLOSE` — using no-op fake openers,
+/// so only the gate + dispatch decision is exercised.
+async fn connect_outcome(connector: &Arc<TunnelerConnector>, dest_port: u16) -> (usize, bool) {
+    let (out_tx, mut out_rx) = mpsc::channel::<Message>(256);
+    let mut conns = HashMap::new();
+    handle_frame(
+        &connect_frame(1, dest_port),
+        connector,
+        9000,
+        &out_tx,
+        &mut conns,
+        &fake_open_ok,
+        &fake_open_tcp_ok,
+    )
+    .await;
+    let closed = out_rx.try_recv().is_ok();
+    (conns.len(), closed)
+}
+
+#[tokio::test]
+async fn wg_only_gate_relays_wireguard_and_rejects_dot() {
+    let connector = connector_with_gates(true, false);
+
+    // A WireGuard flow (advisory dest_port) is accepted.
+    let (accepted, closed) = connect_outcome(&connector, 51_820).await;
+    assert_eq!(
+        (accepted, closed),
+        (1, false),
+        "WG flow accepted when WG on"
+    );
+
+    // A DoT flow is rejected with FRAME_CLOSE while Private DNS is off.
+    let (accepted, closed) = connect_outcome(&connector, 853).await;
+    assert_eq!(
+        (accepted, closed),
+        (0, true),
+        "DoT flow closed when DNS off"
+    );
+}
+
+#[tokio::test]
+async fn private_dns_only_gate_relays_dot_and_rejects_wireguard() {
+    let connector = connector_with_gates(false, true);
+
+    // A DoT flow is accepted.
+    let (accepted, closed) = connect_outcome(&connector, 853).await;
+    assert_eq!(
+        (accepted, closed),
+        (1, false),
+        "DoT flow accepted when DNS on"
+    );
+
+    // A WireGuard flow is rejected with FRAME_CLOSE while inbound-WG is off.
+    let (accepted, closed) = connect_outcome(&connector, 51_820).await;
+    assert_eq!((accepted, closed), (0, true), "WG flow closed when WG off");
+}
+
+#[tokio::test]
+async fn both_gates_off_rejects_every_flow() {
+    // With neither feature enabled the outer loop would not even dial, but should a
+    // frame still arrive mid-teardown, every flow is closed regardless of transport.
+    let connector = connector_with_gates(false, false);
+
+    let (accepted, closed) = connect_outcome(&connector, 51_820).await;
+    assert_eq!(
+        (accepted, closed),
+        (0, true),
+        "WG flow closed when both off"
+    );
+    let (accepted, closed) = connect_outcome(&connector, 853).await;
+    assert_eq!(
+        (accepted, closed),
+        (0, true),
+        "DoT flow closed when both off"
+    );
+}
+
+#[tokio::test]
+async fn https_connect_is_deferred_and_closed() {
+    // dest_port 443 has no local target yet (#816): always closed, regardless of
+    // which feature is enabled.
+    let connector = connector_with_gates(true, true);
+    let (accepted, closed) = connect_outcome(&connector, 443).await;
+    assert_eq!(
+        (accepted, closed),
+        (0, true),
+        "HTTPS (443) closed - deferred"
+    );
+}
+
+// ── Unit: split caps are independent (issue #913) ─────────────────────────────────
+
+#[tokio::test]
+async fn udp_and_tcp_caps_are_enforced_independently() {
+    let connector = connector_with_gates(true, true);
+    let (out_tx, mut out_rx) = mpsc::channel::<Message>(256);
+    let mut conns = HashMap::new();
+
+    // Fill the TCP (DoT) budget to MAX_TCP_CONNS = 16.
+    for conn_id in 1..=16u32 {
+        handle_frame(
+            &connect_frame(conn_id, 853),
+            &connector,
+            9000,
+            &out_tx,
+            &mut conns,
+            &fake_open_ok,
+            &fake_open_tcp_ok,
+        )
+        .await;
+    }
+    assert_eq!(conns.len(), 16, "16 DoT flows accepted");
+    assert!(
+        out_rx.try_recv().is_err(),
+        "no FRAME_CLOSE for accepted DoT"
+    );
+
+    // The 17th DoT flow is rejected at the cap.
+    handle_frame(
+        &connect_frame(17, 853),
+        &connector,
+        9000,
+        &out_tx,
+        &mut conns,
+        &fake_open_ok,
+        &fake_open_tcp_ok,
+    )
+    .await;
+    assert_eq!(conns.len(), 16, "17th DoT flow rejected - TCP cap holds");
+    assert_close(out_rx.try_recv().expect("cap rejection sends CLOSE"), 17);
+
+    // A WireGuard flow still opens: the TCP budget being full must not starve UDP.
+    handle_frame(
+        &connect_frame(100, 51_820),
+        &connector,
+        9000,
+        &out_tx,
+        &mut conns,
+        &fake_open_ok,
+        &fake_open_tcp_ok,
+    )
+    .await;
+    assert_eq!(
+        conns.len(),
+        17,
+        "a UDP flow opens despite a full TCP budget"
+    );
+    assert!(
+        out_rx.try_recv().is_err(),
+        "no FRAME_CLOSE for the accepted UDP flow"
+    );
+}
+
+// ── Integration: DoT TCP relay (issue #913) ───────────────────────────────────────
+
+/// Spawn a loopback TCP server that, per connection, echoes the first chunk it reads
+/// and then closes — standing in for the daemon's local `:853` `DoT` listener while
+/// also exercising the local-EOF teardown path. Returns its port.
+async fn spawn_tcp_echo_then_close() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        while let Ok((mut socket, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 2048];
+                if let Ok(n @ 1..) = socket.read(&mut buf).await {
+                    let _ = socket.write_all(&buf[..n]).await;
+                }
+                // Drop `socket` → the client sees EOF.
+            });
+        }
+    });
+    port
+}
+
+/// Bind then immediately drop a listener to obtain a port guaranteed to refuse
+/// connections — for the `DoT` connect-failure path.
+async fn closed_tcp_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    listener.local_addr().unwrap().port()
+    // `listener` drops here.
+}
+
+#[tokio::test]
+async fn dot_relay_sends_ready_first_then_relays_and_closes_on_eof() {
+    let echo_port = spawn_tcp_echo_then_close().await;
+    let connector = connector_with_gates(false, true);
+    let (out_tx, mut out_rx) = mpsc::channel::<Message>(256);
+    let mut conns = HashMap::new();
+
+    // Real DoT opener bound to the loopback echo instead of :853.
+    let open_tcp = move |conn_id, out_tx| connect_dot_relay(conn_id, echo_port, out_tx);
+
+    // CONNECT dest_port=853 opens the TCP relay.
+    handle_frame(
+        &connect_frame(1, 853),
+        &connector,
+        9000,
+        &out_tx,
+        &mut conns,
+        &fake_open_ok,
+        &open_tcp,
+    )
+    .await;
+    assert_eq!(conns.len(), 1, "DoT flow recorded");
+
+    // The very first frame the node sees must be FRAME_READY (before any data).
+    let first = timeout(Duration::from_secs(5), out_rx.recv())
+        .await
+        .expect("READY before timeout")
+        .expect("channel open");
+    let Message::Binary(bytes) = first else {
+        panic!("expected READY frame");
+    };
+    assert_eq!(
+        bytes.as_ref(),
+        &[FRAME_READY, 0, 0, 0, 1],
+        "READY precedes data"
+    );
+
+    // Feed one payload; the echo comes back as FRAME_DATA (bidirectional relay).
+    handle_frame(
+        &tunneller::encode_data(1, b"ping"),
+        &connector,
+        9000,
+        &out_tx,
+        &mut conns,
+        &fake_open_ok,
+        &open_tcp,
+    )
+    .await;
+    let echoed = timeout(Duration::from_secs(5), out_rx.recv())
+        .await
+        .expect("echo before timeout")
+        .expect("channel open");
+    assert_eq!(
+        tunneller::decode(match &echoed {
+            Message::Binary(b) => b.as_ref(),
+            other => panic!("expected binary, got {other:?}"),
+        }),
+        Some(Frame::Data {
+            conn_id: 1,
+            payload: b"ping".to_vec(),
+        }),
+        "the local echo is relayed back as FRAME_DATA"
+    );
+
+    // The echo server then closed: the relay reports local EOF as FRAME_CLOSE.
+    let closed = timeout(Duration::from_secs(5), out_rx.recv())
+        .await
+        .expect("CLOSE before timeout")
+        .expect("channel open");
+    assert_close(closed, 1);
+}
+
+#[tokio::test]
+async fn dot_connect_failure_sends_close() {
+    let dead_port = closed_tcp_port().await;
+    let connector = connector_with_gates(false, true);
+    let (out_tx, mut out_rx) = mpsc::channel::<Message>(256);
+    let mut conns = HashMap::new();
+
+    let open_tcp = move |conn_id, out_tx| connect_dot_relay(conn_id, dead_port, out_tx);
+    handle_frame(
+        &connect_frame(1, 853),
+        &connector,
+        9000,
+        &out_tx,
+        &mut conns,
+        &fake_open_ok,
+        &open_tcp,
+    )
+    .await;
+
+    assert!(conns.is_empty(), "a refused DoT connect records no conn");
+    let msg = timeout(Duration::from_secs(5), out_rx.recv())
+        .await
+        .expect("CLOSE before timeout")
+        .expect("channel open");
+    assert_close(msg, 1);
 }
 
 // ── Fake Tunneller server ───────────────────────────────────────────────────────
