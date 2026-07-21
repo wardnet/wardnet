@@ -3,6 +3,7 @@ import {
   Shield,
   ShieldCheck,
   Ban,
+  BarChart3,
   Layers,
   Server,
   Network,
@@ -48,6 +49,13 @@ const FEATURES: Feature[] = [
     icon: <Ban size={28} />,
     title: "DNS ad blocking",
     description: "Block ads and trackers at the DNS level for every managed device on your LAN.",
+    href: "/docs/dns-ad-blocking",
+  },
+  {
+    icon: <BarChart3 size={28} />,
+    title: "DNS analytics",
+    description:
+      "Top trackers by company, week-over-week trends, and per-device query charts, at a glance.",
     href: "/docs/dns-ad-blocking",
   },
   {

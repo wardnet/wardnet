@@ -154,7 +154,7 @@ export {
   useAcknowledgeShutdown,
   useRecentErrors,
 } from "./hooks/useSystemStatus";
-export type { RecentError } from "./hooks/useSystemStatus";
+export type { SystemDiagnostic } from "./hooks/useSystemStatus";
 
 export {
   useDefaultPolicy,
@@ -181,6 +181,9 @@ export {
   useDnsStatsDashboard,
   useDashboardDnsStats,
   useDnsTopBlockedDomains,
+  useDnsTopTrackers,
+  useDnsPeriodComparison,
+  useDnsPerDeviceStats,
   parseLabels,
   RANGES,
   RANGE_HOURS,
@@ -189,6 +192,9 @@ export type {
   StatsRange,
   DnsStatsDashboardData,
   DashboardDnsStats,
+  DnsPeriodTotals,
+  DnsPeriodComparison,
+  DevicePoint,
 } from "./hooks/useStats";
 export { useTunnelStats } from "./hooks/useTunnelStats";
 export type { TunnelStatsPoint, TunnelStatsData } from "./hooks/useTunnelStats";

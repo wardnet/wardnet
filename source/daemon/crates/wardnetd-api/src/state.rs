@@ -4,6 +4,7 @@ use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::entitlement::Entitlement;
 use wardnetd_services::event::EventPublisher;
+use wardnetd_services::private_dns::PrivateDnsService;
 use wardnetd_services::tls::runner::TlsRetryNudge;
 use wardnetd_services::{
     AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
@@ -42,6 +43,7 @@ struct Inner {
     system_service: Arc<dyn SystemService>,
     tunnel_service: Arc<dyn TunnelService>,
     inbound_wg_service: Arc<dyn InboundWgService>,
+    private_dns_service: Arc<dyn PrivateDnsService>,
     update_service: Arc<dyn UpdateService>,
     dhcp_server: Arc<dyn DhcpServer>,
     dns_server: Arc<dyn DnsServer>,
@@ -126,6 +128,9 @@ impl AppState {
                 // service via `with_inbound_wg_service`.
                 inbound_wg_service: Arc::new(NoopInboundWgService),
                 // Defaults to a no-op; production and the mock inject the live
+                // service via `with_private_dns_service`.
+                private_dns_service: Arc::new(NoopPrivateDnsService),
+                // Defaults to a no-op; production and the mock inject the live
                 // service via `with_push_service`.
                 push_service: Arc::new(NoopPushService),
                 // Defaults to a no-op; production and the mock inject the live
@@ -154,6 +159,20 @@ impl AppState {
         Arc::get_mut(&mut self.inner)
             .expect("with_inbound_wg_service must be called before AppState is cloned")
             .inbound_wg_service = inbound_wg_service;
+        self
+    }
+
+    /// Inject the live [`PrivateDnsService`] (issues #912/#914). Defaults to a
+    /// no-op in [`Self::new`]; production and the mock wire the real one. Must
+    /// be called before the state is cloned or shared.
+    #[must_use]
+    pub fn with_private_dns_service(
+        mut self,
+        private_dns_service: Arc<dyn PrivateDnsService>,
+    ) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_private_dns_service must be called before AppState is cloned")
+            .private_dns_service = private_dns_service;
         self
     }
 
@@ -365,6 +384,13 @@ impl AppState {
         self.inner.inbound_wg_service.as_ref()
     }
 
+    /// Access the Private DNS service (per-device encrypted-DNS grants + the
+    /// signed iOS profile — issues #912/#914).
+    #[must_use]
+    pub fn private_dns_service(&self) -> &dyn PrivateDnsService {
+        self.inner.private_dns_service.as_ref()
+    }
+
     /// Access the auto-update service.
     #[must_use]
     pub fn update_service(&self) -> &dyn UpdateService {
@@ -503,6 +529,71 @@ impl InboundWgService for NoopInboundWgService {
     ) -> Result<Vec<wardnetd_services::InboundWgMonitorPeer>, wardnetd_services::error::AppError>
     {
         Ok(Vec::new())
+    }
+    async fn reconcile(&self) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+}
+
+/// No-op [`PrivateDnsService`] used as the [`AppState::new`] default before the
+/// live service is injected via [`AppState::with_private_dns_service`]
+/// (issues #912/#914). Reads that would otherwise error return empty; the rest
+/// report "not configured".
+struct NoopPrivateDnsService;
+
+#[async_trait::async_trait]
+impl PrivateDnsService for NoopPrivateDnsService {
+    async fn status(
+        &self,
+    ) -> Result<wardnetd_services::private_dns::PrivateDnsStatus, wardnetd_services::error::AppError>
+    {
+        Err(wardnetd_services::error::AppError::Internal(
+            anyhow::anyhow!("private-dns service not configured"),
+        ))
+    }
+    async fn is_enabled(&self) -> Result<bool, wardnetd_services::error::AppError> {
+        Ok(false)
+    }
+    async fn set_enabled(
+        &self,
+        _enabled: bool,
+    ) -> Result<wardnetd_services::private_dns::PrivateDnsStatus, wardnetd_services::error::AppError>
+    {
+        Err(wardnetd_services::error::AppError::Internal(
+            anyhow::anyhow!("private-dns service not configured"),
+        ))
+    }
+    async fn grant_device(
+        &self,
+        _device_id: uuid::Uuid,
+    ) -> Result<wardnetd_services::private_dns::PrivateDnsGrant, wardnetd_services::error::AppError>
+    {
+        Err(wardnetd_services::error::AppError::Internal(
+            anyhow::anyhow!("private-dns service not configured"),
+        ))
+    }
+    async fn revoke_grant(
+        &self,
+        _grant_id: uuid::Uuid,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn list_grants(
+        &self,
+    ) -> Result<
+        Vec<wardnetd_services::private_dns::PrivateDnsGrant>,
+        wardnetd_services::error::AppError,
+    > {
+        Ok(Vec::new())
+    }
+    async fn resolve_token(
+        &self,
+        _token: &str,
+    ) -> Result<
+        Option<wardnetd_services::private_dns::PrivateDnsGrant>,
+        wardnetd_services::error::AppError,
+    > {
+        Ok(None)
     }
     async fn reconcile(&self) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())

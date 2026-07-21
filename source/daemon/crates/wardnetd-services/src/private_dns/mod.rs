@@ -26,6 +26,7 @@
 //! the LAN resolve their secret hostname straight to the Pi and reach the
 //! local `:853` listener without hairpinning.
 
+pub mod profile;
 pub mod runner;
 
 #[cfg(test)]
@@ -52,6 +53,7 @@ use crate::dns_local::DnsLocalService;
 use crate::entitlement::Entitlement;
 use crate::error::AppError;
 use crate::event::EventPublisher;
+use crate::secret_store::SecretStore;
 use crate::tls::{TlsService, TlsStatus};
 
 /// TTL (seconds) for the split-horizon wildcard system record. Mirrors the
@@ -176,6 +178,24 @@ pub trait PrivateDnsService: Send + Sync {
     /// Every grant, oldest first.
     async fn list_grants(&self) -> Result<Vec<PrivateDnsGrant>, AppError>;
 
+    /// This device's grant, or `None` if it has none. Backs the device-keyed
+    /// `GET /api/private-dns/me` surface, whose handler has already resolved
+    /// the device by source IP and calls this under an internal admin context.
+    /// A default `Ok(None)` keeps test doubles that predate it compiling.
+    async fn device_grant(&self, device_id: Uuid) -> Result<Option<PrivateDnsGrant>, AppError> {
+        let _ = device_id;
+        Ok(None)
+    }
+
+    /// The signed `.mobileconfig` for this device, or `None` when the device
+    /// isn't granted, the feature is disabled, or the wardnet domain / cert
+    /// isn't available yet (all of which surface as a 404). Backs the
+    /// device-keyed `GET /api/private-dns/me/profile`. Defaults to `Ok(None)`.
+    async fn device_profile(&self, device_id: Uuid) -> Result<Option<Vec<u8>>, AppError> {
+        let _ = device_id;
+        Ok(None)
+    }
+
     /// Resolve a `DoT` SNI token label to its grant, or `None` for an unknown
     /// token (the listener closes those connections). Pure lookup — the
     /// listener decides policy.
@@ -201,6 +221,9 @@ pub struct PrivateDnsServiceImpl {
     dns_local: Arc<dyn DnsLocalService>,
     entitlement: Arc<Entitlement>,
     events: Arc<dyn EventPublisher>,
+    /// Source of the live Let's Encrypt cert/key used to CMS-sign the iOS
+    /// `.mobileconfig` (issue #914). Reached only from `device_profile`.
+    secrets: Arc<dyn SecretStore>,
     /// The Pi's LAN-interface IPv4 — the value of the wildcard record.
     lan_ip: Ipv4Addr,
 }
@@ -217,6 +240,7 @@ impl PrivateDnsServiceImpl {
         dns_local: Arc<dyn DnsLocalService>,
         entitlement: Arc<Entitlement>,
         events: Arc<dyn EventPublisher>,
+        secrets: Arc<dyn SecretStore>,
         lan_ip: Ipv4Addr,
     ) -> Self {
         Self {
@@ -228,8 +252,19 @@ impl PrivateDnsServiceImpl {
             dns_local,
             entitlement,
             events,
+            secrets,
             lan_ip,
         }
+    }
+
+    /// This device's grant row mapped to a [`PrivateDnsGrant`], or `None`.
+    async fn grant_for_device(&self, device_id: Uuid) -> Result<Option<PrivateDnsGrant>, AppError> {
+        let row = self
+            .grants
+            .find_by_device_id(&device_id.to_string())
+            .await
+            .map_err(AppError::Internal)?;
+        row.as_ref().map(PrivateDnsGrant::from_row).transpose()
     }
 
     fn require_entitled(&self) -> Result<(), AppError> {
@@ -495,6 +530,39 @@ impl PrivateDnsService for PrivateDnsServiceImpl {
         auth_context::require_admin()?;
         let rows = self.grants.find_all().await.map_err(AppError::Internal)?;
         rows.iter().map(PrivateDnsGrant::from_row).collect()
+    }
+
+    async fn device_grant(&self, device_id: Uuid) -> Result<Option<PrivateDnsGrant>, AppError> {
+        auth_context::require_admin()?;
+        self.grant_for_device(device_id).await
+    }
+
+    async fn device_profile(&self, device_id: Uuid) -> Result<Option<Vec<u8>>, AppError> {
+        auth_context::require_admin()?;
+
+        // Every miss here is a legitimate 404, not an error: an ungranted or
+        // disabled device simply has no profile, and a box without the wardnet
+        // domain / issued cert can't mint one yet.
+        if !self.enabled().await? {
+            return Ok(None);
+        }
+        let Some(domain) = self.wardnet_domain().await? else {
+            return Ok(None);
+        };
+        let Some(grant) = self.grant_for_device(device_id).await? else {
+            return Ok(None);
+        };
+        let Some((chain_pem, key_pem)) = crate::tls::load_stored_cert(self.secrets.as_ref())
+            .await
+            .map_err(AppError::Internal)?
+        else {
+            return Ok(None);
+        };
+
+        let hostname = format!("{}.{}", grant.token, domain);
+        let signed = profile::build_signed_profile(&hostname, &chain_pem, &key_pem)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))?;
+        Ok(Some(signed))
     }
 
     async fn resolve_token(&self, token: &str) -> Result<Option<PrivateDnsGrant>, AppError> {

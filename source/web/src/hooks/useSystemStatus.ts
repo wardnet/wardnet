@@ -26,15 +26,26 @@ export function useAcknowledgeShutdown() {
   });
 }
 
-interface RecentError {
+/**
+ * A structured, admin-facing problem report. Raised by a daemon component and
+ * paired with a plain-language message and a remediation hint — see the
+ * daemon's `diagnostics` module. Replaces the old raw warning/error log line.
+ */
+interface SystemDiagnostic {
   timestamp: string;
-  level: string;
-  target: string;
+  /** Stable class identifier, e.g. `tunnel_start_failed`. */
+  code: string;
+  /** One of `error`, `warning`, `info`. */
+  severity: string;
+  /** The subsystem that raised it. */
+  component: string;
   message: string;
+  /** What the admin can do about it. */
+  hint: string;
 }
 
 interface RecentErrorsResponse {
-  errors: RecentError[];
+  errors: SystemDiagnostic[];
 }
 
 export function useRecentErrors() {
@@ -45,4 +56,4 @@ export function useRecentErrors() {
   });
 }
 
-export type { RecentError };
+export type { SystemDiagnostic };

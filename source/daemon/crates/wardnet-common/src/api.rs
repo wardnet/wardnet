@@ -359,6 +359,83 @@ pub struct SetInboundWgPeerEnabledRequest {
     pub enabled: bool,
 }
 
+// -- Private DNS (encrypted DNS at home + roaming, issue #914) -------------
+
+/// Enable prerequisites for Private DNS, surfaced to the admin UI so it can
+/// explain *why* the toggle is blocked.
+///
+/// The first three are **hard gates** — [`PrivateDnsStatusResponse::enabled`]
+/// cannot be turned on unless all are `true`. `relay_connected` is
+/// **informational**: the LAN (split-horizon) path works without the reverse
+/// tunnel; only roaming needs it, so a disconnected relay never blocks enable.
+#[allow(clippy::struct_excessive_bools)] // four independent prerequisite flags, not a state machine
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PrivateDnsPrerequisites {
+    /// The box is on the wardnet DDNS provider (so grants get a wildcard-SAN
+    /// hostname).
+    pub wardnet_provider: bool,
+    /// An issued TLS certificate is live (the `DoT` listener derives its config
+    /// from it).
+    pub certificate: bool,
+    /// The box currently holds an active Premium entitlement.
+    pub entitled: bool,
+    /// The reverse tunnel to the regional edge is up. Informational only —
+    /// roaming queries need it, LAN queries do not.
+    pub relay_connected: bool,
+}
+
+/// One per-device grant, carrying the full minted hostname the phone dials.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PrivateDnsGrantSummary {
+    pub id: Uuid,
+    pub device_id: Uuid,
+    /// The device's secret hostname (`<token>.<domain>`) — entered into
+    /// Android Private DNS and carried as the `ServerName` in the iOS profile.
+    pub hostname: String,
+    /// RFC 3339 creation timestamp.
+    pub created_at: String,
+}
+
+/// Response for `GET /api/private-dns/status` and `PUT /api/private-dns`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PrivateDnsStatusResponse {
+    /// Whether the feature (and therefore the `:853` listener) is enabled.
+    pub enabled: bool,
+    /// The wardnet FQDN grants live under (`<token>.<domain>`), when the
+    /// provider is configured; `null` otherwise.
+    pub domain: Option<String>,
+    pub prerequisites: PrivateDnsPrerequisites,
+    /// Every grant, oldest first.
+    pub grants: Vec<PrivateDnsGrantSummary>,
+}
+
+/// Request body for `PUT /api/private-dns`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetPrivateDnsEnabledRequest {
+    pub enabled: bool,
+}
+
+/// Request body for `POST /api/private-dns/grants`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreatePrivateDnsGrantRequest {
+    /// The device to grant encrypted-DNS access. Must already exist and must
+    /// not already hold a grant.
+    pub device_id: Uuid,
+}
+
+/// Response for `GET /api/private-dns/me` — the device-keyed self-service view
+/// (identified by source IP, like `GET /api/devices/me`).
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PrivateDnsMeResponse {
+    /// Whether Private DNS is enabled on the box at all.
+    pub enabled: bool,
+    /// Whether *this* device holds a grant.
+    pub granted: bool,
+    /// This device's full hostname, present only when granted and the wardnet
+    /// domain is known; `null` otherwise.
+    pub hostname: Option<String>,
+}
+
 /// Response for `GET /api/tunnels/{id}/devices`.
 ///
 /// The devices currently routed through the given tunnel — i.e. those

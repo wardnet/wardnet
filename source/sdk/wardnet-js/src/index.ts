@@ -21,6 +21,7 @@ export { DhcpService } from "./services/dhcp.js";
 export { JobsService } from "./services/jobs.js";
 export { RuleRequestService } from "./services/rule-requests.js";
 export { InboundWgService } from "./services/inbound-wg.js";
+export { PrivateDnsService } from "./services/private-dns.js";
 export { PushService } from "./services/push.js";
 export { LogService } from "./services/logs.js";
 export type { LogEntry, LogFilter, LogStreamCallbacks } from "./services/logs.js";
@@ -244,6 +245,16 @@ export type {
   ListInboundWgPeersResponse,
   SetInboundWgPeerEnabledRequest,
 } from "./types/inbound-wg.js";
+
+// Types — Private DNS (encrypted DNS at home + roaming)
+export type {
+  PrivateDnsPrerequisites,
+  PrivateDnsGrantSummary,
+  PrivateDnsStatusResponse,
+  SetPrivateDnsEnabledRequest,
+  CreatePrivateDnsGrantRequest,
+  PrivateDnsMeResponse,
+} from "./types/private-dns.js";
 
 // Types — backup
 export type {

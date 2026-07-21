@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use sqlx::ConnectOptions;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{
     SqliteAutoVacuum, SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
@@ -9,6 +10,11 @@ use uuid::Uuid;
 
 /// Reader pool size — bounded so a runaway read can't exhaust file descriptors.
 const READ_MAX_CONNECTIONS: u32 = 5;
+/// Bulk-read pool size. This pool serves only the known-bulk blocklist
+/// domain load, which the rebuild path runs one blocklist at a time, so a
+/// tiny pool suffices. It is kept separate from `read` so its disabled
+/// slow-statement logging can never mask a genuinely slow normal `SELECT`.
+const BULK_READ_MAX_CONNECTIONS: u32 = 2;
 /// Writer pool is always a single connection — `SQLite` only allows one writer
 /// at a time, and serialising at the pool level produces async-aware
 /// backpressure instead of busy-spin waits inside `SQLite`.
@@ -121,16 +127,24 @@ pub struct DbPools {
     /// Single-connection pool for `INSERT`/`UPDATE`/`DELETE` and
     /// transactions. Also the pool that owns migrations.
     pub write: SqlitePool,
+    /// Dedicated pool for *known-bulk* reads whose row count is inherently
+    /// huge — currently just the blocklist-domain stream (a threat-intel
+    /// feed is ~2.2M domains). Its connections have statement logging
+    /// disabled so the load's multi-second runtime doesn't trip the 1 s
+    /// `slow_statements` alert that guards the `read` pool. Points at the
+    /// same database as `read`; it differs only in log settings and size.
+    pub bulk_read: SqlitePool,
 }
 
 impl DbPools {
-    /// Wrap a single pool as both reader and writer. Used by tests and
-    /// the in-memory shared-cache path where splitting would create two
+    /// Wrap a single pool as reader, writer and bulk-reader. Used by tests
+    /// and the in-memory shared-cache path where splitting would create two
     /// unrelated in-memory databases.
     #[must_use]
     pub fn single(pool: SqlitePool) -> Self {
         Self {
             read: pool.clone(),
+            bulk_read: pool.clone(),
             write: pool,
         }
     }
@@ -225,7 +239,22 @@ pub async fn init_db_pools_from_connection_string(conn: &str) -> anyhow::Result<
             .connect_with(make_options())
             .await?;
 
-        DbPools { read, write }
+        // Bulk-read pool: same database, but with statement logging turned
+        // off. The blocklist-domain load streams millions of rows and
+        // routinely exceeds the 1 s slow-statement threshold on Pi-class
+        // hardware — expected, not a regression. Isolating it here keeps the
+        // 1 s alert honest for every normal `SELECT` on `read` while
+        // silencing the predictable boot/import noise.
+        let bulk_read = SqlitePoolOptions::new()
+            .max_connections(BULK_READ_MAX_CONNECTIONS)
+            .connect_with(make_options().disable_statement_logging())
+            .await?;
+
+        DbPools {
+            read,
+            write,
+            bulk_read,
+        }
     };
 
     sqlx::migrate!("./migrations").run(&pools.write).await?;

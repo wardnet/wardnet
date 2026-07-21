@@ -15,8 +15,8 @@ use wardnet_common::api::{
 use crate::api::middleware::AdminAuth;
 use crate::api::responses::AuthErrors;
 use crate::state::AppState;
+use wardnetd_services::diagnostics::Diagnostic;
 use wardnetd_services::error::AppError;
-use wardnetd_services::logging::error_notifier::ErrorEntry;
 
 /// Register system routes (status, log download, recent errors,
 /// restart, reboot, shutdown) onto the given [`OpenApiRouter`]. The
@@ -247,26 +247,37 @@ pub async fn acknowledge_shutdown(
     Ok(axum::http::StatusCode::NO_CONTENT)
 }
 
-/// API-layer mirror of [`wardnetd_services::logging::error_notifier::ErrorEntry`] that
-/// carries an `OpenAPI` schema. The service-layer type lives in a crate that does
-/// not depend on `utoipa`; duplicating the small struct here keeps the schema
-/// boundary aligned with the HTTP API without leaking the docs dependency into
-/// the services crate.
+/// API-layer mirror of [`wardnetd_services::diagnostics::Diagnostic`] that
+/// carries an `OpenAPI` schema. The service-layer type lives in a crate that
+/// does not depend on `utoipa`; mirroring it here keeps the schema boundary
+/// aligned with the HTTP API without leaking the docs dependency into the
+/// services crate. The `code` and `severity` enums are flattened to their
+/// stable string forms.
 #[derive(Debug, Serialize, ToSchema)]
-pub struct ApiErrorEntry {
+pub struct ApiDiagnostic {
+    /// When the underlying condition occurred.
     pub timestamp: DateTime<Utc>,
-    pub level: String,
-    pub target: String,
+    /// Stable machine-readable class identifier, e.g. `tunnel_start_failed`.
+    pub code: String,
+    /// One of `error`, `warning`, `info`.
+    pub severity: String,
+    /// The subsystem that raised it.
+    pub component: String,
+    /// Plain-language description of what happened.
     pub message: String,
+    /// What the admin can do about it.
+    pub hint: String,
 }
 
-impl From<ErrorEntry> for ApiErrorEntry {
-    fn from(e: ErrorEntry) -> Self {
+impl From<Diagnostic> for ApiDiagnostic {
+    fn from(d: Diagnostic) -> Self {
         Self {
-            timestamp: e.timestamp,
-            level: e.level,
-            target: e.target,
-            message: e.message,
+            timestamp: d.timestamp,
+            code: d.code.as_str().to_owned(),
+            severity: d.severity.as_str().to_owned(),
+            component: d.component.to_owned(),
+            message: d.message,
+            hint: d.hint,
         }
     }
 }
@@ -274,19 +285,20 @@ impl From<ErrorEntry> for ApiErrorEntry {
 /// Response for GET /api/system/errors.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct RecentErrorsResponse {
-    pub errors: Vec<ApiErrorEntry>,
+    pub errors: Vec<ApiDiagnostic>,
 }
 
 #[utoipa::path(
     get,
     path = "/api/system/errors",
     tag = "system",
-    description = "Return the most recent warnings and errors captured by the \
-                   in-memory error notifier ring buffer (currently the last 15 \
-                   entries). Powers the dashboard's \"recent issues\" panel. \
-                   Admin only.",
+    description = "Return the most recent admin-facing diagnostics: typed error \
+                   conditions raised by daemon components, each with a message \
+                   and a remediation hint. Fed by the domain event bus rather \
+                   than by scraping log lines. Powers the dashboard's \"recent \
+                   errors\" panel. Admin only.",
     responses(
-        (status = 200, description = "Recent warnings and errors", body = RecentErrorsResponse),
+        (status = 200, description = "Recent diagnostics", body = RecentErrorsResponse),
         AuthErrors,
     ),
 )]
@@ -298,7 +310,7 @@ pub async fn recent_errors(
         .log_service()
         .get_recent_errors()?
         .into_iter()
-        .map(ApiErrorEntry::from)
+        .map(ApiDiagnostic::from)
         .collect();
     Ok(Json(RecentErrorsResponse { errors }))
 }

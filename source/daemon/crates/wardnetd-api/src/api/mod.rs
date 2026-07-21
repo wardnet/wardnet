@@ -17,6 +17,7 @@ pub mod logs_ws;
 pub mod middleware;
 pub mod network;
 pub mod network_zone;
+pub mod private_dns;
 pub mod providers;
 pub mod push;
 pub mod responses;
@@ -121,6 +122,7 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = dns_events::register(r);
     r = tunnels::register(r);
     r = inbound_wg::register(r);
+    r = private_dns::register(r);
     r = providers::register(r);
     r = dhcp::register(r);
     r = dns::register(r);

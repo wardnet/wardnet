@@ -7,10 +7,10 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::auth_context;
+use crate::diagnostics::{Diagnostic, RecentDiagnostics};
 use crate::error::AppError;
 
 use super::component::{BoxedLayer, LogComponent};
-use super::error_notifier::{ErrorEntry, ErrorNotifier};
 use super::stream::{LogEntry, LogStream};
 
 /// Metadata for a single log file.
@@ -33,8 +33,11 @@ pub trait LogService: Send + Sync {
     /// Subscribe to receive live log entries over WebSocket.
     fn subscribe(&self) -> Result<broadcast::Receiver<LogEntry>, AppError>;
 
-    /// Return the most recent errors and warnings.
-    fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError>;
+    /// Return the most recent admin-facing diagnostics (oldest first).
+    ///
+    /// These come from the domain event bus via the diagnostics listener, not
+    /// from scraping the log stream — see [`crate::diagnostics`].
+    fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError>;
 
     /// List all available log files with metadata.
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError>;
@@ -60,33 +63,38 @@ pub trait LogService: Send + Sync {
     fn stop_all(&self);
 }
 
-/// Production implementation that orchestrates [`LogStream`] and
-/// [`ErrorNotifier`] components.
+/// Production implementation that orchestrates the [`LogStream`] component and
+/// exposes the recent-diagnostics buffer.
+///
+/// The stream is a tracing [`LogComponent`]; diagnostics are not — they are
+/// fed out-of-band by the diagnostics listener, so the service only reads them.
 pub struct LogServiceImpl {
     stream: Arc<dyn LogStream>,
     stream_component: Arc<dyn LogComponent>,
-    error_notifier: Arc<dyn ErrorNotifier>,
-    error_component: Arc<dyn LogComponent>,
+    diagnostics: Arc<dyn RecentDiagnostics>,
     log_path: PathBuf,
 }
 
 impl LogServiceImpl {
     /// Create a new log service.
     ///
-    /// `stream` and `error_notifier` must also implement [`LogComponent`].
-    /// The concrete types ([`LogStreamService`](super::stream::LogStreamService)
-    /// and [`ErrorNotifierService`](super::error_notifier::ErrorNotifierService))
-    /// satisfy both.
-    pub fn new<S, E>(stream: Arc<S>, error_notifier: Arc<E>, log_path: PathBuf) -> Self
+    /// `stream` must also implement [`LogComponent`]
+    /// ([`LogStreamService`](super::stream::LogStreamService) satisfies both).
+    /// `diagnostics` is the read handle onto the shared
+    /// [`DiagnosticStore`](crate::diagnostics::DiagnosticStore) that the
+    /// diagnostics listener writes to.
+    pub fn new<S>(
+        stream: Arc<S>,
+        diagnostics: Arc<dyn RecentDiagnostics>,
+        log_path: PathBuf,
+    ) -> Self
     where
         S: LogStream + LogComponent + 'static,
-        E: ErrorNotifier + LogComponent + 'static,
     {
         Self {
             stream: stream.clone() as Arc<dyn LogStream>,
             stream_component: stream as Arc<dyn LogComponent>,
-            error_notifier: error_notifier.clone() as Arc<dyn ErrorNotifier>,
-            error_component: error_notifier as Arc<dyn LogComponent>,
+            diagnostics,
             log_path,
         }
     }
@@ -99,9 +107,9 @@ impl LogService for LogServiceImpl {
         Ok(self.stream.subscribe())
     }
 
-    fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+    fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
         auth_context::require_admin()?;
-        Ok(self.error_notifier.get_recent_errors())
+        Ok(self.diagnostics.recent())
     }
 
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
@@ -178,20 +186,15 @@ impl LogService for LogServiceImpl {
     }
 
     fn tracing_layers(&self) -> Vec<BoxedLayer> {
-        vec![
-            self.stream_component.tracing_layer(),
-            self.error_component.tracing_layer(),
-        ]
+        vec![self.stream_component.tracing_layer()]
     }
 
     fn start_all(&self) {
         self.stream_component.start();
-        self.error_component.start();
     }
 
     fn stop_all(&self) {
         self.stream_component.stop();
-        self.error_component.stop();
     }
 }
 

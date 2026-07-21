@@ -10,6 +10,7 @@ mod net;
 mod routing;
 mod routing_profile;
 mod serde_util;
+mod trackers;
 mod tunnel;
 mod vpn_provider;
 mod wireguard_config;

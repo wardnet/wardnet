@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use wardnet_common::stats::StatsTopEntry;
+use wardnet_common::stats::{StatsBucket, StatsTopEntry};
 
 /// A persisted intraday stat sample.
 #[derive(Debug, Clone)]
@@ -119,13 +119,26 @@ pub trait StatsRepository: Send + Sync {
     /// e.g. a `device_id` ranking still counts unattributed traffic under
     /// its `client` IP rather than silently dropping it.
     ///
-    /// Queries `stats_intraday` only (bounded by 25 h intraday retention).
-    /// Top-N over longer windows is a known limitation tracked separately.
+    /// `bucket` selects the storage tier the ranking is computed over, matching
+    /// the time-series query path: `Minute` scans `stats_intraday` (25 h),
+    /// `Hour` scans `stats_hourly` (8 d), and `Day` scans `stats_daily`
+    /// (13 mo). `from`/`to` are Unix seconds regardless of tier; the daily tier
+    /// converts them to calendar days internally. This lets top-N honour the
+    /// same window the caller charts rather than being pinned to intraday.
+    ///
+    /// Each tier reflects only data the rollup has already folded into it, so a
+    /// coarse tier omits the still-accumulating current period: the `Day` tier
+    /// has no row for today (rollup lands yesterday's) and the `Hour` tier lacks
+    /// the current partial hour. A ranking therefore trails wall-clock by up to
+    /// one bucket — negligible against a multi-day/-month window, but callers
+    /// wanting the live tail should use the finer tier for it.
+    #[allow(clippy::too_many_arguments)]
     async fn top_n(
         &self,
         metric: &str,
         label_key: &str,
         fallback_label_key: Option<&str>,
+        bucket: StatsBucket,
         from: i64,
         to: i64,
         limit: u32,

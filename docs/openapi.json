@@ -15185,6 +15185,710 @@
         }
       }
     },
+    "/api/private-dns": {
+      "put": {
+        "tags": [
+          "private-dns"
+        ],
+        "description": "Enable or disable Private DNS. Enabling is Premium-gated and requires the hard prerequisites — the wardnet DNS provider, an issued TLS certificate, and an active entitlement — returning 409 when any is missing (reverse-tunnel readiness is informational and never blocks). On enable the daemon seeds the split-horizon wildcard record and starts the `:853` listener; on disable it removes the record and stops it. Returns the full status. Admin only.",
+        "operationId": "set_enabled",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPrivateDnsEnabledRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Private DNS state applied",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateDnsStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting concurrent operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/private-dns/grants": {
+      "post": {
+        "tags": [
+          "private-dns"
+        ],
+        "description": "Grant a managed device encrypted-DNS access: mint its secret hostname (a high-entropy label under the wardnet wildcard, never in CT logs). Requires the feature to be enabled; returns 409 if the device already holds a grant or the feature is disabled, and 404 if the device is unknown. The response carries the full minted hostname. Admin only.",
+        "operationId": "create_grant",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePrivateDnsGrantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Device granted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateDnsGrantSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting concurrent operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/private-dns/grants/{device_id}": {
+      "delete": {
+        "tags": [
+          "private-dns"
+        ],
+        "description": "Revoke a device's encrypted-DNS grant by device id: delete its hostname and immediately cut off any established `DoT` session (the token is otherwise only checked at handshake). Returns 404 if the device has no grant. Admin only.",
+        "operationId": "delete_grant",
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "description": "Device ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Grant revoked"
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/private-dns/me": {
+      "get": {
+        "tags": [
+          "private-dns"
+        ],
+        "description": "The caller device's own Private DNS state, identified by source IP (like `GET /api/devices/me`): whether the feature is enabled, whether this device is granted, and its full hostname when granted. Backs the user PWA. No authentication required — the daemon trusts the source IP of the incoming TCP connection.",
+        "operationId": "get_me",
+        "responses": {
+          "200": {
+            "description": "This device's Private DNS state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateDnsMeResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/private-dns/me/profile": {
+      "get": {
+        "tags": [
+          "private-dns"
+        ],
+        "description": "The signed iOS configuration profile (`.mobileconfig`) for the caller device, identified by source IP. Served as `application/x-apple-aspen-config` at a plain, navigable URL so Safari's install flow triggers on a real navigation. Returns 404 when this device isn't granted or the feature is disabled. No authentication required.",
+        "operationId": "get_me_profile",
+        "responses": {
+          "200": {
+            "description": "Signed configuration profile",
+            "content": {
+              "application/x-apple-aspen-config": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer",
+                    "format": "int32",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No profile for this device",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
+    "/api/private-dns/status": {
+      "get": {
+        "tags": [
+          "private-dns"
+        ],
+        "description": "Report Private DNS state for the admin UI: whether it is enabled, the wardnet domain grants live under, the enable prerequisites (wardnet provider, issued certificate, active entitlement, plus the informational reverse-tunnel readiness), and every per-device grant with its full minted hostname. Admin only.",
+        "operationId": "get_status",
+        "responses": {
+          "200": {
+            "description": "Current Private DNS status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PrivateDnsStatusResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/providers": {
       "get": {
         "tags": [
@@ -19146,6 +19850,22 @@
             }
           },
           {
+            "name": "bucket",
+            "in": "query",
+            "description": "Storage tier to rank over. Defaults to `Minute` (intraday) when\nomitted, preserving the original short-window behaviour; pass `Hour`\nor `Day` to rank over the longer hourly/daily tiers so top-N covers\nthe same window as a matching time-series query.",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/StatsBucket"
+                }
+              ]
+            }
+          },
+          {
             "name": "from",
             "in": "query",
             "required": true,
@@ -19541,11 +20261,11 @@
         "tags": [
           "system"
         ],
-        "description": "Return the most recent warnings and errors captured by the in-memory error notifier ring buffer (currently the last 15 entries). Powers the dashboard's \"recent issues\" panel. Admin only.",
+        "description": "Return the most recent admin-facing diagnostics: typed error conditions raised by daemon components, each with a message and a remediation hint. Fed by the domain event bus rather than by scraping log lines. Powers the dashboard's \"recent errors\" panel. Admin only.",
         "operationId": "recent_errors",
         "responses": {
           "200": {
-            "description": "Recent warnings and errors",
+            "description": "Recent diagnostics",
             "content": {
               "application/json": {
                 "schema": {
@@ -23185,6 +23905,45 @@
           }
         }
       },
+      "ApiDiagnostic": {
+        "type": "object",
+        "description": "API-layer mirror of [`wardnetd_services::diagnostics::Diagnostic`] that\ncarries an `OpenAPI` schema. The service-layer type lives in a crate that\ndoes not depend on `utoipa`; mirroring it here keeps the schema boundary\naligned with the HTTP API without leaking the docs dependency into the\nservices crate. The `code` and `severity` enums are flattened to their\nstable string forms.",
+        "required": [
+          "timestamp",
+          "code",
+          "severity",
+          "component",
+          "message",
+          "hint"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable machine-readable class identifier, e.g. `tunnel_start_failed`."
+          },
+          "component": {
+            "type": "string",
+            "description": "The subsystem that raised it."
+          },
+          "hint": {
+            "type": "string",
+            "description": "What the admin can do about it."
+          },
+          "message": {
+            "type": "string",
+            "description": "Plain-language description of what happened."
+          },
+          "severity": {
+            "type": "string",
+            "description": "One of `error`, `warning`, `info`."
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the underlying condition occurred."
+          }
+        }
+      },
       "ApiError": {
         "type": "object",
         "description": "Standard API error response.",
@@ -23207,31 +23966,6 @@
               "null"
             ],
             "description": "Request ID for correlation with server logs."
-          }
-        }
-      },
-      "ApiErrorEntry": {
-        "type": "object",
-        "description": "API-layer mirror of [`wardnetd_services::logging::error_notifier::ErrorEntry`] that\ncarries an `OpenAPI` schema. The service-layer type lives in a crate that does\nnot depend on `utoipa`; duplicating the small struct here keeps the schema\nboundary aligned with the HTTP API without leaking the docs dependency into\nthe services crate.",
-        "required": [
-          "timestamp",
-          "level",
-          "target",
-          "message"
-        ],
-        "properties": {
-          "level": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "target": {
-            "type": "string"
-          },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -23839,6 +24573,20 @@
         "properties": {
           "zone": {
             "$ref": "#/components/schemas/NetworkZone"
+          }
+        }
+      },
+      "CreatePrivateDnsGrantRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/private-dns/grants`.",
+        "required": [
+          "device_id"
+        ],
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The device to grant encrypted-DNS access. Must already exist and must\nnot already hold a grant."
           }
         }
       },
@@ -26989,6 +27737,119 @@
           }
         }
       },
+      "PrivateDnsGrantSummary": {
+        "type": "object",
+        "description": "One per-device grant, carrying the full minted hostname the phone dials.",
+        "required": [
+          "id",
+          "device_id",
+          "hostname",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "description": "RFC 3339 creation timestamp."
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "hostname": {
+            "type": "string",
+            "description": "The device's secret hostname (`<token>.<domain>`) — entered into\nAndroid Private DNS and carried as the `ServerName` in the iOS profile."
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "PrivateDnsMeResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/private-dns/me` — the device-keyed self-service view\n(identified by source IP, like `GET /api/devices/me`).",
+        "required": [
+          "enabled",
+          "granted"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether Private DNS is enabled on the box at all."
+          },
+          "granted": {
+            "type": "boolean",
+            "description": "Whether *this* device holds a grant."
+          },
+          "hostname": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "This device's full hostname, present only when granted and the wardnet\ndomain is known; `null` otherwise."
+          }
+        }
+      },
+      "PrivateDnsPrerequisites": {
+        "type": "object",
+        "description": "Enable prerequisites for Private DNS, surfaced to the admin UI so it can\nexplain *why* the toggle is blocked.\n\nThe first three are **hard gates** — [`PrivateDnsStatusResponse::enabled`]\ncannot be turned on unless all are `true`. `relay_connected` is\n**informational**: the LAN (split-horizon) path works without the reverse\ntunnel; only roaming needs it, so a disconnected relay never blocks enable.",
+        "required": [
+          "wardnet_provider",
+          "certificate",
+          "entitled",
+          "relay_connected"
+        ],
+        "properties": {
+          "certificate": {
+            "type": "boolean",
+            "description": "An issued TLS certificate is live (the `DoT` listener derives its config\nfrom it)."
+          },
+          "entitled": {
+            "type": "boolean",
+            "description": "The box currently holds an active Premium entitlement."
+          },
+          "relay_connected": {
+            "type": "boolean",
+            "description": "The reverse tunnel to the regional edge is up. Informational only —\nroaming queries need it, LAN queries do not."
+          },
+          "wardnet_provider": {
+            "type": "boolean",
+            "description": "The box is on the wardnet DDNS provider (so grants get a wildcard-SAN\nhostname)."
+          }
+        }
+      },
+      "PrivateDnsStatusResponse": {
+        "type": "object",
+        "description": "Response for `GET /api/private-dns/status` and `PUT /api/private-dns`.",
+        "required": [
+          "enabled",
+          "prerequisites",
+          "grants"
+        ],
+        "properties": {
+          "domain": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The wardnet FQDN grants live under (`<token>.<domain>`), when the\nprovider is configured; `null` otherwise."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether the feature (and therefore the `:853` listener) is enabled."
+          },
+          "grants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PrivateDnsGrantSummary"
+            },
+            "description": "Every grant, oldest first."
+          },
+          "prerequisites": {
+            "$ref": "#/components/schemas/PrivateDnsPrerequisites"
+          }
+        }
+      },
       "Proto": {
         "type": "string",
         "description": "Transport protocol a [`PortSpec`] applies to.",
@@ -27150,7 +28011,7 @@
           "errors": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ApiErrorEntry"
+              "$ref": "#/components/schemas/ApiDiagnostic"
             }
           }
         }
@@ -27634,6 +28495,18 @@
           },
           "target": {
             "$ref": "#/components/schemas/RoutingTarget"
+          }
+        }
+      },
+      "SetPrivateDnsEnabledRequest": {
+        "type": "object",
+        "description": "Request body for `PUT /api/private-dns`.",
+        "required": [
+          "enabled"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
           }
         }
       },
@@ -29621,6 +30494,10 @@
     {
       "name": "inbound-wg",
       "description": "Inbound WireGuard remote-access server and peers"
+    },
+    {
+      "name": "private-dns",
+      "description": "Private DNS: per-device encrypted DNS (DoT) grants and the signed iOS profile"
     },
     {
       "name": "providers",

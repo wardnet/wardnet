@@ -19,6 +19,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use chrono::Utc;
+use futures::TryStreamExt;
 use hickory_proto::rr::RecordType;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -50,7 +51,7 @@ use wardnetd_data::repository::{
 use crate::auth_context;
 use crate::dns_filter::blocklist_downloader::{self, BlocklistFetcher};
 use crate::dns_filter::device_context::DeviceFilterContext;
-use crate::dns_filter::filter::{DnsFilter, DnsFilterInputs};
+use crate::dns_filter::filter::{BlocklistFilterBuilder, DnsFilter, DnsFilterInputs};
 use crate::dns_filter::filter_profile::RuntimeDnsFilterProfile;
 use crate::error::AppError;
 use crate::event::EventPublisher;
@@ -455,22 +456,22 @@ impl DnsFilterServiceImpl {
             return Ok(());
         };
 
-        let inputs = if bl.enabled {
-            let domains = self
-                .repo
-                .load_blocklist_domains(blocklist_id)
-                .await
-                .map_err(AppError::Internal)?;
-            DnsFilterInputs {
-                blocked_domains: domains,
-                allowlist: Vec::new(),
-                custom_rules: Vec::new(),
+        let new_filter = if bl.enabled {
+            // Stream the domains straight into the filter set. A threat-intel
+            // feed is ~2.2M rows; collecting them into a `Vec` first and then
+            // folding that into the set would hold two full copies at once.
+            // A blocklist compiles to a pure blocked-domain filter (no
+            // allowlist, no custom rules), so `BlocklistFilterBuilder` is all
+            // we need here.
+            let mut builder = BlocklistFilterBuilder::new();
+            let mut domains = self.repo.stream_blocklist_domains(blocklist_id);
+            while let Some(domain) = domains.try_next().await.map_err(AppError::Internal)? {
+                builder.insert(&domain);
             }
+            builder.finish()
         } else {
-            DnsFilterInputs::default()
+            DnsFilter::empty()
         };
-
-        let new_filter = DnsFilter::build(inputs);
         let mut filters = self.blocklist_filters.write().await;
         if let Some(slot) = filters.get(&blocklist_id) {
             slot.store(Arc::new(new_filter));

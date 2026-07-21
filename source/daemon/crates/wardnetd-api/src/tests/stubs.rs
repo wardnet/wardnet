@@ -19,12 +19,12 @@ use wardnet_common::tunnel::Tunnel;
 use wardnetd_services::auth::service::{LoginResult, WizardState};
 use wardnetd_services::device::ObservationResult;
 use wardnetd_services::dhcp::server::DhcpServer;
+use wardnetd_services::diagnostics::Diagnostic;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::jobs::{BoxedJobTask, JobService};
 use wardnetd_services::logging::component::BoxedLayer;
-use wardnetd_services::logging::error_notifier::ErrorEntry;
 use wardnetd_services::logging::service::{LogFileInfo, LogService};
 use wardnetd_services::logging::stream::LogEntry;
 use wardnetd_services::{
@@ -1049,7 +1049,7 @@ impl LogService for StubLogService {
         drop(tx);
         Ok(rx)
     }
-    fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+    fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
         Ok(Vec::new())
     }
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {

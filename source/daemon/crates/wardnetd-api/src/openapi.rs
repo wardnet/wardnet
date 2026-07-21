@@ -62,6 +62,7 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "rule-requests", description = "Device-initiated firewall rule requests and admin decisions"),
         (name = "tunnels", description = "WireGuard tunnel lifecycle"),
         (name = "inbound-wg", description = "Inbound WireGuard remote-access server and peers"),
+        (name = "private-dns", description = "Private DNS: per-device encrypted DNS (DoT) grants and the signed iOS profile"),
         (name = "providers", description = "VPN provider integration"),
         (name = "routing", description = "Domain routing profiles: per-domain egress selection over tunnels/providers"),
         (name = "dhcp", description = "DHCP server configuration, leases, and reservations"),

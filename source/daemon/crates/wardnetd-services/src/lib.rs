@@ -17,6 +17,7 @@ pub mod cloud;
 pub mod ddns;
 pub mod device;
 pub mod dhcp;
+pub mod diagnostics;
 pub mod dns;
 pub mod dns_filter;
 pub mod dns_local;
@@ -705,6 +706,7 @@ fn create_services(
         dns_local_service.clone(),
         entitlement.clone(),
         event_publisher.clone(),
+        backends.secret_store.clone(),
         lan_ip,
     ));
 
