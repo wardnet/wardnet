@@ -19,14 +19,12 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
 use wardnet_common::event::WardnetEvent;
 
 /// How serious a [`Diagnostic`] is. Deliberately separate from tracing log
 /// levels: severity here is a product judgement about admin impact, not a
 /// logging verbosity knob.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticSeverity {
     /// A failure that has degraded or stopped a feature.
     Error,
@@ -55,8 +53,7 @@ impl DiagnosticSeverity {
 /// deep-link to docs without parsing free-text messages. Adding a diagnostic
 /// means adding a variant here, giving it a hint, and mapping the source event
 /// in [`Diagnostic::from_event`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticCode {
     /// A tunnel could not be brought up.
     TunnelStartFailed,
@@ -110,7 +107,7 @@ impl DiagnosticCode {
 }
 
 /// A structured, admin-facing problem report.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone)]
 pub struct Diagnostic {
     /// When the underlying condition occurred (the source event's timestamp).
     pub timestamp: DateTime<Utc>,

@@ -420,6 +420,14 @@ async fn run(
     // inherit the `wardnetd{version=...}` context.
     let root_span = tracing::Span::current();
 
+    // Start the diagnostics listener first, before any startup work (the
+    // routing reconcile below, the runners further down) can publish an
+    // error-flavoured event. A broadcast subscriber only sees events sent
+    // after it subscribes, so subscribing here is what keeps early-boot
+    // failures in the recent-errors panel.
+    let diagnostics_listener =
+        DiagnosticsListener::start(&services.event_publisher, diagnostics, &root_span);
+
     // Reconcile routing state with kernel on startup.
     auth_context::with_context(
         AuthContext::Admin {
@@ -583,9 +591,6 @@ async fn run(
         services.push.clone(),
         &root_span,
     );
-    // Turn error-flavoured domain events into admin-facing diagnostics.
-    let diagnostics_listener =
-        DiagnosticsListener::start(&services.event_publisher, diagnostics.clone(), &root_span);
     let route_monitor = RouteMonitor::start(services.event_publisher.clone(), &root_span)
         .map_err(|e| anyhow::anyhow!("failed to start route monitor: {e}"))?;
 

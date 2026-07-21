@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { screen } from "@testing-library/react";
-import type { Diagnostic } from "@wardnet/web";
+import type { SystemDiagnostic } from "@wardnet/web";
 import { RecentErrorsCard } from "@/components/compound/RecentErrorsCard";
 import { renderWithProviders } from "../../test-utils";
 
-function diag(overrides: Partial<Diagnostic>): Diagnostic {
+function diag(overrides: Partial<SystemDiagnostic>): SystemDiagnostic {
   return {
     timestamp: "",
     code: "tunnel_start_failed",
@@ -22,8 +22,8 @@ describe("RecentErrorsCard", () => {
     expect(screen.getByText("No recent errors")).toBeInTheDocument();
   });
 
-  it("renders each diagnostic newest-first with severity classes", () => {
-    const errors: Diagnostic[] = [
+  it("renders diagnostics newest-first by timestamp with severity classes", () => {
+    const errors: SystemDiagnostic[] = [
       diag({
         severity: "warning",
         timestamp: "2026-01-01T10:00:00.123Z",
@@ -45,15 +45,17 @@ describe("RecentErrorsCard", () => {
     expect(screen.getByText("third info")).toBeInTheDocument();
 
     const rows = container.querySelectorAll(".logrow");
-    // reversed order: info first, then error, then warning
-    expect(rows[0].className).toContain("is-info");
-    expect(rows[1].className).toContain("is-err");
-    expect(rows[2].className).toContain("is-warn");
+    // Sorted by timestamp descending: 11:00 error, 10:00 warning, then the
+    // empty-timestamp info row (which sinks to the bottom).
+    expect(rows[0].className).toContain("is-err");
+    expect(rows[1].className).toContain("is-warn");
+    expect(rows[2].className).toContain("is-info");
 
-    // Empty timestamp renders as blank, populated one includes ms.
+    // Rows carry the event timestamp; the empty one renders blank.
     const times = container.querySelectorAll(".logrow .t");
-    expect(times[0].textContent).toBe("");
-    expect(times[1].textContent).toContain(".000");
+    expect(times[0].textContent).toContain(".000");
+    expect(times[1].textContent).toContain(".123");
+    expect(times[2].textContent).toBe("");
   });
 
   it("renders the remediation hint when present", () => {

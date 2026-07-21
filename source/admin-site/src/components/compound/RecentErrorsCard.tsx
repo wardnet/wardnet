@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Text } from "@wardnet/web";
-import type { Diagnostic } from "@wardnet/web";
+import type { SystemDiagnostic } from "@wardnet/web";
 
 function formatTimestamp(ts: string): string {
   if (!ts) return "";
@@ -8,6 +8,12 @@ function formatTimestamp(ts: string): string {
   const hms = date.toLocaleTimeString([], { hour12: false });
   const ms = String(date.getMilliseconds()).padStart(3, "0");
   return `${hms}.${ms}`;
+}
+
+/** Epoch millis for sorting; unparseable/empty timestamps sink to the bottom. */
+function toMillis(ts: string): number {
+  const n = Date.parse(ts);
+  return Number.isNaN(n) ? 0 : n;
 }
 
 /** Map a diagnostic severity to the `.logrow` colour modifier. */
@@ -25,11 +31,17 @@ function severityLabel(severity: string): string {
 }
 
 interface RecentErrorsCardProps {
-  errors: Diagnostic[];
+  errors: SystemDiagnostic[];
 }
 
 /** Dashboard card showing the most recent admin-facing diagnostics. */
 export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
+  // Newest first, ordered by the event timestamp shown in each row (not
+  // arrival order) so the column reads chronologically.
+  const rows = [...errors].sort(
+    (a, b) => toMillis(b.timestamp) - toMillis(a.timestamp),
+  );
+
   return (
     // `dashboard-recent-errors` lets the visual-regression suite mask this
     // card (#628): live error rows carry per-run timestamps and messages.
@@ -44,7 +56,7 @@ export function RecentErrorsCard({ errors }: RecentErrorsCardProps) {
           </Text>
         ) : (
           <div className="logs">
-            {[...errors].reverse().map((err, i) => (
+            {rows.map((err, i) => (
               <div key={i} className={`logrow ${severityClass(err.severity)}`}>
                 <div className="t">{formatTimestamp(err.timestamp)}</div>
                 <div className="l">{severityLabel(err.severity)}</div>

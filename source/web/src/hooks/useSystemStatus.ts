@@ -31,7 +31,7 @@ export function useAcknowledgeShutdown() {
  * paired with a plain-language message and a remediation hint — see the
  * daemon's `diagnostics` module. Replaces the old raw warning/error log line.
  */
-interface Diagnostic {
+interface SystemDiagnostic {
   timestamp: string;
   /** Stable class identifier, e.g. `tunnel_start_failed`. */
   code: string;
@@ -45,7 +45,7 @@ interface Diagnostic {
 }
 
 interface RecentErrorsResponse {
-  errors: Diagnostic[];
+  errors: SystemDiagnostic[];
 }
 
 export function useRecentErrors() {
@@ -56,4 +56,4 @@ export function useRecentErrors() {
   });
 }
 
-export type { Diagnostic };
+export type { SystemDiagnostic };
