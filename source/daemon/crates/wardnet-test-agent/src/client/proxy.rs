@@ -21,7 +21,7 @@ use super::models::ClientError;
 
 /// Default daemon base URL: the daemon owns `10.91.0.1` on the simulated
 /// LAN (`wardnet_lan`), so every client can reach the plain-HTTP API there.
-const DEFAULT_TARGET: &str = "http://10.91.0.1:7411";
+pub(crate) const DEFAULT_TARGET: &str = "http://10.91.0.1:7411";
 
 fn default_target() -> String {
     DEFAULT_TARGET.to_owned()
@@ -125,47 +125,5 @@ impl From<ProxyRequest> for ProxyArgs {
             source_ip: req.source_ip,
             body: req.body,
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn proxy_request_applies_defaults() {
-        let req: ProxyRequest =
-            serde_json::from_str(r#"{"path":"/api/devices/me"}"#).expect("valid body");
-        assert_eq!(req.method, "GET");
-        assert_eq!(req.target, DEFAULT_TARGET);
-        assert!(req.source_ip.is_none());
-        assert!(req.body.is_none());
-    }
-
-    #[test]
-    fn proxy_request_round_trips_fields() {
-        let req: ProxyRequest = serde_json::from_str(
-            r#"{"method":"put","path":"/api/devices/me/rule","source_ip":"10.91.0.123",
-                "body":{"target":{"type":"direct"}}}"#,
-        )
-        .expect("valid body");
-        let args: ProxyArgs = req.into();
-        assert_eq!(args.method, "put");
-        assert_eq!(args.source_ip.as_deref(), Some("10.91.0.123"));
-        assert_eq!(args.body.unwrap()["target"]["type"], "direct");
-    }
-
-    #[test]
-    fn invalid_method_is_rejected() {
-        let err = tokio::runtime::Runtime::new()
-            .unwrap()
-            .block_on(run(ProxyArgs {
-                method: "bad method".to_owned(),
-                path: "/api/info".to_owned(),
-                target: DEFAULT_TARGET.to_owned(),
-                source_ip: None,
-                body: None,
-            }));
-        assert!(err.is_err());
     }
 }
