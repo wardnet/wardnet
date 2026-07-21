@@ -142,19 +142,25 @@ export default function StepDhcp({
           </Field>
           {router && (
             <div className="flex flex-col gap-2">
-              <ol className="ml-5 list-decimal space-y-1 text-sm text-ink-3">
+              <Text
+                as="ol"
+                size="sm"
+                className="ml-5 list-decimal space-y-1 text-ink-3"
+              >
                 {router.steps.map((step, i) => (
                   <li key={i}>{step}</li>
                 ))}
-              </ol>
+              </Text>
               {router.kb_url && (
                 <a
                   href={router.kb_url}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-xs text-accent hover:underline"
+                  className="text-accent hover:underline"
                 >
-                  {router.name} support page ↗
+                  <Text as="span" size="xs">
+                    {router.name} support page ↗
+                  </Text>
                 </a>
               )}
             </div>

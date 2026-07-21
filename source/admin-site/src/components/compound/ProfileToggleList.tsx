@@ -86,11 +86,7 @@ function ProfileToggleRow({
         <Text as="span" size="sm">
           {profile.name}
         </Text>
-        {profile.builtin && (
-          <Pill variant="ghost" className="text-xs">
-            Builtin
-          </Pill>
-        )}
+        {profile.builtin && <Pill variant="ghost">Builtin</Pill>}
       </div>
       <Toggle
         checked={checked}

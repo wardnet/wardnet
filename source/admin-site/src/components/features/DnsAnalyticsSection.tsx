@@ -109,9 +109,7 @@ export function DnsAnalyticsSection({ range }: Props) {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card data-testid="dns-period-comparison">
           <CardHeader>
-            <CardTitle className="text-sm">
-              Compared to previous {periodNoun(range)}
-            </CardTitle>
+            <CardTitle>Compared to previous {periodNoun(range)}</CardTitle>
           </CardHeader>
           <CardContent>
             {comparison ? (
@@ -302,7 +300,7 @@ function TrackersList({
   return (
     <Card data-testid="dns-top-trackers">
       <CardHeader>
-        <CardTitle className="text-sm">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent>
         {entries && entries.length > 0 ? (

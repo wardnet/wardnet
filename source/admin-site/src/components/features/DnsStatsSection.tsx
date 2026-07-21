@@ -322,7 +322,7 @@ function TopList({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent>
         {entries && entries.length > 0 ? (
@@ -373,7 +373,7 @@ function TopClientsList({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm">{title}</CardTitle>
+        <CardTitle>{title}</CardTitle>
       </CardHeader>
       <CardContent>
         {entries && entries.length > 0 ? (

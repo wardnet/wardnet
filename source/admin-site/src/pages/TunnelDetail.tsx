@@ -37,13 +37,21 @@ function SpeedTestHistory({ tunnelId }: { tunnelId: string }) {
         <CardTitle>Speed test history</CardTitle>
       </CardHeader>
       <CardContent>
-        <table className="w-full text-sm">
+        <Text as="table" size="sm" className="w-full">
           <thead>
             <tr className="text-left text-ink-3">
-              <th className="pb-2 font-medium">Tested at</th>
-              <th className="pb-2 font-medium">Download (tun / direct)</th>
-              <th className="pb-2 font-medium">Latency (tun / direct)</th>
-              <th className="pb-2 font-medium">Kept</th>
+              <Text as="th" weight="medium" className="pb-2">
+                Tested at
+              </Text>
+              <Text as="th" weight="medium" className="pb-2">
+                Download (tun / direct)
+              </Text>
+              <Text as="th" weight="medium" className="pb-2">
+                Latency (tun / direct)
+              </Text>
+              <Text as="th" weight="medium" className="pb-2">
+                Kept
+              </Text>
             </tr>
           </thead>
           <tbody>
@@ -68,7 +76,7 @@ function SpeedTestHistory({ tunnelId }: { tunnelId: string }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </Text>
       </CardContent>
     </Card>
   );

@@ -47,9 +47,11 @@ function SpeedTestComparison({ result }: { result: TunnelSpeedTestResult }) {
   const jitterOverhead = result.tunnel_jitter_ms - result.direct_jitter_ms;
 
   return (
-    <div
+    <Text
+      as="div"
+      size="xs"
       data-testid="tunnel-speed-test-result"
-      className="col gap-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg-sunken)] px-3 py-2 text-xs"
+      className="col gap-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg-sunken)] px-3 py-2"
     >
       <div className="row text-ink-3">
         <Text as="span" size="2xs" weight="medium">
@@ -103,7 +105,7 @@ function SpeedTestComparison({ result }: { result: TunnelSpeedTestResult }) {
           {formatMs(jitterOverhead)}
         </span>
       </div>
-    </div>
+    </Text>
   );
 }
 
@@ -316,12 +318,14 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
         </Text>
       )}
       {testError && !testResult && (
-        <div
+        <Text
+          as="div"
           role="alert"
-          className="rounded-[var(--radius-md)] border border-[var(--danger-soft)] bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger-soft-ink)]"
+          size="xs"
+          className="rounded-[var(--radius-md)] border border-[var(--danger-soft)] bg-[var(--danger-soft)] px-3 py-2 text-[var(--danger-soft-ink)]"
         >
           {testError}
-        </div>
+        </Text>
       )}
 
       {latestSpeedTest && <SpeedTestComparison result={latestSpeedTest} />}

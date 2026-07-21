@@ -66,8 +66,10 @@ export default function DnsFilterProfile() {
         <Text as="h1" size="xl" weight="semibold">
           Profile not found
         </Text>
-        <Link to="/dns/filter" className="text-sm text-accent underline">
-          Back to DNS Filtering
+        <Link to="/dns/filter" className="text-accent underline">
+          <Text as="span" size="sm">
+            Back to DNS Filtering
+          </Text>
         </Link>
       </div>
     );

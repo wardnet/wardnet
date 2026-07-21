@@ -354,6 +354,8 @@ export function BackupCard({
                   accept=".age,.wardnet,.wardnet.age"
                   disabled={isPreviewing}
                   onChange={(e) => setBundle(e.target.files?.[0] ?? null)}
+                  /* ds-typography-allow: native file input — the file: pseudo-element
+                     utilities that style the picker button have no <Text> equivalent */
                   className="block w-full text-sm file:mr-2 file:rounded-md file:border file:border-line file:bg-sunken file:px-3 file:py-1.5 file:text-sm file:font-medium"
                 />
               </Field>
@@ -543,9 +545,13 @@ function RestorePreviewDetails({
       </div>
       <Text as="p" size="xs" className="text-ink-3">
         A{" "}
-        <code className="rounded bg-sunken px-1 py-0.5 font-mono text-[0.7rem]">
+        <Text
+          as="code"
+          size="2xs"
+          className="rounded bg-sunken px-1 py-0.5 font-mono"
+        >
           .bak-&lt;timestamp&gt;
-        </code>{" "}
+        </Text>{" "}
         sibling is kept for every replaced file and retained for 24&nbsp;hours.
       </Text>
     </Text>
