@@ -659,29 +659,43 @@ export async function daemonIpRules(
 }
 
 /**
- * Poll [`daemonIpRules`] until a `from <ip>/32` rule for `deviceIp` is
- * present (`want = true`) or gone (`want = false`), returning the matching
- * rule (or `undefined` when it should be absent). Throws on timeout. The
- * daemon applies rules asynchronously off a `RoutingRuleChanged` event, so
- * a mutation is never visible on the first read.
+ * True for a Wardnet per-device routing rule: a host (`/32`) source
+ * pointing at a dedicated tunnel table (the daemon numbers those `>= 100`).
+ * Deliberately IP-agnostic — a client's `last_ip` can be either its DHCP
+ * lease or its docker-IPAM address depending on last-observed traffic, and
+ * the daemon installs the rule for whichever the device currently holds.
+ * The kernel's own rules (`from all lookup main/local/default`) never match:
+ * their source is `all` and their table is a name, not a number.
  */
-export async function waitForDeviceIpRule(
+export function isDeviceTunnelRule(rule: DaemonIpRule): boolean {
+  return /^\d+\.\d+\.\d+\.\d+\/32$/.test(rule.from) && Number(rule.table) >= 100;
+}
+
+/**
+ * Poll [`daemonIpRules`] until a per-device tunnel rule (see
+ * [`isDeviceTunnelRule`]) is present (`want = true`) or gone
+ * (`want = false`), returning the matching rule (or `undefined` when it
+ * should be absent). Throws on timeout. The daemon applies rules
+ * asynchronously off a `RoutingRuleChanged` event, so a mutation is never
+ * visible on the first read. In the daemon e2e stack only one device is
+ * tunnel-routed at a time, so "any device tunnel rule" unambiguously
+ * reflects the device under test.
+ */
+export async function waitForTunnelRule(
   daemonAgent: string,
-  deviceIp: string,
   want: boolean,
   timeoutMs = 30_000,
 ): Promise<DaemonIpRule | undefined> {
-  const target = `${deviceIp}/32`;
   const deadline = Date.now() + timeoutMs;
   let last: DaemonIpRule[] = [];
   while (Date.now() < deadline) {
     last = (await daemonIpRules(daemonAgent)).rules;
-    const match = last.find((r) => r.from === target);
+    const match = last.find(isDeviceTunnelRule);
     if (want === Boolean(match)) return match;
     await new Promise((resolve) => setTimeout(resolve, 1_000));
   }
   throw new Error(
-    `ip rule for ${target} was ${want ? "not present" : "still present"} after ${timeoutMs}ms (rules: ${last
+    `a per-device tunnel rule was ${want ? "not present" : "still present"} after ${timeoutMs}ms (rules: ${last
       .map((r) => `${r.from}->${r.table}`)
       .join(", ")})`,
   );

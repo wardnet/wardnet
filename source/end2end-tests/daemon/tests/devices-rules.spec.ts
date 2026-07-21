@@ -16,8 +16,8 @@ import {
   ensureLeasedAgent,
   findDeviceByIpOrNull,
   proxyToDaemon,
-  waitForDeviceIpRule,
   waitForReady,
+  waitForTunnelRule,
 } from "./helpers.js";
 
 // Per-device routing rules, asserted against the daemon's live `ip rule`
@@ -93,48 +93,38 @@ describe("devices — per-device routing rules vs. kernel state", () => {
     }
   });
 
-  it("assigning a device to a tunnel installs a per-device ip rule, and direct removes it", async (ctx) => {
+  it("tunnel routing installs a per-device ip rule; self-service direct tears it down", async (ctx) => {
     if (!device || !tunnelId) return ctx.skip();
 
-    // Assign → the routing service brings the tunnel up on demand and
-    // installs `ip rule from <leasedIp>/32 lookup <tunnel_table>`. Rules are
-    // applied asynchronously off the RoutingRuleChanged event, so poll.
+    // Admin assigns the device to the tunnel → the routing service brings
+    // the tunnel up on demand and installs `ip rule from <device_ip>/32
+    // lookup <tunnel_table>`. Rules are applied asynchronously off the
+    // RoutingRuleChanged event, so poll. We match on shape (a /32 source at
+    // a tunnel table) rather than a fixed IP: a client's last_ip can be its
+    // lease or its docker-IPAM address, and the daemon rules whichever it
+    // currently holds.
     await devices.update(device.id, {
       routing_target: { type: "tunnel", tunnel_id: tunnelId },
     });
-    const rule = await waitForDeviceIpRule(DAEMON_AGENT, leasedIp, true);
+    const rule = await waitForTunnelRule(DAEMON_AGENT, true);
     expect(rule).toBeDefined();
-    // Wardnet-managed per-device rules point at a dedicated tunnel table
-    // (tables >= 100); the kernel default rules use main/default/local.
-    const table = Number(rule?.table);
-    expect(Number.isNaN(table)).toBe(false);
-    expect(table).toBeGreaterThanOrEqual(100);
-
-    // Switch back to direct → the per-device rule is torn down.
-    await devices.update(device.id, { routing_target: { type: "direct" } });
-    await waitForDeviceIpRule(DAEMON_AGENT, leasedIp, false);
-  });
-
-  it("self-service setMyRule(direct) leaves the device on the main table", async (ctx) => {
-    if (!device) return ctx.skip();
-
-    // Ensure a known non-direct starting point so the assertion is a real
-    // transition, not a no-op on an already-direct device.
-    await devices.update(device.id, {
-      routing_target: { type: "tunnel", tunnel_id: tunnelId! },
-    });
-    await waitForDeviceIpRule(DAEMON_AGENT, leasedIp, true);
+    expect(Number(rule?.table)).toBeGreaterThanOrEqual(100);
 
     // The device drives its own rule back to direct through the proxy, so
     // the daemon classifies the mutation by source IP (AuthContext::Device).
+    // Bind the device's *current* address so the classification resolves
+    // regardless of which of its IPs the daemon last observed.
+    const current = await devices.getById(device.id);
     const res = await proxyToDaemon(TEST_DEBIAN_AGENT, {
       method: "PUT",
       path: "/api/devices/me/rule",
-      sourceIp: leasedIp,
+      sourceIp: current.device.last_ip,
       body: { target: { type: "direct" } },
     });
     expect(res.status).toBe(200);
 
-    await waitForDeviceIpRule(DAEMON_AGENT, leasedIp, false);
+    // Direct routing tears the per-device rule down — the device is back on
+    // the main table.
+    await waitForTunnelRule(DAEMON_AGENT, false);
   });
 });

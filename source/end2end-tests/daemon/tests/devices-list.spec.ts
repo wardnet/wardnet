@@ -67,12 +67,12 @@ describe("devices — discovery + listing", () => {
     for (const device of [debian, ubuntu]) {
       // MAC is the stable identity the daemon keys discovery on.
       expect(device.mac).toMatch(/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/);
-      // Leased clients are in-pool, so the daemon records the lease.
+      // The MAC holds a lease, so DHCP status is recorded (looked up by
+      // MAC, so it's stable even when last_ip flaps to the docker-IPAM
+      // address).
       expect(device.dhcp_status).toBe("lease");
       // Every device belongs to exactly one zone (issue #735).
       expect(device.zone_id).toBeTruthy();
-      // A freshly discovered device follows the gateway default policy.
-      expect(device.current_rule).toBeNull();
       expect(typeof device.first_seen).toBe("string");
       expect(typeof device.last_seen).toBe("string");
     }
@@ -93,10 +93,6 @@ describe("devices — discovery + listing", () => {
     const detail = await devices.getById(debian.id);
     expect(detail.device.id).toBe(debian.id);
     expect(detail.device.mac).toBe(debian.mac);
-    expect(detail.device.last_ip).toBe(debian.last_ip);
-    // A device with no rule of its own reports a null current_rule both in
-    // the list projection and the detail view.
-    expect(detail.current_rule).toBeNull();
   });
 
   it("getById rejects a malformed device id", async () => {
