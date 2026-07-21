@@ -65,8 +65,13 @@ describe("devices — discovery + listing", () => {
     expect(debian.mac).not.toBe(ubuntu.mac);
 
     for (const device of [debian, ubuntu]) {
-      // MAC is the stable identity the daemon keys discovery on.
-      expect(device.mac).toMatch(/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/);
+      // MAC is the stable identity the daemon keys discovery on. Assert its
+      // shape by splitting on ":" rather than a regex — six lowercase hex
+      // octets — which sidesteps the security/detect-unsafe-regex lint on a
+      // grouped-quantifier pattern.
+      const octets = device.mac.split(":");
+      expect(octets).toHaveLength(6);
+      expect(octets.every((o) => /^[0-9a-f]{2}$/.test(o))).toBe(true);
       // The MAC holds a lease, so DHCP status is recorded (looked up by
       // MAC, so it's stable even when last_ip flaps to the docker-IPAM
       // address).
