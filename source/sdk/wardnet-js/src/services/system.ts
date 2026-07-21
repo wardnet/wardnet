@@ -1,5 +1,6 @@
 import { type WardnetClient } from "../client.js";
 import type {
+  RecentErrorsResponse,
   SetDefaultPolicyRequest,
   SetDefaultPolicyResponse,
   SystemStatusResponse,
@@ -12,6 +13,15 @@ export class SystemService {
   /** Get system status including version, uptime, and counts (admin only). */
   async getStatus(): Promise<SystemStatusResponse> {
     return this.client.request<SystemStatusResponse>("/system/status");
+  }
+
+  /**
+   * Recent warnings and errors from the daemon's in-memory notifier ring
+   * buffer (admin only). Powers the dashboard's "recent issues" panel;
+   * currently returns at most the last 15 entries, newest first.
+   */
+  async getRecentErrors(): Promise<RecentErrorsResponse> {
+    return this.client.request<RecentErrorsResponse>("/system/errors");
   }
 
   /**

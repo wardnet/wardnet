@@ -17,8 +17,11 @@ import type {
  * just plumbs the request through the shared `WardnetClient`
  * (credentials include cookies by default).
  *
- * Two methods bypass `WardnetClient.request` because they don't fit
- * the JSON-in / JSON-out shape:
+ * Two methods don't fit the JSON-in / JSON-out shape of
+ * `WardnetClient.request`, so they call `WardnetClient.authorizedFetch`
+ * directly instead. That still routes header construction through the
+ * client, so a subclass's `buildHeaders` override (e.g. bearer auth) is
+ * applied to these endpoints too:
  *
  * - `export` returns `application/octet-stream` (the encrypted
  *   bundle bytes). Using `Blob` keeps the SDK free of a Node-vs-browser
@@ -44,10 +47,9 @@ export class BackupService {
    * The Blob's MIME type is `application/octet-stream`.
    */
   async export(body: ExportBackupRequest): Promise<Blob> {
-    const res = await fetch(`${this.client.baseUrl}/backup/export`, {
+    const res = await this.client.authorizedFetch("/backup/export", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include",
       body: JSON.stringify(body),
     });
     if (!res.ok) {
@@ -69,11 +71,10 @@ export class BackupService {
     form.append("bundle", bundle, "bundle.wardnet.age");
     form.append("passphrase", passphrase);
 
-    const res = await fetch(`${this.client.baseUrl}/backup/import/preview`, {
+    const res = await this.client.authorizedFetch("/backup/import/preview", {
       method: "POST",
       // NB: no Content-Type header — the platform sets it with the
       // multipart boundary when the body is a FormData.
-      credentials: "include",
       body: form,
     });
     if (!res.ok) {

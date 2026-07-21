@@ -10,9 +10,26 @@ declare function fetch(input: string | URL, init?: RequestInit): Promise<Respons
 declare function setTimeout(callback: () => void, ms: number): ReturnType<typeof setTimeout>;
 declare function clearTimeout(id: ReturnType<typeof setTimeout>): void;
 
+/**
+ * Console — available in both browsers and Node. Only the methods the
+ * default log adapter writes through are declared; consumers wanting richer
+ * output swap the sink via `setAdapter` (e.g. the `@wardnet/js/consola`
+ * adapter) rather than relying on more of this surface.
+ */
+declare const console: {
+  error(...args: unknown[]): void;
+  warn(...args: unknown[]): void;
+  info(...args: unknown[]): void;
+  debug(...args: unknown[]): void;
+};
+
 interface RequestInit {
   method?: string;
-  headers?: Record<string, string>;
+  // Mirrors what the platform `fetch` accepts. The SDK's own call sites pass a
+  // plain object; the wider union keeps consumers who hand in a `Headers`
+  // instance or entries array (valid in the browser) from being silently
+  // dropped — `WardnetClient` normalizes all three forms.
+  headers?: Record<string, string> | Headers | string[][];
   body?: string | Blob | FormData | null;
   credentials?: "include" | "omit" | "same-origin";
   signal?: AbortSignal;
@@ -54,7 +71,18 @@ declare class FormData {
 interface Headers {
   get(name: string): string | null;
   has(name: string): boolean;
+  forEach(callback: (value: string, name: string) => void): void;
+  entries(): IterableIterator<[string, string]>;
 }
+
+/**
+ * `Headers` constructor — available natively in browsers and Node 18+. The
+ * SDK uses it only to normalize a caller-supplied `Headers`/entries value into
+ * a plain record; it accepts the same inputs as the platform constructor.
+ */
+declare const Headers: {
+  new (init?: Record<string, string> | Headers | string[][]): Headers;
+};
 
 interface AbortSignal {
   aborted: boolean;

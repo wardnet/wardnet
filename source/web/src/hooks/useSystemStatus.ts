@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { systemService, client } from "../lib/sdk";
+import type { RecentErrorsResponse } from "@wardnet/js";
+import { systemService } from "../lib/sdk";
 
 export function useSystemStatus() {
   return useQuery({
@@ -26,34 +27,12 @@ export function useAcknowledgeShutdown() {
   });
 }
 
-/**
- * A structured, admin-facing problem report. Raised by a daemon component and
- * paired with a plain-language message and a remediation hint — see the
- * daemon's `diagnostics` module. Replaces the old raw warning/error log line.
- */
-interface SystemDiagnostic {
-  timestamp: string;
-  /** Stable class identifier, e.g. `tunnel_start_failed`. */
-  code: string;
-  /** One of `error`, `warning`, `info`. */
-  severity: string;
-  /** The subsystem that raised it. */
-  component: string;
-  message: string;
-  /** What the admin can do about it. */
-  hint: string;
-}
-
-interface RecentErrorsResponse {
-  errors: SystemDiagnostic[];
-}
-
 export function useRecentErrors() {
   return useQuery<RecentErrorsResponse>({
     queryKey: ["system", "errors"],
-    queryFn: () => client.request<RecentErrorsResponse>("/system/errors"),
+    queryFn: () => systemService.getRecentErrors(),
     refetchInterval: 15_000,
   });
 }
 
-export type { SystemDiagnostic };
+export type { SystemDiagnostic } from "@wardnet/js";

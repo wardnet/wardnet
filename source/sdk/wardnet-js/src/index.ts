@@ -1,6 +1,6 @@
 // Logging
-export { createLogger, setLevel } from "./logger.js";
-export type { Logger, LogLevel } from "./logger.js";
+export { createLogger, setLevel, setAdapter, consoleAdapter } from "./logger.js";
+export type { Logger, LogLevel, EmittedLevel, LogAdapter } from "./logger.js";
 
 // Client
 export { WardnetClient, WardnetApiError } from "./client.js";
@@ -93,6 +93,8 @@ export type { LoginRequest, LoginResponse, MeResponse } from "./types/auth.js";
 export type {
   LastShutdownState,
   LastShutdownStatus,
+  SystemDiagnostic,
+  RecentErrorsResponse,
   SetDefaultPolicyRequest,
   SetDefaultPolicyResponse,
   SystemStatusResponse,
@@ -168,6 +170,8 @@ export type {
   TunnelTestResponse,
   TunnelSpeedTestResult,
   TunnelSpeedTestHistoryResponse,
+  UpdateTunnelDnsOverrideRequest,
+  UpdateTunnelDnsOverrideResponse,
   ListProvidersResponse,
   ValidateCredentialsRequest,
   ValidateCredentialsResponse,

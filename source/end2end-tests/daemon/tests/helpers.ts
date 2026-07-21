@@ -55,6 +55,11 @@ export const MALWARE_PHISHING_PROFILE_ID = "00000000-0000-0000-0000-000000000102
  * to every subsequent request. Node's fetch has no cookie jar, so the
  * session cookie the daemon sets is invisible to follow-up calls;
  * `Authorization: Bearer <token>` is the documented non-browser path.
+ *
+ * The token is attached via the `buildHeaders` seam rather than a
+ * `request` override so it also covers the endpoints that bypass
+ * `request` — `BackupService.export`/`previewImport`, which post raw
+ * octet-stream / multipart bodies through `authorizedFetch`.
  */
 export class AuthedClient extends WardnetClient {
   constructor(
@@ -64,11 +69,11 @@ export class AuthedClient extends WardnetClient {
     super({ baseUrl });
   }
 
-  override async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const headers = new Headers(init?.headers);
-    headers.set("Content-Type", "application/json");
-    headers.set("Authorization", `Bearer ${this.token}`);
-    return super.request<T>(path, { ...init, headers });
+  protected override buildHeaders(init?: RequestInit): Record<string, string> {
+    return {
+      ...super.buildHeaders(init),
+      Authorization: `Bearer ${this.token}`,
+    };
   }
 }
 
