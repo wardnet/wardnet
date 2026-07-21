@@ -253,6 +253,36 @@ async fn note_resolution_ignores_ipv6_only_answers() {
 }
 
 #[tokio::test]
+async fn list_profile_devices_reverses_the_assignment() {
+    let (svc, _rx, device_id) = setup().await;
+
+    auth_context::with_context(admin_ctx(), async {
+        let profile = svc.create_profile("used").await.unwrap();
+        // Replaces the device's assignment with just this profile.
+        svc.set_device_profiles(device_id, &[profile.id])
+            .await
+            .unwrap();
+        assert_eq!(
+            svc.list_profile_devices(profile.id).await.unwrap(),
+            vec![device_id]
+        );
+
+        // An unknown profile is a 404, not an empty list.
+        let err = svc.list_profile_devices(Uuid::new_v4()).await.unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)), "got {err:?}");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn list_profile_devices_requires_admin() {
+    let (svc, _rx, _device_id) = setup().await;
+    // No auth context in scope → the require_admin guard rejects before any read.
+    let err = svc.list_profile_devices(Uuid::new_v4()).await.unwrap_err();
+    assert!(matches!(err, AppError::Forbidden(_)), "got {err:?}");
+}
+
+#[tokio::test]
 async fn create_rule_rejects_an_unknown_tunnel() {
     let (svc, _rx, _device_id) = setup().await;
 

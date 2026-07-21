@@ -13,6 +13,7 @@ import {
   Route,
   Router,
   Settings as SettingsIcon,
+  Split,
 } from "lucide-react";
 import { ShieldWifi, GlobeFilter } from "@wardnet/web";
 import { useAuth } from "@wardnet/web";
@@ -66,6 +67,7 @@ const adminSections: NavSection[] = [
         testId: "nav-devices",
       },
       { to: "/tunnels", label: "Tunnels", icon: Route, testId: "nav-tunnels" },
+      { to: "/routing", label: "Routing", icon: Split, testId: "nav-routing" },
       { to: "/vpn", label: "VPN", icon: ShieldWifi, testId: "nav-vpn" },
       { to: "/zones", label: "Zones", icon: Boxes, testId: "nav-zones" },
       { to: "/dhcp", label: "DHCP", icon: Router, testId: "nav-dhcp" },

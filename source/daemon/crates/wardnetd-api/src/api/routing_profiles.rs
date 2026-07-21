@@ -15,9 +15,9 @@ use wardnet_common::api::{
     CreateDomainRoutingRuleRequest, CreateDomainRoutingRuleResponse, CreateRoutingProfileRequest,
     CreateRoutingProfileResponse, DeleteDomainRoutingRuleResponse, DeleteRoutingProfileResponse,
     GetDeviceRoutingProfilesResponse, GetRoutingProfileResponse, ListDomainRoutingRulesResponse,
-    ListRoutingProfilesResponse, SetDeviceRoutingProfilesRequest, SetDeviceRoutingProfilesResponse,
-    UpdateDomainRoutingRuleRequest, UpdateDomainRoutingRuleResponse, UpdateRoutingProfileRequest,
-    UpdateRoutingProfileResponse,
+    ListProfileDevicesResponse, ListRoutingProfilesResponse, SetDeviceRoutingProfilesRequest,
+    SetDeviceRoutingProfilesResponse, UpdateDomainRoutingRuleRequest, UpdateDomainRoutingRuleResponse,
+    UpdateRoutingProfileRequest, UpdateRoutingProfileResponse,
 };
 
 use crate::api::middleware::AdminAuth;
@@ -32,6 +32,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(list_rules, create_rule))
         .routes(routes!(update_rule, delete_rule))
         .routes(routes!(get_device_profiles, set_device_profiles))
+        .routes(routes!(get_profile_devices))
 }
 
 // ── Profiles ────────────────────────────────────────────────────────────────
@@ -332,4 +333,28 @@ pub async fn set_device_profiles(
     Ok(Json(SetDeviceRoutingProfilesResponse {
         message: "Device routing profiles updated".to_owned(),
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/routing/profiles/{id}/devices",
+    tag = "routing",
+    description = "List the devices a routing profile is assigned to. Admin only.",
+    params(("id" = Uuid, Path, description = "Profile id")),
+    responses(
+        (status = 200, description = "Assigned devices", body = ListProfileDevicesResponse),
+        AuthErrors,
+        NotFound,
+    ),
+)]
+pub async fn get_profile_devices(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<Uuid>,
+) -> Result<Json<ListProfileDevicesResponse>, AppError> {
+    let device_ids = state
+        .routing_profile_service()
+        .list_profile_devices(id)
+        .await?;
+    Ok(Json(ListProfileDevicesResponse { device_ids }))
 }

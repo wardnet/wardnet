@@ -413,6 +413,7 @@ export type {
   GetDeviceRoutingProfilesResponse,
   SetDeviceRoutingProfilesRequest,
   SetDeviceRoutingProfilesResponse,
+  ListProfileDevicesResponse,
 } from "./types/routing-profiles.js";
 
 // Utils

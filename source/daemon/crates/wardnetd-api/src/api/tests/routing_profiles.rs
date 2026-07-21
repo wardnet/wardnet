@@ -119,6 +119,10 @@ async fn app() -> Router {
             "/api/routing/devices/{device_id}/profiles",
             get(h::get_device_profiles).put(h::set_device_profiles),
         )
+        .route(
+            "/api/routing/profiles/{id}/devices",
+            get(h::get_profile_devices),
+        )
         // Resolve the session cookie into the admin auth-context and propagate
         // it into the task-local the service's `require_admin` reads.
         .layer(wardnetd_services::auth_context::AuthContextLayer)
@@ -304,6 +308,45 @@ async fn device_assignment_roundtrip_in_priority_order() {
     let v = body_json(resp).await;
     let ids: Vec<Uuid> = serde_json::from_value(v["profile_ids"].clone()).unwrap();
     assert_eq!(ids, vec![second.id, first.id]);
+}
+
+#[tokio::test]
+async fn profile_devices_lists_assigned_devices() {
+    let app = app().await;
+    let profile = create_profile(&app, "Assigned").await;
+    let dev_path = format!("/api/routing/profiles/{}/devices", profile.id);
+
+    // Before any assignment the reverse list is empty.
+    let resp = app.clone().oneshot(get_req(&dev_path)).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let v = body_json(resp).await;
+    assert!(v["device_ids"].as_array().unwrap().is_empty());
+
+    // Assign the profile to the seeded device.
+    let assign_path = format!("/api/routing/devices/{DEVICE_ID}/profiles");
+    let resp = app
+        .clone()
+        .oneshot(put_req(&assign_path, &json!({ "profile_ids": [profile.id] })))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Now the device shows up under the profile's "used by" list.
+    let resp = app.clone().oneshot(get_req(&dev_path)).await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let v = body_json(resp).await;
+    let ids: Vec<Uuid> = serde_json::from_value(v["device_ids"].clone()).unwrap();
+    assert_eq!(ids, vec![DEVICE_ID.parse::<Uuid>().unwrap()]);
+
+    // An unknown profile is a 404, not an empty list.
+    let resp = app
+        .oneshot(get_req(&format!(
+            "/api/routing/profiles/{}/devices",
+            Uuid::new_v4()
+        )))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]

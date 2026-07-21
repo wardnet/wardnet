@@ -99,6 +99,9 @@ impl RoutingProfileService for MockProfiles {
     ) -> Result<(), AppError> {
         unimplemented!("not exercised by runner tests")
     }
+    async fn list_profile_devices(&self, _profile_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+        unimplemented!("not exercised by runner tests")
+    }
 }
 
 /// A `RoutingProfileService` whose `refresh_view` always errors — models a
@@ -166,6 +169,9 @@ impl RoutingProfileService for ErroringProfiles {
         _device_id: Uuid,
         _profile_ids: &[Uuid],
     ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn list_profile_devices(&self, _profile_id: Uuid) -> Result<Vec<Uuid>, AppError> {
         unimplemented!()
     }
 }

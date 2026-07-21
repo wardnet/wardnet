@@ -16,6 +16,7 @@ import type {
   GetDeviceRoutingProfilesResponse,
   SetDeviceRoutingProfilesRequest,
   SetDeviceRoutingProfilesResponse,
+  ListProfileDevicesResponse,
 } from "../types/routing-profiles.js";
 
 /**
@@ -121,6 +122,13 @@ export class RoutingProfilesService {
     return this.client.request<SetDeviceRoutingProfilesResponse>(
       `/routing/devices/${deviceId}/profiles`,
       { method: "PUT", body: JSON.stringify(body) },
+    );
+  }
+
+  /** List the devices a routing profile is currently assigned to. */
+  async listProfileDevices(profileId: string): Promise<ListProfileDevicesResponse> {
+    return this.client.request<ListProfileDevicesResponse>(
+      `/routing/profiles/${profileId}/devices`,
     );
   }
 }

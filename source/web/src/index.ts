@@ -273,6 +273,22 @@ export {
   useUpdateDnsFilterConfig,
 } from "./hooks/useDnsFilter";
 
+// Hooks — routing profiles (per-domain routing rules, issue #241)
+export {
+  useRoutingProfiles,
+  useRoutingProfile,
+  useCreateRoutingProfile,
+  useUpdateRoutingProfile,
+  useDeleteRoutingProfile,
+  useDomainRoutingRules,
+  useCreateDomainRoutingRule,
+  useUpdateDomainRoutingRule,
+  useDeleteDomainRoutingRule,
+  useDeviceRoutingProfiles,
+  useSetDeviceRoutingProfiles,
+  useProfileDevices,
+} from "./hooks/useRoutingProfiles";
+
 export { useDnsQueryLog } from "./hooks/useDnsLogs";
 
 // Hooks — network + DHCP

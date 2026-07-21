@@ -103,4 +103,7 @@ pub trait RoutingProfileRepository: Send + Sync {
     /// Every device that has at least one profile assigned, with its ordered
     /// profile ids. Drives the runtime context refresh.
     async fn list_device_assignments(&self) -> anyhow::Result<Vec<DeviceAssignment>>;
+    /// The device ids a profile is assigned to (unordered). Reverse of
+    /// [`Self::get_device_profiles`], backing the profile page's "used by" view.
+    async fn list_profile_devices(&self, profile_id: Uuid) -> anyhow::Result<Vec<Uuid>>;
 }

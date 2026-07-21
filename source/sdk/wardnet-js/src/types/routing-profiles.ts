@@ -111,3 +111,9 @@ export interface SetDeviceRoutingProfilesRequest {
 export interface SetDeviceRoutingProfilesResponse {
   message: string;
 }
+
+/** Response for GET /api/routing/profiles/{id}/devices. */
+export interface ListProfileDevicesResponse {
+  /** Device ids the profile is currently assigned to. */
+  device_ids: string[];
+}

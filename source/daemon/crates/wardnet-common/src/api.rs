@@ -2300,3 +2300,10 @@ pub struct SetDeviceRoutingProfilesRequest {
 pub struct SetDeviceRoutingProfilesResponse {
     pub message: String,
 }
+
+/// Response for GET /`api/routing/profiles/{id}/devices`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListProfileDevicesResponse {
+    /// Device ids the profile is currently assigned to.
+    pub device_ids: Vec<Uuid>,
+}

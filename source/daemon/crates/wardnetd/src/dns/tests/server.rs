@@ -3346,6 +3346,12 @@ impl wardnetd_services::RoutingProfileService for RecordingRoutingProfile {
     ) -> Result<(), wardnetd_services::error::AppError> {
         unimplemented!("not exercised by the hook test")
     }
+    async fn list_profile_devices(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<Vec<Uuid>, wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
     async fn refresh_view(&self) -> Result<(), wardnetd_services::error::AppError> {
         unimplemented!("not exercised by the hook test")
     }

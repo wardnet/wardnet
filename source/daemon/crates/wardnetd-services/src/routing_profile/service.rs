@@ -74,6 +74,9 @@ pub trait RoutingProfileService: Send + Sync {
         device_id: Uuid,
         profile_ids: &[Uuid],
     ) -> Result<(), AppError>;
+    /// The device ids a profile is assigned to. Reverse of
+    /// [`Self::get_device_profiles`], for the profile page's "used by" view.
+    async fn list_profile_devices(&self, profile_id: Uuid) -> Result<Vec<Uuid>, AppError>;
 
     /// Rebuild the hot-path routing view from the database. Called once at
     /// startup by the runner and internally after every mutation. No auth guard
@@ -302,6 +305,17 @@ impl RoutingProfileService for RoutingProfileServiceImpl {
         auth_context::require_admin()?;
         self.repo
             .get_device_profiles(device_id)
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    async fn list_profile_devices(&self, profile_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+        auth_context::require_admin()?;
+        // Confirm the profile exists so the caller gets a 404 rather than an
+        // empty list for a bad id.
+        self.get_profile(profile_id).await?;
+        self.repo
+            .list_profile_devices(profile_id)
             .await
             .map_err(AppError::Internal)
     }

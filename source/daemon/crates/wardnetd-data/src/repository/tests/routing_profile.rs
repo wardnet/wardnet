@@ -312,3 +312,39 @@ async fn assignment_cascades_on_device_delete() {
     );
     assert_eq!(repo.list_profiles().await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn list_profile_devices_returns_assigned_devices() {
+    let pool = test_pool().await;
+    let dev_a = "00000000-0000-0000-0000-00000000ba01";
+    let dev_b = "00000000-0000-0000-0000-00000000ba02";
+    insert_device(&pool, dev_a, "10.0.0.21").await;
+    insert_device(&pool, dev_b, "10.0.0.22").await;
+    let repo = SqliteRoutingProfileRepository::new(pool);
+    let device_a: Uuid = dev_a.parse().unwrap();
+    let device_b: Uuid = dev_b.parse().unwrap();
+
+    let p1 = repo.create_profile(&profile_row("shared")).await.unwrap();
+    let p2 = repo.create_profile(&profile_row("lonely")).await.unwrap();
+
+    // Both devices reference p1; only device_a references p2.
+    repo.set_device_profiles(device_a, &[p1.id, p2.id])
+        .await
+        .unwrap();
+    repo.set_device_profiles(device_b, &[p1.id]).await.unwrap();
+
+    let mut p1_devices = repo.list_profile_devices(p1.id).await.unwrap();
+    p1_devices.sort();
+    let mut expected = vec![device_a, device_b];
+    expected.sort();
+    assert_eq!(p1_devices, expected);
+
+    assert_eq!(
+        repo.list_profile_devices(p2.id).await.unwrap(),
+        vec![device_a]
+    );
+
+    // A profile with no assignments reverses to an empty list.
+    let p3 = repo.create_profile(&profile_row("unused")).await.unwrap();
+    assert!(repo.list_profile_devices(p3.id).await.unwrap().is_empty());
+}

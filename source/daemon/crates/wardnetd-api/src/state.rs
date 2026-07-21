@@ -735,6 +735,12 @@ impl RoutingProfileService for NoopRoutingProfileService {
     ) -> Result<(), wardnetd_services::error::AppError> {
         Err(not_configured())
     }
+    async fn list_profile_devices(
+        &self,
+        _profile_id: uuid::Uuid,
+    ) -> Result<Vec<uuid::Uuid>, wardnetd_services::error::AppError> {
+        Ok(Vec::new())
+    }
     async fn refresh_view(&self) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
     }

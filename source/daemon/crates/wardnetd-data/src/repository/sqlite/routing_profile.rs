@@ -330,4 +330,15 @@ impl RoutingProfileRepository for SqliteRoutingProfileRepository {
         }
         Ok(out)
     }
+
+    async fn list_profile_devices(&self, profile_id: Uuid) -> anyhow::Result<Vec<Uuid>> {
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT device_id FROM routing_device_profile \
+             WHERE profile_id = ? ORDER BY device_id ASC",
+        )
+        .bind(profile_id.to_string())
+        .fetch_all(&self.pools.read)
+        .await?;
+        Ok(ids.into_iter().filter_map(|s| s.parse().ok()).collect())
+    }
 }
