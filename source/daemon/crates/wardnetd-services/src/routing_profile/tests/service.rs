@@ -51,7 +51,10 @@ async fn insert_device(pool: &SqlitePool, id: Uuid, last_ip: &str) {
          VALUES (?, ?, ?, 'unknown', ?, ?, '00000000-0000-0000-0000-000000000201')",
     )
     .bind(id.to_string())
-    .bind(format!("aa:bb:cc:dd:ee:{:02x}", (id.as_u128() & 0xff) as u8))
+    .bind(format!(
+        "aa:bb:cc:dd:ee:{:02x}",
+        (id.as_u128() & 0xff) as u8
+    ))
     .bind(last_ip)
     .bind("2026-07-21T00:00:00Z")
     .bind("2026-07-21T00:00:00Z")
@@ -162,9 +165,14 @@ async fn setup() -> (
 
     auth_context::with_context(admin_ctx(), async {
         let profile = svc.create_profile("streaming").await.unwrap();
-        svc.create_rule(profile.id, "*.netflix.com", DomainRoutingTarget::Direct, true)
-            .await
-            .unwrap();
+        svc.create_rule(
+            profile.id,
+            "*.netflix.com",
+            DomainRoutingTarget::Direct,
+            true,
+        )
+        .await
+        .unwrap();
         svc.set_device_profiles(device_id, &[profile.id])
             .await
             .unwrap();
@@ -187,7 +195,13 @@ async fn note_resolution_queues_a_matching_domain() {
     let (svc, mut rx, device_id) = setup().await;
     let ip: IpAddr = LAN_IP.parse().unwrap();
 
-    svc.note_resolution(device_id, ip, "www.netflix.com", &[v4(93, 184, 216, 34)], 300);
+    svc.note_resolution(
+        device_id,
+        ip,
+        "www.netflix.com",
+        &[v4(93, 184, 216, 34)],
+        300,
+    );
 
     let req = rx.try_recv().expect("a matching resolution must be queued");
     assert_eq!(req.device_ip, ip);
@@ -210,7 +224,13 @@ async fn note_resolution_ignores_unknown_device() {
     let (svc, mut rx, _device_id) = setup().await;
     let ip: IpAddr = LAN_IP.parse().unwrap();
 
-    svc.note_resolution(Uuid::new_v4(), ip, "www.netflix.com", &[v4(1, 1, 1, 1)], 300);
+    svc.note_resolution(
+        Uuid::new_v4(),
+        ip,
+        "www.netflix.com",
+        &[v4(1, 1, 1, 1)],
+        300,
+    );
     assert!(
         rx.try_recv().is_err(),
         "a device with no compiled context enqueues nothing"
@@ -226,7 +246,10 @@ async fn note_resolution_ignores_ipv6_only_answers() {
     // v1 enforcement is IPv4-only: an AAAA-only answer filters to empty and is
     // dropped before it reaches the channel.
     svc.note_resolution(device_id, ip, "www.netflix.com", &[v6], 300);
-    assert!(rx.try_recv().is_err(), "an IPv6-only answer enqueues nothing");
+    assert!(
+        rx.try_recv().is_err(),
+        "an IPv6-only answer enqueues nothing"
+    );
 }
 
 #[tokio::test]

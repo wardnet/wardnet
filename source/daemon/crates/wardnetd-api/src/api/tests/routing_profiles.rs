@@ -316,3 +316,79 @@ async fn assigning_unknown_profile_is_rejected() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn get_single_profile_and_empty_update_is_rejected() {
+    let app = app().await;
+    let profile = create_profile(&app, "Fetch Me").await;
+
+    // GET /profiles/{id} returns the one profile.
+    let resp = app
+        .clone()
+        .oneshot(get_req(&format!("/api/routing/profiles/{}", profile.id)))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let v = body_json(resp).await;
+    assert_eq!(v["profile"]["name"], "Fetch Me");
+
+    // A PUT that changes nothing is a bad request, not a silent no-op.
+    let resp = app
+        .oneshot(put_req(
+            &format!("/api/routing/profiles/{}", profile.id),
+            &json!({}),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn rule_update_then_delete() {
+    let app = app().await;
+    let profile = create_profile(&app, "Editable").await;
+    let rules_path = format!("/api/routing/profiles/{}/rules", profile.id);
+
+    // Create a direct rule and capture its id.
+    let resp = app
+        .clone()
+        .oneshot(post(
+            &rules_path,
+            &json!({
+                "pattern": "old.example.com",
+                "target": { "type": "direct" },
+                "enabled": true
+            }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::CREATED);
+    let v = body_json(resp).await;
+    let rule_id = v["rule"]["id"].as_str().unwrap().to_owned();
+
+    // Update the pattern + disable it.
+    let resp = app
+        .clone()
+        .oneshot(put_req(
+            &format!("/api/routing/rules/{rule_id}"),
+            &json!({ "pattern": "new.example.com", "enabled": false }),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let v = body_json(resp).await;
+    assert_eq!(v["rule"]["pattern"], "new.example.com");
+    assert_eq!(v["rule"]["enabled"], false);
+
+    // Delete it; the profile's rule list is then empty.
+    let resp = app
+        .clone()
+        .oneshot(delete_req(&format!("/api/routing/rules/{rule_id}")))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let resp = app.oneshot(get_req(&rules_path)).await.unwrap();
+    let v = body_json(resp).await;
+    assert!(v["rules"].as_array().unwrap().is_empty());
+}
