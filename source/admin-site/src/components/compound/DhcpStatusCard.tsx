@@ -8,7 +8,7 @@ import {
 import { Pill } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
-import { poolUsagePercent } from "@/lib/dhcp";
+import { poolUsagePercent } from "@wardnet/web";
 import type { DhcpStatusResponse } from "@wardnet/js";
 
 interface DhcpStatusCardProps {

@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { StatTile } from "@wardnet/web";
+import { poolUsagePercent } from "@wardnet/web";
 import { StatusBadge } from "./StatusBadge";
-import { poolUsagePercent } from "@/lib/dhcp";
 import type { DhcpStatusResponse } from "@wardnet/js";
 
 interface DhcpSummaryCardProps {

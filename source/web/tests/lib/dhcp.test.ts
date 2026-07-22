@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { poolUsagePercent } from "@/lib/dhcp";
+import { poolUsagePercent } from "../../src/lib/dhcp";
 
 describe("poolUsagePercent", () => {
   it("computes a rounded percentage for a normal pool", () => {
