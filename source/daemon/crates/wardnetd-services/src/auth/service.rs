@@ -324,6 +324,9 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError> {
+        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // category (b): auth bootstrap): this resolves a session token into an admin
+        // identity, so it necessarily runs before any identity exists to require.
         let token_hash = hash_token(token);
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -354,6 +357,9 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn validate_api_key(&self, key: &str) -> Result<Option<Uuid>, AppError> {
+        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // category (b): auth bootstrap): this resolves an API key into an admin
+        // identity, so it necessarily runs before any identity exists to require.
         let all_keys = self
             .api_keys
             .find_all_hashes()
@@ -474,6 +480,11 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
+        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // category (b): auth bootstrap): backs the unauthenticated
+        // `GET /api/setup/status` surface and delegates to the equally-unguarded
+        // `wizard_state`, so there is no session to require here.
+        //
         // Derived from `wizard_step == Completed` so this matches the
         // value the API surfaces in `SetupStatusResponse.setup_completed`.
         // The legacy `setup_completed` key in `system_config` is no

@@ -572,6 +572,49 @@ async fn set_rule_by_id_device_not_found() {
     assert!(result.is_err());
 }
 
+// -- Tests: set_my_capture_enabled (auth context) ------------------------
+
+#[tokio::test]
+async fn set_my_capture_enabled_anonymous_forbidden() {
+    let svc = make_svc(false, None);
+
+    let result = auth_context::with_context(AuthContext::Anonymous, async {
+        svc.set_my_capture_enabled("192.168.1.10", true).await
+    })
+    .await;
+
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn set_my_capture_enabled_foreign_device_forbidden() {
+    let svc = make_svc(false, None);
+    let ctx = device_ctx("FF:FF:FF:FF:FF:FF");
+
+    let result = auth_context::with_context(ctx, async {
+        svc.set_my_capture_enabled("192.168.1.10", true).await
+    })
+    .await;
+
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn set_my_capture_enabled_own_device_allowed() {
+    let svc = make_svc(false, None);
+    let ctx = device_ctx("AA:BB:CC:DD:EE:01");
+
+    let result = auth_context::with_context(ctx, async {
+        svc.set_my_capture_enabled("192.168.1.10", true).await
+    })
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "owning device should be allowed: {result:?}"
+    );
+}
+
 // -- Tests: update_admin_locked ------------------------------------------
 
 #[tokio::test]
