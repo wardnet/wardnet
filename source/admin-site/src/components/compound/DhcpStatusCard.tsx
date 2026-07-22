@@ -8,6 +8,7 @@ import {
 import { Pill } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
+import { poolUsagePercent } from "@/lib/dhcp";
 import type { DhcpStatusResponse } from "@wardnet/js";
 
 interface DhcpStatusCardProps {
@@ -24,8 +25,7 @@ export function DhcpStatusCard({
   onToggle,
   isPending,
 }: DhcpStatusCardProps) {
-  const poolUsagePercent =
-    status.pool_total > 0 ? (status.pool_used / status.pool_total) * 100 : 0;
+  const poolPercent = poolUsagePercent(status.pool_used, status.pool_total);
 
   return (
     <Card>
@@ -68,11 +68,7 @@ export function DhcpStatusCard({
             </Text>
           </div>
           <div className="bar mt-1.5">
-            <span
-              style={{
-                width: `${Math.min(100, Math.max(0, poolUsagePercent))}%`,
-              }}
-            />
+            <span style={{ width: `${poolPercent}%` }} />
           </div>
         </div>
       </CardContent>

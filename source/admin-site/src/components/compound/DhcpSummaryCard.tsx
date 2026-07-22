@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { StatTile } from "@wardnet/web";
 import { StatusBadge } from "./StatusBadge";
+import { poolUsagePercent } from "@/lib/dhcp";
 import type { DhcpStatusResponse } from "@wardnet/js";
 
 interface DhcpSummaryCardProps {
@@ -15,10 +16,7 @@ interface DhcpSummaryCardProps {
 export function DhcpSummaryCard({ status, to, testId }: DhcpSummaryCardProps) {
   if (!status) return null;
 
-  const poolPercent =
-    status.pool_total > 0
-      ? Math.round((status.pool_used / status.pool_total) * 100)
-      : 0;
+  const poolPercent = poolUsagePercent(status.pool_used, status.pool_total);
 
   const tile = (
     <StatTile
@@ -26,7 +24,7 @@ export function DhcpSummaryCard({ status, to, testId }: DhcpSummaryCardProps) {
       label="DHCP"
       value={status.active_lease_count}
       sub={`active leases · ${poolPercent}% pool used`}
-      bar={status.pool_total > 0 ? Math.min(100, poolPercent) : undefined}
+      bar={status.pool_total > 0 ? poolPercent : undefined}
       pill={
         <StatusBadge
           tone={status.running ? "success" : "neutral"}
