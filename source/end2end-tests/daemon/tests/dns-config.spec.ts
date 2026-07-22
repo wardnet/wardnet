@@ -266,13 +266,14 @@ describe("dns config", () => {
     if (!(await dns.getConfig()).config.enabled) {
       await dns.toggle({ enabled: true });
     }
-    // Snapshot the cache size the flush is expected to report as cleared. A
-    // count is structurally non-negative, so `>= 0` could never fail; tying
-    // entries_cleared to the observed pre-flush cache size instead catches a
-    // regression that miscounts (or stops counting) what it evicted.
-    const before = await dns.status();
+    // Flush once to reach a known-empty cache, then flush again: a count is
+    // structurally non-negative, so the old `>= 0` could never fail, whereas
+    // flushing an already-empty cache must report exactly zero cleared. That is
+    // deterministic (no cross-sample race) yet still discriminating — a flush
+    // that miscounts or returns a canned value fails `toBe(0)`.
+    await dns.flushCache();
     const flush = await dns.flushCache();
-    expect(flush.entries_cleared).toBe(before.cache_size);
+    expect(flush.entries_cleared).toBe(0);
     expect(flush.message.length).toBeGreaterThan(0);
 
     const after = await dns.status();

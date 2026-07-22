@@ -277,7 +277,11 @@ struct TestEventBus {
 
 impl TestEventBus {
     fn new() -> Arc<Self> {
-        let (sender, _) = broadcast::channel(32);
+        // Generously sized so the retry-until-captured loops below (which
+        // re-publish settings events every ~10ms) cannot overflow the buffer
+        // and trip the runner's Lagged→DB-reload path, which would otherwise
+        // resurrect a device the test just disabled.
+        let (sender, _) = broadcast::channel(4096);
         Arc::new(Self { sender })
     }
 
@@ -605,14 +609,14 @@ async fn settings_changed_event_enables_device() {
         &tracing::Span::current(),
     );
 
-    // Enable DEV1 via the broadcast bus. The runner subscribes to the bus only
-    // after its startup load, and the event/row channels then race in its
-    // `select!`, so a fixed sleep can't reliably order any of this. Instead we
-    // re-publish the enable event and re-send the row each iteration until one
-    // is captured — robust to both the subscribe timing and the select race. A
-    // regression that ignored the enable event would never capture the row and
-    // this would time out.
-    let captured = wait_until(300, || {
+    // Enable DEV1 (plus a SENT sentinel) via the broadcast bus. The runner
+    // subscribes only after its startup load, and the event/row channels then
+    // race in its `select!`, so a fixed sleep can't reliably order any of this.
+    // We re-publish both enables each iteration and send only SENT probe rows
+    // until one is captured; because the pair is published FIFO with DEV1 first,
+    // a captured SENT row proves the DEV1 enable was applied too. No DEV1 rows
+    // are sent in this phase, so the DEV1 insert count stays at zero.
+    let enabled = wait_until(300, || {
         let repo = Arc::clone(&dns_repo);
         let tx = tx.clone();
         let event_bus = Arc::clone(&event_bus);
@@ -622,27 +626,61 @@ async fn settings_changed_event_enables_device() {
                 enabled: true,
                 timestamp: Utc::now(),
             });
-            tx.send(sample_row(Some(DEV1), "enabled-after-event.com"))
+            event_bus.send(WardnetEvent::DeviceCaptureSettingsChanged {
+                device_id: Uuid::parse_str(SENT).unwrap(),
+                enabled: true,
+                timestamp: Utc::now(),
+            });
+            tx.send(sample_row(Some(SENT), "sentinel.com"))
                 .await
                 .unwrap();
-            !repo.recorded_inserts().await.is_empty()
+            repo.recorded_inserts()
+                .await
+                .iter()
+                .any(|(id, _)| id == SENT)
         }
     })
     .await;
     assert!(
-        captured,
-        "row for DEV1 was never captured after the enable event"
+        enabled,
+        "sentinel never captured; cannot confirm the enable was applied"
+    );
+
+    // Send exactly one DEV1 row, with a SENT barrier behind it so we only assert
+    // once the DEV1 row has been processed. This keeps the "exactly one insert
+    // per row" invariant: a regression that double-inserts a captured row fails
+    // the `== 1` check below.
+    tx.send(sample_row(Some(DEV1), "enabled-after-event.com"))
+        .await
+        .unwrap();
+    tx.send(sample_row(Some(SENT), "barrier.com"))
+        .await
+        .unwrap();
+    assert!(
+        wait_until(300, || {
+            let repo = Arc::clone(&dns_repo);
+            async move {
+                repo.recorded_inserts()
+                    .await
+                    .iter()
+                    .any(|(_, d)| d == "barrier.com")
+            }
+        })
+        .await,
+        "barrier row was never captured"
     );
 
     runner.shutdown().await;
 
-    let inserts = dns_repo.recorded_inserts().await;
-    assert!(!inserts.is_empty(), "expected at least one insert");
-    assert!(
-        inserts
-            .iter()
-            .all(|(id, d)| id == DEV1 && d == "enabled-after-event.com"),
-        "every captured row should be the enabled DEV1 row: {inserts:?}"
+    let dev1_inserts = dns_repo
+        .recorded_inserts()
+        .await
+        .into_iter()
+        .filter(|(id, d)| id == DEV1 && d == "enabled-after-event.com")
+        .count();
+    assert_eq!(
+        dev1_inserts, 1,
+        "the single enabled DEV1 row must be captured exactly once"
     );
 }
 
@@ -790,21 +828,51 @@ async fn channel_closed_exits_runner() {
         error_on_settings: false,
         error_on_list: false,
     });
-    let dns_repo: Arc<dyn DnsEventsRepository> = RecordingDnsEventsRepo::new();
+    // Use a pruning repo on a short interval so the prune tick gives us an
+    // observable heartbeat: `find_calls` advances once per loop iteration while
+    // the runner is alive, and freezes once the loop exits.
+    let dns_repo = PruningDnsEventsRepo::new(&[DEV1]);
+    let dns_repo_dyn: Arc<dyn DnsEventsRepository> =
+        Arc::clone(&dns_repo) as Arc<dyn DnsEventsRepository>;
     let events: Arc<dyn EventPublisher> = TestEventBus::new();
 
-    let runner = DnsCaptureRunner::start(
+    let runner = DnsCaptureRunner::start_with_prune_interval(
         rx,
         device_service,
-        dns_repo,
+        dns_repo_dyn,
         events,
+        Duration::from_millis(20),
         &tracing::Span::current(),
     );
 
-    // Dropping the sender closes the channel; the runner should exit its receive
-    // loop. shutdown() then completes cleanly — it also cancels, so the test
-    // does not hinge on a race between channel-close and cancellation.
+    // Confirm the loop is alive (its prune ticker is running).
+    assert!(
+        wait_until(300, || {
+            let repo = Arc::clone(&dns_repo);
+            async move { *repo.find_calls.lock().await >= 1 }
+        })
+        .await,
+        "runner should be ticking while its channel is open"
+    );
+
+    // Close the channel. The `capture_rx.recv() == None` arm must break the
+    // whole `select!` loop, which also stops the prune ticker. Without calling
+    // shutdown() (whose cancellation would mask a regression), verify the loop
+    // really stopped: `find_calls` must NOT advance by two more ticks. If the
+    // recv-None arm regressed to not break, the ticker keeps firing and this
+    // trips within a couple of intervals.
     drop(tx);
+    let baseline = *dns_repo.find_calls.lock().await;
+    let kept_ticking = wait_until(50, || {
+        let repo = Arc::clone(&dns_repo);
+        async move { *repo.find_calls.lock().await >= baseline + 2 }
+    })
+    .await;
+    assert!(
+        !kept_ticking,
+        "closing the channel must exit the runner loop, but the prune ticker kept firing"
+    );
+
     runner.shutdown().await;
 }
 

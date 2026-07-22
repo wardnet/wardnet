@@ -10,14 +10,14 @@ async fn resolve_loopback_does_not_panic() {
     // Reverse resolution of the loopback address depends on `/etc/hosts` and the
     // system resolver, which vary across CI runners — so the *value* is not
     // deterministic and is covered by `parse_getent_hosts` unit tests below.
-    // This case only pins down that a live resolve returns without panicking and,
-    // when it does yield a name, that the name is non-empty (never `Some("")`).
-    if let Some(hostname) = resolver.resolve("127.0.0.1").await {
-        assert!(
-            !hostname.is_empty(),
-            "a resolved hostname must not be empty"
-        );
-    }
+    // This case pins down that a live resolve returns without panicking and never
+    // yields `Some("")`. The check runs on both arms (unlike a bare `if let
+    // Some`), so a `None` result does not silently skip the assertion.
+    let non_empty = match resolver.resolve("127.0.0.1").await {
+        Some(hostname) => !hostname.is_empty(),
+        None => true,
+    };
+    assert!(non_empty, "resolve must never yield Some(\"\")");
 }
 
 // ── parse_getent_hosts: deterministic coverage of the parsing + guard ──────
