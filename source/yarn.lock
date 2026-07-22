@@ -5553,10 +5553,12 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@wardnet/js@workspace:sdk/wardnet-js"
   dependencies:
+    "@vitest/coverage-v8": "npm:4.1.9"
     consola: "npm:^3.4.2"
     prettier: "npm:3.9.4"
     tsup: "npm:8.5.1"
     typescript: "npm:6.0.3"
+    vitest: "npm:4.1.9"
   peerDependencies:
     consola: ^3.4.2
   peerDependenciesMeta:

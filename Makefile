@@ -158,6 +158,7 @@ check-sdk:
 	cd $(SDK_DIR) && yarn install --immutable
 	cd $(SDK_DIR) && yarn type-check
 	cd $(SDK_DIR) && yarn format:check
+	cd $(SDK_DIR) && yarn test
 
 # Build @wardnet/js's dist/ once. Vite dev servers resolve @wardnet/js via
 # package.json's main/exports, which point at dist/ (needed for the npm
