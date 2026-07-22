@@ -266,9 +266,13 @@ describe("dns config", () => {
     if (!(await dns.getConfig()).config.enabled) {
       await dns.toggle({ enabled: true });
     }
+    // Snapshot the cache size the flush is expected to report as cleared. A
+    // count is structurally non-negative, so `>= 0` could never fail; tying
+    // entries_cleared to the observed pre-flush cache size instead catches a
+    // regression that miscounts (or stops counting) what it evicted.
+    const before = await dns.status();
     const flush = await dns.flushCache();
-    expect(typeof flush.entries_cleared).toBe("number");
-    expect(flush.entries_cleared).toBeGreaterThanOrEqual(0);
+    expect(flush.entries_cleared).toBe(before.cache_size);
     expect(flush.message.length).toBeGreaterThan(0);
 
     const after = await dns.status();

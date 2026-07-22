@@ -33,12 +33,22 @@ describe("DiscoveryPlaceholder", () => {
     const { unmount } = renderWithProviders(
       <DiscoveryPlaceholder message="Scanning" />,
     );
-    // Advance past four ticks so the dot string grows to 3 then resets.
-    act(() => {
-      vi.advanceTimersByTime(2000);
-    });
-    // Component still mounted; the interval callback ran without throwing.
-    expect(screen.getByText("Scanning")).toBeInTheDocument();
+    // The dots live in their own span, not the <p>'s direct text node, so we
+    // read them explicitly — asserting on getByText("Scanning") ignores the
+    // animated sibling and would pass even if the interval were deleted.
+    const dots = screen.getByTestId("discovery-dots");
+    expect(dots.textContent).toBe("");
+    // Each 500ms tick appends one dot, up to three, then resets to empty.
+    act(() => vi.advanceTimersByTime(500));
+    expect(dots.textContent).toBe(".");
+    act(() => vi.advanceTimersByTime(500));
+    expect(dots.textContent).toBe("..");
+    act(() => vi.advanceTimersByTime(500));
+    expect(dots.textContent).toBe("...");
+    act(() => vi.advanceTimersByTime(500));
+    // Removing the useEffect/setInterval would freeze this at "" and fail
+    // every assertion above.
+    expect(dots.textContent).toBe("");
     unmount();
   });
 });

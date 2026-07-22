@@ -665,10 +665,22 @@ async fn stream_closes_on_bus_lag() {
     };
     let _ = tx.send(fake_event.clone());
     let _ = tx.send(fake_event);
-    drop(tx);
 
-    // The stream body should close (possibly empty) — the lag arm breaks the loop.
-    let _ = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    // Keep `tx` ALIVE through the drain. A live sender makes `RecvError::Closed`
+    // impossible, so the stream can only close if the `RecvError::Lagged => break`
+    // arm actually fires. If that arm regresses to `continue`, the live loop
+    // blocks forever on an open-but-empty bus and the timeout below (not a false
+    // pass) is what fails the test.
+    let drained = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        axum::body::to_bytes(resp.into_body(), 4096),
+    )
+    .await
+    .expect("stream did not close on lag — the RecvError::Lagged arm no longer breaks the loop");
+    drained.unwrap();
+
+    // Sender is still open here; dropping it now is only cleanup.
+    drop(tx);
 }
 
 #[tokio::test]

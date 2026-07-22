@@ -273,3 +273,88 @@ async fn delete_zone_returns_deleted_true() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["deleted"], true);
 }
+
+// ── Auth gate ──────────────────────────────────────────────────────────────
+// The shared `send()` helper always attaches a session cookie, so the tests
+// above cannot see the `AdminAuth` guard. These drive each handler with no
+// credentials: a handler that lost its `_auth: AdminAuth` extractor would
+// answer 200/201 here instead of 401.
+
+/// Same as `send`, but omits the session cookie so the request is anonymous.
+async fn send_unauthenticated(method: &str, uri: &str, body: Option<&str>) -> StatusCode {
+    let req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("Content-Type", "application/json")
+        .extension(connect_info())
+        .body(body.map_or_else(Body::empty, |b| Body::from(b.to_owned())))
+        .unwrap();
+    zone_router().oneshot(req).await.unwrap().status()
+}
+
+#[tokio::test]
+async fn list_zones_rejects_unauthenticated() {
+    assert_eq!(
+        send_unauthenticated("GET", "/api/network/zones", None).await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn create_zone_rejects_unauthenticated() {
+    let body = r#"{"name":"Cameras","isolation_stance":"shared_subnet","allowed_targets":["tunnel"],"member_isolation":false,"admin_ui_reachable":true}"#;
+    assert_eq!(
+        send_unauthenticated("POST", "/api/network/zones", Some(body)).await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn get_zone_rejects_unauthenticated() {
+    assert_eq!(
+        send_unauthenticated("GET", &format!("/api/network/zones/{TRUSTED}"), None).await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn update_zone_rejects_unauthenticated() {
+    assert_eq!(
+        send_unauthenticated(
+            "PUT",
+            &format!("/api/network/zones/{TRUSTED}"),
+            Some(r#"{"admin_ui_reachable":false}"#),
+        )
+        .await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn delete_zone_rejects_unauthenticated() {
+    assert_eq!(
+        send_unauthenticated("DELETE", &format!("/api/network/zones/{TRUSTED}"), None).await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn get_quarantine_new_devices_rejects_unauthenticated() {
+    assert_eq!(
+        send_unauthenticated("GET", "/api/network/quarantine-new-devices", None).await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn set_quarantine_new_devices_rejects_unauthenticated() {
+    assert_eq!(
+        send_unauthenticated(
+            "PUT",
+            "/api/network/quarantine-new-devices",
+            Some(r#"{"enabled":false}"#),
+        )
+        .await,
+        StatusCode::UNAUTHORIZED
+    );
+}

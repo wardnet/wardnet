@@ -165,6 +165,33 @@ async fn refresh_zero_domains_records_error_and_bails() {
 }
 
 #[tokio::test]
+async fn refresh_store_failure_bails_without_emitting_event() {
+    let repo = SqliteDnsFilterRepository::new(test_pool().await);
+    let blocklist = seed_blocklist(&repo).await;
+    // Simulate the blocklist row being deleted out from under an in-flight
+    // refresh (e.g. a concurrent profile edit). `replace_blocklist_domains`
+    // then fails its generation lookup, exercising the store-failure branch.
+    repo.delete_blocklist(blocklist.id).await.unwrap();
+
+    let events = BroadcastEventBus::new(16);
+    let mut rx = events.subscribe();
+    // A body that parses to real domains — so the failure can only come from
+    // the store, not the fetch or the zero-domains guard.
+    let fetcher = StaticFetcher(Ok("||ads.example.com^\n".to_owned()));
+
+    let err = refresh_blocklist(&blocklist, &repo, &fetcher, &events, None)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("not found"), "got: {err}");
+    // Dropping the `?`/early-return on the store path would let a refresh
+    // publish a success event against a blocklist whose rows never landed.
+    assert!(
+        rx.try_recv().is_err(),
+        "no event when the store write fails"
+    );
+}
+
+#[tokio::test]
 async fn refresh_reports_progress_through_job_reporter() {
     let repo = Arc::new(SqliteDnsFilterRepository::new(test_pool().await));
     let blocklist = seed_blocklist(&repo).await;
