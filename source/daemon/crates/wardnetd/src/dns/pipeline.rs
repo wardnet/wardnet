@@ -52,6 +52,11 @@ pub(crate) type TokioRecursor = Recursor<TokioRuntimeProvider>;
 /// Maximum number of pre-bound UDP sockets kept in the conditional-forwarding pool.
 const CONDITIONAL_SOCKET_POOL_SIZE: usize = 8;
 
+/// How long a conditional-forward query waits for its upstream response before
+/// giving up. Bounds the whole receive phase, not a single `recv` — so a socket
+/// that keeps delivering stale datagrams still can't stall the query past this.
+const CONDITIONAL_RECV_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// The daemon-owned local DNS zone. Single-label queries that miss the
 /// authoritative view are retried under this suffix (the local search-domain
 /// hop) — but only `System`-sourced records are adopted, so `wardnet` resolves
@@ -208,6 +213,10 @@ pub struct QueryPipeline {
     /// spoofing window). The pool is capped at [`CONDITIONAL_SOCKET_POOL_SIZE`];
     /// under-capacity sockets are created on demand.
     pub(crate) conditional_socket_pool: Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
+    /// Deadline for the conditional-forward receive phase. Defaults to
+    /// [`CONDITIONAL_RECV_TIMEOUT`]; tests shorten it to drive the timeout
+    /// path deterministically without a multi-second wait.
+    pub(crate) conditional_recv_timeout: std::time::Duration,
 }
 
 impl QueryPipeline {
@@ -241,6 +250,7 @@ impl QueryPipeline {
             tunnel_forwarders: Arc::new(RwLock::new(HashMap::new())),
             authoritative_view: Arc::new(ArcSwap::from_pointee(AuthoritativeView::empty())),
             conditional_socket_pool: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            conditional_recv_timeout: CONDITIONAL_RECV_TIMEOUT,
         }
     }
 
@@ -773,6 +783,7 @@ impl QueryPipeline {
                 pass_result,
                 upstream_id,
                 &self.conditional_socket_pool,
+                self.conditional_recv_timeout,
             )
             .await
             {
@@ -1742,10 +1753,17 @@ fn make_rdata(
 ///
 /// Borrows a socket from `pool` (or creates a new one if the pool is empty),
 /// `connect`s it to `upstream` (so the kernel only delivers responses from that
-/// peer), sends the query, then validates the response transaction ID and question
-/// before forwarding to the client. Without txid validation, a pooled socket that
-/// already has a late/duplicate response buffered from a previous query could
-/// deliver it to the wrong client.
+/// peer), sends the query, then reads until the response to *this* query arrives
+/// or `recv_timeout` elapses.
+///
+/// A pooled socket can carry a datagram left over from a previous query — a
+/// duplicate, or a response that arrived after that query had already timed out.
+/// `connect()` does not flush it (Linux keeps `sk_receive_queue` across a
+/// re-connect), so the receive loop skips any datagram whose txid or question
+/// doesn't match and keeps reading, rather than failing the query on the first
+/// stale datagram. On timeout or a receive error the socket is dropped instead of
+/// pooled, so a late response can't queue on it and poison the next borrower; only
+/// a socket that delivered a clean, validated answer goes back to the pool.
 #[allow(clippy::too_many_arguments)]
 async fn forward_via_conditional(
     upstream: SocketAddr,
@@ -1764,6 +1782,7 @@ async fn forward_via_conditional(
     pass_result: &str,
     upstream_id: UpstreamId,
     pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
+    recv_timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
     // Check out a socket from the pool, or create a new one.
     let bound = {
@@ -1782,52 +1801,76 @@ async fn forward_via_conditional(
     bound.connect(upstream).await?;
     bound.send(packet).await?;
 
+    // Read until this query's own answer arrives or the deadline passes. The
+    // deadline bounds the whole phase, so a socket that only ever yields stale
+    // datagrams still can't stall the query past `recv_timeout`. On error or
+    // timeout the function returns early, dropping `bound` instead of pooling it
+    // — a late response can then never queue on a reused socket.
+    let deadline = tokio::time::Instant::now() + recv_timeout;
     let mut buf = vec![0u8; 4096];
-    let recv = tokio::time::timeout(std::time::Duration::from_secs(5), bound.recv(&mut buf)).await;
+    let mut first_recv = true;
+    // The loop settles on either this query's validated response — which we relay
+    // and cache — or `None`: an unparseable first datagram we relay raw without
+    // caching, matching the pre-pool behaviour. Either way `buf` holds the bytes
+    // to relay, truncated to that datagram's length.
+    let parsed: Option<Message> = loop {
+        let n = match tokio::time::timeout_at(deadline, bound.recv(&mut buf)).await {
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => return Err(anyhow::anyhow!("conditional upstream recv error: {e}")),
+            Err(_) => return Err(anyhow::anyhow!("conditional upstream timeout")),
+        };
+        let was_first = first_recv;
+        first_recv = false;
 
-    let n = match recv {
-        Ok(Ok(n)) => n,
-        Ok(Err(e)) => {
-            return_socket_to_pool(pool, bound).await;
-            return Err(anyhow::anyhow!("conditional upstream recv error: {e}"));
-        }
-        Err(_) => {
-            return_socket_to_pool(pool, bound).await;
-            return Err(anyhow::anyhow!("conditional upstream timeout"));
+        // Bind the parse before matching so the `&buf[..n]` borrow ends here and
+        // the arms can re-borrow `buf` mutably to truncate it.
+        let decoded = Message::from_bytes(&buf[..n]);
+        match decoded {
+            Ok(msg) => {
+                // Only a datagram whose txid and question match the outbound
+                // query is this query's own response. Anything else is a stale
+                // datagram left on a pooled socket (or an off-path forgery the
+                // kernel shouldn't have delivered) — skip it and keep reading,
+                // so it is never served, cached, or turned into a SERVFAIL.
+                if msg.metadata.id == id
+                    && msg.queries.first().map(hickory_proto::op::Query::name)
+                        == request.queries.first().map(hickory_proto::op::Query::name)
+                {
+                    buf.truncate(n);
+                    break Some(msg);
+                }
+            }
+            Err(_) => {
+                // Treat only the first datagram as this query's own response: on
+                // a fresh socket nothing else can be queued, and on a reused one
+                // any stale *parseable* datagram was already skipped above.
+                // hickory can't decode this one, but the client's own resolver
+                // still might, so relay the raw bytes without caching — as the
+                // pre-pool code did. (A stale *undecodable* leftover on a reused
+                // socket is the one case this can misattribute, but that needs an
+                // upstream to have sent undecodable trailing bytes — the same
+                // edge the pre-pool single-recv had.) Once we've skipped a stale
+                // datagram, a later undecodable one can't be trusted: skip it.
+                if was_first {
+                    buf.truncate(n);
+                    break None;
+                }
+            }
         }
     };
-    buf.truncate(n);
 
-    // Validate the response before forwarding: txid and question must match the
-    // outbound query. A pooled socket could in theory receive a late response to a
-    // prior query; txid validation ensures stale datagrams are never served or cached.
+    // Relay the settled datagram (still in `buf`) and return the socket — clean,
+    // since it just delivered this query's response — to the pool.
+    socket.send_to(&buf, src).await?;
+    return_socket_to_pool(pool, bound).await;
+
     let mut result = pass_result;
-    if let Ok(parsed) = Message::from_bytes(&buf) {
-        if parsed.metadata.id != id {
-            return_socket_to_pool(pool, bound).await;
-            return Err(anyhow::anyhow!(
-                "conditional upstream response txid mismatch (got {}, expected {id})",
-                parsed.metadata.id
-            ));
-        }
-        if parsed.queries.first().map(hickory_proto::op::Query::name)
-            != request.queries.first().map(hickory_proto::op::Query::name)
-        {
-            return_socket_to_pool(pool, bound).await;
-            return Err(anyhow::anyhow!(
-                "conditional upstream response question mismatch"
-            ));
-        }
-
-        socket.send_to(&buf, src).await?;
-        return_socket_to_pool(pool, bound).await;
-
+    if let Some(parsed) = parsed {
         let (is_negative, raw_ttl) = classify_response(&parsed);
         result = relayed_result(is_negative, pass_result);
         if raw_ttl > 0 {
             let cfg = config.read().await;
             let mut cache_guard = cache.write().await;
-            // Cache the raw upstream datagram we relayed, not a re-encode.
             cache_guard.insert(
                 upstream_id,
                 domain,
@@ -1838,10 +1881,6 @@ async fn forward_via_conditional(
                 cfg.cache_ttl_max_secs,
             );
         }
-    } else {
-        // Parse failed — send raw bytes and don't cache.
-        socket.send_to(&buf, src).await?;
-        return_socket_to_pool(pool, bound).await;
     }
 
     let elapsed = start.elapsed();

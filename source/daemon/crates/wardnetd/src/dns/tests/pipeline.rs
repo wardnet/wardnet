@@ -106,7 +106,9 @@ pub(super) fn stub_tunnel_repo() -> Arc<dyn TunnelRepository> {
 /// view and routing snapshot start empty; tests that need them populated
 /// store into the returned pipeline's `ArcSwap` fields directly (the
 /// same way the server's `update_authoritative_view` does).
-pub(super) fn build_pipeline(cfg: DnsConfig, sink: Option<Arc<DnsLogSink>>) -> Arc<QueryPipeline> {
+/// Construct a pipeline over stub state, before wrapping in `Arc` — the shared
+/// core of [`build_pipeline`] and [`build_pipeline_with_timeout`].
+fn make_pipeline(cfg: DnsConfig, sink: Option<Arc<DnsLogSink>>) -> QueryPipeline {
     let resolver = Arc::new(RwLock::new(build_forwarding_resolver(&cfg)));
     let rate_limiter = Arc::new(RateLimiter::new(cfg.rate_limit_per_second));
     let cache = Arc::new(RwLock::new(DnsCache::new(cfg.cache_size as usize)));
@@ -122,6 +124,23 @@ pub(super) fn build_pipeline(cfg: DnsConfig, sink: Option<Arc<DnsLogSink>>) -> A
         stub_tunnel_repo(),
     );
     pipeline.log_sink = sink;
+    pipeline
+}
+
+pub(super) fn build_pipeline(cfg: DnsConfig, sink: Option<Arc<DnsLogSink>>) -> Arc<QueryPipeline> {
+    Arc::new(make_pipeline(cfg, sink))
+}
+
+/// Like [`build_pipeline`], but with a shortened conditional-forward receive
+/// timeout so the timeout path can be driven in milliseconds instead of the
+/// production 5 s.
+fn build_pipeline_with_timeout(
+    cfg: DnsConfig,
+    sink: Option<Arc<DnsLogSink>>,
+    recv_timeout: Duration,
+) -> Arc<QueryPipeline> {
+    let mut pipeline = make_pipeline(cfg, sink);
+    pipeline.conditional_recv_timeout = recv_timeout;
     Arc::new(pipeline)
 }
 
@@ -494,6 +513,247 @@ async fn conditional_forwarding_failure_returns_servfail() {
 
     assert_eq!(response.metadata.response_code, ResponseCode::ServFail);
     assert_eq!(next_row(&mut rx).await.result, "upstream_error");
+}
+
+/// Encode a `NOERROR`/single-A response for `request`, mirroring what a real
+/// upstream returns for an A question.
+fn a_response(request: &Message, ip: Ipv4Addr) -> Vec<u8> {
+    use hickory_proto::op::OpCode;
+    use hickory_proto::rr::rdata::A;
+    use hickory_proto::rr::{RData, Record};
+
+    let mut response = Message::response(request.metadata.id, OpCode::Query);
+    response.metadata.recursion_desired = true;
+    response.metadata.recursion_available = true;
+    response.add_queries(request.queries.clone());
+    for q in &request.queries {
+        if q.query_type() == RecordType::A {
+            response.add_answer(Record::from_rdata(q.name().clone(), 60, RData::A(A(ip))));
+        }
+    }
+    response.to_bytes().expect("encode stub response")
+}
+
+/// Spawn a conditional upstream that answers every query *twice*. The second
+/// copy stays queued in the connected socket's receive buffer and becomes a
+/// stale datagram for whichever pooled-socket borrower comes next — the same
+/// hazard a late-after-timeout response creates, but deterministic.
+async fn spawn_duplicating_upstream(ip: Ipv4Addr) -> SocketAddr {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("stub bind");
+    let addr = socket.local_addr().expect("stub local_addr");
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let Ok((n, peer)) = socket.recv_from(&mut buf).await else {
+                break;
+            };
+            let Ok(request) = Message::from_bytes(&buf[..n]) else {
+                continue;
+            };
+            let bytes = a_response(&request, ip);
+            let _ = socket.send_to(&bytes, peer).await;
+            let _ = socket.send_to(&bytes, peer).await;
+        }
+    });
+    addr
+}
+
+/// Spawn a conditional upstream that stalls its response to the *first* query
+/// past `delay` (simulating an upstream slower than the receive timeout), then
+/// answers every later query promptly.
+async fn spawn_slow_first_upstream(ip: Ipv4Addr, delay: Duration) -> SocketAddr {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("stub bind");
+    let addr = socket.local_addr().expect("stub local_addr");
+    tokio::spawn(async move {
+        let first = AtomicBool::new(true);
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let Ok((n, peer)) = socket.recv_from(&mut buf).await else {
+                break;
+            };
+            let Ok(request) = Message::from_bytes(&buf[..n]) else {
+                continue;
+            };
+            let bytes = a_response(&request, ip);
+            if first.swap(false, Ordering::Relaxed) {
+                tokio::time::sleep(delay).await;
+            }
+            let _ = socket.send_to(&bytes, peer).await;
+        }
+    });
+    addr
+}
+
+/// Spawn a conditional upstream that answers every query with the same fixed
+/// bytes regardless of content — used to feed the forwarder a datagram hickory
+/// cannot decode.
+async fn spawn_fixed_bytes_upstream(bytes: Vec<u8>) -> SocketAddr {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("stub bind");
+    let addr = socket.local_addr().expect("stub local_addr");
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let Ok((_, peer)) = socket.recv_from(&mut buf).await else {
+                break;
+            };
+            let _ = socket.send_to(&bytes, peer).await;
+        }
+    });
+    addr
+}
+
+/// A stale datagram left queued on a pooled socket by an earlier query must
+/// not turn the *next* query into a SERVFAIL: the reuse path skips it and
+/// keeps reading until it gets its own answer.
+#[tokio::test]
+async fn conditional_forward_skips_a_stale_pooled_datagram() {
+    let cond_upstream = spawn_duplicating_upstream(Ipv4Addr::new(203, 0, 113, 9)).await;
+    let pipeline = build_pipeline(
+        config_with_upstream(SocketAddr::from(([127, 0, 0, 1], 1))),
+        None,
+    );
+    pipeline
+        .authoritative_view
+        .store(Arc::new(AuthoritativeView::build(
+            &[],
+            vec![],
+            vec![forwarding_rule("corp.example", cond_upstream.to_string())],
+        )));
+
+    // Query A checks a socket out of the (empty) pool, gets its answer, and
+    // returns the socket with A's duplicate response still queued on it.
+    let a = ask(
+        &pipeline,
+        &query_bytes(0xAAAA, "a.corp.example.", RecordType::A),
+        ip_client(),
+    )
+    .await
+    .expect("query A answer");
+    assert_eq!(a.metadata.response_code, ResponseCode::NoError);
+
+    // Query B reuses that same pooled socket — A's stale datagram is at the
+    // head of its receive buffer. It must be skipped, not served as B's answer
+    // and not surfaced as a SERVFAIL.
+    let b = ask(
+        &pipeline,
+        &query_bytes(0xBBBB, "b.corp.example.", RecordType::A),
+        ip_client(),
+    )
+    .await
+    .expect("query B answer");
+    assert_eq!(
+        b.metadata.response_code,
+        ResponseCode::NoError,
+        "B must get its own answer, not a SERVFAIL from A's stale datagram"
+    );
+    assert_eq!(b.metadata.id, 0xBBBB, "the answer is B's own, not A's");
+    assert_eq!(
+        b.queries.first().map(|q| q.name().to_ascii()),
+        Some("b.corp.example.".to_string())
+    );
+}
+
+/// A query that times out must drop its socket rather than pool it, so the
+/// late response can't queue on a reused socket and SERVFAIL the next query.
+#[tokio::test]
+async fn conditional_forward_drops_the_socket_on_timeout() {
+    // The stub stalls A's reply to 1.2 s, well past the 500 ms receive timeout,
+    // so A reliably times out; B, on a fresh socket, has the full 500 ms for a
+    // sub-millisecond loopback round trip — ample headroom on a loaded runner.
+    let cond_upstream =
+        spawn_slow_first_upstream(Ipv4Addr::new(203, 0, 113, 9), Duration::from_millis(1200)).await;
+    let pipeline = build_pipeline_with_timeout(
+        config_with_upstream(SocketAddr::from(([127, 0, 0, 1], 1))),
+        None,
+        Duration::from_millis(500),
+    );
+    pipeline
+        .authoritative_view
+        .store(Arc::new(AuthoritativeView::build(
+            &[],
+            vec![],
+            vec![forwarding_rule("corp.example", cond_upstream.to_string())],
+        )));
+
+    // Query A's upstream is slower than the receive timeout, so A times out.
+    let a = ask(
+        &pipeline,
+        &query_bytes(0xAAAA, "a.corp.example.", RecordType::A),
+        ip_client(),
+    )
+    .await
+    .expect("query A response");
+    assert_eq!(a.metadata.response_code, ResponseCode::ServFail);
+
+    // Let A's late response land (it fires at ~1.2 s). If the timed-out socket
+    // had been pooled, this would now sit queued on it, at the head of the
+    // buffer, waiting to poison the next borrower.
+    tokio::time::sleep(Duration::from_millis(1200)).await;
+
+    // Query B must still get its own answer — it can only do so on a socket
+    // free of A's stale datagram.
+    let b = ask(
+        &pipeline,
+        &query_bytes(0xBBBB, "b.corp.example.", RecordType::A),
+        ip_client(),
+    )
+    .await
+    .expect("query B answer");
+    assert_eq!(
+        b.metadata.response_code,
+        ResponseCode::NoError,
+        "B must not inherit a SERVFAIL from A's timed-out socket"
+    );
+    assert_eq!(b.metadata.id, 0xBBBB, "the answer is B's own, not A's");
+}
+
+/// A first response the resolver can't decode is still relayed to the client
+/// raw (its own resolver may parse it), not skipped into a SERVFAIL.
+#[tokio::test]
+async fn conditional_forward_relays_an_undecodable_first_response_raw() {
+    // Three bytes is too short for a DNS header, so `Message::from_bytes` fails.
+    let undecodable = vec![0x00u8, 0x01, 0x02];
+    let cond_upstream = spawn_fixed_bytes_upstream(undecodable.clone()).await;
+    let pipeline = build_pipeline(
+        config_with_upstream(SocketAddr::from(([127, 0, 0, 1], 1))),
+        None,
+    );
+    pipeline
+        .authoritative_view
+        .store(Arc::new(AuthoritativeView::build(
+            &[],
+            vec![],
+            vec![forwarding_rule("corp.example", cond_upstream.to_string())],
+        )));
+
+    // Capture the raw frame directly — `ask` would try to parse it and panic.
+    let (capture, mut rx) = ReplyCapture::channel();
+    let reply: Arc<dyn DnsSocket> = Arc::new(capture);
+    pipeline
+        .handle(
+            &query_bytes(0xABCD, "svc.corp.example.", RecordType::A),
+            src(),
+            &reply,
+            ip_client(),
+            TransportProtocol::Udp,
+        )
+        .await
+        .expect("handle");
+    drop(reply);
+
+    let frame = rx.recv().await.expect("raw relayed frame");
+    assert_eq!(
+        frame, undecodable,
+        "an undecodable first response is relayed byte-for-byte, not dropped"
+    );
 }
 
 // ---------------------------------------------------------------------------
