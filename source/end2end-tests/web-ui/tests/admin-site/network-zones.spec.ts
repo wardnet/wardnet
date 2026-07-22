@@ -163,6 +163,16 @@ test("new-device quarantine: toggle, default-for-new, and approve a device", asy
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", startAttr);
 
+  // Each toggle raised a notification toast; let them expire before the
+  // Approve click below. Sonner pauses its auto-dismiss timer while hovered,
+  // and Playwright's click retries would park the pointer on an intercepting
+  // toast — a deadlock until the test timeout. Move the pointer away first,
+  // then wait the toasts out (mirrors admin-app/pages.spec.ts).
+  await page.mouse.move(0, 0);
+  await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, {
+    timeout: 15_000,
+  });
+
   // The seeded Guest member is awaiting review; approving reassigns it out of
   // the default-for-new zone (to the home zone), so its row disappears.
   const pendingRow = page

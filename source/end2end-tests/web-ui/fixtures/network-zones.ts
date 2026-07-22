@@ -74,23 +74,31 @@ export interface SeededZoneDevice {
   ip: string;
 }
 
-/** List the network zones (with member counts). */
-export async function listZones(): Promise<Zone[]> {
-  const token = await ensureAdminSetup();
-  const { zones } = await api<{ zones: Zone[] }>("/network/zones", { token });
+/**
+ * List the network zones (with member counts). Callers already holding a
+ * session token may pass it to avoid a redundant `ensureAdminSetup` login.
+ */
+export async function listZones(token?: string): Promise<Zone[]> {
+  const session = token ?? (await ensureAdminSetup());
+  const { zones } = await api<{ zones: Zone[] }>("/network/zones", {
+    token: session,
+  });
   return zones;
 }
 
 /** Resolve a zone by name, or throw if it doesn't exist. */
-export async function getZoneByName(name: string): Promise<Zone> {
-  const zone = (await listZones()).find((z) => z.name === name);
+export async function getZoneByName(name: string, token?: string): Promise<Zone> {
+  const zone = (await listZones(token)).find((z) => z.name === name);
   if (!zone) throw new Error(`network zone "${name}" not found`);
   return zone;
 }
 
 /** Resolve a zone id by name. */
-export async function getZoneIdByName(name: string): Promise<string> {
-  return (await getZoneByName(name)).id;
+export async function getZoneIdByName(
+  name: string,
+  token?: string,
+): Promise<string> {
+  return (await getZoneByName(name, token)).id;
 }
 
 /** Assign a device to the named zone (`PUT /devices/{id}/zone`). */
@@ -99,7 +107,7 @@ export async function assignDeviceToZone(
   zoneName: string,
 ): Promise<void> {
   const token = await ensureAdminSetup();
-  const zoneId = await getZoneIdByName(zoneName);
+  const zoneId = await getZoneIdByName(zoneName, token);
   await api(`/devices/${deviceId}/zone`, {
     method: "PUT",
     token,
@@ -139,16 +147,6 @@ export async function getQuarantine(): Promise<boolean> {
   return enabled;
 }
 
-/** Set the new-device quarantine (notification) toggle. */
-export async function setQuarantine(enabled: boolean): Promise<void> {
-  const token = await ensureAdminSetup();
-  await api("/network/quarantine-new-devices", {
-    method: "PUT",
-    token,
-    body: JSON.stringify({ enabled }),
-  });
-}
-
 /**
  * Delete any leftover manual zone the CRUD spec owns (either the created or the
  * renamed name), so its UI-create step starts clean on a re-run. System zones
@@ -178,8 +176,8 @@ export async function cleanupZoneExceptions(
 ): Promise<void> {
   const token = await ensureAdminSetup();
   const [a, b] = await Promise.all([
-    getZoneIdByName(fromZone),
-    getZoneIdByName(toZone),
+    getZoneIdByName(fromZone, token),
+    getZoneIdByName(toZone, token),
   ]);
   const { exceptions } = await api<{ exceptions: ZoneException[] }>(
     "/network/zones/exceptions",
