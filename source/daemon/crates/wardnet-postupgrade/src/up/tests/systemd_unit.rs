@@ -5,7 +5,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use tempfile::TempDir;
 
-use crate::up::systemd_unit::{UNIT_BODY, UNIT_FILENAME, reconcile, write_unit};
+use crate::up::systemd_unit::{UNIT_BODY, UNIT_FILENAME, reconcile, reload_via, write_unit};
 
 #[test]
 fn writes_expected_content_and_mode() {
@@ -54,6 +54,24 @@ fn reconcile_against_tempdir_writes_unit_without_shelling_out() {
         fs::read(dir.path().join(UNIT_FILENAME)).unwrap(),
         UNIT_BODY.as_bytes()
     );
+}
+
+#[test]
+fn reload_via_success_is_ok() {
+    // `true daemon-reload` exits 0 → the success arm.
+    reload_via("true").unwrap();
+}
+
+#[test]
+fn reload_via_nonzero_exit_is_err() {
+    // `false daemon-reload` exits 1 → propagated so the migration retries.
+    assert!(reload_via("false").is_err());
+}
+
+#[test]
+fn reload_via_missing_binary_is_ok() {
+    // A non-systemd host with no `systemctl` → tolerated (nothing to reload).
+    reload_via("wardnet-no-such-systemctl-zzz").unwrap();
 }
 
 /// Regression guard for the incident that motivated this migration.

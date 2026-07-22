@@ -43,41 +43,55 @@ pub fn write_unit(base: &Path) -> anyhow::Result<bool> {
     write_file_atomic(base, UNIT_FILENAME, UNIT_BODY, UNIT_MODE)
 }
 
-/// Write the unit, then reload systemd so the definition takes effect this
-/// boot. Runs before `wardnetd.service` starts (this binary is `RequiredBy`
-/// it), so the reload never races a running daemon.
+/// Write the unit, then reload systemd **only if the file actually changed**,
+/// and only against the real dir. Runs before `wardnetd.service` starts (this
+/// binary is `RequiredBy` it), so the reload never races a running daemon.
+///
+/// Gating the reload on `changed` matters beyond efficiency: the e2e image
+/// ships a byte-identical unit (`changed=false`), and reloading there would run
+/// the test's `/usr/sbin/systemctl` shim **as root**, creating the shared
+/// invocation-log file root-owned — which then blocks the `wardnet`-user daemon
+/// from recording its own reboot/poweroff calls. On a real existing install the
+/// unit differs (the fix moved `StartLimit*` into `[Unit]`), so `changed=true`
+/// and the reload runs. If it fails the error propagates (Optional migration
+/// retries next boot); either way systemd loads the corrected unit fresh on the
+/// next boot even without an in-band reload.
 pub fn reconcile(base: &Path) -> anyhow::Result<()> {
-    write_unit(base)?;
+    let changed = write_unit(base)?;
 
-    // A tempdir base (tests) must not shell out to systemd.
-    if base == Path::new(DEFAULT_UNIT_DIR) {
+    // A tempdir base (tests) must not shell out to systemd; nor may a no-op.
+    if changed && base == Path::new(DEFAULT_UNIT_DIR) {
         daemon_reload()?;
     }
     Ok(())
 }
 
-/// `systemctl daemon-reload` so the rewritten unit takes effect on this boot.
+/// `systemctl daemon-reload` so a freshly-rewritten unit takes effect this boot.
 ///
-/// Deliberately **not** gated on whether the file changed, and a genuine
-/// reload failure is **propagated** rather than swallowed. This migration
-/// runs at most once (the runner records it applied), so a swallowed failure
-/// would leave the fix inert until the next reboot with no retry. Propagating
-/// records the Optional migration as failed, which re-runs it next boot — and
-/// because the reload isn't gated on `changed`, that retry actually reloads
-/// even though the file already matches. A *missing* `systemctl` (a
-/// non-systemd host that somehow reached this path) is treated as success:
-/// there is nothing to reload.
+/// A genuine reload failure is **propagated** rather than swallowed, so the
+/// Optional migration is recorded failed and retried next boot instead of being
+/// marked applied with the fix inert. A *missing* `systemctl` (a non-systemd
+/// host that somehow reached this path) is treated as success — there is
+/// nothing to reload.
 fn daemon_reload() -> anyhow::Result<()> {
-    match Command::new("systemctl").arg("daemon-reload").status() {
+    reload_via("systemctl")
+}
+
+/// `<program> daemon-reload`, with the classification described on
+/// [`daemon_reload`]. `program` is a parameter so tests can drive each arm
+/// with `true` / `false` / a nonexistent binary instead of the real
+/// `systemctl`.
+pub(crate) fn reload_via(program: &str) -> anyhow::Result<()> {
+    match Command::new(program).arg("daemon-reload").status() {
         Ok(status) if status.success() => {
             tracing::info!("reloaded systemd after refreshing wardnetd.service");
             Ok(())
         }
         Ok(status) => {
-            anyhow::bail!("systemctl daemon-reload exited with {status}")
+            anyhow::bail!("{program} daemon-reload exited with {status}")
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            tracing::info!("systemctl not found; skipping daemon-reload (non-systemd host)");
+            tracing::info!("{program} not found; skipping daemon-reload (non-systemd host)");
             Ok(())
         }
         Err(e) => Err(e).context("running systemctl daemon-reload"),

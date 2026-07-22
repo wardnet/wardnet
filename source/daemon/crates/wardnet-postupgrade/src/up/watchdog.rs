@@ -47,34 +47,28 @@ pub fn reconcile(base: &Path) -> anyhow::Result<()> {
             run_best_effort("udevadm", &["control", "--reload"]);
             run_best_effort("udevadm", &["trigger", "--name-match=watchdog"]);
         }
-        arm_live_device();
+        arm_devices_in(Path::new("/dev"));
     }
     Ok(())
 }
 
-/// `chgrp`/`chmod` every already-present watchdog device so the daemon can
-/// open it on this boot without waiting for udev to re-fire on reboot.
+/// `chgrp`/`chmod` every already-present watchdog device under `dev_dir` so the
+/// daemon can open it on this boot without waiting for udev to re-fire on
+/// reboot.
 ///
-/// Enumerates `/dev` rather than hardcoding `watchdog`/`watchdog0`: the udev
-/// rule matches `watchdog[0-9]*`, and a host may expose the device the daemon
-/// is configured to open as a higher-numbered node (e.g. `/dev/watchdog1` when
-/// several watchdog drivers are present). Arming only a fixed pair would leave
-/// that device inaccessible until the next reboot.
-fn arm_live_device() {
-    let Ok(entries) = std::fs::read_dir("/dev") else {
+/// Enumerates the directory rather than hardcoding `watchdog`/`watchdog0`: the
+/// udev rule matches `watchdog[0-9]*`, and a host may expose the device the
+/// daemon is configured to open as a higher-numbered node (e.g. `/dev/watchdog1`
+/// when several watchdog drivers are present). Arming only a fixed pair would
+/// leave that device inaccessible until the next reboot. `dev_dir` is a
+/// parameter so tests can drive it against a `tempfile::TempDir`.
+pub(crate) fn arm_devices_in(dev_dir: &Path) {
+    let Ok(entries) = std::fs::read_dir(dev_dir) else {
         return;
     };
     for entry in entries.flatten() {
         let name = entry.file_name();
-        let name = name.to_string_lossy();
-        // Match the bare `watchdog` alias and `watchdog<N>`; skip anything
-        // else (e.g. `watchdog` is a prefix of nothing unrelated in /dev, but
-        // be strict anyway).
-        let is_watchdog = name == "watchdog"
-            || name
-                .strip_prefix("watchdog")
-                .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()));
-        if is_watchdog {
+        if is_watchdog_dev(&name.to_string_lossy()) {
             let path = entry.path();
             let path = path.to_string_lossy();
             run_best_effort("chgrp", &["wardnet", &path]);
@@ -83,9 +77,18 @@ fn arm_live_device() {
     }
 }
 
+/// True for the bare `watchdog` alias and `watchdog<N>` device nodes; false for
+/// anything else (`watchdoge`, `watchdog1a`, unrelated names).
+pub(crate) fn is_watchdog_dev(name: &str) -> bool {
+    name == "watchdog"
+        || name
+            .strip_prefix("watchdog")
+            .is_some_and(|rest| !rest.is_empty() && rest.bytes().all(|b| b.is_ascii_digit()))
+}
+
 /// Run a system command, logging (never propagating) any failure — the
 /// caller is a best-effort convenience path.
-fn run_best_effort(cmd: &str, args: &[&str]) {
+pub(crate) fn run_best_effort(cmd: &str, args: &[&str]) {
     match Command::new(cmd).args(args).status() {
         Ok(status) if status.success() => {}
         Ok(status) => tracing::warn!(

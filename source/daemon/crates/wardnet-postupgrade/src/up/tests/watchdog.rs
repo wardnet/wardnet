@@ -5,7 +5,10 @@ use std::os::unix::fs::PermissionsExt;
 
 use tempfile::TempDir;
 
-use crate::up::watchdog::{RULE_BODY, RULE_FILENAME, reconcile, write_rule};
+use crate::up::watchdog::{
+    RULE_BODY, RULE_FILENAME, arm_devices_in, is_watchdog_dev, reconcile, run_best_effort,
+    write_rule,
+};
 
 #[test]
 fn writes_expected_content_and_mode() {
@@ -72,4 +75,49 @@ fn reconcile_against_tempdir_writes_rule_without_shelling_out() {
         fs::read(dir.path().join(RULE_FILENAME)).unwrap(),
         RULE_BODY.as_bytes()
     );
+}
+
+#[test]
+fn is_watchdog_dev_matches_watchdog_and_numbered_variants_only() {
+    for yes in ["watchdog", "watchdog0", "watchdog1", "watchdog12"] {
+        assert!(is_watchdog_dev(yes), "{yes} should match");
+    }
+    for no in [
+        "",
+        "watchdoge",
+        "watchdog1a",
+        "wdog",
+        "awatchdog",
+        "watchdo",
+        "null",
+    ] {
+        assert!(!is_watchdog_dev(no), "{no} should not match");
+    }
+}
+
+#[test]
+fn arm_devices_in_visits_watchdog_nodes_and_ignores_missing_dir() {
+    // Missing dir: early return, no panic.
+    arm_devices_in(std::path::Path::new("/definitely/not/a/real/dir/xyz"));
+
+    // A fake /dev with a mix of watchdog and non-watchdog entries. The
+    // chgrp/chmod shell-outs run against these temp files (best-effort:
+    // chmod succeeds, chgrp to a possibly-absent group is swallowed) — the
+    // point is to exercise the enumerate → match → shell-out path.
+    let dev = TempDir::new().unwrap();
+    for name in ["watchdog", "watchdog0", "watchdog3", "watchdoge", "random"] {
+        fs::write(dev.path().join(name), b"").unwrap();
+    }
+    arm_devices_in(dev.path());
+    // The non-watchdog files must still exist (we never remove anything).
+    assert!(dev.path().join("random").exists());
+}
+
+#[test]
+fn run_best_effort_covers_success_nonzero_and_spawn_error() {
+    // Success (exit 0), non-zero exit, and a binary that cannot be spawned —
+    // none of these panic or propagate; they only log.
+    run_best_effort("true", &[]);
+    run_best_effort("false", &[]);
+    run_best_effort("wardnet-no-such-binary-zzz", &["arg"]);
 }
