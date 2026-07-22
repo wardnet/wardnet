@@ -159,6 +159,38 @@ describe("DeviceNetworkCard", () => {
     );
   });
 
+  it("restores the original reservation when the replacement create fails", async () => {
+    const user = userEvent.setup();
+    setup({ reservations: [makeReservation({ ip_address: "10.232.1.10" })] });
+    // First create (the new IP) is rejected; the rollback recreate succeeds.
+    createAsync
+      .mockRejectedValueOnce(new Error("409"))
+      .mockResolvedValueOnce(undefined);
+    renderWithProviders(<DeviceNetworkCard device={makeDevice()} />);
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await setLastOctet(user, "20");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(deleteAsync).toHaveBeenCalledWith("res-1"));
+    // Attempted the new IP, then rolled back to the original one.
+    expect(createAsync).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ ip_address: "10.232.1.20" }),
+    );
+    expect(createAsync).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        mac_address: "AA:BB:CC:DD:EE:FF",
+        ip_address: "10.232.1.10",
+      }),
+    );
+    expect(deleteAsync).toHaveBeenCalledTimes(1);
+    // Stays in edit mode with the failure surfaced to the admin.
+    await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+  });
+
   it("removes an existing reservation", async () => {
     const user = userEvent.setup();
     setup({ reservations: [makeReservation()] });
