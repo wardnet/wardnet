@@ -76,9 +76,46 @@ impl LinuxWatchdog {
                 }
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                // No watchdog device at all: a VM/container without one, or a
+                // host whose watchdog driver isn't loaded. Expected, not a
+                // fault — the soft (sd_notify) layer still supervises.
                 tracing::info!(
                     path = %path.display(),
-                    "watchdog unavailable, skipping (no {})",
+                    "no hardware watchdog device present; running with the soft watchdog only ({})",
+                    path.display(),
+                );
+                Self::unavailable(path)
+            }
+            // Match `ResourceBusy` by kind, but also fall back to the raw
+            // `EBUSY` (16) so a std build that doesn't map the errno to that
+            // kind still classifies it here rather than dropping through to the
+            // alarming "no backstop" arm below.
+            Err(e)
+                if e.kind() == std::io::ErrorKind::ResourceBusy || e.raw_os_error() == Some(16) =>
+            {
+                // EBUSY: another supervisor already holds the single-opener
+                // device and is petting it — e.g. systemd's own
+                // `RuntimeWatchdogSec=` (the Raspberry Pi OS default), or a
+                // standalone `watchdogd`. The host therefore still HAS a
+                // hardware reboot-on-freeze backstop; it's simply owned by
+                // that supervisor rather than wardnet. Our hard layer stands
+                // down (the soft layer keeps restarting the service on a
+                // daemon-specific hang), so this is INFO, not a fault.
+                tracing::info!(
+                    path = %path.display(),
+                    "hardware watchdog is owned by another supervisor (e.g. systemd RuntimeWatchdogSec); the host is still covered — wardnet's hard layer will stay idle",
+                );
+                Self::unavailable(path)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied => {
+                // EACCES: the device exists and is free, but this unprivileged
+                // process can't open it. This is a real, fixable
+                // misconfiguration — the daemon runs without a hardware
+                // backstop until the wardnet user can access the device.
+                tracing::warn!(
+                    error = %e,
+                    path = %path.display(),
+                    "cannot open watchdog device (permission denied); running without a hardware backstop — ensure the udev rule granting the wardnet group access to {} is installed (post-upgrade migration 0002_watchdog_udev_rule)",
                     path.display(),
                 );
                 Self::unavailable(path)

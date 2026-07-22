@@ -7,6 +7,28 @@ Wants=network-online.target
 # enters `failed` state, which the StartLimit* knobs below guarantee
 # after 3 crashes within 120s.
 OnFailure=wardnetd-rollback.service
+# Auto-update crash-loop budget. If the daemon fails 5 times within 30s,
+# systemd marks the unit failed and the OnFailure= rollback unit kicks in.
+# `StartLimitAction=none` avoids systemd's default aggressive stop once the
+# budget is exhausted — we let the rollback unit swap the binary back, then
+# manual recovery (or the next update check) takes over.
+#
+# The 30s window is deliberately tight so ONLY a genuine crash-loop trips it,
+# not a merely-unhealthy daemon. A bad binary that crashes on startup restarts
+# every RestartSec=2s → 5 failures in ~15s, well inside 30s → rollback. A
+# health-gated soft-watchdog restart (see WatchdogSec below) can happen at most
+# once per ~15s, so ≤3 land in 30s — under the budget, so environmental
+# unhealth (e.g. a slow DB after a power loss) keeps restarting rather than
+# reverting a good binary to the lingering wardnetd.old. Widening this window
+# re-introduces that false rollback.
+#
+# These MUST live in [Unit], not [Service]: systemd only parses StartLimit*
+# under [Unit] and silently ignores them elsewhere ("Unknown key
+# 'StartLimitIntervalSec' in section [Service]"), which would leave the
+# crash-loop budget — and the rollback safety net — off.
+StartLimitIntervalSec=30
+StartLimitBurst=5
+StartLimitAction=none
 
 [Service]
 # Type=notify: the daemon sends sd_notify(READY=1) once all listeners are
@@ -21,15 +43,8 @@ Group=wardnet
 ExecStart=/usr/local/bin/wardnetd --config /etc/wardnet/wardnet.toml
 Restart=always
 RestartSec=2s
-# Auto-update crash-loop budget. If the daemon fails to stay up for 3
-# restarts within 120s, systemd marks the unit as failed and the
-# OnFailure= rollback unit kicks in. `StartLimitAction=none` avoids
-# systemd's default aggressive stop once the budget is exhausted — we
-# let the rollback unit swap the binary back, then manual recovery
-# (or the next update check) takes over.
-StartLimitIntervalSec=120
-StartLimitBurst=3
-StartLimitAction=none
+# NOTE: the StartLimit* crash-loop knobs referenced above live in the
+# [Unit] section — systemd ignores them here in [Service].
 
 # Capabilities — CAP_NET_ADMIN covers nftables/route netlink and child tools (ip, sysctl)
 AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW CAP_NET_BIND_SERVICE
@@ -67,10 +82,14 @@ SyslogIdentifier=wardnetd
 # (even the health loop wedged) is caught instead by the ungated hardware
 # /dev/watchdog, which reboots the host.
 #
-# WatchdogSec interacts with the StartLimit* budget above: repeated watchdog
-# restarts count toward StartLimitBurst, so a persistently-unhealthy daemon
-# eventually trips OnFailure=wardnetd-rollback.service (post-update crash-loop
-# recovery) rather than restarting forever.
+# WatchdogSec interacts with the StartLimit* budget above, but by design does
+# NOT trip it: a soft-watchdog restart can fire at most about once per 15s, so
+# a persistently-unhealthy daemon accrues ≤3 restarts in the 30s window and
+# stays under StartLimitBurst=5. It therefore keeps getting restarted (staying
+# reachable between restarts) instead of tripping OnFailure=rollback and
+# reverting the binary. Only a true crash-loop (restarts every RestartSec=2s)
+# exhausts the budget — which is exactly the post-update failure rollback is
+# meant to recover from.
 WatchdogSec=15
 
 [Install]
