@@ -626,6 +626,155 @@ async fn stream_delivers_live_event_from_bus() {
 }
 
 #[tokio::test]
+async fn stream_closes_on_client_disconnect_without_matching_event() {
+    // Idle device: no pending rows to flush and no DnsEventInserted for this
+    // device is ever published, so the live loop can only end when the client
+    // hangs up. Drive `pump_dns_events` directly rather than through the HTTP
+    // handler (which spawns the task detached) so the test owns the JoinHandle
+    // and can await termination deterministically instead of polling.
+    let (publisher, event_tx) = LiveEventPublisher::new();
+    let subscribed = publisher.subscribed_notify();
+    let state =
+        build_state_with_publisher(MockDnsEventsDeviceService::with_device(vec![]), publisher);
+
+    // Keep the broadcast sender alive for the whole test so the only way the loop
+    // can exit is `tx.closed()` — dropping it would let the task leave via
+    // `RecvError::Closed` instead, defeating the point of the test.
+    let _event_tx = event_tx;
+
+    let device_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel::<
+        Result<axum::response::sse::Event, std::convert::Infallible>,
+    >(64);
+
+    let handle = tokio::spawn(crate::api::dns_events::pump_dns_events(
+        state,
+        device_uuid,
+        device_uuid.to_string(),
+        0,
+        tx,
+    ));
+
+    // Wait until the task subscribes; with no pending rows it then falls straight
+    // into the live loop with no matching event to forward.
+    subscribed.notified().await;
+
+    // Simulate closing the tab: dropping the mpsc receiver closes the channel,
+    // which resolves `tx.closed()` inside the live loop's `select!`.
+    drop(rx);
+
+    // The task must observe the disconnect and return promptly, even though no
+    // matching event was ever published. A `recv()`-only loop would park here
+    // forever; the timeout turns that regression into a failure instead of a hang.
+    let joined = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    assert!(
+        matches!(joined, Ok(Ok(()))),
+        "SSE pump task did not terminate after client disconnect: {joined:?}"
+    );
+}
+
+#[tokio::test]
+async fn stream_stops_when_flush_send_fails() {
+    // Two pending rows but a 1-slot mpsc channel: the first flush send fills the
+    // buffer, the second blocks (the receiver is never drained), and dropping the
+    // receiver fails that send so the flush phase returns before the live loop.
+    let pending = vec![
+        DnsEventItem {
+            id: 1,
+            domain: "a.example".to_owned(),
+            status: "allowed".to_owned(),
+            captured_at: "2026-06-12T00:00:00Z".to_owned(),
+        },
+        DnsEventItem {
+            id: 2,
+            domain: "b.example".to_owned(),
+            status: "blocked".to_owned(),
+            captured_at: "2026-06-12T00:00:01Z".to_owned(),
+        },
+    ];
+    let state = build_state(MockDnsEventsDeviceService::with_device(pending));
+
+    let device_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel::<
+        Result<axum::response::sse::Event, std::convert::Infallible>,
+    >(1);
+
+    let handle = tokio::spawn(crate::api::dns_events::pump_dns_events(
+        state,
+        device_uuid,
+        device_uuid.to_string(),
+        0,
+        tx,
+    ));
+
+    // Let the flush send the first row and park on the blocked second send.
+    tokio::task::yield_now().await;
+
+    // Client hangs up mid-flush: the in-flight send fails and the pump returns.
+    drop(rx);
+
+    let joined = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    assert!(
+        matches!(joined, Ok(Ok(()))),
+        "pump did not stop after flush send failure: {joined:?}"
+    );
+}
+
+#[tokio::test]
+async fn stream_stops_when_live_event_send_fails() {
+    // A matching live event is forwarded, but the client hangs up mid-delivery so
+    // the `tx.send(...)` in the live loop fails and the pump returns. A 1-slot mpsc
+    // channel makes this deterministic: the first event fills the buffer, the
+    // second event's send blocks (the receiver is never drained), and dropping the
+    // receiver then fails that in-flight send.
+    let (publisher, event_tx) = LiveEventPublisher::new();
+    let subscribed = publisher.subscribed_notify();
+    let state =
+        build_state_with_publisher(MockDnsEventsDeviceService::with_device(vec![]), publisher);
+
+    let device_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel::<
+        Result<axum::response::sse::Event, std::convert::Infallible>,
+    >(1);
+
+    let handle = tokio::spawn(crate::api::dns_events::pump_dns_events(
+        state,
+        device_uuid,
+        device_uuid.to_string(),
+        0,
+        tx,
+    ));
+
+    subscribed.notified().await;
+
+    let make_event = |row_id: i64| WardnetEvent::DnsEventInserted {
+        device_id: device_uuid,
+        row_id,
+        domain: "live.example.com".to_owned(),
+        status: "allowed".to_owned(),
+        captured_at: "2026-06-12T00:00:00Z".to_owned(),
+        timestamp: chrono::Utc::now(),
+    };
+    // First event fills the single buffer slot; the second event's send then
+    // blocks because the receiver is never drained.
+    let _ = event_tx.send(make_event(1));
+    let _ = event_tx.send(make_event(2));
+
+    // Let the pump forward the first event and park on the blocked second send.
+    tokio::task::yield_now().await;
+
+    // Client hangs up: dropping the receiver fails the in-flight send, so the loop
+    // returns via the `tx.send(...).is_err()` path rather than `tx.closed()`.
+    drop(rx);
+
+    let joined = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    assert!(
+        matches!(joined, Ok(Ok(()))),
+        "pump did not stop after live-event send failure: {joined:?}"
+    );
+}
+
+#[tokio::test]
 async fn stream_closes_on_bus_lag() {
     // Use a channel with capacity 1 so we can force a lag condition by
     // publishing 2 messages before the subscriber drains any.
