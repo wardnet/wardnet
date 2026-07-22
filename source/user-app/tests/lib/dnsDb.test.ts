@@ -9,6 +9,7 @@ import {
   localDate,
   notifyStatsChanged,
   openDb,
+  pruneDaily,
   pruneEvents,
   recentDates,
   subscribeStats,
@@ -16,6 +17,7 @@ import {
   type DailyStat,
   type DnsEventItem,
 } from "../../src/lib/dnsDb";
+import { getAllRows as getAll, putDaily } from "../helpers/idb";
 
 function ev(overrides: Partial<DnsEventItem> = {}): DnsEventItem {
   return {
@@ -25,14 +27,6 @@ function ev(overrides: Partial<DnsEventItem> = {}): DnsEventItem {
     captured_at: "2026-07-02T12:00:00Z",
     ...overrides,
   };
-}
-
-function getAll<T>(db: IDBDatabase, store: string): Promise<T[]> {
-  return new Promise((resolve, reject) => {
-    const req = db.transaction(store, "readonly").objectStore(store).getAll();
-    req.onsuccess = () => resolve(req.result as T[]);
-    req.onerror = () => reject(req.error);
-  });
 }
 
 function getMeta(db: IDBDatabase, key: string): Promise<unknown> {
@@ -207,6 +201,62 @@ describe("pruneEvents", () => {
     expect(events).toHaveLength(500);
     const ids = events.map((e) => e.id).sort((a, b) => a - b);
     expect(ids[0]).toBe(3);
+    db.close();
+  });
+});
+
+describe("pruneDaily", () => {
+  function daily(date: string, domain: string): DailyStat {
+    return { date, domain, blocked: 1, allowed: 0 };
+  }
+
+  it("deletes rows older than the retention window, keeps the rest", async () => {
+    const db = await openDb();
+    // recentDates(7) is the retention window (today + prior six days), oldest
+    // first; recentDates(8)[0] is the day just outside it.
+    const window = recentDates(7);
+    const oldestKept = window[0];
+    const today = window[6];
+    const justOutside = recentDates(8)[0];
+
+    await putDaily(db, daily("2000-01-01", "ancient.com"));
+    await putDaily(db, daily(justOutside, "expired.com"));
+    await putDaily(db, daily(oldestKept, "edge.com"));
+    await putDaily(db, daily(today, "today.com"));
+
+    await pruneDaily(db);
+
+    const rows = await getAll<DailyStat>(db, DAILY_STORE);
+    const dates = rows.map((r) => r.date).sort();
+    expect(dates).toEqual([oldestKept, today].sort());
+    db.close();
+  });
+
+  it("is a no-op when every row is within the window", async () => {
+    const db = await openDb();
+    const window = recentDates(7);
+    for (const date of window) {
+      await putDaily(db, daily(date, "x.com"));
+    }
+    await pruneDaily(db);
+    const rows = await getAll<DailyStat>(db, DAILY_STORE);
+    expect(rows).toHaveLength(window.length);
+    db.close();
+  });
+
+  it("rejects when the transaction aborts", async () => {
+    const db = await openDb();
+    const realTx = db.transaction.bind(db);
+    const tx = realTx(DAILY_STORE, "readwrite");
+    const spy = vi.spyOn(db, "transaction").mockReturnValue(tx);
+    const promise = pruneDaily(db);
+    tx.abort();
+    let rejected = false;
+    await promise.catch(() => {
+      rejected = true;
+    });
+    expect(rejected).toBe(true);
+    spy.mockRestore();
     db.close();
   });
 });
