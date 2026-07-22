@@ -1727,6 +1727,8 @@ pub struct QueryLogEvent {
     pub device_id: Option<String>,
 }
 
+/// Request body for `PATCH /api/devices/{id}/dns-capture` — the admin capture
+/// controls. Omitted fields are left unchanged (merged via SQL `COALESCE`).
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, Default)]
 pub struct DnsCaptureSettingsRequest {
     pub enabled: Option<bool>,
@@ -1734,6 +1736,8 @@ pub struct DnsCaptureSettingsRequest {
     pub cap_days: Option<i64>,
 }
 
+/// Response for `GET`/`PATCH /api/devices/{id}/dns-capture` — current capture
+/// settings alongside storage stats for the device.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsCaptureSettingsResponse {
     pub enabled: bool,
@@ -1955,6 +1959,8 @@ pub struct DeleteForwardingRuleResponse {
     pub message: String,
 }
 
+/// A single captured DNS event streamed over
+/// `GET /api/devices/me/dns-events/stream` as an SSE message.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsEventItem {
     pub id: i64,
@@ -1963,6 +1969,8 @@ pub struct DnsEventItem {
     pub captured_at: String,
 }
 
+/// Request body for `POST /api/devices/me/dns-events/ack` — acknowledges every
+/// captured event up to and including `up_to_id` so the daemon can delete them.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct DnsEventsAckRequest {
     pub up_to_id: i64,
