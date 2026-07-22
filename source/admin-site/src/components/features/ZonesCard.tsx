@@ -344,7 +344,11 @@ function ZoneForm({
               value={stance}
               onValueChange={(v) => setStance(v as ZoneStance)}
             >
-              <SelectTrigger id="zone-stance" className="w-full">
+              <SelectTrigger
+                id="zone-stance"
+                data-testid="zone-stance"
+                className="w-full"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
