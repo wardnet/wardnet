@@ -1,6 +1,8 @@
 import { renderHook, waitFor } from "@testing-library/react";
-import { act } from "react";
+import { act, type ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { DnsFilterConfigResponse } from "@wardnet/js";
 import { createQueryWrapper } from "../test-utils";
 
 const { dnsFilterService, jobsService, toast } = vi.hoisted(() => ({
@@ -408,5 +410,92 @@ describe("useDnsFilter device settings + config", () => {
 
     expect(toast.success).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("optimistically merges each update into the cached config so rapid toggles compose", async () => {
+    // One shared client so the config query and the update mutation see the
+    // same cache — the per-row Default toggles rebuild their payload from it.
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    dnsFilterService.getConfig.mockResolvedValue({
+      config: { enabled: true, default_profile_ids: [] },
+    });
+    const { result: cfg } = renderHook(() => f.useDnsFilterConfig(), {
+      wrapper,
+    });
+    await waitFor(() => expect(cfg.current.isSuccess).toBe(true));
+
+    // Hold the request in flight so onSettled's refetch can't overwrite the
+    // optimistic value before we read it back.
+    let release!: (v: unknown) => void;
+    dnsFilterService.updateConfig.mockImplementation(
+      () => new Promise((r) => (release = r)),
+    );
+
+    const { result: upd } = renderHook(() => f.useUpdateDnsFilterConfig(), {
+      wrapper,
+    });
+    act(() => {
+      upd.current.mutate({ default_profile_ids: ["p1"] } as never);
+    });
+
+    // The cached config reflects the pending toggle immediately, so a second
+    // toggle composing from it would send ["p1", "p2"] rather than dropping p1.
+    await waitFor(() => {
+      const cached = client.getQueryData<DnsFilterConfigResponse>([
+        "dns-filter",
+        "config",
+      ]);
+      expect(cached?.config.default_profile_ids).toEqual(["p1"]);
+    });
+
+    release({});
+  });
+
+  it("rolls the optimistic config update back when the request fails", async () => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+
+    dnsFilterService.getConfig.mockResolvedValue({
+      config: { enabled: true, default_profile_ids: ["a"] },
+    });
+    const { result: cfg } = renderHook(() => f.useDnsFilterConfig(), {
+      wrapper,
+    });
+    await waitFor(() => expect(cfg.current.isSuccess).toBe(true));
+
+    dnsFilterService.updateConfig.mockRejectedValueOnce(new Error("boom"));
+    const { result: upd } = renderHook(() => f.useUpdateDnsFilterConfig(), {
+      wrapper,
+    });
+    await act(async () => {
+      await upd.current
+        .mutateAsync({ default_profile_ids: ["a", "b"] } as never)
+        .catch(() => {});
+    });
+
+    // A failed write must not leave the optimistic "a,b" behind.
+    await waitFor(() => {
+      const cached = client.getQueryData<DnsFilterConfigResponse>([
+        "dns-filter",
+        "config",
+      ]);
+      expect(cached?.config.default_profile_ids).toEqual(["a"]);
+    });
   });
 });
