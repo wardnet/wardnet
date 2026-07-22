@@ -191,6 +191,26 @@ describe("DeviceNetworkCard", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 
+  it("warns that the reservation is lost when the rollback recreate also fails", async () => {
+    const user = userEvent.setup();
+    setup({ reservations: [makeReservation({ ip_address: "10.232.1.10" })] });
+    // Both the new-IP create and the rollback recreate fail.
+    createAsync.mockRejectedValue(new Error("409"));
+    renderWithProviders(<DeviceNetworkCard device={makeDevice()} />);
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await setLastOctet(user, "20");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(deleteAsync).toHaveBeenCalledWith("res-1"));
+    expect(createAsync).toHaveBeenCalledTimes(2);
+    // The admin is told the reservation could not be restored, not the
+    // now-misleading new-IP failure.
+    expect(
+      await screen.findByText(/Could not restore the previous reservation/i),
+    ).toBeInTheDocument();
+  });
+
   it("removes an existing reservation", async () => {
     const user = userEvent.setup();
     setup({ reservations: [makeReservation()] });

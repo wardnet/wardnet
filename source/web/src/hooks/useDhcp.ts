@@ -80,20 +80,26 @@ export function useUpdateDhcpConfig() {
   });
 }
 
-export function useCreateReservation() {
+export function useCreateReservation(options?: { silent?: boolean }) {
   const qc = useQueryClient();
+  const silent = options?.silent ?? false;
   return useMutation({
     mutationFn: (body: CreateDhcpReservationRequest) =>
       dhcpService.createReservation(body),
     onSuccess: (data) => {
-      toast.success(data.message || "Reservation created");
+      // `silent` suppresses the toasts for flows that recreate a reservation
+      // as a rollback step (see DeviceNetworkCard), where a "created" toast
+      // would contradict the failure the user is being shown.
+      if (!silent) toast.success(data.message || "Reservation created");
       qc.invalidateQueries({ queryKey: ["dhcp", "reservations"] });
       // Device DHCP chip is derived from the device payload, not the
       // reservation list — refresh it so the UI reflects the change without
       // needing a manual reload.
       qc.invalidateQueries({ queryKey: ["devices"] });
     },
-    onError: () => toast.error("Failed to create reservation"),
+    onError: () => {
+      if (!silent) toast.error("Failed to create reservation");
+    },
   });
 }
 

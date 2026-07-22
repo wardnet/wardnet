@@ -104,6 +104,30 @@ describe("useDhcp mutations", () => {
     expect(toast.success).toHaveBeenCalledWith("Reserved");
   });
 
+  it("suppresses reservation toasts when silent (rollback recreate)", async () => {
+    dhcpService.createReservation.mockResolvedValueOnce({
+      message: "Reserved",
+    });
+    const { result } = renderHook(
+      () => useCreateReservation({ silent: true }),
+      {
+        wrapper: wrapper(),
+      },
+    );
+    await act(async () => {
+      await result.current.mutateAsync({ mac: "aa", ip: "10.0.0.5" } as never);
+    });
+    expect(toast.success).not.toHaveBeenCalled();
+
+    dhcpService.createReservation.mockRejectedValueOnce(new Error("x"));
+    await act(async () => {
+      await result.current
+        .mutateAsync({ mac: "aa", ip: "10.0.0.6" } as never)
+        .catch(() => {});
+    });
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
   it("deletes a reservation with a default message", async () => {
     dhcpService.deleteReservation.mockResolvedValue({ message: "" });
     const { result } = renderHook(() => useDeleteReservation(), {
