@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DeviceTable } from "@/components/compound/DeviceTable";
@@ -40,11 +40,16 @@ export default function Devices() {
 
   const [group, setGroup] = useState<GroupId>("all");
   const [query, setQuery] = useState("");
-  // `now` is captured once at mount so the React Compiler doesn't flag
-  // an impure call during render. The "Recently seen" window remains
-  // accurate for the session — `useDevices` already polls so the rows
-  // it filters from are themselves fresh.
-  const [now] = useState(() => Date.now());
+  // Reference clock for the "Recently seen" window. It must advance with
+  // wall-clock time, not freeze at mount — otherwise the 1-hour cutoff drifts
+  // on a long-lived tab and devices never age out of the bucket. Refreshing
+  // rows via polling doesn't help: the cutoff they're compared against is what
+  // goes stale. A modest interval keeps it live without a per-render impurity.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const counts = useMemo(() => {
     return {

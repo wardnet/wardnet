@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -122,6 +122,35 @@ describe("Devices", () => {
     expect(screen.getByText("group-managed-1")).toBeInTheDocument();
     expect(screen.getByText("group-unmanaged-2")).toBeInTheDocument();
     expect(screen.getByText("group-recent-1")).toBeInTheDocument();
+  });
+
+  it("drops a device out of 'Recently seen' as wall-clock time elapses", () => {
+    vi.useFakeTimers();
+    try {
+      const mount = new Date("2026-07-22T12:00:00Z").getTime();
+      vi.setSystemTime(mount);
+      // Seen at mount → inside the 1-hour window.
+      useDevices.mockReturnValue({
+        data: {
+          devices: [
+            makeDevice({ id: "d1", last_seen: new Date(mount).toISOString() }),
+          ],
+        },
+        isLoading: false,
+        isError: false,
+      });
+      renderWithProviders(<Devices />);
+      expect(screen.getByText("group-recent-1")).toBeInTheDocument();
+
+      // Advance real time past the window without remounting; the live
+      // reference clock ticks and the device ages out of the bucket.
+      act(() => {
+        vi.advanceTimersByTime(61 * 60 * 1000);
+      });
+      expect(screen.getByText("group-recent-0")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("filters by group, search, and opens a device", async () => {
