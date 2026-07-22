@@ -48,6 +48,7 @@ export {
 
 // Country / device helpers
 export { countryFlag } from "./lib/country";
+export { poolUsagePercent } from "./lib/dhcp";
 export { tunnelStatusVariant, tunnelStatusLabel } from "./lib/tunnel";
 export { TunnelStatusPill } from "./components/TunnelStatusPill";
 export {

@@ -283,49 +283,57 @@ export function DataTable<TData, TValue>({
           </thead>
           <tbody>
             {rows.length ? (
-              rows.map((row) => (
-                <tr
-                  key={row.id}
-                  data-clickable={onRowClick ? "true" : undefined}
-                  onClick={
-                    onRowClick ? () => onRowClick(row.original) : undefined
-                  }
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      className={cell.column.columnDef.meta?.className}
-                    >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </td>
-                  ))}
-                  {rowActions && (
-                    <td
-                      className="tbl__row-actions-cell"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label="Row actions"
-                            data-testid={rowActionsTestId}
-                          >
-                            <MoreHorizontal />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent>
-                          {rowActions(row.original)}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </td>
-                  )}
-                </tr>
-              ))
+              rows.map((row) => {
+                // Resolve this row's actions once. A row can legitimately have
+                // none (e.g. an expired DHCP lease); in that case we keep the
+                // cell for column alignment but omit the `…` trigger so it
+                // can't open an empty dropdown.
+                const actions = rowActions?.(row.original);
+                const menu = actions ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="Row actions"
+                        data-testid={rowActionsTestId}
+                      >
+                        <MoreHorizontal />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>{actions}</DropdownMenuContent>
+                  </DropdownMenu>
+                ) : null;
+                return (
+                  <tr
+                    key={row.id}
+                    data-clickable={onRowClick ? "true" : undefined}
+                    onClick={
+                      onRowClick ? () => onRowClick(row.original) : undefined
+                    }
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className={cell.column.columnDef.meta?.className}
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </td>
+                    ))}
+                    {rowActions && (
+                      <td
+                        className="tbl__row-actions-cell"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {menu}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })
             ) : (
               <tr>
                 <td

@@ -53,25 +53,38 @@ export function DeviceNetworkCard({ device }: DeviceNetworkCardProps) {
   );
 
   const createReservation = useCreateReservation();
+  // Dedicated silent instance for the rollback recreate below: it must not
+  // pop a "Reservation created" toast that would contradict the failure the
+  // admin is being shown for their actual edit.
+  const restoreReservation = useCreateReservation({ silent: true });
   const deleteReservation = useDeleteReservation();
 
   const [editing, setEditing] = useState(false);
   const [ip, setIp] = useState(reservation?.ip_address ?? device.last_ip);
+  // Error captured from a failed replacement whose rollback recreate then
+  // succeeded — the recreate clears the create mutation's own error state, so
+  // we hold onto the original failure to keep surfacing it to the admin.
+  const [saveError, setSaveError] = useState<unknown>(null);
 
   function startEdit() {
     setIp(reservation?.ip_address ?? device.last_ip);
+    setSaveError(null);
     createReservation.reset();
+    restoreReservation.reset();
     deleteReservation.reset();
     setEditing(true);
   }
 
   function cancelEdit() {
     setEditing(false);
+    setSaveError(null);
     createReservation.reset();
+    restoreReservation.reset();
     deleteReservation.reset();
   }
 
   async function handleSave() {
+    setSaveError(null);
     // No update endpoint exists — replacing an existing reservation is a
     // delete-then-create. Skip the cycle when the IP is unchanged.
     if (reservation) {
@@ -80,6 +93,43 @@ export function DeviceNetworkCard({ device }: DeviceNetworkCardProps) {
         return;
       }
       await deleteReservation.mutateAsync(reservation.id);
+      try {
+        await createReservation.mutateAsync({
+          mac_address: device.mac,
+          ip_address: ip,
+          hostname: device.hostname ?? undefined,
+          description: device.name ?? device.hostname ?? undefined,
+        });
+      } catch (err) {
+        // Create failed after the old reservation was already deleted (e.g.
+        // the new IP is taken, 409). Recreate the original so the device
+        // doesn't silently fall back to a dynamic lease, and keep the
+        // failure on screen so the admin knows the edit didn't take.
+        setSaveError(err);
+        try {
+          await restoreReservation.mutateAsync({
+            mac_address: reservation.mac_address,
+            ip_address: reservation.ip_address,
+            hostname: reservation.hostname ?? undefined,
+            description: reservation.description ?? undefined,
+          });
+        } catch {
+          // The restore itself failed — worse than the original error, since
+          // the device now has no static reservation at all. Replace the
+          // message with one that says so, rather than leaving the admin with
+          // the (now-misleading) new-IP failure.
+          setSaveError(
+            new Error(
+              `Could not restore the previous reservation (${reservation.ip_address}). ` +
+                "This device no longer has a static reservation and will fall " +
+                "back to a dynamic DHCP lease — re-add it to restore a fixed address.",
+            ),
+          );
+        }
+        return;
+      }
+      setEditing(false);
+      return;
     }
     await createReservation.mutateAsync({
       mac_address: device.mac,
@@ -96,9 +146,13 @@ export function DeviceNetworkCard({ device }: DeviceNetworkCardProps) {
     setEditing(false);
   }
 
-  const busy = createReservation.isPending || deleteReservation.isPending;
-  const error = createReservation.error ?? deleteReservation.error;
-  const isError = createReservation.isError || deleteReservation.isError;
+  const busy =
+    createReservation.isPending ||
+    restoreReservation.isPending ||
+    deleteReservation.isPending;
+  const error = saveError ?? createReservation.error ?? deleteReservation.error;
+  const isError =
+    saveError != null || createReservation.isError || deleteReservation.isError;
 
   return (
     <Card>

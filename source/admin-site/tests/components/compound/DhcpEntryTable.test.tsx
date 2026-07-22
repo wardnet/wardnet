@@ -153,6 +153,23 @@ describe("DhcpEntryTable", () => {
     expect(onRevokeLease).toHaveBeenCalledWith("l-9");
   });
 
+  it("renders no row-actions trigger for a non-active lease", () => {
+    // Expired leases have no available actions; the shared DataTable must not
+    // render a `…` trigger that would open an empty dropdown.
+    renderWithProviders(
+      <DhcpEntryTable
+        {...noop}
+        leases={[makeLease({ id: "l-exp", status: "expired" })]}
+        reservations={[]}
+        devices={[]}
+        activeGroup="leases"
+        searchValue=""
+      />,
+    );
+    expect(screen.getByText("Expired")).toBeInTheDocument();
+    expect(screen.queryByTestId("dhcp-entry-menu")).not.toBeInTheDocument();
+  });
+
   it("filters to reservations only when that group is active", () => {
     renderWithProviders(
       <DhcpEntryTable
