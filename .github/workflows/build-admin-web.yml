@@ -9,6 +9,9 @@ name: Build Admin Web
 # build is validated transitively — but it also carries its own type-check and
 # lint scripts, run here directly so the shared library is gated on its own
 # tsconfig strictness and ESLint rules, not just as consumed by admin-site.
+# The Test step also runs @wardnet/js's Vitest suite: the SDK ships as source
+# to every web app and has no CI job of its own, so its unit tests ride the
+# same sdk/wardnet-js/** trigger that already invalidates this leaf.
 
 on:
   workflow_call:
@@ -50,7 +53,7 @@ jobs:
         run: cd source && yarn turbo run format:check --filter=@wardnet/admin-site --filter=@wardnet/web
 
       - name: Test
-        run: cd source && yarn turbo run test --filter=@wardnet/admin-site --filter=@wardnet/web
+        run: cd source && yarn turbo run test --filter=@wardnet/admin-site --filter=@wardnet/web --filter=@wardnet/js
 
   build:
     name: Build admin-web bundle

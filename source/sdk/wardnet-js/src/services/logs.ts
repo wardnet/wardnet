@@ -1,12 +1,5 @@
 import type { WardnetClient } from "../client.js";
-
-/** Reconnect backoff bounds. The delay starts at BASE and doubles every
- *  consecutive failed attempt, capped at MAX; a successful open resets the
- *  attempt counter. Without this the stream hammered the daemon every 3 s
- *  forever while it was down — a tight loop that floods the console and the
- *  network the moment the daemon is unreachable. */
-const RECONNECT_BASE_MS = 1_000;
-const RECONNECT_MAX_MS = 30_000;
+import { ReconnectingStream } from "./reconnect.js";
 
 /** A single structured log entry from the WebSocket stream. */
 export interface LogEntry {
@@ -36,141 +29,51 @@ export interface LogStreamCallbacks {
  * Log streaming service.
  *
  * Manages a WebSocket connection to the daemon's log stream endpoint
- * with auto-reconnect and per-client filter commands.
+ * with auto-reconnect (exponential backoff + jitter, via
+ * {@link ReconnectingStream}) and per-client filter commands.
  */
 export class LogService {
-  private ws: WebSocket | null = null;
-  private callbacks: LogStreamCallbacks | null = null;
-  private filter: LogFilter = { level: "info" };
-  private paused = false;
-  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Consecutive failed reconnect attempts; drives the backoff delay and is
-   *  reset to 0 on a successful open. */
-  private reconnectAttempts = 0;
-  private readonly origin: string;
+  private readonly stream: ReconnectingStream<LogFilter, LogEntry>;
 
   /**
    * @param client - The Wardnet HTTP client.
    * @param origin - Page origin for relative base URLs (e.g. "http://localhost:7411").
    *                 Only needed when `client.baseUrl` is relative (browser).
    */
-  constructor(
-    private readonly client: WardnetClient,
-    origin = "http://localhost:7411",
-  ) {
-    this.origin = origin;
-  }
-
-  /**
-   * Build the WebSocket URL from the client's base URL.
-   *
-   * For absolute URLs (Node: "http://host:port/api"), converts http→ws.
-   * For relative URLs (browser: "/api"), requires `origin` to be set via
-   * constructor option or defaults to "ws://localhost:7411".
-   */
-  private wsUrl(): string {
-    const base = this.client.baseUrl;
-    if (base.startsWith("http")) {
-      const httpUrl = new URL(base);
-      const protocol = httpUrl.protocol === "https:" ? "wss:" : "ws:";
-      return `${protocol}//${httpUrl.host}${httpUrl.pathname}/system/logs/stream`;
-    }
-    // Relative path — use the origin provided at construction.
-    const origin = this.origin;
-    const protocol = origin.startsWith("https") ? "wss:" : "ws:";
-    const url = new URL(origin);
-    return `${protocol}//${url.host}${base}/system/logs/stream`;
+  constructor(client: WardnetClient, origin = "http://localhost:7411") {
+    this.stream = new ReconnectingStream(client, "/system/logs/stream", { level: "info" }, origin);
   }
 
   /** Start streaming log entries. */
   connect(callbacks: LogStreamCallbacks, initialFilter?: LogFilter): void {
-    this.callbacks = callbacks;
-    if (initialFilter) this.filter = initialFilter;
-    this.paused = false;
-    this.reconnectAttempts = 0;
-    this.doConnect();
-  }
-
-  /** Schedule the next reconnect with exponential backoff + jitter. */
-  private scheduleReconnect(): void {
-    const exp = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** this.reconnectAttempts);
-    this.reconnectAttempts += 1;
-    // ±25% jitter so a fleet of clients doesn't reconnect in lockstep the
-    // instant the daemon comes back.
-    const delay = exp * (0.75 + Math.random() * 0.5);
-    this.reconnectTimer = setTimeout(() => this.doConnect(), delay);
-  }
-
-  private doConnect(): void {
-    if (this.paused || !this.callbacks) return;
-
-    const ws = new WebSocket(this.wsUrl());
-    this.ws = ws;
-
-    ws.onopen = () => {
-      this.reconnectAttempts = 0;
-      this.callbacks?.onConnected();
-      ws.send(JSON.stringify({ type: "set_filter", ...this.filter }));
-    };
-
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "lagged") {
-          this.callbacks?.onLagged(data.skipped ?? 0);
-          return;
-        }
-        this.callbacks?.onEntry(data as LogEntry);
-      } catch {
-        // Ignore unparseable messages.
-      }
-    };
-
-    ws.onclose = () => {
-      this.callbacks?.onDisconnected();
-      this.ws = null;
-      if (!this.paused) {
-        this.scheduleReconnect();
-      }
-    };
-
-    ws.onerror = () => ws.close();
+    this.stream.start(
+      {
+        onItem: callbacks.onEntry,
+        onLagged: callbacks.onLagged,
+        onConnected: callbacks.onConnected,
+        onDisconnected: callbacks.onDisconnected,
+      },
+      initialFilter,
+    );
   }
 
   /** Send a filter change to the server. */
   setFilter(filter: LogFilter): void {
-    this.filter = filter;
-    if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify({ type: "set_filter", ...filter }));
-    }
+    this.stream.setFilter(filter);
   }
 
   /** Pause the stream (closes WebSocket, keeps state). */
   pause(): void {
-    this.paused = true;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.ws?.close();
+    this.stream.pause();
   }
 
   /** Resume the stream (reconnects WebSocket). */
   resume(): void {
-    this.paused = false;
-    this.reconnectAttempts = 0;
-    this.doConnect();
+    this.stream.resume();
   }
 
   /** Disconnect and clean up. */
   disconnect(): void {
-    this.paused = true;
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-    this.ws?.close();
-    this.ws = null;
-    this.callbacks = null;
+    this.stream.disconnect();
   }
 }

@@ -24,15 +24,20 @@
   },
   "scripts": {
     "build": "tsup",
-    "type-check": "tsc --noEmit",
-    "format": "prettier --write src/",
-    "format:check": "prettier --check src/"
+    "type-check": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "format": "prettier --write src/ tests/",
+    "format:check": "prettier --check src/ tests/",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "4.1.9",
     "consola": "^3.4.2",
     "prettier": "3.9.4",
     "tsup": "8.5.1",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "vitest": "4.1.9"
   },
   "peerDependencies": {
     "consola": "^3.4.2"
