@@ -155,7 +155,11 @@ function NewDevicesSection({ onSelect }: { onSelect: (id: string) => void }) {
       </Text>
       <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-card">
         {pending.map((device) => (
-          <div key={device.id} className="flex items-center gap-3 px-4 py-3">
+          <div
+            key={device.id}
+            className="flex items-center gap-3 px-4 py-3"
+            data-testid="new-device"
+          >
             <button
               onClick={() => onSelect(device.id)}
               className="flex min-w-0 flex-1 flex-col text-left"
