@@ -82,14 +82,15 @@ const cases = [
     filterPayload: { type: "set_filter", level: "debug" },
     create: () => {
       const service = new LogService(client, "http://localhost:7411");
+      const callbacks = {
+        onEntry: vi.fn(),
+        onLagged: vi.fn(),
+        onConnected: vi.fn(),
+        onDisconnected: vi.fn(),
+      };
       return {
-        connect: () =>
-          service.connect({
-            onEntry: vi.fn(),
-            onLagged: vi.fn(),
-            onConnected: vi.fn(),
-            onDisconnected: vi.fn(),
-          }),
+        callbacks,
+        connect: () => service.connect(callbacks),
         setFilter: () => service.setFilter({ level: "debug" }),
         pause: () => service.pause(),
         resume: () => service.resume(),
@@ -103,14 +104,15 @@ const cases = [
     filterPayload: { type: "set_filter", domain: "example.com" },
     create: () => {
       const service = new DnsLogStreamService(client, "http://localhost:7411");
+      const callbacks = {
+        onEvent: vi.fn(),
+        onLagged: vi.fn(),
+        onConnected: vi.fn(),
+        onDisconnected: vi.fn(),
+      };
       return {
-        connect: () =>
-          service.connect({
-            onEvent: vi.fn(),
-            onLagged: vi.fn(),
-            onConnected: vi.fn(),
-            onDisconnected: vi.fn(),
-          }),
+        callbacks,
+        connect: () => service.connect(callbacks),
         setFilter: () => service.setFilter({ domain: "example.com" }),
         pause: () => service.pause(),
         resume: () => service.resume(),
@@ -262,5 +264,72 @@ describe.each(cases)("$name reconnect backoff", ({ endpoint, filterPayload, crea
 
     h.disconnect();
     expect(timers.length).toBe(0);
+  });
+
+  it("closes the previous socket when a new connection replaces it", () => {
+    const h = create();
+    h.connect();
+    const first = MockWebSocket.last();
+    first.open();
+
+    // Reconnecting on top of a live socket must not orphan the old one.
+    h.connect();
+    const second = MockWebSocket.last();
+
+    expect(second).not.toBe(first);
+    expect(first.readyState).toBe(3); // CLOSED
+  });
+
+  it("cancels a pending reconnect when connect() is called again", () => {
+    const h = create();
+    h.connect();
+
+    MockWebSocket.last().close();
+    expect(timers.length).toBe(1);
+
+    h.connect();
+    expect(timers.length).toBe(0);
+  });
+
+  it("ignores a stray close delivered after disconnect()", () => {
+    const h = create();
+    h.connect();
+    const ws = MockWebSocket.last();
+
+    h.disconnect();
+    const disconnectedCalls = h.callbacks.onDisconnected.mock.calls.length;
+
+    // A real WebSocket dispatches onclose asynchronously, so it can still
+    // arrive after teardown — it must not resurrect the stream.
+    ws.onclose?.();
+
+    expect(timers.length).toBe(0);
+    expect(h.callbacks.onDisconnected.mock.calls.length).toBe(disconnectedCalls);
+  });
+});
+
+describe("wsUrl resolution for a relative base URL", () => {
+  // The browser consumers construct the services with a relative baseUrl
+  // ("/api") plus window.location.origin, so this is the production path.
+  const relativeClient = { baseUrl: "/api" } as unknown as WardnetClient;
+
+  it("derives a wss:// URL from an https origin (LogService)", () => {
+    new LogService(relativeClient, "https://gateway.example").connect({
+      onEntry: vi.fn(),
+      onLagged: vi.fn(),
+      onConnected: vi.fn(),
+      onDisconnected: vi.fn(),
+    });
+    expect(MockWebSocket.last().url).toBe("wss://gateway.example/api/system/logs/stream");
+  });
+
+  it("derives a wss:// URL from an https origin (DnsLogStreamService)", () => {
+    new DnsLogStreamService(relativeClient, "https://gateway.example").connect({
+      onEvent: vi.fn(),
+      onLagged: vi.fn(),
+      onConnected: vi.fn(),
+      onDisconnected: vi.fn(),
+    });
+    expect(MockWebSocket.last().url).toBe("wss://gateway.example/api/dns/log/stream");
   });
 });

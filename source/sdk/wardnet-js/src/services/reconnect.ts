@@ -98,6 +98,12 @@ export class ReconnectingStream<TFilter extends object, TItem> {
   private doConnect(): void {
     if (this.paused || !this.handlers) return;
 
+    // Replacing any prior connection: detach and close the old socket and
+    // cancel a pending reconnect first, so a repeated connect()/resume() call
+    // can't leave an orphaned WebSocket (or timer) firing in the background.
+    this.teardownSocket();
+    this.clearReconnect();
+
     const ws = new WebSocket(this.wsUrl());
     this.ws = ws;
 
@@ -167,5 +173,18 @@ export class ReconnectingStream<TFilter extends object, TItem> {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+  }
+
+  /** Detach handlers from the current socket and close it, so its `onclose`
+   *  can't fire a stray reconnect or disconnected-callback after we've moved
+   *  on. Used when a fresh connection replaces the existing one. */
+  private teardownSocket(): void {
+    if (!this.ws) return;
+    this.ws.onopen = null;
+    this.ws.onmessage = null;
+    this.ws.onclose = null;
+    this.ws.onerror = null;
+    this.ws.close();
+    this.ws = null;
   }
 }

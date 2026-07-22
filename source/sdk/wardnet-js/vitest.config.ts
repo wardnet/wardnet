@@ -14,8 +14,15 @@ export default defineConfig({
       provider: "v8",
       reporter: ["text", "lcov", "json-summary"],
       reportsDirectory: "./coverage",
-      include: ["src/**/*.ts"],
-      exclude: ["src/index.ts", "src/consola.ts", "src/**/*.d.ts", "src/types/**"],
+      // Scope coverage to the files this suite actually exercises. Reporting
+      // over the whole SDK (most of which has no tests yet) would bury the
+      // covered code under a misleadingly low percentage. Extend this list as
+      // more of the SDK gains tests.
+      include: [
+        "src/services/reconnect.ts",
+        "src/services/logs.ts",
+        "src/services/dnsLogStream.ts",
+      ],
     },
   },
 });

@@ -24,7 +24,7 @@
   },
   "scripts": {
     "build": "tsup",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc --noEmit && tsc -p tsconfig.test.json",
     "format": "prettier --write src/ tests/",
     "format:check": "prettier --check src/ tests/",
     "test": "vitest run",

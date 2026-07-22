@@ -1,0 +1,18 @@
+{
+  // Type-check the Vitest suite and this config alongside src/. The base
+  // tsconfig only covers src/ (rootDir: "src", declaration emit) because that
+  // is what tsup publishes; tests live outside that rootDir, so they get their
+  // own no-emit pass to keep them under the same strictness as the library.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    // Tests use ES2022 array helpers (e.g. Array.prototype.at) and run under
+    // Node/Vitest, so widen the lib here without touching the library's own
+    // ES2020 target that governs the published bundle.
+    "lib": ["ES2022"]
+  },
+  "include": ["src", "tests", "vitest.config.ts"]
+}
