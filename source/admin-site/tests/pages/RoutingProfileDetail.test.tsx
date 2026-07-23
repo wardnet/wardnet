@@ -74,7 +74,7 @@ const rule = {
 };
 
 function setup(
-  rules = [rule],
+  rules: unknown[] = [rule],
   deviceIds: string[] = [],
   tunnels: unknown[] = [],
 ) {
