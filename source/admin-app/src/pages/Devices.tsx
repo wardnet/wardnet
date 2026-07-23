@@ -4,6 +4,8 @@ import {
   useTunnels,
   useDefaultPolicy,
   usePendingDevices,
+  useUpdateDevice,
+  useNetworkZones,
   useAssignDeviceZone,
   useInboundWgPeers,
   countryFlag,
@@ -18,7 +20,12 @@ import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { DeviceRoutingSheet } from "@/components/DeviceRoutingSheet";
 import { InboundWgPeerSheet } from "@/components/InboundWgPeerSheet";
 import { ChevronRightIcon } from "lucide-react";
-import type { Device, InboundWgPeerSummary, Tunnel } from "@wardnet/js";
+import type {
+  Device,
+  InboundWgPeerSummary,
+  RoutingTarget,
+  Tunnel,
+} from "@wardnet/js";
 
 type Filter = "all" | "online" | "vpn";
 
@@ -201,6 +208,9 @@ export default function Devices() {
   const { data: tunnelsData } = useTunnels();
   const { data: policyData, isLoading: policyLoading } = useDefaultPolicy();
   const { data: peersData } = useInboundWgPeers();
+  const { data: zoneData } = useNetworkZones();
+  const updateDevice = useUpdateDevice({ successMessage: "Routing updated" });
+  const assignZone = useAssignDeviceZone({ successMessage: "Zone updated" });
   const isLoading = devicesLoading || policyLoading;
 
   const { showingLastKnownState } = useOnlineStatusContext();
@@ -217,6 +227,8 @@ export default function Devices() {
   const tunnels = tunnelsData?.tunnels ?? [];
   const defaultPolicy = policyData?.policy;
   const peers = peersData?.peers ?? [];
+  const zones = zoneData?.zones ?? [];
+  const routingBusy = updateDevice.isPending || assignZone.isPending;
 
   const peersByDevice = useMemo(() => {
     const map = new Map<string, InboundWgPeerSummary>();
@@ -269,6 +281,25 @@ export default function Devices() {
     setSelectedDeviceId(id);
     setSheetOpen(true);
   }, []);
+
+  // Routing/zone mutations for the open sheet. Hoisted here (not owned by the
+  // sheet) so the sheet stays a presentation component; the page closes the
+  // sheet once the change lands.
+  function handleSelectRoute(target: RoutingTarget) {
+    if (!selectedDevice) return;
+    updateDevice.mutate(
+      { id: selectedDevice.id, body: { routing_target: target } },
+      { onSuccess: () => setSheetOpen(false) },
+    );
+  }
+
+  function handleSelectZone(zoneId: string) {
+    if (!selectedDevice) return;
+    assignZone.mutate(
+      { deviceId: selectedDevice.id, zoneId },
+      { onSuccess: () => setSheetOpen(false) },
+    );
+  }
 
   if (isLoading) {
     return (
@@ -371,8 +402,12 @@ export default function Devices() {
       <DeviceRoutingSheet
         device={selectedDevice}
         tunnels={tunnels}
+        zones={zones}
+        busy={routingBusy}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
+        onSelectRoute={handleSelectRoute}
+        onSelectZone={handleSelectZone}
       />
 
       <InboundWgPeerSheet

@@ -8,9 +8,6 @@ import {
   InboundWgBetaNotice,
 } from "@wardnet/web";
 import {
-  useUpdateDevice,
-  useNetworkZones,
-  useAssignDeviceZone,
   useInboundWgPeers,
   useAddInboundWgPeer,
   countryFlag,
@@ -18,6 +15,7 @@ import {
 import type {
   AddInboundWgPeerResponse,
   Device,
+  NetworkZoneView,
   Tunnel,
   RoutingTarget,
 } from "@wardnet/js";
@@ -27,8 +25,16 @@ import { InboundWgGrantedView } from "./InboundWgGrantedView";
 interface Props {
   device: Device | null;
   tunnels: Tunnel[];
+  /** Network zones the device can be reassigned to (owned by the page). */
+  zones: NetworkZoneView[];
+  /** True while a routing or zone change is in flight; disables the rows. */
+  busy: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Apply a routing override to the selected device. */
+  onSelectRoute: (target: RoutingTarget) => void;
+  /** Reassign the selected device to a different zone. */
+  onSelectZone: (zoneId: string) => void;
 }
 
 function activeKey(rule: RoutingTarget | null): string {
@@ -110,15 +116,15 @@ function OptionRow({
 export function DeviceRoutingSheet({
   device,
   tunnels,
+  zones,
+  busy,
   open,
   onOpenChange,
+  onSelectRoute,
+  onSelectZone,
 }: Props) {
-  const updateDevice = useUpdateDevice({ successMessage: "Routing updated" });
-  const { data: zoneData } = useNetworkZones();
-  const assignZone = useAssignDeviceZone({ successMessage: "Zone updated" });
   const { data: peersData } = useInboundWgPeers();
   const addPeer = useAddInboundWgPeer();
-  const zones = zoneData?.zones ?? [];
 
   // The one-time grant response. When set, the sheet swaps to the QR view so
   // the private key (embedded in `client_config`) can be scanned once.
@@ -133,7 +139,6 @@ export function DeviceRoutingSheet({
   const current = activeKey(activeDevice?.current_rule ?? null);
   const deviceLabel =
     activeDevice?.name ?? activeDevice?.hostname ?? activeDevice?.mac ?? "";
-  const busy = updateDevice.isPending || assignZone.isPending;
 
   // Grantable = managed (admin-named; the backend rejects unmanaged devices)
   // AND has no peer row yet. `connection_mode` is monitor-driven liveness, not
@@ -151,19 +156,12 @@ export function DeviceRoutingSheet({
 
   function handleSelect(target: RoutingTarget) {
     if (!activeDevice) return;
-    const id = activeDevice.id;
-    updateDevice.mutate(
-      { id, body: { routing_target: target } },
-      { onSuccess: () => onOpenChange(false) },
-    );
+    onSelectRoute(target);
   }
 
   function handleZoneSelect(zoneId: string) {
     if (!activeDevice || zoneId === activeDevice.zone_id) return;
-    assignZone.mutate(
-      { deviceId: activeDevice.id, zoneId },
-      { onSuccess: () => onOpenChange(false) },
-    );
+    onSelectZone(zoneId);
   }
 
   async function handleGrant() {

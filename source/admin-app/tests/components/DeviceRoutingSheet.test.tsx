@@ -1,76 +1,45 @@
+import type { ComponentProps } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const {
-  mutate,
-  useUpdateDevice,
-  assignZone,
-  useNetworkZones,
-  useAssignDeviceZone,
-  useInboundWgPeers,
-  addPeerMutateAsync,
-  useAddInboundWgPeer,
-} = vi.hoisted(() => {
-  const mutate = vi.fn();
-  const assignZone = vi.fn();
-  const addPeerMutateAsync = vi.fn();
-  return {
-    mutate,
-    useUpdateDevice: vi.fn(() => ({ mutate, isPending: false })),
-    assignZone,
-    // The sheet reads the peer list (to decide if a device is already granted)
-    // and an add-peer mutation for the grant action. Default to no peers so
-    // every managed device is grantable; specs override as needed. The return
-    // type is annotated so the empty default isn't inferred as `never[]`, which
-    // would reject the populated-peer override in the "already granted" spec.
-    useInboundWgPeers: vi.fn(
-      (): {
-        data: {
-          peers: Array<{
-            id: string;
-            name: string;
-            public_key: string;
-            allowed_ip: string;
-            enabled: boolean;
-            created_at: string;
-            device_id: string | null;
-          }>;
-        };
-      } => ({ data: { peers: [] } }),
-    ),
-    addPeerMutateAsync,
-    useAddInboundWgPeer: vi.fn(() => ({
-      mutateAsync: addPeerMutateAsync,
-      isPending: false,
-    })),
-    // The sheet reads zones + an assign mutation for its zone-reassignment
-    // section; keep the list empty so these specs stay focused on routing.
-    // `zones` is typed loosely — the hook is mocked, so the component's real
-    // NetworkZoneView type is irrelevant here; only the fields the sheet
-    // reads (id/name/is_default) matter.
-    useNetworkZones: vi.fn(
-      (): {
-        data: {
-          zones: Array<{ id: string; name: string; is_default: boolean }>;
-        };
-      } => ({
-        data: { zones: [] },
-      }),
-    ),
-    useAssignDeviceZone: vi.fn(() => ({
-      mutate: assignZone,
-      isPending: false,
-    })),
-  };
-});
+import type { Device, NetworkZoneView, Tunnel } from "@wardnet/js";
+
+const { useInboundWgPeers, addPeerMutateAsync, useAddInboundWgPeer } =
+  vi.hoisted(() => {
+    const addPeerMutateAsync = vi.fn();
+    return {
+      // The sheet reads the peer list (to decide if a device is already granted)
+      // and an add-peer mutation for the grant action. Default to no peers so
+      // every managed device is grantable; specs override as needed. The return
+      // type is annotated so the empty default isn't inferred as `never[]`, which
+      // would reject the populated-peer override in the "already granted" spec.
+      useInboundWgPeers: vi.fn(
+        (): {
+          data: {
+            peers: Array<{
+              id: string;
+              name: string;
+              public_key: string;
+              allowed_ip: string;
+              enabled: boolean;
+              created_at: string;
+              device_id: string | null;
+            }>;
+          };
+        } => ({ data: { peers: [] } }),
+      ),
+      addPeerMutateAsync,
+      useAddInboundWgPeer: vi.fn(() => ({
+        mutateAsync: addPeerMutateAsync,
+        isPending: false,
+      })),
+    };
+  });
 vi.mock("@wardnet/web", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,
-    useUpdateDevice,
-    useNetworkZones,
-    useAssignDeviceZone,
     useInboundWgPeers,
     useAddInboundWgPeer,
   };
@@ -79,16 +48,45 @@ vi.mock("@wardnet/web", async (importOriginal) => {
 import { DeviceRoutingSheet } from "@/components/DeviceRoutingSheet";
 import { makeDevice, makeTunnel } from "../test-utils";
 
+// A full zone fixture; the sheet only reads id/name/is_default, but the prop is
+// typed so the rest is filled with harmless defaults.
+function zone(id: string, name: string, isDefault = false): NetworkZoneView {
+  return {
+    id,
+    name,
+    provenance: "manual",
+    isolation_stance: "shared_subnet",
+    allowed_targets: ["direct", "tunnel"],
+    member_isolation: false,
+    subnet: null,
+    admin_ui_reachable: true,
+    is_default: isDefault,
+    is_default_for_new: false,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+    member_count: 0,
+  };
+}
+
+function renderSheet(
+  props: Partial<ComponentProps<typeof DeviceRoutingSheet>> = {},
+) {
+  const defaults = {
+    device: makeDevice() as Device | null,
+    tunnels: [] as Tunnel[],
+    zones: [] as NetworkZoneView[],
+    busy: false,
+    open: true,
+    onOpenChange: vi.fn(),
+    onSelectRoute: vi.fn(),
+    onSelectZone: vi.fn(),
+  };
+  const merged = { ...defaults, ...props };
+  return { ...render(<DeviceRoutingSheet {...merged} />), props: merged };
+}
+
 describe("DeviceRoutingSheet", () => {
   beforeEach(() => {
-    mutate.mockReset();
-    assignZone.mockReset();
-    useUpdateDevice.mockReturnValue({ mutate, isPending: false });
-    useNetworkZones.mockReturnValue({ data: { zones: [] } });
-    useAssignDeviceZone.mockReturnValue({
-      mutate: assignZone,
-      isPending: false,
-    });
     addPeerMutateAsync.mockReset();
     useInboundWgPeers.mockReturnValue({ data: { peers: [] } });
     useAddInboundWgPeer.mockReturnValue({
@@ -98,14 +96,10 @@ describe("DeviceRoutingSheet", () => {
   });
 
   it("renders default/direct options plus each tunnel", () => {
-    render(
-      <DeviceRoutingSheet
-        device={makeDevice({ name: "Laptop" })}
-        tunnels={[makeTunnel({ id: "t1", label: "US East", status: "down" })]}
-        open
-        onOpenChange={vi.fn()}
-      />,
-    );
+    renderSheet({
+      device: makeDevice({ name: "Laptop" }),
+      tunnels: [makeTunnel({ id: "t1", label: "US East", status: "down" })],
+    });
     expect(screen.getByTestId("device-routing-default")).toBeInTheDocument();
     expect(screen.getByTestId("device-routing-direct")).toBeInTheDocument();
     expect(screen.getByText(/US East/)).toBeInTheDocument();
@@ -114,107 +108,77 @@ describe("DeviceRoutingSheet", () => {
     expect(screen.getByText(/Route: Laptop/)).toBeInTheDocument();
   });
 
-  it("mutates with a direct target and closes on success", async () => {
-    const onOpenChange = vi.fn();
-    mutate.mockImplementation((_vars, opts) => opts?.onSuccess?.());
-    render(
-      <DeviceRoutingSheet
-        device={makeDevice({ id: "dev-9" })}
-        tunnels={[]}
-        open
-        onOpenChange={onOpenChange}
-      />,
-    );
+  it("fires onSelectRoute with a direct target", async () => {
+    const onSelectRoute = vi.fn();
+    renderSheet({ device: makeDevice({ id: "dev-9" }), onSelectRoute });
     await userEvent.click(screen.getByTestId("device-routing-direct"));
-    expect(mutate).toHaveBeenCalledWith(
-      { id: "dev-9", body: { routing_target: { type: "direct" } } },
-      expect.any(Object),
-    );
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onSelectRoute).toHaveBeenCalledWith({ type: "direct" });
   });
 
-  it("mutates with a tunnel target when a tunnel row is chosen", async () => {
-    render(
-      <DeviceRoutingSheet
-        device={makeDevice({ id: "dev-2" })}
-        tunnels={[makeTunnel({ id: "t7", label: "JP", status: "up" })]}
-        open
-        onOpenChange={vi.fn()}
-      />,
-    );
+  it("fires onSelectRoute with a tunnel target when a tunnel row is chosen", async () => {
+    const onSelectRoute = vi.fn();
+    renderSheet({
+      device: makeDevice({ id: "dev-2" }),
+      tunnels: [makeTunnel({ id: "t7", label: "JP", status: "up" })],
+      onSelectRoute,
+    });
     await userEvent.click(screen.getByText(/JP/));
-    expect(mutate).toHaveBeenCalledWith(
-      {
-        id: "dev-2",
-        body: { routing_target: { type: "tunnel", tunnel_id: "t7" } },
-      },
-      expect.any(Object),
-    );
+    expect(onSelectRoute).toHaveBeenCalledWith({
+      type: "tunnel",
+      tunnel_id: "t7",
+    });
+  });
+
+  it("disables the routing rows while a change is in flight", async () => {
+    const onSelectRoute = vi.fn();
+    renderSheet({
+      device: makeDevice({ id: "dev-1" }),
+      busy: true,
+      onSelectRoute,
+    });
+    await userEvent.click(screen.getByTestId("device-routing-direct"));
+    expect(onSelectRoute).not.toHaveBeenCalled();
   });
 
   it("falls back to the latched device label after device is cleared", () => {
-    const { rerender } = render(
-      <DeviceRoutingSheet
-        device={makeDevice({ name: "Phone" })}
-        tunnels={[]}
-        open
-        onOpenChange={vi.fn()}
-      />,
-    );
+    const { rerender } = renderSheet({ device: makeDevice({ name: "Phone" }) });
     expect(screen.getByText(/Route: Phone/)).toBeInTheDocument();
     // Parent clears the selection while animating closed — label stays latched.
     rerender(
       <DeviceRoutingSheet
         device={null}
         tunnels={[]}
+        zones={[]}
+        busy={false}
         open
         onOpenChange={vi.fn()}
+        onSelectRoute={vi.fn()}
+        onSelectZone={vi.fn()}
       />,
     );
     expect(screen.getByText(/Route: Phone/)).toBeInTheDocument();
   });
 
-  it("reassigns the device's zone when a zone row is chosen", async () => {
-    const onOpenChange = vi.fn();
-    assignZone.mockImplementation((_vars, opts) => opts?.onSuccess?.());
-    useNetworkZones.mockReturnValue({
-      data: {
-        zones: [
-          { id: "zone-1", name: "Trusted", is_default: true },
-          { id: "zone-2", name: "Guest", is_default: false },
-        ],
-      },
+  it("fires onSelectZone when a different zone row is chosen", async () => {
+    const onSelectZone = vi.fn();
+    renderSheet({
+      device: makeDevice({ id: "dev-5", zone_id: "zone-1" }),
+      zones: [zone("zone-1", "Trusted", true), zone("zone-2", "Guest")],
+      onSelectZone,
     });
-    render(
-      <DeviceRoutingSheet
-        device={makeDevice({ id: "dev-5", zone_id: "zone-1" })}
-        tunnels={[]}
-        open
-        onOpenChange={onOpenChange}
-      />,
-    );
     await userEvent.click(screen.getByText("Guest"));
-    expect(assignZone).toHaveBeenCalledWith(
-      { deviceId: "dev-5", zoneId: "zone-2" },
-      expect.any(Object),
-    );
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(onSelectZone).toHaveBeenCalledWith("zone-2");
   });
 
-  it("does not reassign when the current zone is re-selected", async () => {
-    useNetworkZones.mockReturnValue({
-      data: { zones: [{ id: "zone-1", name: "Trusted", is_default: true }] },
+  it("does not fire onSelectZone when the current zone is re-selected", async () => {
+    const onSelectZone = vi.fn();
+    renderSheet({
+      device: makeDevice({ id: "dev-6", zone_id: "zone-1" }),
+      zones: [zone("zone-1", "Trusted", true)],
+      onSelectZone,
     });
-    render(
-      <DeviceRoutingSheet
-        device={makeDevice({ id: "dev-6", zone_id: "zone-1" })}
-        tunnels={[]}
-        open
-        onOpenChange={vi.fn()}
-      />,
-    );
     await userEvent.click(screen.getByText("Trusted"));
-    expect(assignZone).not.toHaveBeenCalled();
+    expect(onSelectZone).not.toHaveBeenCalled();
   });
 
   it("grants remote access for the tapped device and shows the config", async () => {
@@ -225,14 +189,7 @@ describe("DeviceRoutingSheet", () => {
       allowed_ip: "10.100.64.2/32",
       client_config: "[Interface]\nPrivateKey = k\n",
     });
-    render(
-      <DeviceRoutingSheet
-        device={makeDevice({ id: "dev-7", name: "Laptop" })}
-        tunnels={[]}
-        open
-        onOpenChange={vi.fn()}
-      />,
-    );
+    renderSheet({ device: makeDevice({ id: "dev-7", name: "Laptop" }) });
     await userEvent.click(screen.getByTestId("device-grant-remote-access"));
     expect(addPeerMutateAsync).toHaveBeenCalledWith({ device_id: "dev-7" });
     // On success the sheet swaps to the one-time QR / config view.
@@ -257,28 +214,14 @@ describe("DeviceRoutingSheet", () => {
         ],
       },
     });
-    render(
-      <DeviceRoutingSheet
-        device={makeDevice({ id: "dev-8", name: "Laptop" })}
-        tunnels={[]}
-        open
-        onOpenChange={vi.fn()}
-      />,
-    );
+    renderSheet({ device: makeDevice({ id: "dev-8", name: "Laptop" }) });
     expect(
       screen.queryByTestId("device-grant-remote-access"),
     ).not.toBeInTheDocument();
   });
 
   it("hides the grant action for an unmanaged (unnamed) device", () => {
-    render(
-      <DeviceRoutingSheet
-        device={makeDevice({ id: "dev-9", name: null })}
-        tunnels={[]}
-        open
-        onOpenChange={vi.fn()}
-      />,
-    );
+    renderSheet({ device: makeDevice({ id: "dev-9", name: null }) });
     expect(
       screen.queryByTestId("device-grant-remote-access"),
     ).not.toBeInTheDocument();
