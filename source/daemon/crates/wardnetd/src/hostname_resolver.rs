@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use async_trait::async_trait;
 
@@ -63,10 +63,18 @@ fn dns_lookup_reverse(addr: SocketAddr) -> Option<String> {
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_getent_hosts(&stdout, ip)
+}
+
+/// Parse `getent hosts <ip>` output into a hostname, or `None` when the line
+/// carries no usable name. Split out from the `getent` call so the parsing and
+/// the "hostname is just the IP repeated" guard are unit-testable without
+/// shelling out (whose output is environment-dependent and unreliable in CI).
+pub(crate) fn parse_getent_hosts(stdout: &str, ip: IpAddr) -> Option<String> {
     // getent hosts output: "<ip>  <hostname> [aliases...]"
     let hostname = stdout.split_whitespace().nth(1)?;
 
-    // Skip if the "hostname" is just the IP address repeated
+    // Skip if the "hostname" is just the IP address repeated.
     if hostname == ip.to_string() {
         return None;
     }

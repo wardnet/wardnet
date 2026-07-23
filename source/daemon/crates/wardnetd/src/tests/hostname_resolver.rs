@@ -1,19 +1,59 @@
-use crate::hostname_resolver::SystemHostnameResolver;
+use std::net::{IpAddr, Ipv4Addr};
+
+use crate::hostname_resolver::{SystemHostnameResolver, parse_getent_hosts};
 use wardnetd_services::device::hostname_resolver::HostnameResolver;
 
 #[tokio::test]
-async fn resolve_loopback_returns_localhost() {
+async fn resolve_loopback_does_not_panic() {
     let resolver = SystemHostnameResolver;
 
-    // Loopback address (127.0.0.1) is commonly mapped to "localhost" in /etc/hosts.
-    // This test is environment-dependent but works on most development machines.
-    let result = resolver.resolve("127.0.0.1").await;
+    // Reverse resolution of the loopback address depends on `/etc/hosts` and the
+    // system resolver, which vary across CI runners — so the *value* is not
+    // deterministic and is covered by `parse_getent_hosts` unit tests below.
+    // This case pins down that a live resolve returns without panicking and never
+    // yields `Some("")`. The check runs on both arms (unlike a bare `if let
+    // Some`), so a `None` result does not silently skip the assertion.
+    let non_empty = match resolver.resolve("127.0.0.1").await {
+        Some(hostname) => !hostname.is_empty(),
+        None => true,
+    };
+    assert!(non_empty, "resolve must never yield Some(\"\")");
+}
 
-    // On most systems this resolves to "localhost", but on some CI environments
-    // it may return None. We just verify it does not panic and returns a valid result.
-    if let Some(hostname) = &result {
-        assert!(!hostname.is_empty());
-    }
+// ── parse_getent_hosts: deterministic coverage of the parsing + guard ──────
+
+const LOOPBACK: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
+
+#[test]
+fn parse_getent_extracts_hostname() {
+    // getent hosts output is "<ip>\t<hostname> [aliases...]".
+    assert_eq!(
+        parse_getent_hosts("127.0.0.1\tlocalhost\n", LOOPBACK),
+        Some("localhost".to_owned())
+    );
+}
+
+#[test]
+fn parse_getent_takes_first_name_and_strips_trailing_dot() {
+    // Only the first name is kept; a FQDN's trailing dot is trimmed. A regression
+    // in the `nth(1)`/`trim_end_matches` logic would change this result.
+    assert_eq!(
+        parse_getent_hosts("192.168.1.10\thost.local. alias1 alias2\n", LOOPBACK),
+        Some("host.local".to_owned())
+    );
+}
+
+#[test]
+fn parse_getent_rejects_ip_only_line() {
+    // When getent echoes just the IP (no name), the guard must return None
+    // rather than surface the IP as a bogus hostname.
+    assert_eq!(parse_getent_hosts("127.0.0.1\n", LOOPBACK), None);
+    assert_eq!(parse_getent_hosts("127.0.0.1 127.0.0.1\n", LOOPBACK), None);
+}
+
+#[test]
+fn parse_getent_rejects_empty_output() {
+    assert_eq!(parse_getent_hosts("", LOOPBACK), None);
 }
 
 #[tokio::test]

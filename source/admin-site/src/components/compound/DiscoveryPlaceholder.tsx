@@ -128,7 +128,9 @@ export function DiscoveryPlaceholder({
         </div>
         <Text as="p" size="sm" weight="medium" className="text-ink-3">
           {message}
-          <span className="inline-block w-4">{dots}</span>
+          <span className="inline-block w-4" data-testid="discovery-dots">
+            {dots}
+          </span>
         </Text>
         <Text as="p" size="xs" className="text-ink-3/60">
           {hint}
