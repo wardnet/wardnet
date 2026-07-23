@@ -7,6 +7,7 @@ mod health_runner;
 mod heartbeat;
 mod hostname_resolver;
 mod inbound_wg_interface_wireguard;
+mod linux_watchdog;
 mod mdns_advertiser;
 mod metrics_collector;
 mod packet_capture;

@@ -64,7 +64,7 @@ pub struct LinuxWatchdog {
 /// react. Kept separate from the logging so it can be unit-tested against
 /// synthetic `io::Error`s.
 #[derive(Debug, PartialEq, Eq)]
-enum OpenFailure {
+pub(crate) enum OpenFailure {
     /// `ENOENT` — no device (VM/container, or the driver isn't loaded).
     Absent,
     /// `EBUSY` — another supervisor already owns the single-opener device;
@@ -79,7 +79,7 @@ enum OpenFailure {
 /// Classify an open failure. Matches `ResourceBusy` by kind but also falls back
 /// to the raw `EBUSY` (16) so a std build that doesn't map the errno to that
 /// kind still classifies it as "owned elsewhere" rather than a hard fault.
-fn classify_open_error(e: &std::io::Error) -> OpenFailure {
+pub(crate) fn classify_open_error(e: &std::io::Error) -> OpenFailure {
     use std::io::ErrorKind;
     if e.kind() == ErrorKind::NotFound {
         OpenFailure::Absent
@@ -253,53 +253,5 @@ impl WatchdogOps for LinuxWatchdog {
 
     fn is_available(&self) -> bool {
         self.available.load(Ordering::SeqCst)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::{Error, ErrorKind};
-    use std::path::PathBuf;
-
-    use wardnetd_services::system::WatchdogOps;
-
-    use super::{LinuxWatchdog, OpenFailure, classify_open_error};
-
-    #[test]
-    fn classify_maps_each_open_failure() {
-        assert_eq!(
-            classify_open_error(&Error::from(ErrorKind::NotFound)),
-            OpenFailure::Absent
-        );
-        assert_eq!(
-            classify_open_error(&Error::from(ErrorKind::ResourceBusy)),
-            OpenFailure::BusyElsewhere
-        );
-        // Raw EBUSY (16) even if it isn't surfaced as ResourceBusy.
-        assert_eq!(
-            classify_open_error(&Error::from_raw_os_error(16)),
-            OpenFailure::BusyElsewhere
-        );
-        assert_eq!(
-            classify_open_error(&Error::from(ErrorKind::PermissionDenied)),
-            OpenFailure::PermissionDenied
-        );
-        assert_eq!(
-            classify_open_error(&Error::from(ErrorKind::Other)),
-            OpenFailure::Other
-        );
-    }
-
-    #[test]
-    fn open_absent_device_is_unavailable_not_a_panic() {
-        // ENOENT path → the "no device present" arm → an unavailable, no-op
-        // instance the daemon can still run with.
-        let wd = LinuxWatchdog::open(PathBuf::from("/definitely/not/a/watchdog/xyz"), 15);
-        assert!(!wd.is_available());
-    }
-
-    #[test]
-    fn disabled_instance_is_unavailable() {
-        assert!(!LinuxWatchdog::disabled().is_available());
     }
 }
