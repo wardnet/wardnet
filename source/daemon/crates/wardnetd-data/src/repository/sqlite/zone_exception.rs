@@ -82,8 +82,14 @@ fn service_spec(preset: Option<&str>, ports_json: Option<&str>) -> anyhow::Resul
     }
 }
 
-const SELECT_COLS: &str = "id, from_kind, from_id, to_kind, to_id, service_preset, ports_json, \
-    bidirectional, created_at, updated_at";
+// Static SQL strings — the column list is inlined into each fixed SELECT so no
+// runtime format!() allocation is needed.
+const FIND_ALL_SQL: &str = "SELECT id, from_kind, from_id, to_kind, to_id, service_preset, ports_json, \
+     bidirectional, created_at, updated_at \
+     FROM zone_exceptions ORDER BY created_at";
+const FIND_BY_ID_SQL: &str = "SELECT id, from_kind, from_id, to_kind, to_id, service_preset, ports_json, \
+     bidirectional, created_at, updated_at \
+     FROM zone_exceptions WHERE id = ?";
 
 /// Serialize a scalar enum to its `snake_case` wire string (strip the JSON quotes).
 fn enum_str<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {
@@ -101,16 +107,14 @@ fn service_columns(service: &ServiceSpec) -> anyhow::Result<(Option<String>, Opt
 #[async_trait]
 impl ZoneExceptionRepository for SqliteZoneExceptionRepository {
     async fn find_all(&self) -> anyhow::Result<Vec<ZoneException>> {
-        let query = format!("SELECT {SELECT_COLS} FROM zone_exceptions ORDER BY created_at");
-        let rows = sqlx::query_as::<_, ExceptionRow>(sqlx::AssertSqlSafe(query))
+        let rows = sqlx::query_as::<_, ExceptionRow>(FIND_ALL_SQL)
             .fetch_all(&self.pools.read)
             .await?;
         rows.into_iter().map(ExceptionRow::into_exception).collect()
     }
 
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<ZoneException>> {
-        let query = format!("SELECT {SELECT_COLS} FROM zone_exceptions WHERE id = ?");
-        let row = sqlx::query_as::<_, ExceptionRow>(sqlx::AssertSqlSafe(query))
+        let row = sqlx::query_as::<_, ExceptionRow>(FIND_BY_ID_SQL)
             .bind(id)
             .fetch_optional(&self.pools.read)
             .await?;

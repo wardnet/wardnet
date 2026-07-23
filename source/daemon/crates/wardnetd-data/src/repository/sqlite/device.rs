@@ -89,7 +89,19 @@ struct RuleRow {
     created_by: String,
 }
 
-const SELECT_COLS: &str = "id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode";
+// Static SQL strings — every column list is inlined so no runtime format!()
+// allocation is needed for these fixed SELECTs. The genuinely dynamic queries
+// further down (JOIN/LIKE against routing_rules) keep their own literals.
+const FIND_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+     FROM devices WHERE last_ip = ? ORDER BY last_seen DESC LIMIT 1";
+const FIND_BY_ID_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+     FROM devices WHERE id = ?";
+const FIND_BY_MAC_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+     FROM devices WHERE mac = ?";
+const FIND_ALL_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+     FROM devices ORDER BY last_seen DESC";
+const FIND_STALE_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+     FROM devices WHERE last_seen < ?";
 
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
@@ -109,10 +121,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         // recently seen (live) device rather than an arbitrary rowid-ordered
         // (stale) one — the IP-keyed self-service auth path relies on this to
         // identify the caller's own device.
-        let query = format!(
-            "SELECT {SELECT_COLS} FROM devices WHERE last_ip = ? ORDER BY last_seen DESC LIMIT 1"
-        );
-        let row = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
+        let row = sqlx::query_as::<_, DeviceRow>(FIND_BY_IP_SQL)
             .bind(ip)
             .fetch_optional(&self.pools.read)
             .await?;
@@ -120,8 +129,7 @@ impl DeviceRepository for SqliteDeviceRepository {
     }
 
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Device>> {
-        let query = format!("SELECT {SELECT_COLS} FROM devices WHERE id = ?");
-        let row = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
+        let row = sqlx::query_as::<_, DeviceRow>(FIND_BY_ID_SQL)
             .bind(id)
             .fetch_optional(&self.pools.read)
             .await?;
@@ -133,8 +141,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         // (issue #312). Inputs from older callers or external probes may
         // arrive uppercase — normalise here so the WHERE-clause hits the
         // canonical row regardless.
-        let query = format!("SELECT {SELECT_COLS} FROM devices WHERE mac = ?");
-        let row = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
+        let row = sqlx::query_as::<_, DeviceRow>(FIND_BY_MAC_SQL)
             .bind(mac.to_lowercase())
             .fetch_optional(&self.pools.read)
             .await?;
@@ -142,8 +149,7 @@ impl DeviceRepository for SqliteDeviceRepository {
     }
 
     async fn find_all(&self) -> anyhow::Result<Vec<Device>> {
-        let query = format!("SELECT {SELECT_COLS} FROM devices ORDER BY last_seen DESC");
-        let rows = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
+        let rows = sqlx::query_as::<_, DeviceRow>(FIND_ALL_SQL)
             .fetch_all(&self.pools.read)
             .await?;
         rows.into_iter().map(DeviceRow::into_device).collect()
@@ -252,8 +258,7 @@ impl DeviceRepository for SqliteDeviceRepository {
     }
 
     async fn find_stale(&self, before: &str) -> anyhow::Result<Vec<Device>> {
-        let query = format!("SELECT {SELECT_COLS} FROM devices WHERE last_seen < ?");
-        let rows = sqlx::query_as::<_, DeviceRow>(sqlx::AssertSqlSafe(query))
+        let rows = sqlx::query_as::<_, DeviceRow>(FIND_STALE_SQL)
             .bind(before)
             .fetch_all(&self.pools.read)
             .await?;
