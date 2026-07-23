@@ -95,6 +95,21 @@ pub struct ZoneSummary {
     pub is_default: bool,
 }
 
+/// Minimal routing-profile info exposed to a self-service caller for the
+/// read-only "profiles applied to your device" display in the user PWA.
+///
+/// Like [`ZoneSummary`], the caller is device-keyed and cannot call the
+/// admin-gated `GET /api/routing/profiles`; `GET /api/devices/me` resolves the
+/// caller's assigned profiles (via an internal admin context) and hands back
+/// just id + name — enough to show "Netflix → UK is routing some of your
+/// traffic" without exposing the rules or letting the user edit them.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RoutingProfileSummary {
+    pub id: String,
+    /// Human-readable profile name (e.g. "Streaming (UK)").
+    pub name: String,
+}
+
 /// Response for GET /api/devices/me.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct DeviceMeResponse {
@@ -107,6 +122,11 @@ pub struct DeviceMeResponse {
     /// read-only zone display. `None` if the device or its zone can't be
     /// resolved.
     pub zone: Option<ZoneSummary>,
+    /// Routing profiles assigned to the caller device, in priority order.
+    /// Read-only — a device-keyed caller cannot manage profiles. Empty when
+    /// none are assigned.
+    #[serde(default)]
+    pub routing_profiles: Vec<RoutingProfileSummary>,
 }
 
 /// Request body for PUT /api/devices/me/rule.

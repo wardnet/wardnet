@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { Link, useParams } from "react-router";
+import { useMemo, useState } from "react";
+import { Link, useNavigate, useParams } from "react-router";
+import type { ColumnDef } from "@tanstack/react-table";
 import { Button } from "@wardnet/web";
 import {
   Card,
@@ -15,8 +16,13 @@ import { Text } from "@wardnet/web";
 import { ApiErrorAlert } from "@wardnet/web";
 import { FormActions } from "@wardnet/web";
 import { RoutingSelector } from "@wardnet/web";
+import { DeviceIcon } from "@wardnet/web";
+import { deviceDisplayName } from "@wardnet/web";
+import { sortByLabel } from "@wardnet/web";
 import { DetailPageHeader } from "@/components/compound/DetailPageHeader";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
+import { HostCell } from "@/components/compound/HostCell";
+import { DataTable } from "@/components/core/ui/data-table";
 import {
   useRoutingProfile,
   useDomainRoutingRules,
@@ -45,10 +51,6 @@ function targetLabel(target: DomainRoutingTarget, tunnels: Tunnel[]): string {
     ? `${countryFlag(tunnel.country_code)} `
     : "";
   return `${flag}${tunnel.label}`;
-}
-
-function deviceLabel(device: Device): string {
-  return device.name || device.hostname || device.manufacturer || device.mac;
 }
 
 /** Profile detail page: rules editor + the read-only "used by" device list. */
@@ -323,12 +325,56 @@ function RuleForm({
 // Used by
 // ---------------------------------------------------------------------------
 
+/** Device + IP columns, matching the tunnel "used by" table
+ *  (`TunnelDevicesTable`) so device rows read consistently across the app. */
+function buildUsedByColumns(): ColumnDef<Device>[] {
+  return [
+    {
+      accessorKey: "name",
+      header: "Device",
+      cell: ({ row }) => {
+        const device = row.original;
+        const primary = deviceDisplayName(device);
+        const secondary = primary === device.mac ? null : device.mac;
+        return (
+          <HostCell
+            primary={primary}
+            secondary={secondary}
+            icon={<DeviceIcon type={device.device_type} />}
+          />
+        );
+      },
+    },
+    {
+      accessorKey: "last_ip",
+      header: "IP",
+      meta: { className: "hidden md:table-cell" },
+      cell: ({ row }) => (
+        <span className="text-ink-3">{row.original.last_ip}</span>
+      ),
+    },
+  ];
+}
+
 function UsedByCard({ profileId }: { profileId: string }) {
+  const navigate = useNavigate();
   const { data, isLoading } = useProfileDevices(profileId);
   const { data: deviceData } = useDevices();
 
   const deviceIds = data?.device_ids ?? [];
-  const devices = deviceData?.devices ?? [];
+  const allDevices = deviceData?.devices ?? [];
+
+  // Resolve assigned ids to full device records (skip any we can't find), then
+  // sort by display name for a stable, readable order.
+  const devices = useMemo(() => {
+    const idSet = new Set(deviceIds);
+    return sortByLabel(
+      allDevices.filter((d) => idSet.has(d.id)),
+      deviceDisplayName,
+    );
+  }, [deviceIds, allDevices]);
+
+  const columns = useMemo(() => buildUsedByColumns(), []);
 
   return (
     <Card>
@@ -340,27 +386,17 @@ function UsedByCard({ profileId }: { profileId: string }) {
           <Text size="sm" className="text-ink-3">
             Loading…
           </Text>
-        ) : deviceIds.length === 0 ? (
+        ) : devices.length === 0 ? (
           <Text size="sm" className="text-ink-3">
             No devices use this profile yet. Assign it from a device's detail
             page.
           </Text>
         ) : (
-          <div className="flex flex-col divide-y divide-line">
-            {deviceIds.map((deviceId) => {
-              const device = devices.find((d) => d.id === deviceId);
-              return (
-                <Link
-                  key={deviceId}
-                  to={`/devices/${deviceId}`}
-                  className="py-2 text-sm text-accent hover:underline"
-                  data-testid="routing-used-by-device"
-                >
-                  {device ? deviceLabel(device) : deviceId}
-                </Link>
-              );
-            })}
-          </div>
+          <DataTable
+            columns={columns}
+            data={devices}
+            onRowClick={(device) => void navigate(`/devices/${device.id}`)}
+          />
         )}
       </CardContent>
     </Card>

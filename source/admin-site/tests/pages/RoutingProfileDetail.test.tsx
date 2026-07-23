@@ -141,10 +141,11 @@ describe("RoutingProfileDetail", () => {
     });
   });
 
-  it("lists assigned devices under 'Used by'", () => {
+  it("lists assigned devices under 'Used by' using the shared device row", () => {
     setup([rule], ["dev-1"]);
-    const link = screen.getByTestId("routing-used-by-device");
-    expect(link).toHaveTextContent("Laptop");
-    expect(link).toHaveAttribute("href", "/devices/dev-1");
+    // Rendered through the same HostCell/DeviceIcon/deviceDisplayName path as
+    // the tunnel "used by" table: the device's display name and IP both show.
+    expect(screen.getByText("Laptop")).toBeInTheDocument();
+    expect(screen.getByText("10.232.1.10")).toBeInTheDocument();
   });
 });

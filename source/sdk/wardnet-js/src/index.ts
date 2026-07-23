@@ -177,6 +177,7 @@ export type {
   SetupProviderRequest,
   SetupProviderResponse,
   TunnelSummary,
+  RoutingProfileSummary,
   DnsCaptureSettingsRequest,
   DnsCaptureSettingsResponse,
   DnsEventItem,

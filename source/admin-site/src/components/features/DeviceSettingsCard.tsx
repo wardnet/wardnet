@@ -153,7 +153,7 @@ export function DeviceSettingsCard({
               </Select>
             </Field>
 
-            <Field label="Routing">
+            <Field label="Default route">
               <RoutingSelector
                 value={routingTarget}
                 onChange={setRoutingTarget}
@@ -218,7 +218,7 @@ export function DeviceSettingsCard({
           </div>
           <div className="flex flex-col gap-0.5">
             <Text size="xs" className="uppercase tracking-wide text-ink-3">
-              Routing
+              Default route
             </Text>
             <Text size="sm" data-testid="device-settings-routing-value">
               {routingLabel(currentRule, tunnels)}

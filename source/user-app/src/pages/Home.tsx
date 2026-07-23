@@ -292,6 +292,7 @@ export default function Home() {
   const currentRule = data?.current_rule ?? null;
   const adminLocked = data?.admin_locked ?? false;
   const zone = data?.zone ?? null;
+  const routingProfiles = data?.routing_profiles ?? [];
   const tunnels = data?.available_tunnels ?? [];
   const activeTunnel =
     currentRule?.type === "tunnel"
@@ -401,6 +402,42 @@ export default function Home() {
                 <Text as="p" size="sm">
                   Only your network administrator can change which zone your
                   device is on.
+                </Text>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {routingProfiles.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Routing profiles</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div
+              className="flex flex-col gap-3"
+              data-testid="routing-profiles-readonly"
+            >
+              <Text as="p" size="sm" className="text-ink">
+                Some sites are routed through a specific exit, in this order:
+              </Text>
+              <ol className="flex flex-col gap-1">
+                {routingProfiles.map((profile, index) => (
+                  <li key={profile.id} className="flex items-center gap-2">
+                    <Text size="xs" className="text-ink-3">
+                      {index + 1}.
+                    </Text>
+                    <Text size="sm" className="text-ink">
+                      {profile.name}
+                    </Text>
+                  </li>
+                ))}
+              </ol>
+              <div className="flex items-start gap-2 text-ink-3">
+                <LockIcon className="mt-0.5 size-4 shrink-0" />
+                <Text as="p" size="sm">
+                  Only your network administrator can change these.
                 </Text>
               </div>
             </div>

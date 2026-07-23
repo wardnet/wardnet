@@ -7,7 +7,8 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
     ApiError, AssignDeviceZoneRequest, DeviceDetailResponse, DeviceMeResponse, DeviceWithStatus,
-    ListDevicesResponse, SetMyRuleRequest, SetMyRuleResponse, UpdateDeviceRequest, ZoneSummary,
+    ListDevicesResponse, RoutingProfileSummary, SetMyRuleRequest, SetMyRuleResponse,
+    UpdateDeviceRequest, ZoneSummary,
 };
 use wardnet_common::device::DhcpStatus;
 use wardnet_common::routing::RoutingTarget;
@@ -86,6 +87,7 @@ pub async fn get_me(
     // the tunnel listing above — we resolve it under an internal admin context.
     if let Some(device) = response.device.as_ref() {
         let zone_id = device.zone_id;
+        let device_id = device.id;
         response.zone = wardnetd_services::auth_context::with_context(
             wardnet_common::auth::AuthContext::Admin {
                 admin_id: uuid::Uuid::nil(),
@@ -98,6 +100,38 @@ pub async fn get_me(
             name: z.zone.name,
             is_default: z.zone.is_default,
         });
+
+        // Enrich with the caller's assigned routing profiles (id + name, in
+        // priority order) for the read-only "profiles applied to your device"
+        // display. Profile management is admin-only, so — like the tunnel and
+        // zone lookups above — resolve under an internal admin context.
+        response.routing_profiles = wardnetd_services::auth_context::with_context(
+            wardnet_common::auth::AuthContext::Admin {
+                admin_id: uuid::Uuid::nil(),
+            },
+            async {
+                let svc = state.routing_profile_service();
+                let ids = svc.get_device_profiles(device_id).await?;
+                let names: std::collections::HashMap<_, _> = svc
+                    .list_profiles()
+                    .await?
+                    .into_iter()
+                    .map(|p| (p.id, p.name))
+                    .collect();
+                Ok::<_, AppError>(
+                    ids.into_iter()
+                        .filter_map(|id| {
+                            names.get(&id).map(|name| RoutingProfileSummary {
+                                id: id.to_string(),
+                                name: name.clone(),
+                            })
+                        })
+                        .collect(),
+                )
+            },
+        )
+        .await
+        .unwrap_or_default();
     }
 
     Ok(Json(response))

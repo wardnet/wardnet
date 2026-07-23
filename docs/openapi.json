@@ -25636,6 +25636,13 @@
               }
             ]
           },
+          "routing_profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RoutingProfileSummary"
+            },
+            "description": "Routing profiles assigned to the caller device, in priority order.\nRead-only — a device-keyed caller cannot manage profiles. Empty when\nnone are assigned."
+          },
           "zone": {
             "oneOf": [
               {
@@ -28393,6 +28400,23 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "RoutingProfileSummary": {
+        "type": "object",
+        "description": "Minimal routing-profile info exposed to a self-service caller for the\nread-only \"profiles applied to your device\" display in the user PWA.\n\nLike [`ZoneSummary`], the caller is device-keyed and cannot call the\nadmin-gated `GET /api/routing/profiles`; `GET /api/devices/me` resolves the\ncaller's assigned profiles (via an internal admin context) and hands back\njust id + name — enough to show \"Netflix → UK is routing some of your\ntraffic\" without exposing the rules or letting the user edit them.",
+        "required": [
+          "id",
+          "name"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable profile name (e.g. \"Streaming (UK)\")."
           }
         }
       },

@@ -238,6 +238,7 @@ impl DeviceService for MockDeviceService {
             admin_locked: self.admin_locked,
             available_tunnels: vec![],
             zone: None,
+            routing_profiles: vec![],
         })
     }
 
