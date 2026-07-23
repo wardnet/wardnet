@@ -90,7 +90,7 @@ pub async fn stream_dns_events(
 /// bus closes. Runs detached under the caller's `AuthContext`, re-established by
 /// [`stream_dns_events`] so the self-service guard on `fetch_pending_dns_events`
 /// sees the request's identity.
-async fn pump_dns_events(
+pub(crate) async fn pump_dns_events(
     state: AppState,
     device_uuid: Uuid,
     device_id: String,
@@ -145,45 +145,52 @@ async fn pump_dns_events(
 
     // --- Live phase: forward events from the broadcast bus ----
     loop {
-        match event_rx.recv().await {
-            Ok(WardnetEvent::DnsEventInserted {
-                device_id: ev_id,
-                row_id,
-                domain,
-                status,
-                captured_at,
-                ..
-            }) if ev_id == device_uuid && row_id > last_flushed_id => {
-                let item = DnsEventItem {
-                    id: row_id,
+        tokio::select! {
+            // Detect client disconnect independently of event traffic. `closed()`
+            // resolves once the `ReceiverStream` behind the SSE response body is
+            // dropped, so an idle device whose bus never carries a matching event
+            // still tears down promptly instead of parking on `recv()` forever.
+            () = tx.closed() => break,
+            recv = event_rx.recv() => match recv {
+                Ok(WardnetEvent::DnsEventInserted {
+                    device_id: ev_id,
+                    row_id,
                     domain,
                     status,
                     captured_at,
-                };
-                let data = match serde_json::to_string(&item) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "failed to serialize live DNS event item");
-                        continue;
+                    ..
+                }) if ev_id == device_uuid && row_id > last_flushed_id => {
+                    let item = DnsEventItem {
+                        id: row_id,
+                        domain,
+                        status,
+                        captured_at,
+                    };
+                    let data = match serde_json::to_string(&item) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to serialize live DNS event item");
+                            continue;
+                        }
+                    };
+                    let event = Event::default().id(row_id.to_string()).data(data);
+                    if tx.send(Ok(event)).await.is_err() {
+                        return; // Client disconnected.
                     }
-                };
-                let event = Event::default().id(row_id.to_string()).data(data);
-                if tx.send(Ok(event)).await.is_err() {
-                    return; // Client disconnected.
+                    last_flushed_id = row_id;
                 }
-                last_flushed_id = row_id;
+                Ok(_) => {} // Event not for this device or already seen.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    // Broadcast buffer overflowed. Close stream; client reconnects
+                    // and the flush phase re-delivers missing rows.
+                    tracing::debug!(
+                        device_id = %device_uuid,
+                        "DNS events broadcast lagged; closing stream to trigger client reconnect"
+                    );
+                    break;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
-            Ok(_) => {} // Event not for this device or already seen.
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                // Broadcast buffer overflowed. Close stream; client reconnects
-                // and the flush phase re-delivers missing rows.
-                tracing::debug!(
-                    device_id = %device_uuid,
-                    "DNS events broadcast lagged; closing stream to trigger client reconnect"
-                );
-                break;
-            }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
         }
     }
 }
