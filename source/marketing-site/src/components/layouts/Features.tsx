@@ -8,7 +8,7 @@ import {
   Server,
   Network,
   Globe,
-  Waypoints,
+  Split,
   Save,
   Radio,
   Smartphone,
@@ -33,7 +33,7 @@ const FEATURES: Feature[] = [
     href: "/docs/device-routing",
   },
   {
-    icon: <Waypoints size={28} />,
+    icon: <Split size={28} />,
     title: "Domain-based routing",
     description:
       "Send traffic to a domain, like netflix.com, through a chosen tunnel and exit country, on every device.",

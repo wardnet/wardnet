@@ -17,8 +17,11 @@ tunnel.
 ## Routing profiles
 
 Open **Routing** and create a **profile** — a named set of domain rules, like
-"Streaming UK" or "Work". Each rule pairs a **domain pattern** with a
-**target**:
+"Streaming UK" or "Work". Each profile shows how many rules it carries.
+
+![The Routing page, listing your routing profiles](/docs/domain-routing/routing-list.png "wide")
+
+Each rule pairs a **domain pattern** with a **target**:
 
 - **Via tunnel**, matched traffic is sent through one of your WireGuard
   [tunnels](/docs/wireguard-tunnels). Pick the tunnel by name; its flag and
@@ -37,14 +40,18 @@ A pattern is either an exact name or a wildcard:
 
 A single `*.netflix.com` rule therefore covers a whole service.
 
+![A routing profile's domain rules and the devices currently using it](/docs/domain-routing/profile-detail.png "wide")
+
 ## Assigning profiles to devices
 
 A profile does nothing until you assign it. On a device, add one or more
 routing profiles in **priority order**. The order is the tie-breaker: if two
 assigned profiles both match a domain, the one **higher in the list wins**, so
-you decide precedence by dragging profiles up or down rather than fighting over
+you decide precedence by moving profiles up or down rather than fighting over
 which rule is "more specific". A device with no profile just follows its normal
-device routing.
+device routing — its **Default route**.
+
+![A device's assigned routing profiles, shown beneath its default route](/docs/domain-routing/device-assignment.png "wide")
 
 ## How enforcement works
 
