@@ -47,6 +47,18 @@ export default defineConfig({
         target: "http://127.0.0.1:7412",
       },
     },
+    watch: {
+      // Our source workspace packages are Yarn-linked into node_modules, which
+      // Vite's file watcher ignores by default — so edits to @wardnet/web
+      // (shared components/hooks) and @wardnet/js never triggered HMR, only a
+      // server restart picked them up. Un-ignore them so cross-package HMR
+      // works. (They're already excluded from optimizeDeps so Vite reads their
+      // source directly.)
+      ignored: [
+        "!**/node_modules/@wardnet/web/**",
+        "!**/node_modules/@wardnet/js/**",
+      ],
+    },
   },
   optimizeDeps: {
     // CJS deps of the excluded workspace packages (see admin-site/web config).
