@@ -282,21 +282,25 @@ export default function Devices() {
     setSheetOpen(true);
   }, []);
 
-  // Routing/zone mutations for the open sheet. Hoisted here (not owned by the
-  // sheet) so the sheet stays a presentation component; the page closes the
-  // sheet once the change lands.
+  // Routing/zone mutations for the open sheet, hoisted out of the sheet so it
+  // takes them as props (the sheet still owns its local remote-access grant
+  // flow, which keeps its own one-time response state). Keyed on the selected
+  // id rather than the derived `selectedDevice` so a background refetch that
+  // drops the row still fires the mutation — matching the sheet's old latched
+  // behavior — instead of silently no-oping. The page closes the sheet on
+  // success.
   function handleSelectRoute(target: RoutingTarget) {
-    if (!selectedDevice) return;
+    if (!selectedDeviceId) return;
     updateDevice.mutate(
-      { id: selectedDevice.id, body: { routing_target: target } },
+      { id: selectedDeviceId, body: { routing_target: target } },
       { onSuccess: () => setSheetOpen(false) },
     );
   }
 
   function handleSelectZone(zoneId: string) {
-    if (!selectedDevice) return;
+    if (!selectedDeviceId) return;
     assignZone.mutate(
-      { deviceId: selectedDevice.id, zoneId },
+      { deviceId: selectedDeviceId, zoneId },
       { onSuccess: () => setSheetOpen(false) },
     );
   }
