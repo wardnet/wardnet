@@ -29,6 +29,13 @@
   - `compound/` — compositions of core components, data via props only, no API calls
   - `features/` — use-case views, data via props + callbacks, no direct API/service calls
   - `layouts/` — page shells, navigation/routing, no business logic
+    - **Carve-out — shell-wide status/auth.** The `AppLayout` shells may call
+      `useDaemonStatus()` (admin-app, user-app) and `useAuth()` (admin-site)
+      directly. These two hooks feed the shell chrome itself — the header
+      version/connection pill and the admin-gated navigation — which live above
+      every route and have no owning `page` to hoist them into. The carve-out is
+      limited to these two read hooks; layouts still perform no mutations and
+      wire no other queries.
   - `pages/` — route-level, wire TanStack Query hooks → feature/compound components
 - **All business logic in `@wardnet/js`** — components are pure presentation.
 - **Hooks** bridge SDK and React: wrap SDK service calls in TanStack Query for caching/loading/error.

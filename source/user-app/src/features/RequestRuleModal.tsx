@@ -6,9 +6,8 @@ import {
   DrawerDescription,
   DrawerTitle,
   Textarea,
-  useCreateRuleRequest,
-} from "@wardnet/web";
-import type { RuleRequestKind } from "@wardnet/js";
+} from "@wardnet/ui";
+import type { CreateRuleRequestRequest, RuleRequestKind } from "@wardnet/js";
 
 export interface RequestTarget {
   domain: string;
@@ -20,15 +19,22 @@ export interface RequestTarget {
  * domain. Opened from a domain row (or activity event) in the Stats page; the
  * row decides the sensible default (unblock a blocked domain, block a queried
  * one). Uses the same bottom-Drawer pattern as the admin app's sheets.
+ *
+ * Presentation only: the parent page owns the create-request mutation and
+ * passes `onSubmit` / `isSubmitting`. The sheet stays open after `onSubmit`
+ * fires; the page closes it (by clearing `target`) once the request lands.
  */
 export function RequestRuleModal({
   target,
   onClose,
+  onSubmit,
+  isSubmitting,
 }: {
   target: RequestTarget | null;
   onClose: () => void;
+  onSubmit: (payload: CreateRuleRequestRequest) => void;
+  isSubmitting: boolean;
 }) {
-  const create = useCreateRuleRequest();
   const [kind, setKind] = useState<RuleRequestKind>("block");
   const [reason, setReason] = useState("");
 
@@ -50,10 +56,7 @@ export function RequestRuleModal({
 
   function submit() {
     if (!active) return;
-    create.mutate(
-      { kind, domain: active.domain, reason: reason.trim() || null },
-      { onSuccess: onClose },
-    );
+    onSubmit({ kind, domain: active.domain, reason: reason.trim() || null });
   }
 
   return (
@@ -106,12 +109,8 @@ export function RequestRuleModal({
             <Button variant="outline" className="flex-1" onClick={onClose}>
               Cancel
             </Button>
-            <Button
-              className="flex-1"
-              onClick={submit}
-              disabled={create.isPending}
-            >
-              {create.isPending ? "Sending…" : "Send request"}
+            <Button className="flex-1" onClick={submit} disabled={isSubmitting}>
+              {isSubmitting ? "Sending…" : "Send request"}
             </Button>
           </div>
         </div>

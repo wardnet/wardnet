@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import Stats from "../../src/pages/Stats";
@@ -7,10 +7,16 @@ import { todayLocal } from "../../src/lib/dnsDb";
 import type { DnsStatsData } from "../../src/hooks/useDnsStats";
 import { makeDevice, renderWithProviders } from "../test-utils";
 
-const { useMyDevice, useCreateRuleRequest } = vi.hoisted(() => ({
-  useMyDevice: vi.fn(),
-  useCreateRuleRequest: vi.fn(),
-}));
+// Stats owns the create-rule-request mutation and passes it down to
+// RequestRuleModal as onSubmit/isSubmitting, so the hook is mocked here because
+// the page itself calls it — not because it leaks through the modal.
+const { useMyDevice, useCreateRuleRequest, createRuleMutate } = vi.hoisted(
+  () => ({
+    useMyDevice: vi.fn(),
+    useCreateRuleRequest: vi.fn(),
+    createRuleMutate: vi.fn(),
+  }),
+);
 const { useDnsStats } = vi.hoisted(() => ({ useDnsStats: vi.fn() }));
 
 vi.mock("@wardnet/web", async (importOriginal) => {
@@ -52,7 +58,10 @@ function statsData(overrides: Partial<DnsStatsData> = {}): DnsStatsData {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useCreateRuleRequest.mockReturnValue({ mutate: vi.fn(), isPending: false });
+  useCreateRuleRequest.mockReturnValue({
+    mutate: createRuleMutate,
+    isPending: false,
+  });
   useDnsStats.mockReturnValue(statsData());
 });
 
@@ -132,6 +141,49 @@ describe("Stats page", () => {
     expect(screen.getByRole("button", { name: "Allow it" })).toHaveAttribute(
       "aria-pressed",
       "true",
+    );
+  });
+
+  it("submits a rule request via the hook the page now owns", async () => {
+    useMyDevice.mockReturnValue({
+      data: { device: makeDevice({ dns_capture_enabled: true }) },
+      isLoading: false,
+    });
+    renderWithProviders(<Stats />);
+
+    const [askBtn] = screen.getAllByLabelText(/Ask admin about bad.com/);
+    await userEvent.click(askBtn);
+    await userEvent.click(screen.getByRole("button", { name: "Send request" }));
+
+    expect(createRuleMutate).toHaveBeenCalledTimes(1);
+    expect(createRuleMutate.mock.calls[0][0]).toEqual({
+      kind: "allow",
+      domain: "bad.com",
+      reason: null,
+    });
+  });
+
+  it("closes the request modal once the submission succeeds", async () => {
+    // The close-on-success wiring moved from the modal into the page's onSubmit
+    // (setRequestTarget(null)); drive the mutation's onSuccess to exercise it.
+    createRuleMutate.mockImplementation((_payload, opts) =>
+      opts?.onSuccess?.(),
+    );
+    useMyDevice.mockReturnValue({
+      data: { device: makeDevice({ dns_capture_enabled: true }) },
+      isLoading: false,
+    });
+    renderWithProviders(<Stats />);
+
+    const [askBtn] = screen.getAllByLabelText(/Ask admin about bad.com/);
+    await userEvent.click(askBtn);
+    expect(screen.getByText("Ask your administrator")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Ask your administrator"),
+      ).not.toBeInTheDocument(),
     );
   });
 
