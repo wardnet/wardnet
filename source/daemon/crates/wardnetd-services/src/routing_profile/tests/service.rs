@@ -306,3 +306,35 @@ async fn create_rule_rejects_an_unknown_tunnel() {
     })
     .await;
 }
+
+#[tokio::test]
+async fn mutating_missing_entities_is_not_found() {
+    let (svc, _rx, _device_id) = setup().await;
+
+    auth_context::with_context(admin_ctx(), async {
+        // Rename a profile that doesn't exist.
+        let err = svc
+            .rename_profile(Uuid::new_v4(), "whatever")
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)), "rename: got {err:?}");
+
+        // Update a rule that doesn't exist (a valid pattern still 404s on a
+        // missing id, exercising the validation-then-lookup path).
+        let err = svc
+            .update_rule(
+                Uuid::new_v4(),
+                Some("bank.example.com".to_owned()),
+                None,
+                Some(false),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)), "update: got {err:?}");
+
+        // Delete a rule that doesn't exist.
+        let err = svc.delete_rule(Uuid::new_v4()).await.unwrap_err();
+        assert!(matches!(err, AppError::NotFound(_)), "delete: got {err:?}");
+    })
+    .await;
+}
