@@ -23851,6 +23851,7 @@
       },
       "DnsCaptureSettingsRequest": {
         "type": "object",
+        "description": "Request body for `PATCH /api/devices/{id}/dns-capture` — the admin capture\ncontrols. Omitted fields are left unchanged (merged via SQL `COALESCE`).",
         "properties": {
           "cap_count": {
             "type": [
@@ -23876,6 +23877,7 @@
       },
       "DnsCaptureSettingsResponse": {
         "type": "object",
+        "description": "Response for `GET`/`PATCH /api/devices/{id}/dns-capture` — current capture\nsettings alongside storage stats for the device.",
         "required": [
           "enabled",
           "cap_count",
@@ -24001,6 +24003,7 @@
       },
       "DnsEventsAckRequest": {
         "type": "object",
+        "description": "Request body for `POST /api/devices/me/dns-events/ack` — acknowledges every\ncaptured event up to and including `up_to_id` so the daemon can delete them.",
         "required": [
           "up_to_id"
         ],

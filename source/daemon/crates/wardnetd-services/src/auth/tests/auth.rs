@@ -239,7 +239,48 @@ async fn login_user_not_found() {
     let svc = make_auth_service(None, None, None, vec![]);
 
     let result = svc.login("nobody", "password", false).await;
-    assert!(result.is_err());
+    assert!(matches!(result, Err(AppError::Unauthorized(_))));
+}
+
+#[tokio::test]
+async fn login_unknown_username_runs_decoy_verify_to_hide_timing() {
+    // Username-enumeration mitigation: an unknown username must still trigger a
+    // full argon2 verify (against a decoy hash) so its latency matches a known
+    // username with the wrong password. If the not-found path short-circuited
+    // before the verify, it would complete in microseconds while the
+    // wrong-password path spends milliseconds in argon2 — a side channel an
+    // attacker could use to enumerate valid usernames.
+    let hash = argon2_hash("correct-password");
+    let known = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
+    let unknown = make_auth_service(None, None, None, vec![]);
+
+    // Warm up so neither measurement is skewed by one-time init (allocator
+    // pages, the lazily-computed decoy hash).
+    let _ = known.login("admin", "warm", false).await;
+    let _ = unknown.login("nobody", "warm", false).await;
+
+    let wrong_password = {
+        let start = std::time::Instant::now();
+        let r = known.login("admin", "wrong-password", false).await;
+        assert!(matches!(r, Err(AppError::Unauthorized(_))));
+        start.elapsed()
+    };
+    let missing_user = {
+        let start = std::time::Instant::now();
+        let r = unknown.login("nobody", "wrong-password", false).await;
+        assert!(matches!(r, Err(AppError::Unauthorized(_))));
+        start.elapsed()
+    };
+
+    // Both do exactly one argon2 verify, so the durations sit on the same order
+    // of magnitude. The 4x slack keeps this robust under CI scheduling noise
+    // while still catching a regression that drops the decoy verify (which
+    // would make the not-found path orders of magnitude faster).
+    assert!(
+        missing_user * 4 >= wrong_password,
+        "unknown-username login ({missing_user:?}) was far faster than a wrong-password \
+         login ({wrong_password:?}); the decoy argon2 verify looks to be missing"
+    );
 }
 
 #[tokio::test]

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
 use argon2::PasswordHasher;
 use argon2::password_hash::rand_core::OsRng;
@@ -141,6 +141,20 @@ fn hash_token(token: &str) -> String {
     hex::encode(Sha256::digest(token.as_bytes()))
 }
 
+/// Fixed decoy password hash verified on the login path when the username is
+/// unknown. It uses the same default argon2 parameters as a real admin hash, so
+/// a failed verify against it costs the same as a failed verify against a
+/// genuine record — closing the timing side channel an attacker could otherwise
+/// use to tell valid usernames from invalid ones. Computed once on first use.
+static DECOY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
+    let salt = argon2::password_hash::SaltString::from_b64("d2FyZG5ldGRlY295c2FsdA")
+        .expect("decoy salt is valid non-padded base64");
+    argon2::Argon2::default()
+        .hash_password(b"login-decoy", &salt)
+        .expect("decoy hash generation with default params cannot fail")
+        .to_string()
+});
+
 /// Default implementation of [`AuthService`] backed by repository traits.
 pub struct AuthServiceImpl {
     admins: Arc<dyn AdminRepository>,
@@ -182,12 +196,26 @@ impl AuthService for AuthServiceImpl {
         // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2):
         // this IS the credential-verification endpoint — by definition the caller
         // has no session yet, so there is no context to authenticate.
-        let (admin_id, password_hash) = self
+        let record = self
             .admins
             .find_by_username(username)
             .await
-            .map_err(AppError::Internal)?
-            .ok_or_else(|| AppError::Unauthorized("invalid credentials".to_owned()))?;
+            .map_err(AppError::Internal)?;
+
+        // Unknown username: still run a full argon2 verify against a decoy hash
+        // before rejecting, so this path takes comparable time to a known
+        // username with the wrong password. Short-circuiting here would leak,
+        // via response latency, which usernames exist (enumeration).
+        let Some((admin_id, password_hash)) = record else {
+            let decoy = argon2::PasswordHash::new(&DECOY_PASSWORD_HASH)
+                .expect("decoy hash is a valid argon2 PHC string");
+            let _ = argon2::PasswordVerifier::verify_password(
+                &argon2::Argon2::default(),
+                password.as_bytes(),
+                &decoy,
+            );
+            return Err(AppError::Unauthorized("invalid credentials".to_owned()));
+        };
 
         let parsed_hash = argon2::PasswordHash::new(&password_hash)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid stored hash: {e}")))?;

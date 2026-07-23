@@ -52,6 +52,7 @@ pub(crate) use crate::dns::pipeline::{
 // UdpDnsSocket — production socket impl
 // ---------------------------------------------------------------------------
 
+/// Production [`DnsSocket`] backed by a real tokio UDP socket.
 pub struct UdpDnsSocket {
     socket: UdpSocket,
 }
