@@ -7,7 +7,13 @@ const h = vi.hoisted(() => ({
   useTunnels: vi.fn(),
   useDefaultPolicy: vi.fn(),
   useUpdateDevice: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
-  useNetworkZones: vi.fn(() => ({ data: { zones: [] } })),
+  // Typed return so the empty default isn't inferred as `never[]`, which would
+  // reject the populated-zone override in the zone-reassignment spec.
+  useNetworkZones: vi.fn(
+    (): {
+      data: { zones: Array<{ id: string; name: string; is_default: boolean }> };
+    } => ({ data: { zones: [] } }),
+  ),
   usePendingDevices: vi.fn(),
   useAssignDeviceZone: vi.fn(),
   approve: vi.fn(),
