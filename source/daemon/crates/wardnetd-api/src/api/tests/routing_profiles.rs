@@ -326,7 +326,10 @@ async fn profile_devices_lists_assigned_devices() {
     let assign_path = format!("/api/routing/devices/{DEVICE_ID}/profiles");
     let resp = app
         .clone()
-        .oneshot(put_req(&assign_path, &json!({ "profile_ids": [profile.id] })))
+        .oneshot(put_req(
+            &assign_path,
+            &json!({ "profile_ids": [profile.id] }),
+        ))
         .await
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);

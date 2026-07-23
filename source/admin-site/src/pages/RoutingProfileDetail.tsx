@@ -363,18 +363,16 @@ function UsedByCard({ profileId }: { profileId: string }) {
   const { data, isLoading } = useProfileDevices(profileId);
   const { data: deviceData } = useDevices();
 
-  const deviceIds = data?.device_ids ?? [];
-  const allDevices = deviceData?.devices ?? [];
-
   // Resolve assigned ids to full device records (skip any we can't find), then
-  // sort by display name for a stable, readable order.
+  // sort by display name for a stable, readable order. Depends on the raw query
+  // data (stable across renders) rather than `?? []` fallbacks.
   const devices = useMemo(() => {
-    const idSet = new Set(deviceIds);
+    const idSet = new Set(data?.device_ids ?? []);
     return sortByLabel(
-      allDevices.filter((d) => idSet.has(d.id)),
+      (deviceData?.devices ?? []).filter((d) => idSet.has(d.id)),
       deviceDisplayName,
     );
-  }, [deviceIds, allDevices]);
+  }, [data?.device_ids, deviceData?.devices]);
 
   const columns = useMemo(() => buildUsedByColumns(), []);
 

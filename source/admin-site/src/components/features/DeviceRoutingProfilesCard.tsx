@@ -64,6 +64,7 @@ export function DeviceRoutingProfilesCard({
     const target = index + delta;
     if (target < 0 || target >= draft.length) return;
     const next = [...draft];
+    // eslint-disable-next-line security/detect-object-injection -- reorder swap on a local array copy; both indices are row positions and `target` is bounds-checked above
     [next[index], next[target]] = [next[target], next[index]];
     setDraft(next);
   }

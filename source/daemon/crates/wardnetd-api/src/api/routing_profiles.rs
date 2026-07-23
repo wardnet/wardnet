@@ -16,8 +16,8 @@ use wardnet_common::api::{
     CreateRoutingProfileResponse, DeleteDomainRoutingRuleResponse, DeleteRoutingProfileResponse,
     GetDeviceRoutingProfilesResponse, GetRoutingProfileResponse, ListDomainRoutingRulesResponse,
     ListProfileDevicesResponse, ListRoutingProfilesResponse, SetDeviceRoutingProfilesRequest,
-    SetDeviceRoutingProfilesResponse, UpdateDomainRoutingRuleRequest, UpdateDomainRoutingRuleResponse,
-    UpdateRoutingProfileRequest, UpdateRoutingProfileResponse,
+    SetDeviceRoutingProfilesResponse, UpdateDomainRoutingRuleRequest,
+    UpdateDomainRoutingRuleResponse, UpdateRoutingProfileRequest, UpdateRoutingProfileResponse,
 };
 
 use crate::api::middleware::AdminAuth;
