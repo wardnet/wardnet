@@ -163,7 +163,7 @@ describe("DeviceSettingsCard editing", () => {
     });
   });
 
-  it("uses promote copy for an unmanaged device", async () => {
+  it("labels the save 'Save' until a name will actually promote the device", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DeviceSettingsCard
@@ -172,12 +172,18 @@ describe("DeviceSettingsCard editing", () => {
       />,
     );
     await user.click(screen.getByTestId("device-settings-edit"));
+    // No name yet — saving just persists settings, so it isn't a "promotion",
+    // and the form hints how to manage the device.
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(screen.getByText(/name to manage it/i)).toBeInTheDocument();
+    // Entering a name turns the save into an actual promotion.
+    await user.type(screen.getByLabelText("Friendly name"), "Alice phone");
     expect(
       screen.getByRole("button", { name: "To Managed Device" }),
     ).toBeInTheDocument();
   });
 
-  it("blocks promoting an unmanaged device without a name and says why on submit", async () => {
+  it("saves an unnamed device's settings without forcing a name", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DeviceSettingsCard
@@ -186,16 +192,19 @@ describe("DeviceSettingsCard editing", () => {
       />,
     );
     await user.click(screen.getByTestId("device-settings-edit"));
-    // The error is not shown just for entering edit mode.
-    expect(screen.queryByText(/name is required/i)).not.toBeInTheDocument();
-    // The whole point of the bug: promoting with an empty name used to "succeed"
-    // as a silent no-op. Submitting surfaces the requirement and blocks the save.
+    // The whole regression: changing routing/settings on an unnamed device must
+    // still save (it just doesn't promote); `name` is omitted, not blocked.
     await user.click(screen.getByTestId("device-settings-save"));
-    expect(await screen.findByText(/name is required/i)).toBeInTheDocument();
-    expect(mutateAsync).not.toHaveBeenCalled();
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "dev-1",
+        body: expect.objectContaining({ name: undefined }),
+      }),
+    );
   });
 
-  it("enables promotion and sends the name once one is entered", async () => {
+  it("promotes and sends the name once one is entered", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DeviceSettingsCard
@@ -205,9 +214,7 @@ describe("DeviceSettingsCard editing", () => {
     );
     await user.click(screen.getByTestId("device-settings-edit"));
     await user.type(screen.getByLabelText("Friendly name"), "Alice phone");
-    const save = screen.getByRole("button", { name: "To Managed Device" });
-    expect(save).toBeEnabled();
-    await user.click(save);
+    await user.click(screen.getByRole("button", { name: "To Managed Device" }));
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
     expect(mutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -215,21 +222,6 @@ describe("DeviceSettingsCard editing", () => {
         body: expect.objectContaining({ name: "Alice phone" }),
       }),
     );
-  });
-
-  it("blocks blanking the name of an already-managed device on submit", async () => {
-    const user = userEvent.setup();
-    renderWithProviders(
-      <DeviceSettingsCard
-        device={makeDevice({ name: "TV" })}
-        currentRule={null}
-      />,
-    );
-    await user.click(screen.getByTestId("device-settings-edit"));
-    await user.clear(screen.getByLabelText("Friendly name"));
-    await user.click(screen.getByTestId("device-settings-save"));
-    expect(await screen.findByText(/name is required/i)).toBeInTheDocument();
-    expect(mutateAsync).not.toHaveBeenCalled();
   });
 
   it("shows the saving label and error alert while pending", async () => {
