@@ -699,6 +699,67 @@ async fn get_me_returns_null_device_when_unknown_ip() {
     assert!(json["current_rule"].is_null());
 }
 
+#[tokio::test]
+async fn get_me_includes_assigned_routing_profiles() {
+    use wardnetd_data::repository::{
+        RoutingProfileRepository, RoutingProfileRow, SqliteRoutingProfileRepository,
+    };
+    use wardnetd_services::routing_profile::RoutingProfileServiceImpl;
+
+    let device = sample_device();
+    // A real routing-profile service over an in-memory DB, with the caller
+    // device assigned one profile, so the `get_me` enrichment resolves it.
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::migrate!("../wardnetd-data/migrations")
+        .run(&pool)
+        .await
+        .unwrap();
+    // The assignment FK requires the device row to exist.
+    sqlx::query(
+        "INSERT INTO devices (id, mac, last_ip, device_type, first_seen, last_seen, zone_id) \
+         VALUES (?, 'aa:bb:cc:dd:ee:01', '10.0.0.1', 'unknown', ?, ?, \
+                 '00000000-0000-0000-0000-000000000201')",
+    )
+    .bind(device.id.to_string())
+    .bind("2026-01-01T00:00:00Z")
+    .bind("2026-01-01T00:00:00Z")
+    .execute(&pool)
+    .await
+    .unwrap();
+    let repo = Arc::new(SqliteRoutingProfileRepository::new(pool));
+    let profile = repo
+        .create_profile(&RoutingProfileRow {
+            id: Uuid::new_v4().to_string(),
+            name: "Streaming".to_owned(),
+        })
+        .await
+        .unwrap();
+    repo.set_device_profiles(device.id, &[profile.id])
+        .await
+        .unwrap();
+    let (tx, _rx) = tokio::sync::mpsc::channel(16);
+    let routing_svc = Arc::new(RoutingProfileServiceImpl::new(
+        repo,
+        Arc::new(StubTunnelService),
+        tx,
+    ));
+
+    let state = build_state(
+        MockDeviceService::found(device, None),
+        MockDiscoveryService { devices: vec![] },
+    )
+    .with_routing_profile_service(routing_svc);
+    let app = device_router(state);
+
+    let (status, json) = get_json(app, "/api/devices/me").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["routing_profiles"][0]["name"], "Streaming");
+    assert_eq!(json["routing_profiles"][0]["id"], profile.id.to_string());
+}
+
 // ---------------------------------------------------------------------------
 #[tokio::test]
 async fn get_me_includes_tunnel_status_and_last_handshake() {

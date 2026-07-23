@@ -239,4 +239,68 @@ describe("useRoutingProfiles hooks", () => {
       "p1",
     );
   });
+
+  // --- Error paths: each mutation surfaces a toast.error on rejection ---
+
+  async function expectToastErrorOnReject(
+    hook: () => { mutateAsync: (v: never) => Promise<unknown> },
+    variables: unknown,
+  ) {
+    const { result } = renderHook(hook, { wrapper: createQueryWrapper() });
+    await act(async () => {
+      await result.current
+        .mutateAsync(variables as never)
+        .catch(() => undefined);
+    });
+    expect(toast.error).toHaveBeenCalled();
+  }
+
+  it("toasts an error when creating a profile fails", async () => {
+    routingProfilesService.createProfile.mockRejectedValue(new Error("boom"));
+    await expectToastErrorOnReject(useCreateRoutingProfile, { name: "x" });
+  });
+
+  it("toasts an error when renaming a profile fails", async () => {
+    routingProfilesService.updateProfile.mockRejectedValue(new Error("boom"));
+    await expectToastErrorOnReject(useUpdateRoutingProfile, {
+      id: "p1",
+      body: { name: "x" },
+    });
+  });
+
+  it("toasts an error when deleting a profile fails", async () => {
+    routingProfilesService.deleteProfile.mockRejectedValue(new Error("boom"));
+    await expectToastErrorOnReject(useDeleteRoutingProfile, "p1");
+  });
+
+  it("toasts an error when adding a rule fails", async () => {
+    routingProfilesService.createRule.mockRejectedValue(new Error("boom"));
+    await expectToastErrorOnReject(useCreateDomainRoutingRule, {
+      profileId: "p1",
+      body: { pattern: "a.com", target: { type: "direct" }, enabled: true },
+    });
+  });
+
+  it("toasts an error when updating a rule fails", async () => {
+    routingProfilesService.updateRule.mockRejectedValue(new Error("boom"));
+    await expectToastErrorOnReject(useUpdateDomainRoutingRule, {
+      ruleId: "r1",
+      body: { enabled: false },
+    });
+  });
+
+  it("toasts an error when deleting a rule fails", async () => {
+    routingProfilesService.deleteRule.mockRejectedValue(new Error("boom"));
+    await expectToastErrorOnReject(useDeleteDomainRoutingRule, "r1");
+  });
+
+  it("toasts an error when setting device profiles fails", async () => {
+    routingProfilesService.setDeviceProfiles.mockRejectedValue(
+      new Error("boom"),
+    );
+    await expectToastErrorOnReject(useSetDeviceRoutingProfiles, {
+      deviceId: "d1",
+      profileIds: ["p1"],
+    });
+  });
 });

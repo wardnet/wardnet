@@ -139,4 +139,19 @@ describe("RoutingProfiles", () => {
 
     expect(deleteMutateAsync).toHaveBeenCalledWith("p1");
   });
+
+  it("creates a profile from the header button when profiles exist", async () => {
+    const user = userEvent.setup();
+    useRoutingProfiles.mockReturnValue({
+      data: { profiles: [{ id: "p1", name: "Streaming", rule_count: 0 }] },
+      isLoading: false,
+    });
+    renderWithProviders(<RoutingProfiles />);
+
+    await user.click(screen.getByTestId("routing-add-profile"));
+    await user.type(screen.getByTestId("routing-profile-name"), "Work");
+    await user.click(screen.getByTestId("routing-profile-name-save"));
+
+    expect(createMutateAsync).toHaveBeenCalledWith({ name: "Work" });
+  });
 });

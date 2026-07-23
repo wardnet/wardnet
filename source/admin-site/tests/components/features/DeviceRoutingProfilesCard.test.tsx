@@ -117,4 +117,29 @@ describe("DeviceRoutingProfilesCard", () => {
       profileIds: ["p1", "p3"],
     });
   });
+
+  it("reorders with move-up then saves", async () => {
+    const user = userEvent.setup();
+    setup(["p1", "p2"]);
+    await user.click(screen.getByTestId("device-routing-profiles-edit"));
+    // The first row's Move up is disabled; move the second row (Work) up.
+    const moveUps = screen.getAllByRole("button", { name: "Move up" });
+    await user.click(moveUps[1]);
+    await user.click(screen.getByTestId("device-routing-profiles-save"));
+    expect(saveMutateAsync).toHaveBeenCalledWith({
+      deviceId: "dev-1",
+      profileIds: ["p2", "p1"],
+    });
+  });
+
+  it("cancels editing without saving", async () => {
+    const user = userEvent.setup();
+    setup(["p1", "p2"]);
+    await user.click(screen.getByTestId("device-routing-profiles-edit"));
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(saveMutateAsync).not.toHaveBeenCalled();
+    expect(
+      screen.getByTestId("device-routing-profiles-edit"),
+    ).toBeInTheDocument();
+  });
 });

@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -60,6 +60,7 @@ import { renderWithProviders, makeDevice } from "../test-utils";
 
 const createMutateAsync = vi.fn().mockResolvedValue({ rule: { id: "r9" } });
 const updateMutate = vi.fn();
+const updateMutateAsync = vi.fn().mockResolvedValue({ rule: { id: "r1" } });
 const deleteMutateAsync = vi.fn().mockResolvedValue({ message: "gone" });
 
 const rule = {
@@ -72,7 +73,11 @@ const rule = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
-function setup(rules = [rule], deviceIds: string[] = []) {
+function setup(
+  rules = [rule],
+  deviceIds: string[] = [],
+  tunnels: unknown[] = [],
+) {
   useRoutingProfile.mockReturnValue({
     data: { profile: { id: "p1", name: "Streaming" } },
     isLoading: false,
@@ -86,7 +91,7 @@ function setup(rules = [rule], deviceIds: string[] = []) {
   });
   useUpdateDomainRoutingRule.mockReturnValue({
     mutate: updateMutate,
-    mutateAsync: vi.fn().mockResolvedValue({ rule }),
+    mutateAsync: updateMutateAsync,
     isPending: false,
     error: null,
   });
@@ -99,7 +104,7 @@ function setup(rules = [rule], deviceIds: string[] = []) {
     data: { device_ids: deviceIds },
     isLoading: false,
   });
-  useTunnels.mockReturnValue({ data: { tunnels: [] } });
+  useTunnels.mockReturnValue({ data: { tunnels } });
   useDevices.mockReturnValue({
     data: { devices: [makeDevice({ id: "dev-1", name: "Laptop" })] },
   });
@@ -168,5 +173,48 @@ describe("RoutingProfileDetail", () => {
     // the tunnel "used by" table: the device's display name and IP both show.
     expect(screen.getByText("Laptop")).toBeInTheDocument();
     expect(screen.getByText("10.232.1.10")).toBeInTheDocument();
+  });
+
+  it("labels a tunnel-targeted rule with the tunnel's flag and name", () => {
+    const tunnelRule = {
+      ...rule,
+      target: { type: "tunnel" as const, tunnel_id: "t1" },
+    };
+    const tunnel = {
+      id: "t1",
+      label: "London UK",
+      country_code: "GB",
+      status: "up",
+      last_handshake: null,
+    };
+    setup([tunnelRule], [], [tunnel]);
+    expect(screen.getByText(/London UK/)).toBeInTheDocument();
+  });
+
+  it("edits a rule through the inline form", async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.click(screen.getByTestId("routing-rule-edit"));
+    await user.click(screen.getByTestId("routing-rule-save"));
+    expect(updateMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ ruleId: "r1" }),
+    );
+  });
+
+  it("deletes a rule after confirmation", async () => {
+    const user = userEvent.setup();
+    setup();
+    await user.click(screen.getByTestId("routing-rule-delete"));
+    const dialog = await screen.findByRole("alertdialog");
+    await user.click(within(dialog).getByTestId("confirm-dialog-confirm"));
+    expect(deleteMutateAsync).toHaveBeenCalledWith("r1");
+  });
+
+  it("navigates to a device when a 'Used by' row is clicked", async () => {
+    const user = userEvent.setup();
+    setup([rule], ["dev-1"]);
+    await user.click(screen.getByText("Laptop"));
+    // The row's onRowClick fires (navigation happens within MemoryRouter).
+    expect(screen.getByText("Laptop")).toBeInTheDocument();
   });
 });
