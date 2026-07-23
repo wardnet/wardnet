@@ -292,6 +292,11 @@ impl DeviceService for DeviceServiceImpl {
         ip: &str,
         target: RoutingTarget,
     ) -> Result<SetMyRuleResponse, AppError> {
+        // Category-(c) guard-not-first (.agents/auth.md §Rules #2): the device's MAC
+        // is the subject of the `check_device_mutation_auth` check below, so the
+        // device is resolved first. This deviation from "guard must be first" is
+        // deliberate, not an oversight — the lookup only materializes the subject,
+        // and the auth check remains the first thing done with the caller's identity.
         let device = self
             .devices
             .find_by_ip(ip)
@@ -338,6 +343,11 @@ impl DeviceService for DeviceServiceImpl {
     }
 
     async fn set_rule(&self, device_id: &str, target: RoutingTarget) -> Result<(), AppError> {
+        // Category-(c) guard-not-first (.agents/auth.md §Rules #2): the device's MAC
+        // is the subject of the `check_device_mutation_auth` check below, so the
+        // device is resolved first. This deviation from "guard must be first" is
+        // deliberate, not an oversight — the lookup only materializes the subject,
+        // and the auth check remains the first thing done with the caller's identity.
         let device = self
             .devices
             .find_by_id(device_id)
@@ -504,6 +514,11 @@ impl DeviceService for DeviceServiceImpl {
         ip: &str,
         enabled: bool,
     ) -> Result<DnsCaptureSettingsResponse, AppError> {
+        // Category-(c) guard-not-first (.agents/auth.md §Rules #2): the device's MAC
+        // is the subject of the `check_device_mutation_auth` check below, so the
+        // device is resolved first. This deviation from "guard must be first" is
+        // deliberate, not an oversight — the lookup only materializes the subject,
+        // and the auth check remains the first thing done with the caller's identity.
         let device = self
             .devices
             .find_by_ip(ip)

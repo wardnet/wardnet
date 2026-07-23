@@ -1214,6 +1214,40 @@ async fn devices_using_tunnel_without_auth_context_fails() {
     );
 }
 
+#[tokio::test]
+async fn apply_rule_for_device_without_auth_context_fails() {
+    let ts = setup();
+
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        ts.routing
+            .apply_rule_for_device(device_id_1(), &RoutingTarget::Direct),
+    )
+    .await;
+
+    assert!(
+        matches!(result, Err(AppError::Forbidden(_))),
+        "apply_rule_for_device without admin context should return Forbidden, got: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn apply_rule_for_discovered_device_without_auth_context_fails() {
+    let ts = setup();
+
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        ts.routing
+            .apply_rule_for_discovered_device(device_id_1(), "192.168.1.10"),
+    )
+    .await;
+
+    assert!(
+        matches!(result, Err(AppError::Forbidden(_))),
+        "apply_rule_for_discovered_device without admin context should return Forbidden, got: {result:?}"
+    );
+}
+
 // -- Tests: apply_rule basics -------------------------------------------------
 
 #[tokio::test]

@@ -88,7 +88,10 @@ pub trait RoutingService: Send + Sync {
     ///
     /// Used by the routing listener to handle `RoutingRuleChanged` events without
     /// the listener needing direct repository access.
-    /// No auth guard — callers wrap this in `auth_context::with_context(...)`.
+    /// Admin-gated like every other method — the impl calls
+    /// `auth_context::require_admin()?` first. The listener drives it under
+    /// `auth_context::with_context(AuthContext::Admin { .. })` so that guard is
+    /// satisfied even though the call originates outside the HTTP request path.
     async fn apply_rule_for_device(
         &self,
         device_id: Uuid,
@@ -98,7 +101,10 @@ pub trait RoutingService: Send + Sync {
     /// Check if a newly-discovered device has a persisted routing rule and apply it.
     ///
     /// Used by the routing listener to handle `DeviceDiscovered` events.
-    /// No auth guard — callers wrap this in `auth_context::with_context(...)`.
+    /// Admin-gated like every other method — the impl calls
+    /// `auth_context::require_admin()?` first. The listener drives it under
+    /// `auth_context::with_context(AuthContext::Admin { .. })` so that guard is
+    /// satisfied even though the call originates outside the HTTP request path.
     async fn apply_rule_for_discovered_device(
         &self,
         device_id: Uuid,

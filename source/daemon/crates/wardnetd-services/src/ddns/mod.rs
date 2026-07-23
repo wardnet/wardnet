@@ -879,6 +879,10 @@ impl DdnsService for DdnsServiceImpl {
     }
 
     async fn sync_premium(&self) -> Result<(), AppError> {
+        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // category (a): startup/restore): reconciles the cached premium flag with
+        // the configured provider on startup and after provider changes, outside
+        // any admin session.
         let provider = self.current_provider().await?;
         self.entitlement
             .set_premium(provider.as_deref() == Some(PROVIDER_WARDNET));
