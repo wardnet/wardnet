@@ -62,6 +62,19 @@ export interface CreatePrivateDnsGrantRequest {
 }
 
 /**
+ * Response for `POST /api/private-dns/grants/{device_id}/notify` — a device-keyed
+ * push nudging the household member to set up Private DNS on their phone.
+ */
+export interface SendPrivateDnsNotificationResponse {
+  /**
+   * Whether at least one push subscription for the device was targeted. `false`
+   * (still a 200) means the device holds a grant but hasn't enabled
+   * notifications yet — the admin should relay the hostname directly instead.
+   */
+  delivered: boolean;
+}
+
+/**
  * Response for `GET /api/private-dns/me` — the device-keyed self-service view
  * (identified by source IP, like `devices/me`).
  */

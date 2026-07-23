@@ -34,6 +34,7 @@ export type NotificationKind =
   | "tunnel_offline"
   | "new_device_quarantined"
   | "rule_request_created"
+  | "private_dns_granted"
   | (string & {});
 
 /**

@@ -253,6 +253,7 @@ export type {
   SetPrivateDnsEnabledRequest,
   CreatePrivateDnsGrantRequest,
   PrivateDnsMeResponse,
+  SendPrivateDnsNotificationResponse,
 } from "./types/private-dns.js";
 
 // Types — backup

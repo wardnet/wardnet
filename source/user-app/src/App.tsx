@@ -4,6 +4,7 @@ import { AppLayout } from "@/layouts/AppLayout";
 import Home from "@/pages/Home";
 import Stats from "@/pages/Stats";
 import Settings from "@/pages/Settings";
+import PrivateDns from "@/pages/PrivateDns";
 import { useDnsEventsSync } from "@/hooks/useDnsEventsSync";
 
 /**
@@ -29,6 +30,7 @@ export default function App() {
           <Route index element={<Home />} />
           <Route path="stats" element={<Stats />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="private-dns" element={<PrivateDns />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

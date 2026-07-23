@@ -693,6 +693,7 @@ fn create_services(
         entitlement.clone(),
         event_publisher.clone(),
         backends.secret_store.clone(),
+        push_service.clone(),
         lan_ip,
     ));
 

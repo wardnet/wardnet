@@ -4,6 +4,7 @@ import type {
   PrivateDnsGrantSummary,
   PrivateDnsMeResponse,
   PrivateDnsStatusResponse,
+  SendPrivateDnsNotificationResponse,
   SetPrivateDnsEnabledRequest,
 } from "../types/private-dns.js";
 
@@ -51,6 +52,20 @@ export class PrivateDnsService {
     await this.client.request<void>(`/private-dns/grants/${deviceId}`, {
       method: "DELETE",
     });
+  }
+
+  /**
+   * Send a device-keyed push nudging the granted household member to set up
+   * Private DNS on their phone (deep-links to the user PWA). Resend-safe. The
+   * response reports whether the device had a subscription to deliver to;
+   * `delivered: false` (still a success) means they haven't enabled
+   * notifications yet. Admin only.
+   */
+  async notifyDevice(deviceId: string): Promise<SendPrivateDnsNotificationResponse> {
+    return this.client.request<SendPrivateDnsNotificationResponse>(
+      `/private-dns/grants/${deviceId}/notify`,
+      { method: "POST" },
+    );
   }
 
   /** This device's own Private DNS state, identified by source IP. */

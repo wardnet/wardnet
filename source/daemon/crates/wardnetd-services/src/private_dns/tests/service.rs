@@ -536,6 +536,51 @@ impl DnsLocalService for MockDnsLocalService {
     }
 }
 
+// -- Mock PushService (only `notify_private_dns_granted` is exercised) ------
+//
+// Records the device ids it was asked to nudge and returns a configurable
+// `delivered` result, so the notify-orchestration tests can assert the service
+// delegates only after the grant check and passes the delivery flag straight
+// back.
+#[derive(Default)]
+struct MockPushService {
+    notified: Mutex<Vec<Uuid>>,
+    /// The `delivered` value `notify_private_dns_granted` returns.
+    delivered: bool,
+}
+
+#[async_trait]
+impl crate::push::PushService for MockPushService {
+    async fn vapid_public_key(&self) -> Result<String, AppError> {
+        unimplemented!("not exercised by private-dns tests")
+    }
+    async fn subscribe(
+        &self,
+        _sub: wardnet_common::api::WebPushSubscription,
+    ) -> Result<(), AppError> {
+        unimplemented!("not exercised by private-dns tests")
+    }
+    async fn unsubscribe(&self, _endpoint: Option<String>) -> Result<(), AppError> {
+        unimplemented!("not exercised by private-dns tests")
+    }
+    async fn handle_event(&self, _event: &WardnetEvent) -> Result<(), AppError> {
+        unimplemented!("not exercised by private-dns tests")
+    }
+    async fn recent_notifications(
+        &self,
+        _limit: u32,
+    ) -> Result<Vec<wardnetd_data::repository::StoredNotification>, AppError> {
+        unimplemented!("not exercised by private-dns tests")
+    }
+    async fn clear_notifications(&self) -> Result<(), AppError> {
+        unimplemented!("not exercised by private-dns tests")
+    }
+    async fn notify_private_dns_granted(&self, device_id: Uuid) -> Result<bool, AppError> {
+        self.notified.lock().unwrap().push(device_id);
+        Ok(self.delivered)
+    }
+}
+
 // -- Harness ---------------------------------------------------------------
 
 struct Harness {
@@ -548,10 +593,17 @@ struct Harness {
     entitlement: Arc<Entitlement>,
     events: Arc<BroadcastEventBus>,
     secrets: Arc<MockSecretStore>,
+    push: Arc<MockPushService>,
     service: PrivateDnsServiceImpl,
 }
 
 fn harness() -> Harness {
+    harness_with_delivery(false)
+}
+
+/// A harness whose push mock reports the given `delivered` result — the notify
+/// tests use this to distinguish the has-subscription and no-subscription paths.
+fn harness_with_delivery(delivered: bool) -> Harness {
     let grants = Arc::new(MockGrantRepo::default());
     let system_config = Arc::new(MockSystemConfig::default());
     let devices = Arc::new(MockDeviceService::default());
@@ -564,6 +616,10 @@ fn harness() -> Harness {
     entitlement.set_premium(true);
     let events = Arc::new(BroadcastEventBus::new(16));
     let secrets = Arc::new(MockSecretStore::default());
+    let push = Arc::new(MockPushService {
+        delivered,
+        ..Default::default()
+    });
 
     let service = PrivateDnsServiceImpl::new(
         grants.clone(),
@@ -575,6 +631,7 @@ fn harness() -> Harness {
         entitlement.clone(),
         events.clone(),
         secrets.clone(),
+        push.clone(),
         Ipv4Addr::new(192, 168, 1, 1),
     );
     Harness {
@@ -587,6 +644,7 @@ fn harness() -> Harness {
         entitlement,
         events,
         secrets,
+        push,
         service,
     }
 }
@@ -979,6 +1037,81 @@ async fn reconcile_keeps_an_entitled_box_enabled() {
 async fn anonymous_callers_are_rejected() {
     let h = harness();
     let err = h.service.status().await.expect_err("must require auth");
+    assert!(matches!(
+        err,
+        AppError::Forbidden(_) | AppError::Unauthorized(_)
+    ));
+}
+
+// -- Notify (issue #915) ---------------------------------------------------
+
+#[tokio::test]
+async fn notify_delegates_to_push_and_returns_delivered() {
+    let h = harness_with_delivery(true);
+    enable(&h).await;
+    let device_id = h.devices.add_device();
+    auth_context::with_context(admin_ctx(), h.service.grant_device(device_id))
+        .await
+        .expect("grant succeeds");
+
+    let delivered = auth_context::with_context(admin_ctx(), h.service.notify_device(device_id))
+        .await
+        .expect("notify succeeds");
+
+    assert!(delivered, "push reported a targeted subscription");
+    assert_eq!(
+        *h.push.notified.lock().unwrap(),
+        vec![device_id],
+        "the granted device UUID is handed to the push service"
+    );
+}
+
+#[tokio::test]
+async fn notify_reports_not_delivered_without_a_subscription() {
+    let h = harness_with_delivery(false);
+    enable(&h).await;
+    let device_id = h.devices.add_device();
+    auth_context::with_context(admin_ctx(), h.service.grant_device(device_id))
+        .await
+        .expect("grant succeeds");
+
+    let delivered = auth_context::with_context(admin_ctx(), h.service.notify_device(device_id))
+        .await
+        .expect("notify succeeds even with no subscription");
+
+    assert!(
+        !delivered,
+        "a granted device with no subscription is not an error"
+    );
+    assert_eq!(*h.push.notified.lock().unwrap(), vec![device_id]);
+}
+
+#[tokio::test]
+async fn notify_without_a_grant_is_not_found_and_skips_push() {
+    let h = harness_with_delivery(true);
+    enable(&h).await;
+    let device_id = h.devices.add_device();
+
+    let err = auth_context::with_context(admin_ctx(), h.service.notify_device(device_id))
+        .await
+        .expect_err("an ungranted device must 404");
+
+    assert!(matches!(err, AppError::NotFound(_)));
+    assert!(
+        h.push.notified.lock().unwrap().is_empty(),
+        "push must not be called when there is no grant"
+    );
+}
+
+#[tokio::test]
+async fn notify_requires_admin() {
+    let h = harness_with_delivery(true);
+    let err = auth_context::with_context(
+        AuthContext::Anonymous,
+        h.service.notify_device(Uuid::new_v4()),
+    )
+    .await
+    .expect_err("notify must require admin");
     assert!(matches!(
         err,
         AppError::Forbidden(_) | AppError::Unauthorized(_)

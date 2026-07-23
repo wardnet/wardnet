@@ -53,6 +53,7 @@ use crate::dns_local::DnsLocalService;
 use crate::entitlement::Entitlement;
 use crate::error::AppError;
 use crate::event::EventPublisher;
+use crate::push::PushService;
 use crate::secret_store::SecretStore;
 use crate::tls::{TlsService, TlsStatus};
 
@@ -187,6 +188,18 @@ pub trait PrivateDnsService: Send + Sync {
         Ok(None)
     }
 
+    /// Nudge a granted device's household member to set up Private DNS via a
+    /// device-keyed push deep-linking the user PWA to `/private-dns`. Returns
+    /// whether any push subscription was targeted (`delivered`); a granted
+    /// device with no subscription yields `Ok(false)`, not an error. A device
+    /// with no grant is a 404 ([`AppError::NotFound`]), mirroring
+    /// [`Self::device_grant`]-backed `delete_grant`. Admin only. A default
+    /// `Ok(false)` keeps test doubles that predate it compiling.
+    async fn notify_device(&self, device_id: Uuid) -> Result<bool, AppError> {
+        let _ = device_id;
+        Ok(false)
+    }
+
     /// The signed `.mobileconfig` for this device, or `None` when the device
     /// isn't granted, the feature is disabled, or the wardnet domain / cert
     /// isn't available yet (all of which surface as a 404). Backs the
@@ -224,6 +237,10 @@ pub struct PrivateDnsServiceImpl {
     /// Source of the live Let's Encrypt cert/key used to CMS-sign the iOS
     /// `.mobileconfig` (issue #914). Reached only from `device_profile`.
     secrets: Arc<dyn SecretStore>,
+    /// Delivers the device-keyed "Private DNS is ready" nudge. A direct
+    /// service-to-service call (not a synthetic event): notifying is an explicit
+    /// admin resend action, not an organic state change (issue #915).
+    push: Arc<dyn PushService>,
     /// The Pi's LAN-interface IPv4 — the value of the wildcard record.
     lan_ip: Ipv4Addr,
 }
@@ -241,6 +258,7 @@ impl PrivateDnsServiceImpl {
         entitlement: Arc<Entitlement>,
         events: Arc<dyn EventPublisher>,
         secrets: Arc<dyn SecretStore>,
+        push: Arc<dyn PushService>,
         lan_ip: Ipv4Addr,
     ) -> Self {
         Self {
@@ -253,6 +271,7 @@ impl PrivateDnsServiceImpl {
             entitlement,
             events,
             secrets,
+            push,
             lan_ip,
         }
     }
@@ -535,6 +554,24 @@ impl PrivateDnsService for PrivateDnsServiceImpl {
     async fn device_grant(&self, device_id: Uuid) -> Result<Option<PrivateDnsGrant>, AppError> {
         auth_context::require_admin()?;
         self.grant_for_device(device_id).await
+    }
+
+    async fn notify_device(&self, device_id: Uuid) -> Result<bool, AppError> {
+        auth_context::require_admin()?;
+
+        // A device with no grant is a 404 — the same guard `delete_grant`
+        // applies (there is nothing to nudge a household member about yet).
+        if self.grant_for_device(device_id).await?.is_none() {
+            return Err(AppError::NotFound(format!(
+                "device {device_id} has no Private DNS grant"
+            )));
+        }
+
+        // Delegate targeting to the push service: it owns the device UUID -> MAC
+        // resolution and the subscription fan-out, and reports whether any
+        // subscription existed (the API's `delivered`). Runs under this admin
+        // context, satisfying the push method's own `require_admin`.
+        self.push.notify_private_dns_granted(device_id).await
     }
 
     async fn device_profile(&self, device_id: Uuid) -> Result<Option<Vec<u8>>, AppError> {

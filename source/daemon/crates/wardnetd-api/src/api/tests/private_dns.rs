@@ -52,6 +52,9 @@ struct MockPrivateDns {
     enable_conflicts: bool,
     /// Bytes `device_profile` returns for the granted device (`None` → 404).
     profile: Option<Vec<u8>>,
+    /// The `delivered` value `notify_device` reports for the granted device —
+    /// modelling whether the device holds a push subscription.
+    notify_delivered: bool,
 }
 
 fn sample_grant() -> PrivateDnsGrant {
@@ -100,6 +103,16 @@ impl PrivateDnsService for MockPrivateDns {
     }
     async fn device_grant(&self, device_id: Uuid) -> Result<Option<PrivateDnsGrant>, AppError> {
         Ok(self.grant.clone().filter(|g| g.device_id == device_id))
+    }
+    async fn notify_device(&self, device_id: Uuid) -> Result<bool, AppError> {
+        // Mirror the real service: 404 when the device holds no grant, else
+        // report the configured delivery flag.
+        match self.grant.clone().filter(|g| g.device_id == device_id) {
+            Some(_) => Ok(self.notify_delivered),
+            None => Err(AppError::NotFound(format!(
+                "device {device_id} has no Private DNS grant"
+            ))),
+        }
     }
     async fn device_profile(&self, _device_id: Uuid) -> Result<Option<Vec<u8>>, AppError> {
         Ok(self.profile.clone())
@@ -313,6 +326,10 @@ fn app(state: AppState) -> Router {
             "/api/private-dns/grants/{device_id}",
             axum::routing::delete(crate::api::private_dns::delete_grant),
         )
+        .route(
+            "/api/private-dns/grants/{device_id}/notify",
+            post(crate::api::private_dns::notify_device),
+        )
         .route("/api/private-dns/me", get(crate::api::private_dns::get_me))
         .route(
             "/api/private-dns/me/profile",
@@ -489,8 +506,82 @@ async fn delete_grant_returns_404_when_absent() {
 }
 
 #[tokio::test]
+async fn notify_returns_delivered_true_when_subscription_exists() {
+    let state = make_state(
+        MockPrivateDns {
+            enabled: AtomicBool::new(true),
+            grant: Some(sample_grant()),
+            notify_delivered: true,
+            ..Default::default()
+        },
+        MeDeviceService { known: true },
+    );
+    let resp = app(state)
+        .oneshot(admin_request(
+            "POST",
+            &format!("/api/private-dns/grants/{ME_DEVICE}/notify"),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 8192).await.unwrap();
+    let json: wardnet_common::api::SendPrivateDnsNotificationResponse =
+        serde_json::from_slice(&body).unwrap();
+    assert!(json.delivered);
+}
+
+#[tokio::test]
+async fn notify_returns_delivered_false_when_no_subscription() {
+    let state = make_state(
+        MockPrivateDns {
+            enabled: AtomicBool::new(true),
+            grant: Some(sample_grant()),
+            notify_delivered: false,
+            ..Default::default()
+        },
+        MeDeviceService { known: true },
+    );
+    let resp = app(state)
+        .oneshot(admin_request(
+            "POST",
+            &format!("/api/private-dns/grants/{ME_DEVICE}/notify"),
+            None,
+        ))
+        .await
+        .unwrap();
+    // A granted device with no subscription is a 200, not an error.
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = axum::body::to_bytes(resp.into_body(), 8192).await.unwrap();
+    let json: wardnet_common::api::SendPrivateDnsNotificationResponse =
+        serde_json::from_slice(&body).unwrap();
+    assert!(!json.delivered);
+}
+
+#[tokio::test]
+async fn notify_returns_404_when_device_has_no_grant() {
+    let state = make_state(
+        MockPrivateDns {
+            enabled: AtomicBool::new(true),
+            grant: None,
+            ..Default::default()
+        },
+        MeDeviceService { known: true },
+    );
+    let resp = app(state)
+        .oneshot(admin_request(
+            "POST",
+            &format!("/api/private-dns/grants/{}/notify", Uuid::new_v4()),
+            None,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
 async fn admin_endpoints_reject_unauthenticated() {
-    let cases: [(&str, &str, Option<serde_json::Value>); 4] = [
+    let cases: [(&str, &str, Option<serde_json::Value>); 5] = [
         ("GET", "/api/private-dns/status", None),
         (
             "PUT",
@@ -505,6 +596,11 @@ async fn admin_endpoints_reject_unauthenticated() {
         (
             "DELETE",
             "/api/private-dns/grants/00000000-0000-0000-0000-000000000000",
+            None,
+        ),
+        (
+            "POST",
+            "/api/private-dns/grants/00000000-0000-0000-0000-000000000000/notify",
             None,
         ),
     ];
