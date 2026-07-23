@@ -367,6 +367,32 @@ async fn install_rejects_downgrade() {
 }
 
 #[tokio::test]
+async fn install_rejects_requested_version_that_is_not_latest() {
+    // Requesting a specific version that isn't the channel's latest is refused
+    // during resolution, before the slot is handed a handle or anything is
+    // staged — and the claim is released so a later install can proceed.
+    let release = Release {
+        version: "0.2.0".to_owned(),
+        tarball_url: "http://example/t.tar.gz".to_owned(),
+        sha256_url: "http://example/t.tar.gz.sha256".to_owned(),
+        minisig_url: None,
+        published_at: None,
+        notes: None,
+    };
+    let (svc, applier, _) = build_service(Some(release));
+    let svc_trait: Arc<dyn UpdateService> = svc;
+    let result = auth_context::with_context(
+        test_admin_ctx(),
+        svc_trait.install(InstallUpdateRequest {
+            version: Some("9.9.9".to_owned()),
+        }),
+    )
+    .await;
+    assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+    assert_eq!(*applier.apply_count.lock().unwrap(), 0);
+}
+
+#[tokio::test]
 async fn concurrent_install_calls_stage_exactly_one() {
     // TOCTOU regression: the hourly `UpdateRunner` and an admin
     // `POST /api/update/install` can call `install()` at the same time. Before
