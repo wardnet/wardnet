@@ -112,22 +112,22 @@ pub async fn get_me(
             async {
                 let svc = state.routing_profile_service();
                 let ids = svc.get_device_profiles(device_id).await?;
-                let names: std::collections::HashMap<_, _> = svc
-                    .list_profiles()
-                    .await?
-                    .into_iter()
-                    .map(|p| (p.id, p.name))
-                    .collect();
-                Ok::<_, AppError>(
-                    ids.into_iter()
-                        .filter_map(|id| {
-                            names.get(&id).map(|name| RoutingProfileSummary {
-                                id: id.to_string(),
-                                name: name.clone(),
-                            })
-                        })
-                        .collect(),
-                )
+                // Resolve each assigned profile by id — the cost is bounded by
+                // the device's assignment count (an indexed primary-key lookup
+                // each) rather than scanning the whole profile catalogue, which
+                // matters on this 10s-polled `/me` endpoint.
+                let mut summaries = Vec::with_capacity(ids.len());
+                for id in ids {
+                    // A profile can be deleted between the assignment read and
+                    // this lookup; skip it rather than failing the /me response.
+                    if let Ok(profile) = svc.get_profile(id).await {
+                        summaries.push(RoutingProfileSummary {
+                            id: profile.id.to_string(),
+                            name: profile.name,
+                        });
+                    }
+                }
+                Ok::<_, AppError>(summaries)
             },
         )
         .await

@@ -75,8 +75,10 @@ export default function RoutingProfileDetail() {
         <Text as="h1" size="xl" weight="semibold">
           Profile not found
         </Text>
-        <Link to="/routing" className="text-sm text-accent underline">
-          Back to Routing
+        <Link to="/routing" className="text-accent underline">
+          <Text as="span" size="sm">
+            Back to Routing
+          </Text>
         </Link>
       </div>
     );

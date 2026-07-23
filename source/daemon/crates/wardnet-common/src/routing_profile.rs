@@ -20,6 +20,10 @@ use uuid::Uuid;
 pub struct RoutingProfile {
     pub id: Uuid,
     pub name: String,
+    /// Number of domain rules in this profile. Populated on read so the
+    /// profile list can show a per-profile rule count without a follow-up
+    /// query per row; `0` on a freshly created profile.
+    pub rule_count: i64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

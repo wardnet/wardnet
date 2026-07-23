@@ -208,7 +208,7 @@ export function DeviceRoutingProfilesCard({
           ) : (
             <ol className="flex flex-col gap-1">
               {assignedIds.map((profileId, index) => (
-                <li key={profileId} className="flex items-center gap-2 text-sm">
+                <li key={profileId} className="flex items-center gap-2">
                   <Text size="xs" className="text-ink-3">
                     {index + 1}.
                   </Text>

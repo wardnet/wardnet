@@ -13,6 +13,8 @@ export type DomainRoutingTarget = { type: "tunnel"; tunnel_id: string } | { type
 export interface RoutingProfile {
   id: string;
   name: string;
+  /** Number of domain rules in this profile (populated on read; 0 on create). */
+  rule_count: number;
   created_at: string;
   updated_at: string;
 }

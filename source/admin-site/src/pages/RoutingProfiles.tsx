@@ -21,7 +21,6 @@ import {
   useCreateRoutingProfile,
   useUpdateRoutingProfile,
   useDeleteRoutingProfile,
-  useDomainRoutingRules,
 } from "@wardnet/web";
 import type { RoutingProfile } from "@wardnet/js";
 import { DataTable } from "@/components/core/ui/data-table";
@@ -29,11 +28,10 @@ import { PageHeader } from "@/components/compound/PageHeader";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 
-/** Per-row badge showing how many domain rules a profile carries. Omitted
- *  while zero so a fresh profile reads uncluttered. */
-function RuleCountBadge({ profileId }: { profileId: string }) {
-  const { data } = useDomainRoutingRules(profileId);
-  const count = data?.rules.length ?? 0;
+/** Per-row badge showing how many domain rules a profile carries. The count
+ *  comes from the profile list response (`rule_count`), so no per-row query is
+ *  needed. Omitted while zero so a fresh profile reads uncluttered. */
+function RuleCountBadge({ count }: { count: number }) {
   if (count === 0) return null;
   return (
     <Pill variant="ghost">
@@ -99,7 +97,7 @@ export default function RoutingProfiles() {
         meta: { className: "hidden text-right md:table-cell" },
         cell: ({ row }) => (
           <div className="flex justify-end">
-            <RuleCountBadge profileId={row.original.id} />
+            <RuleCountBadge count={row.original.rule_count} />
           </div>
         ),
       },

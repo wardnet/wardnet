@@ -109,6 +109,27 @@ function setup(rules = [rule], deviceIds: string[] = []) {
 describe("RoutingProfileDetail", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it("shows a loading state while the profile is fetching", () => {
+    useRoutingProfile.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+    });
+    renderWithProviders(<RoutingProfileDetail />);
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+  });
+
+  it("shows a not-found fallback with a back link on error", () => {
+    useRoutingProfile.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+    });
+    renderWithProviders(<RoutingProfileDetail />);
+    expect(screen.getByText("Profile not found")).toBeInTheDocument();
+    expect(screen.getByText("Back to Routing")).toBeInTheDocument();
+  });
+
   it("lists a rule with its pattern and target label", () => {
     setup();
     expect(screen.getByText("*.netflix.com")).toBeInTheDocument();

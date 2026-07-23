@@ -20,14 +20,12 @@ const {
   useCreateRoutingProfile,
   useUpdateRoutingProfile,
   useDeleteRoutingProfile,
-  useDomainRoutingRules,
   navigate,
 } = vi.hoisted(() => ({
   useRoutingProfiles: vi.fn(),
   useCreateRoutingProfile: vi.fn(),
   useUpdateRoutingProfile: vi.fn(),
   useDeleteRoutingProfile: vi.fn(),
-  useDomainRoutingRules: vi.fn(),
   navigate: vi.fn(),
 }));
 
@@ -44,7 +42,6 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useCreateRoutingProfile,
     useUpdateRoutingProfile,
     useDeleteRoutingProfile,
-    useDomainRoutingRules,
   };
 });
 
@@ -71,7 +68,6 @@ function mutations() {
     isPending: false,
     error: null,
   });
-  useDomainRoutingRules.mockReturnValue({ data: { rules: [] } });
 }
 
 describe("RoutingProfiles", () => {
@@ -100,7 +96,7 @@ describe("RoutingProfiles", () => {
   it("lists profiles and navigates to the detail page on row click", async () => {
     const user = userEvent.setup();
     useRoutingProfiles.mockReturnValue({
-      data: { profiles: [{ id: "p1", name: "Streaming" }] },
+      data: { profiles: [{ id: "p1", name: "Streaming", rule_count: 2 }] },
       isLoading: false,
     });
     renderWithProviders(<RoutingProfiles />);
@@ -112,7 +108,7 @@ describe("RoutingProfiles", () => {
   it("renames a profile through the modal", async () => {
     const user = userEvent.setup();
     useRoutingProfiles.mockReturnValue({
-      data: { profiles: [{ id: "p1", name: "Streaming" }] },
+      data: { profiles: [{ id: "p1", name: "Streaming", rule_count: 2 }] },
       isLoading: false,
     });
     renderWithProviders(<RoutingProfiles />);
@@ -132,7 +128,7 @@ describe("RoutingProfiles", () => {
   it("deletes a profile after confirmation", async () => {
     const user = userEvent.setup();
     useRoutingProfiles.mockReturnValue({
-      data: { profiles: [{ id: "p1", name: "Streaming" }] },
+      data: { profiles: [{ id: "p1", name: "Streaming", rule_count: 2 }] },
       isLoading: false,
     });
     renderWithProviders(<RoutingProfiles />);

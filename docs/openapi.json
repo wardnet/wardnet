@@ -28382,6 +28382,7 @@
         "required": [
           "id",
           "name",
+          "rule_count",
           "created_at",
           "updated_at"
         ],
@@ -28396,6 +28397,11 @@
           },
           "name": {
             "type": "string"
+          },
+          "rule_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of domain rules in this profile. Populated on read so the\nprofile list can show a per-profile rule count without a follow-up\nquery per row; `0` on a freshly created profile."
           },
           "updated_at": {
             "type": "string",

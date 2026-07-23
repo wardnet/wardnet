@@ -2,7 +2,7 @@ import { type ComponentType, type SVGProps } from "react";
 import { NavLink, useNavigate } from "react-router";
 import {
   Archive,
-  Boxes,
+  Layers,
   Globe,
   GlobeLock,
   Inbox,
@@ -69,7 +69,7 @@ const adminSections: NavSection[] = [
       { to: "/tunnels", label: "Tunnels", icon: Route, testId: "nav-tunnels" },
       { to: "/routing", label: "Routing", icon: Split, testId: "nav-routing" },
       { to: "/vpn", label: "VPN", icon: ShieldWifi, testId: "nav-vpn" },
-      { to: "/zones", label: "Zones", icon: Boxes, testId: "nav-zones" },
+      { to: "/zones", label: "Zones", icon: Layers, testId: "nav-zones" },
       { to: "/dhcp", label: "DHCP", icon: Router, testId: "nav-dhcp" },
     ],
   },

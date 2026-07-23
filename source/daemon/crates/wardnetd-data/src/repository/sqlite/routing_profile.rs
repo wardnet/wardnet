@@ -47,6 +47,7 @@ impl SqliteRoutingProfileRepository {
 struct DbProfileRow {
     id: String,
     name: String,
+    rule_count: i64,
     created_at: String,
     updated_at: String,
 }
@@ -56,6 +57,7 @@ impl DbProfileRow {
         Ok(RoutingProfile {
             id: self.id.parse()?,
             name: self.name,
+            rule_count: self.rule_count,
             created_at: parse_ts(&self.created_at)?,
             updated_at: parse_ts(&self.updated_at)?,
         })
@@ -94,10 +96,14 @@ impl DbRuleRow {
     }
 }
 
-const LIST_PROFILES_SQL: &str =
-    "SELECT id, name, created_at, updated_at FROM routing_profiles ORDER BY name ASC";
-const GET_PROFILE_SQL: &str =
-    "SELECT id, name, created_at, updated_at FROM routing_profiles WHERE id = ?";
+// `rule_count` is a correlated subquery so the profile list carries its rule
+// count in one round-trip (no per-row follow-up query from the UI).
+const LIST_PROFILES_SQL: &str = "SELECT id, name, \
+     (SELECT COUNT(*) FROM routing_profile_rules r WHERE r.profile_id = routing_profiles.id) AS rule_count, \
+     created_at, updated_at FROM routing_profiles ORDER BY name ASC";
+const GET_PROFILE_SQL: &str = "SELECT id, name, \
+     (SELECT COUNT(*) FROM routing_profile_rules r WHERE r.profile_id = routing_profiles.id) AS rule_count, \
+     created_at, updated_at FROM routing_profiles WHERE id = ?";
 const LIST_RULES_SQL: &str = "SELECT id, profile_id, pattern, target_kind, tunnel_id, enabled, created_at, updated_at \
      FROM routing_profile_rules WHERE profile_id = ? ORDER BY created_at ASC";
 const LIST_ALL_RULES_SQL: &str = "SELECT id, profile_id, pattern, target_kind, tunnel_id, enabled, created_at, updated_at \
@@ -139,6 +145,7 @@ impl RoutingProfileRepository for SqliteRoutingProfileRepository {
         Ok(RoutingProfile {
             id: row.id.parse()?,
             name: row.name.clone(),
+            rule_count: 0,
             created_at: parse_ts(&now)?,
             updated_at: parse_ts(&now)?,
         })
