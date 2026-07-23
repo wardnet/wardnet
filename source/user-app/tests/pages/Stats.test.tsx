@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import Stats from "../../src/pages/Stats";
@@ -161,6 +161,30 @@ describe("Stats page", () => {
       domain: "bad.com",
       reason: null,
     });
+  });
+
+  it("closes the request modal once the submission succeeds", async () => {
+    // The close-on-success wiring moved from the modal into the page's onSubmit
+    // (setRequestTarget(null)); drive the mutation's onSuccess to exercise it.
+    createRuleMutate.mockImplementation((_payload, opts) =>
+      opts?.onSuccess?.(),
+    );
+    useMyDevice.mockReturnValue({
+      data: { device: makeDevice({ dns_capture_enabled: true }) },
+      isLoading: false,
+    });
+    renderWithProviders(<Stats />);
+
+    const [askBtn] = screen.getAllByLabelText(/Ask admin about bad.com/);
+    await userEvent.click(askBtn);
+    expect(screen.getByText("Ask your administrator")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText("Ask your administrator"),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("switches the selected day when a trend button is tapped", async () => {
