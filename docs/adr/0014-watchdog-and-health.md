@@ -48,6 +48,30 @@ single most important property of the design.
   `/dev/watchdog` impl and a `NoopWatchdog` mock, wired onto `Backends` like
   `SystemPowerOps`/`GarpOps`. systemd's own hardware-watchdog support would
   have meant PID-1 owning the device and a coarser, health-blind policy.
+  - **Device access & ownership (cross-platform).** The hard layer opens
+    `/dev/watchdog` as `User=wardnet`, and the outcome depends on the host —
+    so the daemon classifies the open result instead of treating every
+    failure as "no backstop":
+    - **Free + accessible** → wardnet owns and pets it. The kernel creates the
+      device `root:root 0600`, which an unprivileged daemon can't open, so a
+      udev rule hands it to the `wardnet` group at `0660`. That rule is laid
+      down by the `0002_watchdog_udev_rule` post-upgrade migration (in
+      `wardnet-postupgrade`), which runs as root before `wardnetd` on every
+      boot — so the fix reaches auto-updated installs, not just fresh
+      `install.sh` runs. This is the common case on plain Linux hosts (upstream
+      systemd defaults `RuntimeWatchdogSec=off`).
+    - **Owned by another supervisor** (`EBUSY`) → the daemon defers. systemd's
+      own `RuntimeWatchdogSec=` claims the single-opener device — notably the
+      Raspberry Pi OS default (`/lib/systemd/system.conf.d/40-rpi-enable-watchdog.conf`,
+      `RuntimeWatchdogSec=1m`) — as can a standalone `watchdogd`. The host still
+      has a hardware reboot-on-freeze backstop, just owned by that supervisor;
+      wardnet's hard layer stands down (logged INFO, not a fault). A daemon-
+      specific hang is still caught faster by the soft `WatchdogSec=15`
+      service restart.
+    - **No device** (`ENOENT`, e.g. containers/VMs) → soft watchdog only.
+    - **Present but inaccessible** (`EACCES`) → the one genuine
+      misconfiguration: the udev rule above is missing. Logged WARN with the
+      remedy.
 - **`Type=notify` + `READY=1` after listeners bind.** The daemon only reports
   ready once `:7411`/`:443`/`:80` are bound, so systemd's `active(running)` is
   meaningful and the watchdog supervision arms at the right moment.
