@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Button } from "@wardnet/web";
-import { FormActions } from "@wardnet/web";
+import { Form, FormActions, Validator } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import {
   Card,
@@ -86,11 +86,15 @@ export function DeviceSettingsCard({
     updateDevice.reset();
   }
 
-  async function handleSave() {
+  // A managed device is defined by having a name, so a name is required both to
+  // promote an unmanaged device and to keep a managed one managed. The `<Form>`
+  // only fires `onSubmit` once the `required` validator passes, so an empty name
+  // can no longer slip through as a silent no-op.
+  async function handleSave(values: { name: string }) {
     await updateDevice.mutateAsync({
       id: device.id,
       body: {
-        name: name || undefined,
+        name: values.name.trim(),
         device_type: deviceType,
         routing_target: routingTarget ?? undefined,
         admin_locked: adminLocked,
@@ -121,9 +125,9 @@ export function DeviceSettingsCard({
       </CardHeader>
 
       {editing ? (
-        <>
+        <Form values={{ name }} onSubmit={handleSave}>
           <CardContent className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
-            <Field label="Friendly name" htmlFor="device-name">
+            <Field label="Friendly name" htmlFor="device-name" name="name">
               <Input
                 id="device-name"
                 value={name}
@@ -131,6 +135,11 @@ export function DeviceSettingsCard({
                 placeholder={device.hostname ?? device.mac}
               />
             </Field>
+            <Validator
+              name="name"
+              rule="required"
+              message="A name is required to manage this device."
+            />
 
             <Field label="Device type">
               <Select
@@ -188,17 +197,18 @@ export function DeviceSettingsCard({
           <FormActions
             secondaryLabel="Cancel"
             secondaryProps={{
+              type: "button",
               onClick: cancelEdit,
               disabled: updateDevice.isPending,
             }}
             primaryLabel={updateDevice.isPending ? savingLabel : saveLabel}
             primaryProps={{
-              onClick: handleSave,
+              type: "submit",
               disabled: updateDevice.isPending,
               "data-testid": "device-settings-save",
             }}
           />
-        </>
+        </Form>
       ) : (
         <CardContent className="grid grid-cols-1 gap-x-6 gap-y-4 md:grid-cols-2">
           <div className="flex flex-col gap-0.5">
