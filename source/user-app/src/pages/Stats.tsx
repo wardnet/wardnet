@@ -15,6 +15,7 @@ import {
   Sparkline,
   StatTile,
   Text,
+  useCreateRuleRequest,
   useMyDevice,
 } from "@wardnet/web";
 
@@ -186,6 +187,7 @@ export default function Stats() {
   );
   const { data: me, isLoading: meLoading } = useMyDevice();
   const stats = useDnsStats(date);
+  const createRuleRequest = useCreateRuleRequest();
 
   const device = me?.device;
 
@@ -338,6 +340,12 @@ export default function Stats() {
       <RequestRuleModal
         target={requestTarget}
         onClose={() => setRequestTarget(null)}
+        isSubmitting={createRuleRequest.isPending}
+        onSubmit={(payload) =>
+          createRuleRequest.mutate(payload, {
+            onSuccess: () => setRequestTarget(null),
+          })
+        }
       />
     </div>
   );
