@@ -1,10 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import {
-  AuthService,
-  SetupService,
-  WardnetApiError,
-  WardnetClient,
-} from "@wardnet/js";
+import { AuthService, SetupService, WardnetClient } from "@wardnet/js";
 
 import {
   ADMIN_PASSWORD,
@@ -19,12 +14,17 @@ import {
  *
  * The happy path (login → bearer → authed call) is exercised all over
  * the suite via `ensureAdminAndLogin`. What's missing is the negative
- * space: a bad password, a call with no credentials at all, and the
- * one-shot nature of setup. Those rejections are load-bearing — they're
- * the difference between "the admin API is locked down" and "it looks
- * locked down until someone omits the header" — so pin them here rather
- * than trusting the unit tests in `auth/tests/` to stand in for the
- * assembled HTTP surface.
+ * space: a bad password, a call carrying a token that doesn't name a
+ * session, and the one-shot nature of setup. Those rejections are
+ * load-bearing — they're the difference between "the admin API is locked
+ * down" and "it looks locked down until someone gets the header wrong" —
+ * so pin them here rather than trusting the unit tests in `auth/tests/`
+ * to stand in for the assembled HTTP surface.
+ *
+ * The missing-credentials case (no header at all) is owned by
+ * `auth-coverage.spec.ts`, which hits every representative admin surface
+ * with no auth; the bad-bearer case below is the complement it doesn't
+ * cover — credentials present but invalid.
  *
  * `beforeAll` runs the idempotent bootstrap so an admin definitely
  * exists; that makes the wrong-password case a genuine "existing admin,
@@ -41,32 +41,19 @@ describe("auth — login and rejection paths", () => {
   }, 180_000);
 
   it("rejects a wrong password with 401", async () => {
-    let caught: unknown;
-    try {
-      await auth.login({
+    await expect(
+      auth.login({
         username: ADMIN_USERNAME,
         password: `${ADMIN_PASSWORD}-not-it`,
-      });
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(WardnetApiError);
-    expect((caught as WardnetApiError).status).toBe(401);
+      }),
+    ).rejects.toMatchObject({ name: "WardnetApiError", status: 401 });
   });
 
-  it("rejects an admin endpoint called without a bearer with 401", async () => {
-    // Raw fetch, no Authorization header and no session cookie: the
-    // `AdminAuth` extractor should reject before the handler ever runs.
+  it("rejects an admin endpoint called with a bad bearer with 401", async () => {
+    // A malformed/expired token reaches `validate_session`/`validate_api_key`
+    // and finds nothing, so it must dead-end on the same 401 as no token at
+    // all — a caller can't be allowed to probe for which tokens exist.
     // `/devices` stands in for "any admin-guarded read".
-    const res = await fetch(`${API_BASE_URL}/devices`);
-    expect(res.status).toBe(401);
-  });
-
-  it("rejects a bad bearer token with 401", async () => {
-    // A malformed/expired token is distinct from a missing one — it
-    // reaches `validate_session`/`validate_api_key` and finds nothing.
-    // Both dead ends must land on the same 401 so a caller can't probe
-    // for which tokens exist.
     const res = await fetch(`${API_BASE_URL}/devices`, {
       headers: { Authorization: "Bearer not-a-real-token" },
     });
@@ -80,15 +67,11 @@ describe("auth — login and rejection paths", () => {
     // detail — assert both so a future refactor that swaps the status or
     // drops the message trips here.
     const setup = new SetupService(client);
-    let caught: unknown;
-    try {
-      await setup.setup({ username: "intruder", password: "password123" });
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(WardnetApiError);
-    const err = caught as WardnetApiError;
-    expect(err.status).toBe(409);
-    expect(err.body.detail ?? "").toContain("already completed");
+    await expect(
+      setup.setup({ username: "intruder", password: "password123" }),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: { detail: expect.stringContaining("already completed") },
+    });
   });
 });
