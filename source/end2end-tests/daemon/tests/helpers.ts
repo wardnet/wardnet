@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import {
   AuthService,
@@ -8,10 +9,13 @@ import {
   InfoService,
   JobsService,
   SetupService,
+  TunnelService,
   WardnetClient,
   isJobTerminal,
   type Device,
   type Job,
+  type Tunnel,
+  type TunnelStatus,
 } from "@wardnet/js";
 
 // Compose service names resolve to the corresponding container's IP on
@@ -732,4 +736,195 @@ export async function waitForJob(
   throw new Error(
     `job ${id} did not reach a terminal state within ${timeoutMs}ms (last status=${last?.status})`,
   );
+}
+
+/**
+ * Read a WireGuard `.conf` fixture from `fixtures/tunnels/` and return it
+ * verbatim for `TunnelService.create` (issue #247). Resolved relative to this
+ * file so it works both on a workstation and in the runner image, which copies
+ * the fixtures alongside `tests/` (see Dockerfile.runner). `readFileSync` is
+ * fine here — specs are short-lived and single-threaded.
+ */
+export function readTunnelConfig(name: string): string {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- `name` is a fixed fixture basename the specs pass literally (tunnel-a.conf / tunnel-b.conf), resolved against this file's own URL; no external or user input reaches the path.
+  return readFileSync(
+    new URL(`../fixtures/tunnels/${name}`, import.meta.url),
+    "utf8",
+  );
+}
+
+/**
+ * Pull the `[Peer] PublicKey` out of a WireGuard config string. Specs use this
+ * to assert the daemon dials the expected gateway without embedding the key as
+ * a literal in the test source — which is both duplication and a red flag for
+ * secret scanners. The client configs under `fixtures/tunnels` carry exactly
+ * one `PublicKey` line (the peer's; the interface side is a `PrivateKey`).
+ */
+export function wgPeerPublicKey(config: string): string {
+  const match = /^\s*PublicKey\s*=\s*(\S+)/m.exec(config);
+  if (!match) {
+    throw new Error("no [Peer] PublicKey found in WireGuard config");
+  }
+  return match[1];
+}
+
+/**
+ * One peer entry from the daemon agent's `GET /wg/{interface}`. The agent omits
+ * unset optional fields (serde `skip_serializing_if`) rather than sending
+ * `null`, so they read as `undefined` here.
+ */
+export interface WgPeer {
+  public_key: string;
+  endpoint?: string;
+  allowed_ips: string[];
+  latest_handshake?: string;
+  transfer_rx: number;
+  transfer_tx: number;
+}
+
+/**
+ * Shape of the daemon agent's `GET /wg/{interface}` response. When the kernel
+ * interface is absent, `exists` is false and the optional fields are omitted
+ * (see [`WgPeer`]).
+ */
+export interface WgShowResponse {
+  interface: string;
+  exists: boolean;
+  public_key?: string;
+  listening_port?: number;
+  peers?: WgPeer[];
+}
+
+/**
+ * Poll `probe` every `intervalMs` until `done` holds or `timeoutMs` elapses,
+ * returning the value that satisfied it. On timeout, throws with
+ * `describe(lastValue)` appended. Shared by the wait-for-* helpers so the
+ * deadline / backoff / message shape lives in one place.
+ */
+export async function pollUntil<T>(
+  probe: () => Promise<T>,
+  done: (value: T) => boolean,
+  opts: {
+    describe: (last: T | undefined) => string;
+    timeoutMs?: number;
+    intervalMs?: number;
+  },
+): Promise<T> {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const intervalMs = opts.intervalMs ?? 1_000;
+  const deadline = Date.now() + timeoutMs;
+  let last: T | undefined;
+  while (Date.now() < deadline) {
+    last = await probe();
+    if (done(last)) return last;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`timed out after ${timeoutMs}ms: ${opts.describe(last)}`);
+}
+
+/**
+ * Read a tunnel's live kernel state via `wg show <interface>` on the test-agent
+ * running in server mode inside the wardnetd container. The daemon names tunnel
+ * interfaces `wg_ward<N>`; pass the `interface_name` the tunnel API returned
+ * rather than hardcoding, since allocation depends on how many tunnels exist.
+ */
+export async function wgShow(
+  daemonAgent: string,
+  iface: string,
+): Promise<WgShowResponse> {
+  return agentGet<WgShowResponse>(daemonAgent, `/wg/${iface}`);
+}
+
+/**
+ * Poll [`wgShow`] until the kernel interface is present (`want = true`) or gone
+ * (`want = false`), returning the final response. Throws on timeout. The daemon
+ * brings tunnels up / tears them down asynchronously off routing and delete
+ * events, so the state change is never visible on the first read.
+ */
+export async function waitForWgInterface(
+  daemonAgent: string,
+  iface: string,
+  want: boolean,
+  timeoutMs = 30_000,
+): Promise<WgShowResponse> {
+  return pollUntil(
+    () => wgShow(daemonAgent, iface),
+    (wg) => wg.exists === want,
+    {
+      timeoutMs,
+      describe: (last) =>
+        `wg interface ${iface} was ${want ? "absent" : "still present"} (last: ${JSON.stringify(last)})`,
+    },
+  );
+}
+
+/**
+ * Poll `TunnelService.getById` until the tunnel reaches `status`, returning the
+ * tunnel. Throws on timeout. Used to wait for the health-check loop
+ * (`health_check_interval_secs`, 10 s by default) to observe the first
+ * handshake and flip a freshly-routed tunnel `connecting` → `up`.
+ */
+export async function waitForTunnelStatus(
+  tunnels: TunnelService,
+  id: string,
+  status: TunnelStatus,
+  timeoutMs = 45_000,
+): Promise<Tunnel> {
+  const { tunnel } = await pollUntil(
+    () => tunnels.getById(id),
+    (res) => res.tunnel.status === status,
+    {
+      timeoutMs,
+      describe: (last) =>
+        `tunnel ${id} did not reach status=${status} (last status=${last?.tunnel.status})`,
+    },
+  );
+  return tunnel;
+}
+
+/**
+ * Route a device through a tunnel and wait until the daemon has applied it: the
+ * WireGuard interface is up and the per-device `ip rule` is installed. The
+ * tunnel-lifecycle specs share this so the "assign + wait for kernel state"
+ * step reads the same in each.
+ */
+export async function routeThroughTunnel(
+  devices: DeviceService,
+  deviceId: string,
+  tunnelId: string,
+  daemonAgent: string,
+  interfaceName: string,
+): Promise<void> {
+  await devices.update(deviceId, {
+    routing_target: { type: "tunnel", tunnel_id: tunnelId },
+  });
+  await waitForWgInterface(daemonAgent, interfaceName, true);
+  await waitForTunnelRule(daemonAgent, true);
+}
+
+/**
+ * Best-effort teardown for the tunnel-lifecycle specs' `afterAll`: return the
+ * device to direct routing and delete the tunnel, ignoring "already gone"
+ * errors so re-runs against the persistent state volume start clean.
+ */
+export async function cleanupTunnelRouting(
+  devices: DeviceService,
+  tunnels: TunnelService,
+  deviceId: string | null | undefined,
+  tunnelId: string | null | undefined,
+): Promise<void> {
+  if (deviceId) {
+    try {
+      await devices.update(deviceId, { routing_target: { type: "direct" } });
+    } catch {
+      // already direct, or device gone
+    }
+  }
+  if (tunnelId) {
+    try {
+      await tunnels.delete(tunnelId);
+    } catch {
+      // already deleted
+    }
+  }
 }
