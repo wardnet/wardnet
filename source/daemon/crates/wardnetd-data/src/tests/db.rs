@@ -284,6 +284,56 @@ async fn discard_stale_wal_is_a_noop_without_the_marker() {
 }
 
 #[tokio::test]
+async fn startup_vacuum_skip_line_names_the_freelist_and_threshold() {
+    // A legacy `auto_vacuum=NONE` file with a small freelist takes the
+    // skip-VACUUM debug branch. The message must spell out the observed
+    // freelist and the threshold it fell under, not just attach them as
+    // fields — on a plain-text backend "skipping VACUUM" alone says nothing
+    // about why.
+    let dir = std::env::temp_dir();
+    let db = dir.join(format!("wardnet-vacuum-skip-{}.db", Uuid::new_v4()));
+
+    // Pre-create the file with a table under the SQLite default
+    // (`auto_vacuum=NONE`); the existing table locks the mode so the
+    // INCREMENTAL connect pragma init applies afterwards is a no-op and the
+    // startup check sees a genuine legacy database.
+    {
+        let mut conn = SqliteConnectOptions::new()
+            .filename(&db)
+            .create_if_missing(true)
+            .connect()
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE __legacy_probe (x INTEGER)")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+    }
+
+    let capture = wardnet_test_support::capture_logs(tracing::Level::DEBUG);
+    let pools = init_db_pools_from_connection_string(db.to_str().unwrap())
+        .await
+        .expect("file-based pool creation should succeed");
+
+    let logs = capture.contents();
+    assert!(
+        logs.contains("under threshold (25000); skipping VACUUM"),
+        "skip line must name the freelist threshold, got: {logs}"
+    );
+    assert!(
+        logs.contains("freelist (0)"),
+        "skip line must name the observed freelist, got: {logs}"
+    );
+
+    pools.write.close().await;
+    pools.read.close().await;
+    for s in ["", "-wal", "-shm"] {
+        let _ = tokio::fs::remove_file(sidecar(&db, s)).await;
+    }
+}
+
+#[tokio::test]
 async fn init_pool_with_path_delegates_to_connection_string() {
     // The legacy `init_pool(&Path)` entrypoint accepts ":memory:" as a path
     // and routes through the same in-memory code path.

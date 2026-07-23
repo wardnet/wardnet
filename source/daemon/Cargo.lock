@@ -6115,6 +6115,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "wardnet-test-support"
+version = "0.7.0"
+dependencies = [
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "wardnetd"
 version = "0.7.0"
 dependencies = [
@@ -6220,6 +6228,7 @@ dependencies = [
  "tracing",
  "uuid",
  "wardnet-common",
+ "wardnet-test-support",
 ]
 
 [[package]]
@@ -6243,6 +6252,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wardnet-common",
+ "wardnet-test-support",
  "wardnetd-api",
  "wardnetd-data",
  "wardnetd-services",
@@ -6298,6 +6308,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "wardnet-common",
+ "wardnet-test-support",
  "wardnetd-data",
  "web-push-native",
  "wiremock",

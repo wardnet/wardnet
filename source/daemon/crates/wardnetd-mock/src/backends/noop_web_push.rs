@@ -18,7 +18,9 @@ impl WebPushSender for NoopWebPushSender {
         tracing::info!(
             endpoint = %target.endpoint,
             payload = %String::from_utf8_lossy(&payload),
-            "mock: pretending to deliver web push",
+            "mock: pretending to deliver web push: endpoint={endpoint}, payload={payload}",
+            endpoint = target.endpoint,
+            payload = String::from_utf8_lossy(&payload),
         );
         SendOutcome::Delivered
     }

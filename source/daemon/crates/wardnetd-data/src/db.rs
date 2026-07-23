@@ -339,7 +339,7 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
         tracing::debug!(
             freelist,
             threshold = VACUUM_FREELIST_THRESHOLD_PAGES,
-            "legacy auto_vacuum=NONE but freelist under threshold; skipping VACUUM"
+            "legacy auto_vacuum=NONE but freelist ({freelist}) under threshold ({VACUUM_FREELIST_THRESHOLD_PAGES}); skipping VACUUM"
         );
         return;
     }
@@ -351,17 +351,18 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
             tracing::warn!(
                 db_size,
                 free,
-                "legacy auto_vacuum=NONE database is large and reclaimable, but free disk \
-                 space is < 1.2x DB size; skipping startup VACUUM. Run `sqlite3 {} 'VACUUM;'` \
-                 manually after freeing space.",
+                "legacy auto_vacuum=NONE database is large ({db_size} bytes) and reclaimable, \
+                 but free disk space ({free} bytes) is < 1.2x DB size; skipping startup VACUUM. \
+                 Run `sqlite3 {} 'VACUUM;'` manually after freeing space.",
                 db_path.display(),
             );
             return;
         }
         None => {
             tracing::warn!(
-                "could not determine free disk space on {}; skipping startup VACUUM",
-                parent.display()
+                dir = %parent.display(),
+                "could not determine free disk space on {dir}; skipping startup VACUUM",
+                dir = parent.display()
             );
             return;
         }
@@ -371,7 +372,7 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
     tracing::info!(
         db_size,
         freelist,
-        "running one-shot VACUUM to migrate database to auto_vacuum=INCREMENTAL"
+        "running one-shot VACUUM to migrate database to auto_vacuum=INCREMENTAL: db_size={db_size}, freelist={freelist}"
     );
     if let Err(e) = sqlx::query("PRAGMA auto_vacuum = INCREMENTAL")
         .execute(write)
@@ -384,11 +385,12 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
     match sqlx::query("VACUUM").execute(write).await {
         Ok(_) => {
             let new_size = std::fs::metadata(db_path).map_or(db_size, |m| m.len());
+            let elapsed_secs = started.elapsed().as_secs_f64();
             tracing::info!(
-                elapsed_secs = started.elapsed().as_secs_f64(),
+                elapsed_secs,
                 old_size = db_size,
                 new_size,
-                "startup VACUUM complete"
+                "startup VACUUM complete: {db_size} -> {new_size} bytes in {elapsed_secs}s"
             );
         }
         Err(e) => {

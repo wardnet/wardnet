@@ -46,3 +46,6 @@ libc.workspace = true
 [dev-dependencies]
 # https://crates.io/crates/tokio
 tokio = { workspace = true, features = ["test-util"] }
+# In-memory log capture so tests can assert on rendered message text, not just
+# structured fields.
+wardnet-test-support.workspace = true

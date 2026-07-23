@@ -200,7 +200,7 @@ impl PolicyRouter for NetlinkPolicyRouter {
                     .any(|a| matches!(a, RouteAttribute::Table(t) if *t == table))
             {
                 if let Err(e) = self.handle.route().del(route).execute().await {
-                    tracing::warn!(table, error = %e, "failed to delete route from table");
+                    tracing::warn!(table, error = %e, "failed to delete route from table {table}: {e}");
                 }
                 return Ok(());
             }

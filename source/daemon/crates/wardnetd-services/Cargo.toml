@@ -127,6 +127,8 @@ tempfile.workspace = true
 wiremock.workspace = true
 # https://crates.io/crates/criterion — micro-benchmark harness for the DNS component benches (see benches/)
 criterion.workspace = true
+# In-memory log capture for asserting rendered message text in push tests.
+wardnet-test-support.workspace = true
 
 # Micro-benchmarks for the hot DNS components (cache, and later authoritative
 # view + filter). `harness = false` hands the binary's main() to criterion.
