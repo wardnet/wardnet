@@ -1237,3 +1237,32 @@ fn build_request_rejects_wrong_length_auth() {
         .unwrap_err();
     assert!(err.to_string().contains("16 bytes"), "got {err}");
 }
+
+#[tokio::test]
+async fn send_unbuildable_subscription_warn_names_the_endpoint() {
+    // The drop-on-unbuildable warn must name the offending endpoint in the
+    // message text; on a plain-text backend "dropping unbuildable
+    // subscription" alone gives an operator nothing to act on.
+    let capture = wardnet_test_support::capture_logs(tracing::Level::WARN);
+
+    let sender = ReqwestWebPushSender::new(reqwest::Client::new(), "mailto:a@b.c".to_owned());
+    let vapid = VapidKey::generate();
+    let outcome = sender
+        .send(
+            &vapid,
+            PushTarget {
+                endpoint: "https://push.example.com/x",
+                p256dh: "not-a-valid-point",
+                auth: "YXV0aA",
+            },
+            b"{}".to_vec(),
+        )
+        .await;
+    assert_eq!(outcome, SendOutcome::Gone);
+
+    let logs = capture.contents();
+    assert!(
+        logs.contains("endpoint=https://push.example.com/x"),
+        "warn must interpolate the endpoint, got: {logs}"
+    );
+}

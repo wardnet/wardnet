@@ -229,3 +229,24 @@ async fn bootstrap_system_config_does_not_overwrite_existing_wizard_step() {
         Some("router_mac")
     );
 }
+
+#[tokio::test]
+async fn bootstrap_system_config_seed_logs_name_the_seeded_values() {
+    // On a plain-text backend the seed lines must name *which* policy and step
+    // were written, not just carry them as structured fields — otherwise the
+    // log reads "seeded wizard_step" with no way to tell which one.
+    let capture = wardnet_test_support::capture_logs(tracing::Level::INFO);
+    let repo: Arc<dyn SystemConfigRepository> = Arc::new(MockSystemConfigRepo::new());
+
+    bootstrap_system_config(&repo, "direct").await.unwrap();
+
+    let logs = capture.contents();
+    assert!(
+        logs.contains("seeded default_policy from config.toml: policy=direct"),
+        "default_policy seed line must name the policy, got: {logs}"
+    );
+    assert!(
+        logs.contains("seeded wizard_step: step=admin"),
+        "wizard_step seed line must name the step, got: {logs}"
+    );
+}

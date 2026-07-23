@@ -56,3 +56,7 @@ tracing-subscriber.workspace = true
 uuid.workspace = true
 # https://crates.io/crates/axum
 axum.workspace = true
+
+[dev-dependencies]
+# In-memory log capture for asserting rendered message text in backend tests.
+wardnet-test-support.workspace = true

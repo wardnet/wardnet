@@ -60,7 +60,7 @@ pub async fn bootstrap_system_config(
             .await?;
         tracing::info!(
             policy = config_default_policy,
-            "seeded default_policy from config.toml"
+            "seeded default_policy from config.toml: policy={config_default_policy}"
         );
     }
 
@@ -71,7 +71,7 @@ pub async fn bootstrap_system_config(
             "admin"
         };
         system_config.set_wizard_step(initial).await?;
-        tracing::info!(step = initial, "seeded wizard_step");
+        tracing::info!(step = initial, "seeded wizard_step: step={initial}");
     }
 
     Ok(())

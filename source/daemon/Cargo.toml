@@ -3,6 +3,7 @@ members = [
     "crates/wardnet-postupgrade",
     "crates/wardnet-postupgrade-runner",
     "crates/wardnet-test-agent",
+    "crates/wardnet-test-support",
     "crates/wardnet-common",
     "crates/wardnetd",
     "crates/wardnetd-api",
@@ -42,6 +43,7 @@ missing_panics_doc = "allow"
 # Internal
 wardnet-common = { path = "crates/wardnet-common" }
 wardnet-postupgrade = { path = "crates/wardnet-postupgrade" }
+wardnet-test-support = { path = "crates/wardnet-test-support" }
 wardnetd-api = { path = "crates/wardnetd-api" }
 wardnetd-data = { path = "crates/wardnetd-data" }
 wardnetd-mock = { path = "crates/wardnetd-mock" }
