@@ -49,4 +49,19 @@ describe("PrivateDnsGrantedModal", () => {
     await userEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(onDismiss).toHaveBeenCalled();
   });
+
+  it("dismisses when the modal is closed (Escape)", async () => {
+    const onDismiss = vi.fn();
+    renderWithProviders(
+      <PrivateDnsGrantedModal
+        grant={grant}
+        deviceName="Alice phone"
+        onSendToDevice={vi.fn()}
+        sending={false}
+        onDismiss={onDismiss}
+      />,
+    );
+    await userEvent.keyboard("{Escape}");
+    expect(onDismiss).toHaveBeenCalled();
+  });
 });

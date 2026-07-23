@@ -147,4 +147,48 @@ describe("usePrivateDns hooks", () => {
     );
     expect(toast.success).not.toHaveBeenCalled();
   });
+
+  it("enabling: toasts a generic error for a non-409 failure", async () => {
+    privateDnsService.setEnabled.mockRejectedValueOnce(new Error("boom"));
+    const { result } = renderHook(() => useSetPrivateDnsEnabled(), {
+      wrapper: createQueryWrapper(),
+    });
+    await act(async () => {
+      await expect(result.current.mutateAsync(true)).rejects.toBeTruthy();
+    });
+    expect(toast.error).toHaveBeenCalledWith("Failed to update Private DNS");
+  });
+
+  it("grant: surfaces the error message", async () => {
+    privateDnsService.grantDevice.mockRejectedValueOnce(new Error("nope"));
+    const { result } = renderHook(() => useGrantPrivateDnsDevice(), {
+      wrapper: createQueryWrapper(),
+    });
+    await act(async () => {
+      await expect(result.current.mutateAsync("d1")).rejects.toBeTruthy();
+    });
+    expect(toast.error).toHaveBeenCalledWith("nope");
+  });
+
+  it("revoke: toasts a fallback on failure", async () => {
+    privateDnsService.revokeDevice.mockRejectedValueOnce(new Error("x"));
+    const { result } = renderHook(() => useRevokePrivateDnsDevice(), {
+      wrapper: createQueryWrapper(),
+    });
+    await act(async () => {
+      await expect(result.current.mutateAsync("d1")).rejects.toBeTruthy();
+    });
+    expect(toast.error).toHaveBeenCalledWith("Failed to revoke access");
+  });
+
+  it("send-to-device: toasts a fallback on failure", async () => {
+    privateDnsService.notifyDevice.mockRejectedValueOnce(new Error("x"));
+    const { result } = renderHook(() => useSendPrivateDnsToDevice(), {
+      wrapper: createQueryWrapper(),
+    });
+    await act(async () => {
+      await expect(result.current.mutateAsync("d1")).rejects.toBeTruthy();
+    });
+    expect(toast.error).toHaveBeenCalledWith("Failed to send to device");
+  });
 });

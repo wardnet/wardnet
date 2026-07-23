@@ -24,6 +24,12 @@ function setMe(data: {
 describe("PrivateDns page", () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it("shows a loading state while me() resolves", () => {
+    usePrivateDnsMe.mockReturnValue({ data: undefined, isLoading: true });
+    renderWithProviders(<PrivateDns />);
+    expect(screen.getByText("Loading…")).toBeInTheDocument();
+  });
+
   it("tells the user to ask their admin when the feature is off", () => {
     setMe({ enabled: false, granted: false, hostname: null });
     renderWithProviders(<PrivateDns />);

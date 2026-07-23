@@ -40,4 +40,18 @@ describe("PrivateDnsInstructions", () => {
       `${window.location.origin}/api/private-dns/me/profile`,
     );
   });
+
+  it("falls back to the raw URL when the profile URL can't be parsed", () => {
+    // An unparseable URL degrades to the input rather than throwing.
+    render(
+      <PrivateDnsInstructions
+        hostname="tok.abc.my.wardnet.services"
+        profileUrl="http://["
+      />,
+    );
+    expect(screen.getByTestId("private-dns-profile-link")).toHaveAttribute(
+      "href",
+      "http://[",
+    );
+  });
 });
