@@ -22,6 +22,7 @@ pub enum StatsBucket {
 /// multiple related metrics in one round-trip (e.g. the tunnel
 /// detail page fetching tx, rx, and `rtt_ms` together).
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct StatsQuery {
     /// Single metric name. Mutually exclusive with `metrics`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -64,6 +65,7 @@ pub struct StatsQueryResponse {
 
 /// Parameters for a top-N stats query.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
 pub struct StatsTopQuery {
     pub metric: String,
     /// Label dimension to rank by (e.g. `"domain"`, `"client"`).

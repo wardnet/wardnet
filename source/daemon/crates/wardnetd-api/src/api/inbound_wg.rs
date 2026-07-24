@@ -24,6 +24,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 }
 
 #[utoipa::path(
+    operation_id = "inbound_wg_get_config",
     get,
     path = "/api/inbound-wg/config",
     tag = "inbound-wg",

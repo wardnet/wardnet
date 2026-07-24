@@ -767,7 +767,7 @@
           "backup"
         ],
         "description": "Return the current backup subsystem phase (idle, exporting, importing with a nested phase, or failed with a reason).",
-        "operationId": "status",
+        "operationId": "backup_status",
         "responses": {
           "200": {
             "description": "Current backup subsystem status",
@@ -3199,7 +3199,7 @@
           "dhcp"
         ],
         "description": "Return the current DHCP pool configuration (enabled flag, range, lease time, default options). Admin only.",
-        "operationId": "get_config",
+        "operationId": "dhcp_get_config",
         "responses": {
           "200": {
             "description": "Current DHCP configuration",
@@ -3314,7 +3314,7 @@
           "dhcp"
         ],
         "description": "Update the DHCP pool configuration (range, lease time, default options). Does not toggle the enabled flag — use the /api/dhcp/config/toggle endpoint for that. Admin only.",
-        "operationId": "update_config",
+        "operationId": "dhcp_update_config",
         "requestBody": {
           "content": {
             "application/json": {
@@ -3632,7 +3632,7 @@
           "dhcp"
         ],
         "description": "Enable or disable the DHCP server. In addition to persisting the enabled flag, this starts or stops the live DHCP server process so the change takes effect immediately. Admin only.",
-        "operationId": "toggle",
+        "operationId": "dhcp_toggle",
         "requestBody": {
           "content": {
             "application/json": {
@@ -4504,7 +4504,7 @@
           "dhcp"
         ],
         "description": "Get live DHCP server status and pool usage (running flag, total/used addresses, lease counts). Admin only.",
-        "operationId": "status",
+        "operationId": "dhcp_status",
         "responses": {
           "200": {
             "description": "DHCP server status and pool usage",
@@ -4738,7 +4738,7 @@
           "dns"
         ],
         "description": "Return the current DNS server configuration. Admin only.",
-        "operationId": "get_config",
+        "operationId": "dns_get_config",
         "responses": {
           "200": {
             "description": "Current DNS configuration",
@@ -4853,7 +4853,7 @@
           "dns"
         ],
         "description": "Partially update DNS server configuration. Admin only.",
-        "operationId": "update_config",
+        "operationId": "dns_update_config",
         "requestBody": {
           "content": {
             "application/json": {
@@ -5012,7 +5012,7 @@
           "dns"
         ],
         "description": "Enable or disable the DNS server. Admin only.",
-        "operationId": "toggle",
+        "operationId": "dns_toggle",
         "requestBody": {
           "content": {
             "application/json": {
@@ -10550,7 +10550,7 @@
           "dns"
         ],
         "description": "List every authoritative local DNS zone. Admin only.",
-        "operationId": "list_zones",
+        "operationId": "dns_local_list_zones",
         "responses": {
           "200": {
             "description": "Zones list",
@@ -10665,7 +10665,7 @@
           "dns"
         ],
         "description": "Create an authoritative local DNS zone. Admin only.",
-        "operationId": "create_zone",
+        "operationId": "dns_local_create_zone",
         "requestBody": {
           "content": {
             "application/json": {
@@ -10824,7 +10824,7 @@
           "dns"
         ],
         "description": "Fetch a single local DNS zone. Admin only.",
-        "operationId": "get_zone",
+        "operationId": "dns_local_get_zone",
         "parameters": [
           {
             "name": "id",
@@ -10983,7 +10983,7 @@
           "dns"
         ],
         "description": "Partially update a local DNS zone. Admin only.",
-        "operationId": "update_zone",
+        "operationId": "dns_local_update_zone",
         "parameters": [
           {
             "name": "id",
@@ -11184,7 +11184,7 @@
           "dns"
         ],
         "description": "Delete a local DNS zone. Records keep their data but lose the zone link (set to NULL). Admin only.",
-        "operationId": "delete_zone",
+        "operationId": "dns_local_delete_zone",
         "parameters": [
           {
             "name": "id",
@@ -11733,7 +11733,7 @@
           "dns"
         ],
         "description": "Return live DNS server status and cache statistics. Admin only.",
-        "operationId": "status",
+        "operationId": "dns_status",
         "responses": {
           "200": {
             "description": "DNS server status and cache stats",
@@ -11850,7 +11850,7 @@
           "inbound-wg"
         ],
         "description": "Read the current inbound WireGuard server config (enabled, listen port, public key) without mutating anything. Admin only.",
-        "operationId": "get_config",
+        "operationId": "inbound_wg_get_config",
         "responses": {
           "200": {
             "description": "Current inbound WireGuard config",
@@ -13454,7 +13454,7 @@
           "network"
         ],
         "description": "Read the LAN interface's current address + default gateway and classify whether the IP came from DHCP or a Wardnet-managed static config (install.sh --static-ip writes /etc/dhcpcd.conf.d/wardnet.conf, which flips dhcp_source to \"static\"). Powers the wizard's network step and the Settings page. Admin only.",
-        "operationId": "status",
+        "operationId": "network_status",
         "responses": {
           "200": {
             "description": "Current LAN interface state",
@@ -13571,7 +13571,7 @@
           "network-zones"
         ],
         "description": "List every Network Zone with its current member count. Admin only.",
-        "operationId": "list_zones",
+        "operationId": "network_list_zones",
         "responses": {
           "200": {
             "description": "Zones list",
@@ -13686,7 +13686,7 @@
           "network-zones"
         ],
         "description": "Create a Network Zone. `provenance` is forced to manual and default flags are never set on create (use PUT to promote). Admin only.",
-        "operationId": "create_zone",
+        "operationId": "network_create_zone",
         "requestBody": {
           "content": {
             "application/json": {
@@ -14650,7 +14650,7 @@
           "network-zones"
         ],
         "description": "Fetch a single Network Zone with its member count. Admin only.",
-        "operationId": "get_zone",
+        "operationId": "network_get_zone",
         "parameters": [
           {
             "name": "id",
@@ -14809,7 +14809,7 @@
           "network-zones"
         ],
         "description": "Partially update a Network Zone. Setting `is_default` or `is_default_for_new` to true promotes this zone; false is rejected (flags only move by promoting another zone). System zones are editable but not deletable. Admin only.",
-        "operationId": "update_zone",
+        "operationId": "network_update_zone",
         "parameters": [
           {
             "name": "id",
@@ -15020,7 +15020,7 @@
           "network-zones"
         ],
         "description": "Delete a Network Zone. Rejected for system zones, the anchor (default) zone, or zones that still have member devices. Admin only.",
-        "operationId": "delete_zone",
+        "operationId": "network_delete_zone",
         "parameters": [
           {
             "name": "id",
@@ -16989,26 +16989,20 @@
         "parameters": [
           {
             "name": "metric",
-            "in": "path",
+            "in": "query",
             "description": "Single metric name. Mutually exclusive with `metrics`.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
             "name": "metrics",
-            "in": "path",
+            "in": "query",
             "description": "Multiple metric names to fan out over in a single call. Mutually\nexclusive with `metric`.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "array",
-                "null"
-              ],
+              "type": "array",
               "items": {
                 "type": "string"
               }
@@ -17016,19 +17010,16 @@
           },
           {
             "name": "label_filter",
-            "in": "path",
+            "in": "query",
             "description": "Exact labels JSON string to filter by. `None` returns all label combinations.",
-            "required": true,
+            "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
             "name": "from",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string",
@@ -17037,7 +17028,7 @@
           },
           {
             "name": "to",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "type": "string",
@@ -17046,7 +17037,7 @@
           },
           {
             "name": "bucket",
-            "in": "path",
+            "in": "query",
             "required": true,
             "schema": {
               "$ref": "#/components/schemas/StatsBucket"
@@ -17194,10 +17185,7 @@
             "description": "Optional label dimension to group by when `label_key` is absent\nfrom an entry's labels (e.g. rank by `\"device_id\"` falling back to\n`\"client\"` for queries from sources with no known device).",
             "required": false,
             "schema": {
-              "type": [
-                "string",
-                "null"
-              ]
+              "type": "string"
             }
           },
           {
@@ -18280,7 +18268,7 @@
           "system"
         ],
         "description": "Return an aggregate snapshot of system state: daemon version, uptime, host CPU and memory usage, and counts of tracked resources (devices, tunnels, leases). Admin only.",
-        "operationId": "status",
+        "operationId": "system_status",
         "responses": {
           "200": {
             "description": "System status (version, uptime, counts)",
@@ -20297,7 +20285,7 @@
           "update"
         ],
         "description": "Update auto-update settings: enable or disable automatic installs and switch between release channels (e.g. stable vs. beta). Admin only.",
-        "operationId": "update_config",
+        "operationId": "update_set_config",
         "requestBody": {
           "content": {
             "application/json": {
@@ -20863,7 +20851,7 @@
           "update"
         ],
         "description": "Return the current auto-update state: currently running version, latest known release from the manifest, configured channel, and whether an install is in progress. Admin only.",
-        "operationId": "status",
+        "operationId": "update_status",
         "responses": {
           "200": {
             "description": "Current auto-update status",
@@ -25548,6 +25536,15 @@
           "database",
           "config",
           "keys"
+        ]
+      },
+      "StatsBucket": {
+        "type": "string",
+        "description": "Time-series bucket granularity for stats queries.",
+        "enum": [
+          "minute",
+          "hour",
+          "day"
         ]
       },
       "StatsQueryResponse": {

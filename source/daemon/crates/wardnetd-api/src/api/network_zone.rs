@@ -32,6 +32,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 }
 
 #[utoipa::path(
+    operation_id = "network_list_zones",
     get,
     path = "/api/network/zones",
     tag = "network-zones",
@@ -51,6 +52,7 @@ pub async fn list_zones(
 }
 
 #[utoipa::path(
+    operation_id = "network_create_zone",
     post,
     path = "/api/network/zones",
     tag = "network-zones",
@@ -78,6 +80,7 @@ pub async fn create_zone(
 }
 
 #[utoipa::path(
+    operation_id = "network_get_zone",
     get,
     path = "/api/network/zones/{id}",
     tag = "network-zones",
@@ -99,6 +102,7 @@ pub async fn get_zone(
 }
 
 #[utoipa::path(
+    operation_id = "network_update_zone",
     put,
     path = "/api/network/zones/{id}",
     tag = "network-zones",
@@ -127,6 +131,7 @@ pub async fn update_zone(
 }
 
 #[utoipa::path(
+    operation_id = "network_delete_zone",
     delete,
     path = "/api/network/zones/{id}",
     tag = "network-zones",

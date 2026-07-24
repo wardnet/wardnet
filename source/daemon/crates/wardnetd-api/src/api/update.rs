@@ -52,6 +52,7 @@ const fn default_history_limit() -> u32 {
 const HISTORY_LIMIT_MAX: u32 = 100;
 
 #[utoipa::path(
+    operation_id = "update_status",
     get,
     path = "/api/update/status",
     tag = "update",
@@ -133,6 +134,7 @@ pub async fn rollback(
 }
 
 #[utoipa::path(
+    operation_id = "update_set_config",
     put,
     path = "/api/update/config",
     tag = "update",

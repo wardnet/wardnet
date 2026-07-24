@@ -40,6 +40,7 @@ const PATH_RESERVATION_ITEM: &str = "/api/dhcp/reservations/{id}";
 const PATH_STATUS: &str = "/api/dhcp/status";
 
 #[utoipa::path(
+    operation_id = "dhcp_get_config",
     get,
     path = PATH_CONFIG,
     tag = TAG,
@@ -59,6 +60,7 @@ pub async fn get_config(
 }
 
 #[utoipa::path(
+    operation_id = "dhcp_update_config",
     put,
     path = PATH_CONFIG,
     tag = TAG,
@@ -110,6 +112,7 @@ pub async fn preview_config(
 }
 
 #[utoipa::path(
+    operation_id = "dhcp_toggle",
     post,
     path = PATH_TOGGLE,
     tag = TAG,
@@ -264,6 +267,7 @@ pub async fn delete_reservation(
 }
 
 #[utoipa::path(
+    operation_id = "dhcp_status",
     get,
     path = PATH_STATUS,
     tag = TAG,
