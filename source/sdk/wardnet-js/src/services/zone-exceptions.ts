@@ -1,4 +1,5 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
   CreateZoneExceptionRequest,
   CreateZoneExceptionResponse,
@@ -16,38 +17,34 @@ import type {
  * a phone casting to a TV in another zone. All operations are admin-only.
  */
 export class ZoneExceptionsService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** List all cross-zone exceptions. */
   async list(): Promise<ListZoneExceptionsResponse> {
-    return this.client.request<ListZoneExceptionsResponse>("/network/zones/exceptions");
+    return this.api.get("/network/zones/exceptions");
   }
 
   /** Fetch a single exception by id. */
   async getById(id: string): Promise<GetZoneExceptionResponse> {
-    return this.client.request<GetZoneExceptionResponse>(`/network/zones/exceptions/${id}`);
+    return this.api.get("/network/zones/exceptions/{id}", { path: { id } });
   }
 
   /** Create a new exception. */
   async create(body: CreateZoneExceptionRequest): Promise<CreateZoneExceptionResponse> {
-    return this.client.request<CreateZoneExceptionResponse>("/network/zones/exceptions", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/network/zones/exceptions", { body });
   }
 
   /** Partially update an exception. */
   async update(id: string, body: UpdateZoneExceptionRequest): Promise<UpdateZoneExceptionResponse> {
-    return this.client.request<UpdateZoneExceptionResponse>(`/network/zones/exceptions/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    });
+    return this.api.put("/network/zones/exceptions/{id}", { path: { id }, body });
   }
 
   /** Delete an exception (revokes the allowance live). */
   async delete(id: string): Promise<DeleteZoneExceptionResponse> {
-    return this.client.request<DeleteZoneExceptionResponse>(`/network/zones/exceptions/${id}`, {
-      method: "DELETE",
-    });
+    return this.api.del("/network/zones/exceptions/{id}", { path: { id } });
   }
 }

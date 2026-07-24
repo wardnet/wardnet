@@ -27,8 +27,12 @@ export interface PortSpec {
   to: number;
 }
 
-/** A built-in named service set. `casting` = mDNS + AirPlay + Chromecast + DLNA. */
-export type ServiceSet = "casting";
+/**
+ * A built-in named service set.
+ * - `casting` = mDNS + AirPlay + Chromecast + DLNA.
+ * - `mirroring` = screen-mirroring (AirPlay / Miracast) ports.
+ */
+export type ServiceSet = "casting" | "mirroring";
 
 /** Either a named preset or an explicit custom port list. */
 export type ServiceSpec =

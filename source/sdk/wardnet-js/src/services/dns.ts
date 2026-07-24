@@ -1,4 +1,5 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
   DnsConfigResponse,
   UpdateDnsConfigRequest,
@@ -14,56 +15,41 @@ import type {
  *  Filtering (profiles, blocklists, allowlist, rules, per-device settings) lives
  *  in `DnsFilterService`. */
 export class DnsService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** Get the current DNS configuration (admin only). */
   async getConfig(): Promise<DnsConfigResponse> {
-    return this.client.request<DnsConfigResponse>("/dns/config");
+    return this.api.get("/dns/config");
   }
 
   /** Update the DNS configuration (admin only). */
   async updateConfig(body: UpdateDnsConfigRequest): Promise<DnsConfigResponse> {
-    return this.client.request<DnsConfigResponse>("/dns/config", {
-      method: "PUT",
-      body: JSON.stringify(body),
-    });
+    return this.api.put("/dns/config", { body });
   }
 
   /** Enable or disable the DNS server (admin only). */
   async toggle(body: ToggleDnsRequest): Promise<DnsConfigResponse> {
-    return this.client.request<DnsConfigResponse>("/dns/config/toggle", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/dns/config/toggle", { body });
   }
 
   /** Get DNS server status and cache metrics (admin only). */
   async status(): Promise<DnsStatusResponse> {
-    return this.client.request<DnsStatusResponse>("/dns/status");
+    return this.api.get("/dns/status");
   }
 
   /** Flush the DNS cache (admin only). */
   async flushCache(): Promise<DnsCacheFlushResponse> {
-    return this.client.request<DnsCacheFlushResponse>("/dns/cache/flush", {
-      method: "POST",
-    });
+    return this.api.post("/dns/cache/flush");
   }
 
   // --- Query log ---
 
   /** Paginated DNS query log (admin only). */
   async listQueryLog(params: ListQueryLogParams = {}): Promise<ListQueryLogResponse> {
-    // Hand-built query string — the SDK targets a tsconfig without the
-    // DOM lib, so `URLSearchParams` isn't available here.
-    const parts: string[] = [];
-    const enc = encodeURIComponent;
-    if (params.limit !== undefined) parts.push(`limit=${params.limit}`);
-    if (params.offset !== undefined) parts.push(`offset=${params.offset}`);
-    if (params.domain) parts.push(`domain=${enc(params.domain)}`);
-    if (params.client_ip) parts.push(`client_ip=${enc(params.client_ip)}`);
-    if (params.device_id) parts.push(`device_id=${enc(params.device_id)}`);
-    if (params.result) parts.push(`result=${enc(params.result)}`);
-    const path = parts.length === 0 ? "/dns/log" : `/dns/log?${parts.join("&")}`;
-    return this.client.request<ListQueryLogResponse>(path);
+    return this.api.get("/dns/log", { query: params });
   }
 }

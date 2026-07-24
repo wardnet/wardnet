@@ -1,4 +1,5 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
   CreateNetworkZoneRequest,
   CreateNetworkZoneResponse,
@@ -17,24 +18,25 @@ import type {
  * All operations are admin-only.
  */
 export class NetworkZonesService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** List all zones with their member counts. */
   async list(): Promise<ListNetworkZonesResponse> {
-    return this.client.request<ListNetworkZonesResponse>("/network/zones");
+    return this.api.get("/network/zones");
   }
 
   /** Fetch a single zone with its member count. */
   async getById(id: string): Promise<GetNetworkZoneResponse> {
-    return this.client.request<GetNetworkZoneResponse>(`/network/zones/${id}`);
+    return this.api.get("/network/zones/{id}", { path: { id } });
   }
 
   /** Create a new (manual) zone. */
   async create(body: CreateNetworkZoneRequest): Promise<CreateNetworkZoneResponse> {
-    return this.client.request<CreateNetworkZoneResponse>("/network/zones", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/network/zones", { body });
   }
 
   /**
@@ -42,39 +44,31 @@ export class NetworkZonesService {
    * to promote this zone; `false` is rejected.
    */
   async update(id: string, body: UpdateNetworkZoneRequest): Promise<UpdateNetworkZoneResponse> {
-    return this.client.request<UpdateNetworkZoneResponse>(`/network/zones/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    });
+    return this.api.put("/network/zones/{id}", { path: { id }, body });
   }
 
   /** Delete a zone (rejected for system / default / non-empty zones). */
   async delete(id: string): Promise<DeleteNetworkZoneResponse> {
-    return this.client.request<DeleteNetworkZoneResponse>(`/network/zones/${id}`, {
-      method: "DELETE",
-    });
+    return this.api.del("/network/zones/{id}", { path: { id } });
   }
 
   /** Reassign a device to a different zone. Returns the updated device detail. */
   async assignDevice(deviceId: string, zoneId: string): Promise<DeviceDetailResponse> {
-    return this.client.request<DeviceDetailResponse>(`/devices/${deviceId}/zone`, {
-      method: "PUT",
-      body: JSON.stringify({ zone_id: zoneId }),
+    return this.api.put("/devices/{id}/zone", {
+      path: { id: deviceId },
+      body: { zone_id: zoneId },
     });
   }
 
   /** Read the new-device quarantine toggle (issue #738). */
   async getQuarantineNewDevices(): Promise<QuarantineNewDevicesResponse> {
-    return this.client.request<QuarantineNewDevicesResponse>("/network/quarantine-new-devices");
+    return this.api.get("/network/quarantine-new-devices");
   }
 
   /** Enable or disable new-device quarantine (issue #738). */
   async setQuarantineNewDevices(
     body: SetQuarantineNewDevicesRequest,
   ): Promise<QuarantineNewDevicesResponse> {
-    return this.client.request<QuarantineNewDevicesResponse>("/network/quarantine-new-devices", {
-      method: "PUT",
-      body: JSON.stringify(body),
-    });
+    return this.api.put("/network/quarantine-new-devices", { body });
   }
 }

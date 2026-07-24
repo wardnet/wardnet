@@ -1,4 +1,5 @@
 import { WardnetApiError, type WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type { ApiError } from "../types/api.js";
 import type {
   ApplyImportRequest,
@@ -17,11 +18,11 @@ import type {
  * just plumbs the request through the shared `WardnetClient`
  * (credentials include cookies by default).
  *
- * Two methods don't fit the JSON-in / JSON-out shape of
- * `WardnetClient.request`, so they call `WardnetClient.authorizedFetch`
- * directly instead. That still routes header construction through the
- * client, so a subclass's `buildHeaders` override (e.g. bearer auth) is
- * applied to these endpoints too:
+ * Two methods don't fit the JSON-in / JSON-out shape the typed client
+ * wraps, so they call `WardnetClient.authorizedFetch` directly instead.
+ * That still routes header construction through the client, so a
+ * subclass's `buildHeaders` override (e.g. bearer auth) is applied to
+ * these endpoints too:
  *
  * - `export` returns `application/octet-stream` (the encrypted
  *   bundle bytes). Using `Blob` keeps the SDK free of a Node-vs-browser
@@ -32,11 +33,15 @@ import type {
  *   `Content-Type` so the platform can inject the boundary.
  */
 export class BackupService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(private readonly client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** Current backup subsystem status (admin only). */
   async status(): Promise<BackupStatusResponse> {
-    return this.client.request<BackupStatusResponse>("/backup/status");
+    return this.api.get("/backup/status");
   }
 
   /**
@@ -89,15 +94,12 @@ export class BackupService {
    * otherwise the server responds with `400 Bad Request`.
    */
   async applyImport(body: ApplyImportRequest): Promise<ApplyImportResponse> {
-    return this.client.request<ApplyImportResponse>("/backup/import/apply", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/backup/import/apply", { body });
   }
 
   /** Retained `.bak-<ts>` snapshots from prior restores (admin only). */
   async listSnapshots(): Promise<ListSnapshotsResponse> {
-    return this.client.request<ListSnapshotsResponse>("/backup/snapshots");
+    return this.api.get("/backup/snapshots");
   }
 }
 

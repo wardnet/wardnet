@@ -1,16 +1,32 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type { LoginRequest, LoginResponse, MeResponse } from "../types/auth.js";
 
 /** Authentication service for the Wardnet daemon. */
 export class AuthService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** Log in as admin. The daemon sets a session cookie in the response. */
   async login(body: LoginRequest): Promise<LoginResponse> {
-    return this.client.request<LoginResponse>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify(body),
+    // The public type is camelCase; the wire is snake_case. Mapping through
+    // the generated request/response shapes here is what trips the build if
+    // the daemon ever renames either field.
+    const res = await this.api.post("/auth/login", {
+      body: {
+        username: body.username,
+        password: body.password,
+        remember_me: body.rememberMe ?? false,
+      },
     });
+    return {
+      message: res.message,
+      token: res.token,
+      expiresInSeconds: res.expires_in_seconds,
+    };
   }
 
   /**
@@ -20,7 +36,7 @@ export class AuthService {
    * No body — the daemon reads the token from the request cookie.
    */
   async refresh(): Promise<void> {
-    await this.client.request<void>("/auth/refresh", { method: "POST" });
+    await this.api.post("/auth/refresh");
   }
 
   /**
@@ -38,10 +54,7 @@ export class AuthService {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
     try {
-      await this.client.request<void>("/auth/logout", {
-        method: "POST",
-        signal: controller.signal,
-      });
+      await this.api.post("/auth/logout", { signal: controller.signal });
     } finally {
       clearTimeout(timer);
     }
@@ -49,6 +62,6 @@ export class AuthService {
 
   /** Return the authenticated admin's identity. */
   async me(): Promise<MeResponse> {
-    return this.client.request<MeResponse>("/users/me");
+    return this.api.get("/users/me");
   }
 }

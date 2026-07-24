@@ -1,4 +1,5 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
   ConfigureCloudflareRequest,
   DdnsCheckResponse,
@@ -18,7 +19,11 @@ import type {
  * the dashboard provisioning indicator. All endpoints are admin-authenticated.
  */
 export class RemoteAccessService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /**
    * Step 1 of the wardnet flow: request a one-time enrollment code be emailed
@@ -26,10 +31,7 @@ export class RemoteAccessService {
    * to {@link enroll}. Resolves on `204` (emailed if the account exists).
    */
   async requestEnrollmentCode(body: DdnsEnrollmentCodeRequest): Promise<void> {
-    await this.client.request<void>("/ddns/enrollment-code", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    await this.api.post("/ddns/enrollment-code", { body });
   }
 
   /**
@@ -38,16 +40,12 @@ export class RemoteAccessService {
    * availability and {@link register} a network.
    */
   async enroll(body: DdnsEnrollRequest): Promise<void> {
-    await this.client.request<void>("/ddns/enroll", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    await this.api.post("/ddns/enroll", { body });
   }
 
   /** Check whether a vanity slug is available (requires a prior enroll). */
   async checkSlug(slug: string): Promise<DdnsCheckResponse> {
-    const path = `/ddns/check?slug=${encodeURIComponent(slug)}`;
-    return this.client.request<DdnsCheckResponse>(path);
+    return this.api.get("/ddns/check", { query: { slug } });
   }
 
   /**
@@ -55,23 +53,17 @@ export class RemoteAccessService {
    * lowest-latency region; issuance starts in the background.
    */
   async register(body: DdnsRegisterRequest): Promise<DdnsRegisterResponse> {
-    return this.client.request<DdnsRegisterResponse>("/ddns/register", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/ddns/register", { body });
   }
 
   /** Configure BYOD-Cloudflare; issuance starts in the background. */
   async configureCloudflare(body: ConfigureCloudflareRequest): Promise<DdnsRegisterResponse> {
-    return this.client.request<DdnsRegisterResponse>("/ddns/cloudflare", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/ddns/cloudflare", { body });
   }
 
   /** Read the current DDNS configuration. */
   async ddnsStatus(): Promise<DdnsStatusResponse> {
-    return this.client.request<DdnsStatusResponse>("/ddns/status");
+    return this.api.get("/ddns/status");
   }
 
   /**
@@ -79,12 +71,12 @@ export class RemoteAccessService {
    * (queries external resolvers, bypassing the local split-horizon override).
    */
   async resolutionCheck(): Promise<DdnsResolutionCheckResponse> {
-    return this.client.request<DdnsResolutionCheckResponse>("/ddns/resolution-check");
+    return this.api.get("/ddns/resolution-check");
   }
 
   /** Read the current TLS provisioning status (phase + cert details). */
   async tlsStatus(): Promise<TlsStatusResponse> {
-    return this.client.request<TlsStatusResponse>("/tls/status");
+    return this.api.get("/tls/status");
   }
 
   /**
@@ -92,6 +84,6 @@ export class RemoteAccessService {
    * the certificate, and revert `:443` to the unprovisioned placeholder.
    */
   async teardown(): Promise<void> {
-    await this.client.request<void>("/ddns", { method: "DELETE" });
+    await this.api.del("/ddns");
   }
 }

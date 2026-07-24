@@ -53,7 +53,7 @@ COV_RUNNER ?=
 # ---------- Phony targets ----------
 
 .PHONY: all init build build-daemon build-sdk build-web build-site \
-        check check-sdk check-web check-site fmt-daemon check-daemon check-daemon-native check-daemon-container \
+        check check-sdk check-sdk-openapi check-web check-site fmt-daemon check-daemon check-daemon-native check-daemon-container \
         coverage-daemon coverage-daemon-native coverage-daemon-container \
         coverage-daemon-report-json \
         openapi check-openapi \
@@ -154,11 +154,30 @@ init:
 
 # ---------- SDK ----------
 
-check-sdk:
+check-sdk: check-sdk-openapi
 	cd $(SDK_DIR) && yarn install --immutable
 	cd $(SDK_DIR) && yarn type-check
 	cd $(SDK_DIR) && yarn format:check
 	cd $(SDK_DIR) && yarn test
+
+# Drift gate for the SDK's internal generated OpenAPI client. Mirrors
+# `check-openapi`: regenerate `src/internal/openapi-schema.ts` from
+# docs/openapi.json and fail if the committed copy is stale. The generated
+# module is what pins the hand-authored services to the wire, so a daemon-side
+# DTO change must land with a fresh copy (author runs `yarn generate` in the
+# SDK and commits it). Type-checking then catches any mapping that no longer
+# lines up — the compile-time tripwire this layering exists for.
+check-sdk-openapi:
+	cd $(SDK_DIR) && yarn install --immutable
+	cd $(SDK_DIR) && yarn generate
+	@if ! git diff --exit-code -- $(SDK_DIR)/src/internal/openapi-schema.ts > /dev/null; then \
+		echo ""; \
+		echo "SDK OpenAPI client drift detected in $(SDK_DIR)/src/internal/openapi-schema.ts."; \
+		echo "Run 'yarn generate' in $(SDK_DIR) and commit the updated file."; \
+		git --no-pager diff --stat -- $(SDK_DIR)/src/internal/openapi-schema.ts; \
+		exit 1; \
+	fi
+	@echo "SDK OpenAPI client is in sync."
 
 # Build @wardnet/js's dist/ once. Vite dev servers resolve @wardnet/js via
 # package.json's main/exports, which point at dist/ (needed for the npm
@@ -614,7 +633,7 @@ help:
 	@echo "  build-daemon   Build daemon for host target"
 	@echo ""
 	@echo "  check          Run all checks (SDK + web + site + daemon)"
-	@echo "  check-sdk      Typecheck + format check for SDK"
+	@echo "  check-sdk      Typecheck + format check + OpenAPI drift gate for SDK"
 	@echo "  build-sdk      Build @wardnet/js's dist/ once (run-dev-* depend on this)"
 	@echo "  check-web      Typecheck + lint + format check for web UI (depends on SDK)"
 	@echo "  check-site     Typecheck + format check + tests for public site"
@@ -623,6 +642,7 @@ help:
 	@echo ""
 	@echo "  openapi        Regenerate $(OPENAPI_FILE) from the daemon's #[utoipa::path] annotations"
 	@echo "  check-openapi  Drift gate: fail if $(OPENAPI_FILE) is stale (run 'make openapi' to fix)"
+	@echo "  check-sdk-openapi  Drift gate: fail if the SDK's generated OpenAPI client is stale (run 'yarn generate' in $(SDK_DIR))"
 	@echo ""
 	@echo "  run-dev        Run wardnetd-mock + all three Vite dev servers + SDK watch build"
 	@echo "                 Mock API :7411, admin-site :7412/admin/, user-app :7413, admin-app :7414/admin-app/"

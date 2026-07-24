@@ -1,4 +1,5 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
   DhcpSelfProbeResponse,
   DiscoverGatewayMacRequest,
@@ -8,7 +9,11 @@ import type {
 
 /** LAN interface inspection + active probes — admin-only. */
 export class NetworkService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /**
    * Read the LAN interface's current address + default gateway and
@@ -16,7 +21,7 @@ export class NetworkService {
    * static config.
    */
   async getStatus(): Promise<NetworkStatusResponse> {
-    return this.client.request<NetworkStatusResponse>("/network/status");
+    return this.api.get("/network/status");
   }
 
   /**
@@ -30,10 +35,7 @@ export class NetworkService {
   async discoverGatewayMac(
     body: DiscoverGatewayMacRequest = {},
   ): Promise<DiscoverGatewayMacResponse> {
-    return this.client.request<DiscoverGatewayMacResponse>("/network/discover-gateway-mac", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/network/discover-gateway-mac", { body });
   }
 
   /**
@@ -45,8 +47,6 @@ export class NetworkService {
    * upstream router.
    */
   async dhcpSelfProbe(): Promise<DhcpSelfProbeResponse> {
-    return this.client.request<DhcpSelfProbeResponse>("/network/dhcp-self-probe", {
-      method: "POST",
-    });
+    return this.api.post("/network/dhcp-self-probe");
   }
 }

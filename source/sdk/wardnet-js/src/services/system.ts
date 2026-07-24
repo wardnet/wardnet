@@ -1,4 +1,5 @@
 import { type WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
   RecentErrorsResponse,
   SetDefaultPolicyRequest,
@@ -8,11 +9,15 @@ import type {
 
 /** System information service for the Wardnet daemon. */
 export class SystemService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** Get system status including version, uptime, and counts (admin only). */
   async getStatus(): Promise<SystemStatusResponse> {
-    return this.client.request<SystemStatusResponse>("/system/status");
+    return this.api.get("/system/status");
   }
 
   /**
@@ -21,7 +26,7 @@ export class SystemService {
    * currently returns at most the last 15 entries, newest first.
    */
   async getRecentErrors(): Promise<RecentErrorsResponse> {
-    return this.client.request<RecentErrorsResponse>("/system/errors");
+    return this.api.get("/system/errors");
   }
 
   /**
@@ -37,7 +42,7 @@ export class SystemService {
    * `make run-dev`.
    */
   async restart(): Promise<void> {
-    await this.postNoContent("/system/restart");
+    await this.api.post("/system/restart");
   }
 
   /**
@@ -55,7 +60,7 @@ export class SystemService {
    * logind refused the action (500).
    */
   async reboot(): Promise<void> {
-    await this.postNoContent("/system/reboot");
+    await this.api.post("/system/reboot");
   }
 
   /**
@@ -70,12 +75,12 @@ export class SystemService {
    * Throws [`WardnetApiError`] on a non-2xx response.
    */
   async shutdown(): Promise<void> {
-    await this.postNoContent("/system/shutdown");
+    await this.api.post("/system/shutdown");
   }
 
   /** Read the global default routing policy (`"direct"` or a tunnel UUID). */
   async getDefaultPolicy(): Promise<SetDefaultPolicyResponse> {
-    return this.client.request<SetDefaultPolicyResponse>("/system/default-policy");
+    return this.api.get("/system/default-policy");
   }
 
   /**
@@ -85,10 +90,7 @@ export class SystemService {
    * The server rejects anything else with a 400 response.
    */
   async setDefaultPolicy(body: SetDefaultPolicyRequest): Promise<SetDefaultPolicyResponse> {
-    return this.client.request<SetDefaultPolicyResponse>("/system/default-policy", {
-      method: "PUT",
-      body: JSON.stringify(body),
-    });
+    return this.api.put("/system/default-policy", { body });
   }
 
   /**
@@ -103,18 +105,6 @@ export class SystemService {
    * Throws [`WardnetApiError`] on a non-2xx response.
    */
   async acknowledgeShutdown(): Promise<void> {
-    await this.postNoContent("/system/shutdown/acknowledge");
-  }
-
-  /**
-   * Shared POST helper for endpoints that return `204 No Content`.
-   *
-   * Routes through `client.request<void>` so subclassed clients
-   * (e.g. `AuthedClient` in the e2e harness, which overrides
-   * `request` to attach a `Bearer` token) get a chance to inject
-   * their headers. The client handles the empty body for 204.
-   */
-  private async postNoContent(path: string): Promise<void> {
-    await this.client.request<void>(path, { method: "POST" });
+    await this.api.post("/system/shutdown/acknowledge");
   }
 }
