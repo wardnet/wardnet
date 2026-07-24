@@ -170,9 +170,26 @@ cd source/site && yarn dev                              # marketing site
 
 ### `wctl` — CLI
 
+`wctl` drives the same HTTP API as the web UI. It reads the daemon URL and an
+API token from `~/.config/wardnet/wctl.toml` (override the path with
+`--config`, or the individual values with the `WARDNET_DAEMON_URL` /
+`WARDNET_TOKEN` environment variables):
+
+```toml
+# ~/.config/wardnet/wctl.toml
+daemon_url = "http://127.0.0.1:7411"
+token = "<session token or API key>"
+```
+
 ```sh
 cd source/daemon && cargo run -p wctl -- status
+cargo run -p wctl -- devices list
+cargo run -p wctl -- tunnels show <id> --json
 ```
+
+Add `--json` to any command for machine-readable output. Commands exit non-zero
+on failure (`2` usage, `3` config, `4` connection, `5` auth, `6` not found,
+`7` I/O, `1` otherwise).
 
 ### Version management
 

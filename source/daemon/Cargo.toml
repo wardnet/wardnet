@@ -87,6 +87,9 @@ tower-http = { version = "0.6", features = ["catch-panic", "cors", "trace"] }
 rust-embed = { version = "8", features = ["axum"] }
 # https://crates.io/crates/toml
 toml = "1.1"
+# https://crates.io/crates/rpassword — no-echo passphrase prompt for the `wctl`
+# backup export/import commands.
+rpassword = "7"
 
 # https://crates.io/crates/tracing-subscriber
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }

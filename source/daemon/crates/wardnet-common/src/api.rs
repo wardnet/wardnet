@@ -143,7 +143,7 @@ pub struct SetMyRuleResponse {
 }
 
 /// Response for GET /api/system/status.
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SystemStatusResponse {
     /// Diagnostic git-derived version. See `InfoResponse.version`.
     pub version: String,
@@ -186,7 +186,7 @@ pub enum LastShutdownState {
 /// `None` only for `unknown` (first-ever boot). `acknowledged_at` is
 /// set by `POST /api/system/shutdown/acknowledge`; the banner is
 /// considered dismissed iff `acknowledged_at >= at`.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct LastShutdownStatus {
     pub state: LastShutdownState,
     pub at: Option<DateTime<Utc>>,
@@ -508,7 +508,7 @@ pub struct TunnelTestResponse {
 /// `current_rule` mirrors [`DeviceDetailResponse::current_rule`]: `None` means
 /// the device has no rule of its own and follows the gateway default policy;
 /// `Some(RoutingTarget::Default)` is an explicit persisted default choice.
-#[derive(Debug, Clone, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DeviceWithStatus {
     #[serde(flatten)]
     pub device: Device,
@@ -517,13 +517,13 @@ pub struct DeviceWithStatus {
 }
 
 /// Response for GET /api/devices (admin).
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ListDevicesResponse {
     pub devices: Vec<DeviceWithStatus>,
 }
 
 /// Response for GET /api/devices/:id (admin).
-#[derive(Debug, Serialize, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DeviceDetailResponse {
     pub device: DeviceWithStatus,
     pub current_rule: Option<RoutingTarget>,

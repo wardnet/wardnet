@@ -4261,6 +4261,7 @@ dependencies = [
  "hyper-util",
  "js-sys",
  "log",
+ "mime_guess",
  "percent-encoding",
  "pin-project-lite",
  "quinn",
@@ -6452,11 +6453,16 @@ name = "wctl"
 version = "0.7.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "reqwest 0.12.28",
+ "rpassword",
  "serde",
  "serde_json",
  "tokio",
+ "toml 1.1.3+spec-1.1.0",
+ "uuid",
+ "wardnet-common",
 ]
 
 [[package]]

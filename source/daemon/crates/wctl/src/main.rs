@@ -1,4 +1,26 @@
+//! `wctl` — the Wardnet command-line client.
+//!
+//! A thin front-end over the daemon's HTTP API: it reads the daemon URL and an
+//! API token from `~/.config/wardnet/wctl.toml` (see [`config`]) and drives the
+//! same endpoints the web UI uses, so the gateway can be scripted from a shell.
+//!
+//! Every command exits non-zero on failure; the codes are documented on
+//! [`error::CliError::exit_code`].
+
+mod client;
+mod commands;
+mod config;
+mod error;
+mod output;
+
+#[cfg(test)]
+mod tests;
+
 use clap::{Parser, Subcommand};
+
+use crate::client::Client;
+use crate::config::Config;
+use crate::error::CliError;
 
 #[derive(Parser)]
 #[command(name = "wctl", about = "Wardnet CLI", version = env!("WARDNET_VERSION"))]
@@ -7,9 +29,10 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
 
-    /// Path to config file
-    #[arg(long, global = true, default_value = "/etc/wardnet/wardnet.toml")]
-    config: String,
+    /// Path to the wctl config file
+    /// (default: `$XDG_CONFIG_HOME/wardnet/wctl.toml`)
+    #[arg(long, global = true)]
+    config: Option<String>,
 
     #[command(subcommand)]
     command: Commands,
@@ -103,7 +126,7 @@ enum TunnelsCommand {
         /// Tunnel ID
         id: String,
     },
-    /// Add a new tunnel
+    /// Add a new tunnel by importing a `WireGuard` `.conf` file
     Add {
         /// Tunnel label
         #[arg(long)]
@@ -111,9 +134,9 @@ enum TunnelsCommand {
         /// Country code (e.g., US, DE)
         #[arg(long)]
         country: String,
-        /// `WireGuard` interface name
+        /// Path to the `WireGuard` `.conf` file to import
         #[arg(long)]
-        interface: String,
+        conf: String,
     },
     /// Remove a tunnel
     Remove {
@@ -127,69 +150,61 @@ enum TunnelsCommand {
     },
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     let cli = Cli::parse();
+    if let Err(err) = run(cli).await {
+        eprintln!("error: {err}");
+        std::process::exit(err.exit_code());
+    }
+}
+
+async fn run(cli: Cli) -> Result<(), CliError> {
+    let config = Config::resolve(cli.config.as_deref())?;
+    // Every admin endpoint requires a bearer token, so resolve it up front and
+    // fail with a clear message rather than a 401 from each command.
+    let client = Client::new(&config.daemon_url, config.token()?)?;
+    let json = cli.json;
 
     match cli.command {
-        Commands::Status => println!("status: not yet implemented"),
+        Commands::Status => commands::status::run(&client, json).await,
         Commands::Devices(cmd) => match cmd {
-            DevicesCommand::List => println!("devices list: not yet implemented"),
-            DevicesCommand::Show { id } => println!("devices show {id}: not yet implemented"),
+            DevicesCommand::List => commands::devices::list(&client, json).await,
+            DevicesCommand::Show { id } => commands::devices::show(&client, json, &id).await,
             DevicesCommand::SetRule { id, target } => {
-                println!("devices set-rule {id} {target}: not yet implemented");
+                commands::devices::set_rule(&client, json, &id, &target).await
             }
         },
         Commands::Tunnels(cmd) => match cmd {
-            TunnelsCommand::List => println!("tunnels list: not yet implemented"),
-            TunnelsCommand::Show { id } => println!("tunnels show {id}: not yet implemented"),
+            TunnelsCommand::List => commands::tunnels::list(&client, json).await,
+            TunnelsCommand::Show { id } => commands::tunnels::show(&client, json, &id).await,
             TunnelsCommand::Add {
                 label,
                 country,
-                interface,
-            } => {
-                println!(
-                    "tunnels add --label {label} --country {country} --interface {interface}: not yet implemented"
-                );
-            }
-            TunnelsCommand::Remove { id } => {
-                println!("tunnels remove {id}: not yet implemented");
-            }
-            TunnelsCommand::Test { id } => {
-                println!("tunnels test {id}: not yet implemented");
-            }
+                conf,
+            } => commands::tunnels::add(&client, json, &label, &country, &conf).await,
+            TunnelsCommand::Remove { id } => commands::tunnels::remove(&client, json, &id).await,
+            TunnelsCommand::Test { id } => commands::tunnels::test(&client, json, &id).await,
         },
         Commands::Update(cmd) => match cmd {
-            UpdateCommand::Status => println!("update status: not yet implemented"),
-            UpdateCommand::Check => println!("update check: not yet implemented"),
-            UpdateCommand::Install { version } => match version {
-                Some(v) => println!("update install --version {v}: not yet implemented"),
-                None => println!("update install: not yet implemented"),
-            },
-            UpdateCommand::Rollback => println!("update rollback: not yet implemented"),
+            UpdateCommand::Status => commands::update::status(&client, json).await,
+            UpdateCommand::Check => commands::update::check(&client, json).await,
+            UpdateCommand::Install { version } => {
+                commands::update::install(&client, json, version.as_deref()).await
+            }
+            UpdateCommand::Rollback => commands::update::rollback(&client, json).await,
         },
         Commands::Backup(cmd) => match cmd {
-            BackupCommand::Status => println!("backup status: not yet implemented"),
+            BackupCommand::Status => commands::backup::status(&client, json).await,
             BackupCommand::Export {
                 out,
                 passphrase_file,
-            } => match passphrase_file {
-                Some(p) => {
-                    println!(
-                        "backup export --out {out} --passphrase-file {p}: not yet implemented"
-                    );
-                }
-                None => println!("backup export --out {out}: not yet implemented"),
-            },
+            } => commands::backup::export(&client, json, &out, passphrase_file.as_deref()).await,
             BackupCommand::Import {
                 bundle,
                 passphrase_file,
-            } => match passphrase_file {
-                Some(p) => {
-                    println!("backup import {bundle} --passphrase-file {p}: not yet implemented");
-                }
-                None => println!("backup import {bundle}: not yet implemented"),
-            },
-            BackupCommand::Snapshots => println!("backup snapshots: not yet implemented"),
+            } => commands::backup::import(&client, json, &bundle, passphrase_file.as_deref()).await,
+            BackupCommand::Snapshots => commands::backup::snapshots(&client, json).await,
         },
     }
 }
