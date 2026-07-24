@@ -112,13 +112,19 @@ export function useSetTunnelDnsOverride() {
   });
 }
 
-/** Recent speed test results for a tunnel (newest first). */
-export function useSpeedTestResults(id: string, enabled = true) {
-  return useQuery({
+/** Shared query config for one tunnel's speed-test history, so the single
+ *  (`useSpeedTestResults`) and list (`useSpeedTestResultsList`) hooks read the
+ *  same cache entry and can't drift on key or fetch shape. */
+function speedTestResultsQuery(id: string) {
+  return {
     queryKey: ["tunnels", id, "speed-test"],
     queryFn: () => tunnelService.getSpeedTestResults(id),
-    enabled: !!id && enabled,
-  });
+  };
+}
+
+/** Recent speed test results for a tunnel (newest first). */
+export function useSpeedTestResults(id: string, enabled = true) {
+  return useQuery({ ...speedTestResultsQuery(id), enabled: !!id && enabled });
 }
 
 /**
@@ -129,16 +135,15 @@ export function useSpeedTestResults(id: string, enabled = true) {
  * tunnels whose size changes as more cards are tested — a fixed number of
  * `useSpeedTestResults` calls can't cover that. `useQueries` fans the same
  * per-tunnel query out across `ids`; each entry maps to `results[0]` (or `null`
- * before any result lands), mirroring how `useSpeedTestResults` is read.
+ * before any result lands), mirroring how `useSpeedTestResults` is read. Pass
+ * only ids that still exist so a removed tunnel's query drops out instead of
+ * refetching against a deleted tunnel.
  */
 export function useSpeedTestResultsList(
   ids: string[],
 ): Record<string, TunnelSpeedTestResult | null> {
   const results = useQueries({
-    queries: ids.map((id) => ({
-      queryKey: ["tunnels", id, "speed-test"],
-      queryFn: () => tunnelService.getSpeedTestResults(id),
-    })),
+    queries: ids.map((id) => ({ ...speedTestResultsQuery(id), enabled: !!id })),
   });
   const latest: Record<string, TunnelSpeedTestResult | null> = {};
   ids.forEach((id, i) => {

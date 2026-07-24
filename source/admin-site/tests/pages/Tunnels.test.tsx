@@ -322,6 +322,23 @@ describe("Tunnels", () => {
     expect(useSpeedTestResultsList).toHaveBeenLastCalledWith(["t1"]);
   });
 
+  it("stops fetching speed-test results for a tunnel that no longer exists", async () => {
+    useTunnels.mockReturnValue(oneTunnel);
+    const user = userEvent.setup();
+    const { rerender } = renderWithProviders(<Tunnels />);
+    await user.click(screen.getByText("speed-t1"));
+    expect(useSpeedTestResultsList).toHaveBeenLastCalledWith(["t1"]);
+    // The tunnel is deleted; its speed-test query must drop out rather than
+    // keep refetching against a tunnel that is gone.
+    useTunnels.mockReturnValue({
+      data: { tunnels: [] },
+      isLoading: false,
+      isError: false,
+    });
+    rerender(<Tunnels />);
+    expect(useSpeedTestResultsList).toHaveBeenLastCalledWith([]);
+  });
+
   it("derives the running speed-test id from the shared hook", () => {
     useTunnels.mockReturnValue(oneTunnel);
     useStartSpeedTest.mockReturnValue({

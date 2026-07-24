@@ -46,7 +46,12 @@ export default function Tunnels() {
   // results for cards that were actually tested here.
   const [speedTestIds, setSpeedTestIds] = useState<string[]>([]);
 
-  const speedTestResults = useSpeedTestResultsList(speedTestIds);
+  // Only fetch for tunnels that still exist: a tunnel deleted after a run must
+  // not leave a live query refetching (404s) against a gone tunnel.
+  const tunnelIds = new Set(tunnels.map((t) => t.id));
+  const speedTestResults = useSpeedTestResultsList(
+    speedTestIds.filter((id) => tunnelIds.has(id)),
+  );
 
   const tunnelToDelete = tunnels.find((t) => t.id === deleteId);
   const hasTunnels = tunnels.length > 0;
