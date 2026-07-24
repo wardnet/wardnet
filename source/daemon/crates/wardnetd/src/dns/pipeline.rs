@@ -36,6 +36,7 @@ use wardnet_common::dns::{
 use wardnet_common::net::is_private_ip;
 use wardnetd_data::repository::{QueryLogRow, TunnelRepository};
 use wardnetd_services::DnsFilterService;
+use wardnetd_services::RoutingProfileService;
 use wardnetd_services::dns::DnsLogSink;
 use wardnetd_services::dns::authoritative::{
     AuthoritativeView, build_soa, parse_conditional_upstream, parse_ptr_ipv4, private_reverse_zone,
@@ -180,6 +181,11 @@ pub struct QueryPipeline {
     pub(crate) rate_limiter: Arc<RateLimiter>,
     pub(crate) cache: Arc<RwLock<DnsCache>>,
     pub(crate) dns_filter: Arc<dyn DnsFilterService>,
+    /// Routing profiles (issue #241). After answering an upstream query, the
+    /// pipeline calls `note_resolution` so a domain matched by the querying
+    /// device's routing profile has its resolved IPs pinned to the chosen
+    /// tunnel. `None` in the mock/bench pipelines, which do no enforcement.
+    pub(crate) routing_profile: Option<Arc<dyn RoutingProfileService>>,
     pub(crate) log_sink: Option<Arc<DnsLogSink>>,
     /// Lock-free per-query upstream-selection snapshot, populated by the
     /// routing service. Maps a tunneled-device IP to `Tunnel(_)` only
@@ -232,6 +238,7 @@ impl QueryPipeline {
         rate_limiter: Arc<RateLimiter>,
         cache: Arc<RwLock<DnsCache>>,
         dns_filter: Arc<dyn DnsFilterService>,
+        routing_profile: Option<Arc<dyn RoutingProfileService>>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
         device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
@@ -243,6 +250,7 @@ impl QueryPipeline {
             rate_limiter,
             cache,
             dns_filter,
+            routing_profile,
             log_sink: None,
             routing_snapshot,
             device_snapshot,
@@ -765,6 +773,20 @@ impl QueryPipeline {
             DnsQueryResult::Forwarded.as_str()
         };
 
+        // Domain routing (#241) enforcement installs an `ip rule` keyed on the
+        // querying device's forwarding source IP. Only an IP-attributed client
+        // guarantees `src.ip()` IS that address; a device-authenticated (DoT)
+        // client's `src` may be a shared relay/loopback peer (see the
+        // rate-limiter note above), so keying a rule on it would install one
+        // that never matches the device's traffic — or, worse, matches the
+        // relay's. Enforce domain routes only for IP-attributed clients; the
+        // hook is a no-op for the rest.
+        let routing_profile = if matches!(client, ClientIdentity::Ip(_)) {
+            self.routing_profile.as_ref()
+        } else {
+            None
+        };
+
         if let Some(cond_upstream) = conditional_upstream {
             if let Err(e) = forward_via_conditional(
                 cond_upstream,
@@ -829,6 +851,7 @@ impl QueryPipeline {
                         start,
                         pass_result,
                         upstream_id,
+                        routing_profile,
                     )
                     .await?;
                 } else {
@@ -847,6 +870,7 @@ impl QueryPipeline {
                         start,
                         pass_result,
                         upstream_id,
+                        routing_profile,
                     )
                     .await?;
                 }
@@ -876,6 +900,7 @@ impl QueryPipeline {
                             start,
                             pass_result,
                             upstream_id,
+                            routing_profile,
                         )
                         .await
                         {
@@ -940,6 +965,7 @@ async fn forward_via_default_resolver(
     start: std::time::Instant,
     pass_result: &str,
     upstream_id: UpstreamId,
+    routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
     // Clone the Arc-backed resolver out and drop the read guard before the
     // upstream round-trip. tokio's RwLock is write-preferring, so holding the
@@ -983,6 +1009,7 @@ async fn forward_via_default_resolver(
                 ttl_min,
                 ttl_max,
                 lookup.answers(),
+                routing_profile,
             )
             .await?;
         }
@@ -1054,6 +1081,7 @@ async fn send_resolved(
     cache_ttl_min_secs: u32,
     cache_ttl_max_secs: u32,
     answers: &[hickory_proto::rr::Record],
+    routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
     use hickory_proto::rr::RData;
 
@@ -1113,6 +1141,24 @@ async fn send_resolved(
         );
     }
 
+    // Domain routing (issue #241): if the querying device has a routing profile
+    // matching this name, pin the resolved destinations to the chosen tunnel.
+    // Cheap and non-blocking — an in-memory lookup plus a channel `try_send`.
+    if let (Some(routing_profile), Some(device_id)) = (routing_profile, attribution.device_id) {
+        let resolved_ips: Vec<IpAddr> = answers
+            .iter()
+            .filter_map(|record| match &record.data {
+                RData::A(a) => Some(IpAddr::V4(a.0)),
+                RData::AAAA(a) => Some(IpAddr::V6(a.0)),
+                _ => None,
+            })
+            .collect();
+        if !resolved_ips.is_empty() {
+            let ttl = if min_ttl == u32::MAX { 0 } else { min_ttl };
+            routing_profile.note_resolution(device_id, src.ip(), domain, &resolved_ips, ttl);
+        }
+    }
+
     let elapsed = start.elapsed();
     tracing::trace!(%domain, ?rtype, ?elapsed, ?upstream_id, "resolved");
     record_query(
@@ -1150,6 +1196,7 @@ pub(crate) async fn resolve_via_recursor(
     start: std::time::Instant,
     pass_result: &str,
     upstream_id: UpstreamId,
+    routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
     let Some(query) = request.queries.first().cloned() else {
         send_servfail(socket, src, id, &request).await?;
@@ -1185,6 +1232,7 @@ pub(crate) async fn resolve_via_recursor(
         start,
         pass_result,
         upstream_id,
+        routing_profile,
     )
     .await
 }
@@ -1210,6 +1258,7 @@ pub(crate) async fn handle_recursor_outcome(
     start: std::time::Instant,
     pass_result: &str,
     upstream_id: UpstreamId,
+    routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
     let (has_upstreams, rebinding, ttl_min, ttl_max) = {
         let cfg = config.read().await;
@@ -1241,6 +1290,7 @@ pub(crate) async fn handle_recursor_outcome(
                 ttl_min,
                 ttl_max,
                 &msg.answers,
+                routing_profile,
             )
             .await?;
         }
@@ -1293,6 +1343,7 @@ pub(crate) async fn handle_recursor_outcome(
                     start,
                     pass_result,
                     upstream_id,
+                    routing_profile,
                 )
                 .await?;
             } else {
@@ -1330,6 +1381,7 @@ async fn forward_via_tunnel(
     start: std::time::Instant,
     pass_result: &str,
     upstream_id: UpstreamId,
+    routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
     // Build a fresh ephemeral UDP socket bound to the tunnel interface
     // (`SO_BINDTODEVICE`). One per query keeps response demultiplexing
@@ -1380,6 +1432,30 @@ async fn forward_via_tunnel(
                 cfg.cache_ttl_min_secs,
                 cfg.cache_ttl_max_secs,
             );
+        }
+
+        // Domain routing (issue #241) — same post-resolution hook as the default
+        // upstream path, for devices whose tunnel overrides their DNS upstream.
+        if let (Some(routing_profile), Some(device_id)) = (routing_profile, attribution.device_id) {
+            use hickory_proto::rr::RData;
+            let resolved_ips: Vec<IpAddr> = parsed
+                .answers
+                .iter()
+                .filter_map(|record| match &record.data {
+                    RData::A(a) => Some(IpAddr::V4(a.0)),
+                    RData::AAAA(a) => Some(IpAddr::V6(a.0)),
+                    _ => None,
+                })
+                .collect();
+            if !resolved_ips.is_empty() {
+                routing_profile.note_resolution(
+                    device_id,
+                    src.ip(),
+                    domain,
+                    &resolved_ips,
+                    raw_ttl,
+                );
+            }
         }
     }
 

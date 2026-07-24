@@ -24,6 +24,7 @@ mod providers;
 mod push;
 mod request_context;
 mod router;
+mod routing_profiles;
 mod rule_requests;
 mod setup;
 mod system;

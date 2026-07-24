@@ -233,6 +233,20 @@ impl RoutingService for MockRoutingService {
             .set_switchback_targets(device_id, device_ip, target_cidrs)
             .await
     }
+    async fn route_resolved_domain(
+        &self,
+        device_ip: &str,
+        resolved_ips: &[std::net::IpAddr],
+        target: &wardnet_common::routing_profile::DomainRoutingTarget,
+        ttl_secs: u32,
+    ) -> Result<(), AppError> {
+        self.inner
+            .route_resolved_domain(device_ip, resolved_ips, target, ttl_secs)
+            .await
+    }
+    async fn gc_domain_routes(&self) -> Result<(), AppError> {
+        self.inner.gc_domain_routes().await
+    }
     async fn apply_rule(
         &self,
         device_id: Uuid,

@@ -481,6 +481,7 @@ pub fn build_bench_pipeline(upstream: SocketAddr) -> BenchPipeline {
         rate_limiter,
         cache,
         Arc::clone(&filter) as Arc<dyn wardnetd_services::DnsFilterService>,
+        None,
         Arc::new(ArcSwap::from_pointee(HashMap::new())),
         Arc::new(ArcSwap::from_pointee(HashMap::new())),
         stub_tunnel_repo(),

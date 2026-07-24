@@ -401,6 +401,7 @@ async fn run(
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
+    .with_routing_profile_service(services.routing_profile.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
     // Private DNS reaches the live DDNS/TLS/secret store, which the mock stands
     // in for offline; swap in the stateful in-memory fake, mirroring DDNS/TLS.

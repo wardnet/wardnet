@@ -14,7 +14,9 @@ use crate::auth_context;
 use crate::error::AppError;
 use crate::routing::firewall::FirewallManager;
 use crate::routing::policy_router::PolicyRouter;
-use crate::routing::service::{RoutingServiceImpl, SWITCHBACK_RULE_PRIORITY};
+use crate::routing::service::{
+    DOMAIN_ROUTE_RULE_PRIORITY, RoutingServiceImpl, SWITCHBACK_RULE_PRIORITY,
+};
 use crate::{RoutingService, TunnelService};
 use wardnet_common::auth::AuthContext;
 use wardnetd_data::repository::device::DeviceRow;
@@ -422,6 +424,11 @@ struct MockNetlink {
     /// `list_switchback_rules` returns the current set. Pre-seeded to simulate
     /// stale kernel carve-outs for reconcile-prune tests.
     switchback: Arc<Mutex<Vec<(String, String, u32)>>>,
+    /// Installed domain-route rules as `(src_ip, dst_ip, table)`.
+    /// `add_domain_route_rule` inserts (deduped), `remove_domain_route_rule`
+    /// removes, `list_domain_route_rules` returns the current set. Pre-seeded to
+    /// simulate stale kernel rules for reconcile-prune tests.
+    domain_routes: Arc<Mutex<Vec<(String, String, u32)>>>,
 }
 
 #[async_trait]
@@ -539,6 +546,50 @@ impl PolicyRouter for MockNetlink {
             .await
             .push("list_switchback_rules".to_owned());
         Ok(self.switchback.lock().await.clone())
+    }
+
+    async fn add_domain_route_rule(
+        &self,
+        src_ip: &str,
+        dst_ip: &str,
+        table: u32,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        self.calls.lock().await.push(format!(
+            "add_domain_route_rule:{src_ip}:{dst_ip}:{table}:{priority}"
+        ));
+        let mut dr = self.domain_routes.lock().await;
+        let entry = (src_ip.to_owned(), dst_ip.to_owned(), table);
+        if !dr.contains(&entry) {
+            dr.push(entry);
+        }
+        Ok(())
+    }
+
+    async fn remove_domain_route_rule(
+        &self,
+        src_ip: &str,
+        dst_ip: &str,
+        table: u32,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        self.calls.lock().await.push(format!(
+            "remove_domain_route_rule:{src_ip}:{dst_ip}:{table}:{priority}"
+        ));
+        let mut dr = self.domain_routes.lock().await;
+        dr.retain(|(s, d, t)| !(s == src_ip && d == dst_ip && *t == table));
+        Ok(())
+    }
+
+    async fn list_domain_route_rules(
+        &self,
+        _priority: u32,
+    ) -> anyhow::Result<Vec<(String, String, u32)>> {
+        self.calls
+            .lock()
+            .await
+            .push("list_domain_route_rules".to_owned());
+        Ok(self.domain_routes.lock().await.clone())
     }
 
     async fn flush_conntrack(&self, src_ip: &str) -> anyhow::Result<()> {
@@ -917,6 +968,7 @@ fn setup_with_devices_and_tunnel(
         has_route_table_error: has_route_table_error.clone(),
         rule_counts: rule_counts.clone(),
         switchback: switchback.clone(),
+        domain_routes: Arc::new(Mutex::new(Vec::new())),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -997,6 +1049,7 @@ fn setup_with_orphaned_rules(
         has_route_table_error: has_route_table_error.clone(),
         rule_counts: rule_counts.clone(),
         switchback: switchback.clone(),
+        domain_routes: Arc::new(Mutex::new(Vec::new())),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -1065,6 +1118,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         has_route_table_error: has_route_table_error.clone(),
         rule_counts: rule_counts.clone(),
         switchback: switchback.clone(),
+        domain_routes: Arc::new(Mutex::new(Vec::new())),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -2836,5 +2890,215 @@ async fn handle_default_policy_changed_is_idempotent_when_policy_unchanged() {
     assert_eq!(
         as_admin(ts.routing.default_policy()).await.unwrap(),
         tunnel_id_1().to_string(),
+    );
+}
+
+// ── Domain routing (issue #241) ──────────────────────────────────────────────
+
+fn domain_target_tunnel() -> wardnet_common::routing_profile::DomainRoutingTarget {
+    wardnet_common::routing_profile::DomainRoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    }
+}
+
+#[tokio::test]
+async fn domain_route_direct_installs_main_table_rule() {
+    let ts = setup();
+    let ip: std::net::IpAddr = "1.2.3.4".parse().unwrap();
+    ts.routing
+        .route_resolved_domain(
+            "192.168.1.5",
+            &[ip],
+            &wardnet_common::routing_profile::DomainRoutingTarget::Direct,
+            60,
+        )
+        .await
+        .unwrap();
+
+    let calls = ts.netlink_calls.lock().await.clone();
+    assert!(
+        calls.iter().any(|c| c
+            == &format!(
+                "add_domain_route_rule:192.168.1.5:1.2.3.4:254:{DOMAIN_ROUTE_RULE_PRIORITY}"
+            )),
+        "expected a main-table domain-route rule, got: {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn domain_route_tunnel_installs_tunnel_table_rule() {
+    // setup()'s tunnel is wg_ward0 -> table 100.
+    let ts = setup();
+    let ip: std::net::IpAddr = "9.9.9.9".parse().unwrap();
+    ts.routing
+        .route_resolved_domain("192.168.1.7", &[ip], &domain_target_tunnel(), 60)
+        .await
+        .unwrap();
+
+    let calls = ts.netlink_calls.lock().await.clone();
+    assert!(
+        calls.iter().any(|c| c
+            == &format!(
+                "add_domain_route_rule:192.168.1.7:9.9.9.9:100:{DOMAIN_ROUTE_RULE_PRIORITY}"
+            )),
+        "expected a tunnel-table domain-route rule, got: {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn domain_route_reresolve_extends_without_reinstalling() {
+    let ts = setup();
+    let ip: std::net::IpAddr = "1.2.3.4".parse().unwrap();
+    let target = wardnet_common::routing_profile::DomainRoutingTarget::Direct;
+    ts.routing
+        .route_resolved_domain("192.168.1.5", &[ip], &target, 60)
+        .await
+        .unwrap();
+    ts.routing
+        .route_resolved_domain("192.168.1.5", &[ip], &target, 60)
+        .await
+        .unwrap();
+
+    let installs = ts
+        .netlink_calls
+        .lock()
+        .await
+        .iter()
+        .filter(|c| c.starts_with("add_domain_route_rule:192.168.1.5:1.2.3.4"))
+        .count();
+    assert_eq!(
+        installs, 1,
+        "a repeat resolution must not reinstall the rule"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn domain_route_gc_removes_expired_lease() {
+    let ts = setup();
+    let ip: std::net::IpAddr = "1.2.3.4".parse().unwrap();
+    ts.routing
+        .route_resolved_domain(
+            "192.168.1.5",
+            &[ip],
+            &wardnet_common::routing_profile::DomainRoutingTarget::Direct,
+            30,
+        )
+        .await
+        .unwrap();
+
+    // Before expiry, a GC keeps the lease.
+    ts.routing.gc_domain_routes().await.unwrap();
+    assert!(
+        !ts.netlink_calls
+            .lock()
+            .await
+            .iter()
+            .any(|c| c.starts_with("remove_domain_route_rule")),
+        "lease removed before its TTL lapsed"
+    );
+
+    // Advance past the (clamped) TTL and GC again — the lease is now removed.
+    tokio::time::advance(std::time::Duration::from_secs(31)).await;
+    ts.routing.gc_domain_routes().await.unwrap();
+    assert!(
+        ts.netlink_calls.lock().await.iter().any(|c| c
+            == &format!(
+                "remove_domain_route_rule:192.168.1.5:1.2.3.4:254:{DOMAIN_ROUTE_RULE_PRIORITY}"
+            )),
+        "expired lease was not removed"
+    );
+}
+
+#[tokio::test]
+async fn domain_route_target_change_swaps_the_rule() {
+    // Re-resolving the same destination to a different target must remove the
+    // stale rule and install the new one, not stack two rules for one dst.
+    let ts = setup();
+    let ip: std::net::IpAddr = "1.2.3.4".parse().unwrap();
+
+    ts.routing
+        .route_resolved_domain(
+            "192.168.1.5",
+            &[ip],
+            &wardnet_common::routing_profile::DomainRoutingTarget::Direct,
+            60,
+        )
+        .await
+        .unwrap();
+    // Direct -> tunnel: table 254 gives way to the tunnel's table 100.
+    ts.routing
+        .route_resolved_domain("192.168.1.5", &[ip], &domain_target_tunnel(), 60)
+        .await
+        .unwrap();
+
+    let calls = ts.netlink_calls.lock().await.clone();
+    assert!(
+        calls.iter().any(|c| c
+            == &format!(
+                "remove_domain_route_rule:192.168.1.5:1.2.3.4:254:{DOMAIN_ROUTE_RULE_PRIORITY}"
+            )),
+        "the stale direct rule must be removed on a target change, got: {calls:?}"
+    );
+    assert!(
+        calls.iter().any(|c| c
+            == &format!(
+                "add_domain_route_rule:192.168.1.5:1.2.3.4:100:{DOMAIN_ROUTE_RULE_PRIORITY}"
+            )),
+        "the new tunnel rule must be installed on a target change, got: {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn domain_route_skips_ipv6_answers() {
+    // v1 enforcement is IPv4-only: an AAAA in the answer set is skipped while
+    // the A alongside it is still installed.
+    let ts = setup();
+    let v6: std::net::IpAddr = "2606:2800:220:1:248:1893:25c8:1946".parse().unwrap();
+    let v4: std::net::IpAddr = "1.2.3.4".parse().unwrap();
+
+    ts.routing
+        .route_resolved_domain(
+            "192.168.1.8",
+            &[v6, v4],
+            &wardnet_common::routing_profile::DomainRoutingTarget::Direct,
+            60,
+        )
+        .await
+        .unwrap();
+
+    let calls = ts.netlink_calls.lock().await.clone();
+    let installs: Vec<_> = calls
+        .iter()
+        .filter(|c| c.starts_with("add_domain_route_rule:192.168.1.8:"))
+        .collect();
+    assert_eq!(
+        installs,
+        vec![&format!(
+            "add_domain_route_rule:192.168.1.8:1.2.3.4:254:{DOMAIN_ROUTE_RULE_PRIORITY}"
+        )],
+        "only the IPv4 answer should install a rule, got: {installs:?}"
+    );
+}
+
+#[tokio::test]
+async fn domain_route_unavailable_tunnel_is_skipped() {
+    // A rule targeting a tunnel the service can't resolve is logged and
+    // skipped — no rule is installed and the call still succeeds (fail-open to
+    // the device's normal routing).
+    let ts = setup_with_devices_and_tunnel(vec![], HashMap::new(), None, None, "direct".to_owned());
+    let ip: std::net::IpAddr = "1.2.3.4".parse().unwrap();
+
+    ts.routing
+        .route_resolved_domain("192.168.1.9", &[ip], &domain_target_tunnel(), 60)
+        .await
+        .unwrap();
+
+    assert!(
+        !ts.netlink_calls
+            .lock()
+            .await
+            .iter()
+            .any(|c| c.starts_with("add_domain_route_rule")),
+        "no rule may be installed for an unresolvable tunnel"
     );
 }

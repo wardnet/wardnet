@@ -8,6 +8,7 @@ mod dns_filter;
 mod event;
 mod net;
 mod routing;
+mod routing_profile;
 mod serde_util;
 mod trackers;
 mod tunnel;

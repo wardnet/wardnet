@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { TunnelSummary } from "@wardnet/js";
 
@@ -134,6 +134,25 @@ describe("Home page", () => {
     setMyDevice({ current_rule: { type: "direct" } });
     renderWithProviders(<Home />);
     expect(screen.getByTestId("routing-save")).toBeDisabled();
+  });
+
+  it("lists assigned routing profiles read-only, in order", () => {
+    setMyDevice({
+      routing_profiles: [
+        { id: "p1", name: "Streaming (UK)" },
+        { id: "p2", name: "Work" },
+      ],
+    });
+    renderWithProviders(<Home />);
+    const card = screen.getByTestId("routing-profiles-readonly");
+    expect(within(card).getByText("Streaming (UK)")).toBeInTheDocument();
+    expect(within(card).getByText("Work")).toBeInTheDocument();
+  });
+
+  it("hides the routing-profiles card when none are assigned", () => {
+    setMyDevice({ routing_profiles: [] });
+    renderWithProviders(<Home />);
+    expect(screen.queryByTestId("routing-profiles-readonly")).toBeNull();
   });
 
   it("saves the target and schedules a geolocation re-check", async () => {

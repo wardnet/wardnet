@@ -29,3 +29,4 @@ live in a YAML frontmatter block at the top of the file.
 | [0020](0020-push-notifications.md) | Push notifications — VAPID + Web Push delivery | 2026-07-01 | Accepted |
 | [0021](0021-network-zone-deep-isolation.md) | Network Zone deep isolation — per-zone subnets, whole-chain L3 enforcer | 2026-07-02 | Accepted |
 | [0022](0022-inbound-wireguard-and-published-access.md) | Inbound WireGuard peers are Devices; published access defaults to tunnel-only | 2026-07-07 | Accepted |
+| [0024](0024-domain-routing-profiles.md) | Domain-based routing via routing profiles | 2026-07-20 | Accepted |

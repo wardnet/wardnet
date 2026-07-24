@@ -686,6 +686,19 @@ impl RoutingService for StubRoutingService {
     ) -> Result<(), AppError> {
         Ok(())
     }
+
+    async fn route_resolved_domain(
+        &self,
+        _device_ip: &str,
+        _resolved_ips: &[std::net::IpAddr],
+        _target: &wardnet_common::routing_profile::DomainRoutingTarget,
+        _ttl_secs: u32,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn gc_domain_routes(&self) -> Result<(), AppError> {
+        Ok(())
+    }
     async fn apply_rule(
         &self,
         _device_id: Uuid,

@@ -21,6 +21,7 @@ pub mod private_dns;
 pub mod providers;
 pub mod push;
 pub mod responses;
+pub mod routing_profiles;
 pub mod rule_requests;
 pub mod setup;
 pub mod stats;
@@ -130,6 +131,7 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = ddns::register(r);
     r = tls::register(r);
     r = system::register(r);
+    r = routing_profiles::register(r);
     r = network::register(r);
     r = network_zone::register(r);
     r = zone_exception::register(r);

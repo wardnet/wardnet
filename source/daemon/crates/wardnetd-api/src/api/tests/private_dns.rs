@@ -189,6 +189,7 @@ impl DeviceService for MeDeviceService {
             admin_locked: false,
             available_tunnels: vec![],
             zone: None,
+            routing_profiles: vec![],
         })
     }
     async fn get_device(&self, _id: &str) -> Result<Option<Device>, AppError> {

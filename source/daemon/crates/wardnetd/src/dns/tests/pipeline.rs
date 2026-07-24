@@ -119,6 +119,7 @@ fn make_pipeline(cfg: DnsConfig, sink: Option<Arc<DnsLogSink>>) -> QueryPipeline
         rate_limiter,
         cache,
         Arc::new(StubDnsFilterService),
+        None,
         Arc::new(ArcSwap::from_pointee(HashMap::new())),
         Arc::new(ArcSwap::from_pointee(HashMap::new())),
         stub_tunnel_repo(),

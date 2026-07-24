@@ -181,6 +181,7 @@ export type {
   SetupProviderRequest,
   SetupProviderResponse,
   TunnelSummary,
+  RoutingProfileSummary,
   DnsCaptureSettingsRequest,
   DnsCaptureSettingsResponse,
   DnsEventItem,
@@ -208,6 +209,7 @@ export type {
 export { DnsService } from "./services/dns.js";
 export { DnsFilterService } from "./services/dns-filter.js";
 export { DnsLocalService } from "./services/dns-local.js";
+export { RoutingProfilesService } from "./services/routing-profiles.js";
 export { DnsLogStreamService } from "./services/dnsLogStream.js";
 export type { DnsLogStreamFilter, DnsLogStreamCallbacks } from "./services/dnsLogStream.js";
 
@@ -395,6 +397,30 @@ export type {
   UpdateForwardingRuleResponse,
   DeleteForwardingRuleResponse,
 } from "./types/dns-local.js";
+
+// Types — Routing profiles (per-domain routing rules)
+export type {
+  DomainRoutingTarget,
+  RoutingProfile,
+  DomainRoutingRule,
+  ListRoutingProfilesResponse,
+  GetRoutingProfileResponse,
+  CreateRoutingProfileRequest,
+  CreateRoutingProfileResponse,
+  UpdateRoutingProfileRequest,
+  UpdateRoutingProfileResponse,
+  DeleteRoutingProfileResponse,
+  ListDomainRoutingRulesResponse,
+  CreateDomainRoutingRuleRequest,
+  CreateDomainRoutingRuleResponse,
+  UpdateDomainRoutingRuleRequest,
+  UpdateDomainRoutingRuleResponse,
+  DeleteDomainRoutingRuleResponse,
+  GetDeviceRoutingProfilesResponse,
+  SetDeviceRoutingProfilesRequest,
+  SetDeviceRoutingProfilesResponse,
+  ListProfileDevicesResponse,
+} from "./types/routing-profiles.js";
 
 // Utils
 export { isCompleteIpv4, ipv4ToInt } from "./utils/ipv4.js";

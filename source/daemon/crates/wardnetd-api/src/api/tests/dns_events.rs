@@ -196,6 +196,7 @@ impl DeviceService for MockDnsEventsDeviceService {
                 admin_locked: false,
                 available_tunnels: vec![],
                 zone: None,
+                routing_profiles: vec![],
             }),
             None => Err(AppError::NotFound("device not found".to_owned())),
         }

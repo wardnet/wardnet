@@ -49,6 +49,11 @@ topics:
     icon: route
     description: Assign devices to specific VPN tunnels, direct internet, or the network default.
 
+  - slug: domain-routing
+    title: Domain routing
+    icon: globe
+    description: Route traffic to specific domains through a chosen tunnel and exit country, on every device.
+
   - slug: wireguard-tunnels
     title: WireGuard tunnels
     icon: shield

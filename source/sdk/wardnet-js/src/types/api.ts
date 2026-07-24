@@ -35,6 +35,13 @@ export interface TunnelSummary {
   last_handshake: string | null;
 }
 
+/** Minimal routing-profile info for the read-only user-PWA display. */
+export interface RoutingProfileSummary {
+  id: string;
+  /** Human-readable profile name (e.g. "Streaming (UK)"). */
+  name: string;
+}
+
 /** Response for GET /api/devices/me. */
 export interface DeviceMeResponse {
   device: Device | null;
@@ -43,6 +50,11 @@ export interface DeviceMeResponse {
   available_tunnels: TunnelSummary[];
   /** The caller device's zone, resolved server-side. `null` if unresolved. */
   zone: ZoneSummary | null;
+  /**
+   * Routing profiles assigned to the caller device, in priority order.
+   * Read-only — a device-keyed caller cannot manage profiles. Empty when none.
+   */
+  routing_profiles: RoutingProfileSummary[];
 }
 
 /** Request body for PUT /api/devices/me/rule. */

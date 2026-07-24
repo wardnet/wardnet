@@ -8,6 +8,7 @@ import { DeviceDnsCaptureCard } from "@/components/features/DeviceDnsCaptureCard
 import { DeviceIdentityCard } from "@/components/features/DeviceIdentityCard";
 import { DeviceNetworkCard } from "@/components/features/DeviceNetworkCard";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
+import { DeviceRoutingProfilesCard } from "@/components/features/DeviceRoutingProfilesCard";
 import { DeviceZoneCard } from "@/components/features/DeviceZoneCard";
 import { useDevice } from "@wardnet/web";
 import { deviceTypeLabel } from "@wardnet/web";
@@ -92,6 +93,7 @@ export default function DeviceDetail() {
 
       <DeviceIdentityCard device={device} />
       <DeviceSettingsCard device={device} currentRule={data.current_rule} />
+      <DeviceRoutingProfilesCard device={device} />
       <DeviceZoneCard device={device} />
       <DeviceDnsFilterCard device={device} />
       <DeviceDnsCaptureCard deviceId={device.id} />

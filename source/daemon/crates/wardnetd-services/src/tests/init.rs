@@ -168,6 +168,30 @@ impl PolicyRouter for StubPolicyRouter {
     async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>> {
         unimplemented!()
     }
+    async fn add_domain_route_rule(
+        &self,
+        _src_ip: &str,
+        _dst_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn remove_domain_route_rule(
+        &self,
+        _src_ip: &str,
+        _dst_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn list_domain_route_rules(
+        &self,
+        _priority: u32,
+    ) -> anyhow::Result<Vec<(String, String, u32)>> {
+        unimplemented!()
+    }
     async fn flush_conntrack(&self, _src_ip: &str) -> anyhow::Result<()> {
         unimplemented!()
     }

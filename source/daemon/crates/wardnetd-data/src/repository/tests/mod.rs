@@ -11,6 +11,7 @@ mod network_zone;
 mod notification;
 mod private_dns;
 mod push;
+mod routing_profile;
 mod rule_request;
 mod session;
 mod stats;

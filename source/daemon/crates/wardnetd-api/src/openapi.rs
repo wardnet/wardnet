@@ -64,6 +64,7 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "inbound-wg", description = "Inbound WireGuard remote-access server and peers"),
         (name = "private-dns", description = "Private DNS: per-device encrypted DNS (DoT) grants and the signed iOS profile"),
         (name = "providers", description = "VPN provider integration"),
+        (name = "routing", description = "Domain routing profiles: per-domain egress selection over tunnels/providers"),
         (name = "dhcp", description = "DHCP server configuration, leases, and reservations"),
         (name = "dns", description = "DNS resolver, ad-blocking, filters"),
         (name = "ddns", description = "Dynamic DNS: bridge / BYOD-Cloudflare registration"),

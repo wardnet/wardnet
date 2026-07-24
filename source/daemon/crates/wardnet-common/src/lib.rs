@@ -11,6 +11,7 @@ pub mod jobs;
 pub mod net;
 pub mod network_zone;
 pub mod routing;
+pub mod routing_profile;
 pub mod rule_request;
 pub mod serde_util;
 pub mod speed_test;

@@ -208,6 +208,47 @@ impl PolicyRouter for NoopPolicyRouter {
         Ok(Vec::new())
     }
 
+    async fn add_domain_route_rule(
+        &self,
+        src_ip: &str,
+        dst_ip: &str,
+        table: u32,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            src_ip,
+            dst_ip,
+            table,
+            priority,
+            "mock policy add_domain_route_rule: src_ip={src_ip}, dst_ip={dst_ip}, table={table}, priority={priority}",
+        );
+        Ok(())
+    }
+
+    async fn remove_domain_route_rule(
+        &self,
+        src_ip: &str,
+        dst_ip: &str,
+        table: u32,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            src_ip,
+            dst_ip,
+            table,
+            priority,
+            "mock policy remove_domain_route_rule: src_ip={src_ip}, dst_ip={dst_ip}, table={table}, priority={priority}",
+        );
+        Ok(())
+    }
+
+    async fn list_domain_route_rules(
+        &self,
+        _priority: u32,
+    ) -> anyhow::Result<Vec<(String, String, u32)>> {
+        Ok(Vec::new())
+    }
+
     async fn flush_conntrack(&self, src_ip: &str) -> anyhow::Result<()> {
         tracing::debug!(src_ip, "mock policy flush_conntrack: src_ip={src_ip}",);
         Ok(())

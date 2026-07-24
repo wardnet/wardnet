@@ -284,6 +284,7 @@ impl DeviceService for DeviceServiceImpl {
             admin_locked,
             available_tunnels: vec![], // Enriched by the API handler.
             zone: None,                // Enriched by the API handler.
+            routing_profiles: vec![],  // Enriched by the API handler.
         })
     }
 
