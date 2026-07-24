@@ -26,6 +26,7 @@ import {
   useTlsStatus,
 } from "@wardnet/web";
 import { PageHeader } from "@/components/compound/PageHeader";
+import { PrivateDnsCard } from "@/components/features/PrivateDnsCard";
 import { RemoteAccessStatus } from "@/components/features/RemoteAccessStatus";
 import {
   CloudflareFields,
@@ -308,6 +309,8 @@ export default function RemoteAccess() {
           <CardFooter className="justify-end gap-2">{formActions}</CardFooter>
         </Card>
       )}
+
+      <PrivateDnsCard />
 
       {configured && (
         <Card style={{ background: "var(--danger-soft)" }}>

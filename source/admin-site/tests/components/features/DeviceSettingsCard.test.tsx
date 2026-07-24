@@ -5,6 +5,21 @@ import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
 import { makeDevice, renderWithProviders } from "../../test-utils";
 import type { RoutingTarget, Tunnel } from "@wardnet/js";
 
+// Radix primitives (Select) measure their trigger in a layout effect; jsdom has
+// no ResizeObserver / pointer-capture, so stub them as elsewhere in the suite.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.setPointerCapture ??= () => {};
+Element.prototype.releasePointerCapture ??= () => {};
+Element.prototype.scrollIntoView ??= () => {};
+vi.stubGlobal(
+  "ResizeObserver",
+  class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+);
+
 vi.mock("@wardnet/web", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return { ...actual, useTunnels: vi.fn(), useUpdateDevice: vi.fn() };
@@ -148,7 +163,7 @@ describe("DeviceSettingsCard editing", () => {
     });
   });
 
-  it("uses promote copy for an unmanaged device", async () => {
+  it("labels the save 'Save' until a name will actually promote the device", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DeviceSettingsCard
@@ -157,9 +172,56 @@ describe("DeviceSettingsCard editing", () => {
       />,
     );
     await user.click(screen.getByTestId("device-settings-edit"));
+    // No name yet — saving just persists settings, so it isn't a "promotion",
+    // and the form hints how to manage the device.
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
+    expect(screen.getByText(/name to manage it/i)).toBeInTheDocument();
+    // Entering a name turns the save into an actual promotion.
+    await user.type(screen.getByLabelText("Friendly name"), "Alice phone");
     expect(
       screen.getByRole("button", { name: "To Managed Device" }),
     ).toBeInTheDocument();
+  });
+
+  it("saves an unnamed device's settings without forcing a name", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <DeviceSettingsCard
+        device={makeDevice({ name: null })}
+        currentRule={null}
+      />,
+    );
+    await user.click(screen.getByTestId("device-settings-edit"));
+    // The whole regression: changing routing/settings on an unnamed device must
+    // still save (it just doesn't promote); `name` is omitted, not blocked.
+    await user.click(screen.getByTestId("device-settings-save"));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "dev-1",
+        body: expect.objectContaining({ name: undefined }),
+      }),
+    );
+  });
+
+  it("promotes and sends the name once one is entered", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <DeviceSettingsCard
+        device={makeDevice({ name: null })}
+        currentRule={null}
+      />,
+    );
+    await user.click(screen.getByTestId("device-settings-edit"));
+    await user.type(screen.getByLabelText("Friendly name"), "Alice phone");
+    await user.click(screen.getByRole("button", { name: "To Managed Device" }));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "dev-1",
+        body: expect.objectContaining({ name: "Alice phone" }),
+      }),
+    );
   });
 
   it("shows the saving label and error alert while pending", async () => {

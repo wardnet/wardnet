@@ -435,6 +435,16 @@ pub struct PrivateDnsMeResponse {
     pub hostname: Option<String>,
 }
 
+/// Response for `POST /api/private-dns/grants/{device_id}/notify` — the result
+/// of nudging a granted device's household member to set up Private DNS.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SendPrivateDnsNotificationResponse {
+    /// Whether at least one push subscription for the device was targeted.
+    /// `false` (not an error) when the device holds a grant but the household
+    /// member hasn't enabled notifications, so no subscription exists.
+    pub delivered: bool,
+}
+
 /// Response for `GET /api/tunnels/{id}/devices`.
 ///
 /// The devices currently routed through the given tunnel — i.e. those

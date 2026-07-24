@@ -24,6 +24,7 @@ export {
   statsService,
   updateService,
   backupService,
+  privateDnsService,
 } from "./lib/sdk";
 
 // Format utilities
@@ -346,6 +347,18 @@ export { DnsFilterNotReadyNotice } from "./components/DnsFilterNotReadyNotice";
 export { triggerBrowserDownload } from "./lib/download";
 export { ModalTitleBlock } from "./components/ModalTitleBlock";
 export { AlertModalTitleBlock } from "./components/AlertModalTitleBlock";
+
+// Private DNS — encrypted DNS at home + roaming (issues #910/#915/#916)
+export {
+  usePrivateDnsStatus,
+  useSetPrivateDnsEnabled,
+  useGrantPrivateDnsDevice,
+  useRevokePrivateDnsDevice,
+  useSendPrivateDnsToDevice,
+  usePrivateDnsMe,
+} from "./hooks/usePrivateDns";
+export { PrivateDnsInstructions } from "./components/PrivateDnsInstructions";
+export { CopyButton } from "./components/CopyButton";
 
 // Custom icons (composed marks not in lucide). Exported individually so
 // consumers only bundle the ones they import.

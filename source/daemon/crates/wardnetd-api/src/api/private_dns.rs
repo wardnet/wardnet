@@ -8,7 +8,8 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
     ApiError, CreatePrivateDnsGrantRequest, PrivateDnsGrantSummary, PrivateDnsMeResponse,
-    PrivateDnsPrerequisites, PrivateDnsStatusResponse, SetPrivateDnsEnabledRequest,
+    PrivateDnsPrerequisites, PrivateDnsStatusResponse, SendPrivateDnsNotificationResponse,
+    SetPrivateDnsEnabledRequest,
 };
 use wardnet_common::auth::AuthContext;
 
@@ -28,6 +29,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(set_enabled))
         .routes(routes!(create_grant))
         .routes(routes!(delete_grant))
+        .routes(routes!(notify_device))
         .routes(routes!(get_me))
         .routes(routes!(get_me_profile))
 }
@@ -227,6 +229,33 @@ pub async fn delete_grant(
     };
     state.private_dns_service().revoke_grant(grant.id).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/private-dns/grants/{device_id}/notify",
+    tag = TAG,
+    description = "Send a device-keyed push nudging the granted device's household member to \
+                   set up Private DNS. The notification deep-links the user PWA to \
+                   `/private-dns`. Returns `delivered: true` when at least one push \
+                   subscription for the device was targeted, and `delivered: false` (a 200, not \
+                   an error) when the device holds a grant but has no subscription — the member \
+                   simply hasn't enabled notifications yet. Returns 404 when the device has no \
+                   grant. Admin only.",
+    params(("device_id" = Uuid, Path, description = "Device ID")),
+    responses(
+        (status = 200, description = "Notification dispatch result", body = SendPrivateDnsNotificationResponse),
+        AuthErrors,
+        NotFound,
+    ),
+)]
+pub async fn notify_device(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(device_id): Path<Uuid>,
+) -> Result<Json<SendPrivateDnsNotificationResponse>, AppError> {
+    let delivered = state.private_dns_service().notify_device(device_id).await?;
+    Ok(Json(SendPrivateDnsNotificationResponse { delivered }))
 }
 
 #[utoipa::path(
