@@ -6,9 +6,12 @@
 # serve the blocklist fixtures consumed by the DNS specs. Stage 10
 # (issue #248) adds the VPN provider topology: `nordvpn_mock` (a Node
 # HTTP mock of api.nordvpn.com), `wg_gateway` (a real WireGuard exit
-# gateway), and `internet_target` (a tunnel-only reachable host) — see
-# the e2e umbrella issue for the full topology, stage list, and
-# conventions: https://github.com/wardnet/wardnet/issues/273
+# gateway), and `internet_target` (a tunnel-only reachable host). Stage
+# 9 (issue #247) adds `wg_gateway_1` / `wg_gateway_2`: two plain
+# WireGuard peers on wardnet_wan for the manual tunnel-import lifecycle
+# specs (no NAT, no internet segment). See the e2e umbrella issue for the
+# full topology, stage list, and conventions:
+# https://github.com/wardnet/wardnet/issues/273
 #
 # Networks (per the e2e plan, Deliverable 5):
 #   wardnet_mgmt 10.90.0.0/24 — test runner ↔ daemon API.
@@ -326,6 +329,55 @@ services:
       retries: 10
       start_period: 3s
 
+  # Plain WireGuard peers for the manual tunnel-import lifecycle specs
+  # (issue #247, E2E Stage 9). Distinct from wg_gateway (the NordVPN NAT exit
+  # gateway): these do no forwarding and never touch wardnet_internet — they
+  # exist only to terminate a tunnel the daemon imports from a fixture .conf, so
+  # tunnel-import / bring-up / stats / fallback can drive the lifecycle against
+  # a real `wg` peer. Each brings up wg0 from its bind-mounted config; the
+  # throwaway keypairs live in fixtures/tunnels (see that dir's README for the
+  # client<->gateway key map). Both sit on wardnet_wan at the stable IPs the
+  # fixture Endpoints dial.
+  wg_gateway_1:
+    build:
+      context: ./mocks/wg-tunnel-gateway
+      dockerfile: Dockerfile
+    image: wardnet-wg-tunnel-gateway:dev
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./fixtures/tunnels/gateway-a.conf:/etc/wireguard/wg0.conf:ro
+    networks:
+      wardnet_wan:
+        ipv4_address: 10.92.0.54
+    healthcheck:
+      test: ["CMD-SHELL", "wg show wg0 >/dev/null 2>&1 || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 15
+      start_period: 5s
+
+  wg_gateway_2:
+    build:
+      context: ./mocks/wg-tunnel-gateway
+      dockerfile: Dockerfile
+    image: wardnet-wg-tunnel-gateway:dev
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    volumes:
+      - ./fixtures/tunnels/gateway-b.conf:/etc/wireguard/wg0.conf:ro
+    networks:
+      wardnet_wan:
+        ipv4_address: 10.92.0.55
+    healthcheck:
+      test: ["CMD-SHELL", "wg show wg0 >/dev/null 2>&1 || exit 1"]
+      interval: 3s
+      timeout: 2s
+      retries: 15
+      start_period: 5s
+
   test_runner:
     build:
       context: ../../..
@@ -345,6 +397,10 @@ services:
       wg_gateway:
         condition: service_healthy
       internet_target:
+        condition: service_healthy
+      wg_gateway_1:
+        condition: service_healthy
+      wg_gateway_2:
         condition: service_healthy
     environment:
       WARDNET_API_BASE_URL: "http://wardnetd:7411/api"
