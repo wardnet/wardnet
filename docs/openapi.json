@@ -20165,14 +20165,7 @@
             "description": "Storage tier to rank over. Defaults to `Minute` (intraday) when\nomitted, preserving the original short-window behaviour; pass `Hour`\nor `Day` to rank over the longer hourly/daily tiers so top-N covers\nthe same window as a matching time-series query.",
             "required": false,
             "schema": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/components/schemas/StatsBucket"
-                }
-              ]
+              "$ref": "#/components/schemas/StatsBucket"
             }
           },
           {
