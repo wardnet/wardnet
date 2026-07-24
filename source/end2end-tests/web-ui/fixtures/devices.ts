@@ -68,16 +68,62 @@ async function agentPost(
   }
 }
 
-/** Make `test_debian` emit a small ARP burst announcing the seed device. */
-async function emitArp(): Promise<void> {
+/** Make `test_debian` emit a small ARP burst announcing a device mac/ip. */
+async function emitArp(mac: string, ip: string): Promise<void> {
   await agentPost(TEST_DEBIAN_AGENT, "/arp/send", {
-    sender_mac: SEED_DEVICE_MAC,
-    sender_ip: SEED_DEVICE_IP,
+    sender_mac: mac,
+    sender_ip: ip,
     target_ip: SEED_TARGET_IP,
     interface: "eth0",
     count: 3,
     interval_ms: 100,
   });
+}
+
+/**
+ * Conjure a discovered device for an arbitrary controlled mac/ip and return
+ * its daemon-assigned id. The general form of `seedDiscoveredDevice` (which
+ * pins the shared `SEED_DEVICE_*` identity); the zone specs reuse it to stand
+ * up their own Trusted/Guest members. The mac must be locally-administered
+ * (`02:…`) and the ip must sit inside the daemon's LAN subnet so discovery's
+ * filter accepts the observation. Idempotent and hard-failing on timeout, for
+ * the same reasons documented on `seedDiscoveredDevice`.
+ */
+export async function seedDiscoveredDeviceByMac(
+  mac: string,
+  ip: string,
+  timeoutMs = 60_000,
+): Promise<{ id: string; mac: string; ip: string }> {
+  const token = await ensureAdminSetup();
+
+  const found = async (): Promise<SeededDevice | undefined> => {
+    const { devices } = await api<ListDevicesResponse>("/devices", { token });
+    return devices.find((d) => d.mac === mac);
+  };
+
+  const existing = await found();
+  if (existing) {
+    return { id: existing.id, mac: existing.mac, ip: existing.last_ip };
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  let lastErr: unknown;
+  while (Date.now() < deadline) {
+    try {
+      await emitArp(mac, ip);
+      const match = await found();
+      if (match) return { id: match.id, mac: match.mac, ip: match.last_ip };
+    } catch (err) {
+      lastErr = err;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 3_000));
+  }
+  throw new Error(
+    `device ${mac} (${ip}) was not discovered within ${timeoutMs}ms — ` +
+      `packet capture may not be reaching wardnet_lan in this environment${
+        lastErr ? `: ${String(lastErr)}` : ""
+      }`,
+  );
 }
 
 /**
@@ -93,40 +139,11 @@ async function emitArp(): Promise<void> {
 export async function seedDiscoveredDevice(
   timeoutMs = 60_000,
 ): Promise<{ id: string; mac: string; ip: string }> {
-  const token = await ensureAdminSetup();
-
   // Match on MAC alone — the device's stable identity. The daemon always
   // records last_ip from the ARP sender (SEED_DEVICE_IP), but keying on the
   // MAC avoids ever returning an unrelated device that happens to share the
   // IP, which the table/detail specs then filter and navigate by.
-  const found = async (): Promise<SeededDevice | undefined> => {
-    const { devices } = await api<ListDevicesResponse>("/devices", { token });
-    return devices.find((d) => d.mac === SEED_DEVICE_MAC);
-  };
-
-  const existing = await found();
-  if (existing) {
-    return { id: existing.id, mac: existing.mac, ip: existing.last_ip };
-  }
-
-  const deadline = Date.now() + timeoutMs;
-  let lastErr: unknown;
-  while (Date.now() < deadline) {
-    try {
-      await emitArp();
-      const match = await found();
-      if (match) return { id: match.id, mac: match.mac, ip: match.last_ip };
-    } catch (err) {
-      lastErr = err;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 3_000));
-  }
-  throw new Error(
-    `device ${SEED_DEVICE_MAC} (${SEED_DEVICE_IP}) was not discovered within ${timeoutMs}ms — ` +
-      `packet capture may not be reaching wardnet_lan in this environment${
-        lastErr ? `: ${String(lastErr)}` : ""
-      }`,
-  );
+  return seedDiscoveredDeviceByMac(SEED_DEVICE_MAC, SEED_DEVICE_IP, timeoutMs);
 }
 
 /**

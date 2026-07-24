@@ -3,6 +3,7 @@ members = [
     "crates/wardnet-postupgrade",
     "crates/wardnet-postupgrade-runner",
     "crates/wardnet-test-agent",
+    "crates/wardnet-test-support",
     "crates/wardnet-common",
     "crates/wardnetd",
     "crates/wardnetd-api",
@@ -17,7 +18,7 @@ exclude = ["fuzz"]
 resolver = "3"
 
 [workspace.package]
-version = "0.6.1"
+version = "0.7.0"
 edition = "2024"
 rust-version = "1.96"
 # GPL-3.0-or-later, not MIT: the daemon links `rustables` (GPL-3.0-or-later,
@@ -42,6 +43,7 @@ missing_panics_doc = "allow"
 # Internal
 wardnet-common = { path = "crates/wardnet-common" }
 wardnet-postupgrade = { path = "crates/wardnet-postupgrade" }
+wardnet-test-support = { path = "crates/wardnet-test-support" }
 wardnetd-api = { path = "crates/wardnetd-api" }
 wardnetd-data = { path = "crates/wardnetd-data" }
 wardnetd-mock = { path = "crates/wardnetd-mock" }
@@ -53,7 +55,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # https://crates.io/crates/uuid
-uuid = { version = "1", features = ["v4", "serde"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
 # https://crates.io/crates/chrono
 chrono = { version = "0.4", features = ["serde"] }
 
@@ -79,7 +81,7 @@ sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "uuid", "chrono
 # https://crates.io/crates/tower
 tower = { version = "0.5", features = ["util"] }
 # https://crates.io/crates/tower-http
-tower-http = { version = "0.6", features = ["catch-panic", "cors", "trace"] }
+tower-http = { version = "0.6", features = ["catch-panic", "trace"] }
 
 # https://crates.io/crates/rust-embed
 rust-embed = { version = "8", features = ["axum"] }
@@ -176,13 +178,21 @@ minisign = { version = "0.9", default-features = false }
 # https://crates.io/crates/libc — used by wardnet-postupgrade-runner for memfd_create + fexecve syscalls
 libc = "0.2"
 # https://crates.io/crates/age — symmetric passphrase encryption for backup bundles (scrypt KDF + ChaCha20-Poly1305)
-age = { version = "0.11", default-features = false }
+age = { version = "0.12", default-features = false }
 # https://crates.io/crates/futures
 futures = "0.3"
 # https://crates.io/crates/tokio-stream — ReceiverStream adapter used by SSE handlers
 tokio-stream = { version = "0.1", features = ["sync"] }
 # https://crates.io/crates/cron
 cron = "0.16"
+
+# https://crates.io/crates/criterion — benchmark harness (dev-only). We disable
+# default features (plotters/gnuplot/rayon) and keep only cargo_bench_support:
+# criterion still writes target/criterion/**/estimates.json, which the `cubit`
+# tool ingests, without pulling the plotting stack into the dev build.
+criterion = { version = "0.8", default-features = false, features = [
+    "cargo_bench_support",
+] }
 
 # https://crates.io/crates/hickory-proto
 hickory-proto = { version = "0.26", features = ["dnssec-ring"] }
@@ -251,10 +261,36 @@ rcgen = "0.14.8"
 # https://crates.io/crates/x509-parser — parse `not_after` from the issued
 # chain to schedule renewal.
 x509-parser = "0.18"
+# https://crates.io/crates/cms — CMS SignedData types that wrap the iOS
+# `.mobileconfig` so Apple shows "Verified" (issue #914). Pure-Rust RustCrypto
+# stack (der/spki/x509-cert), no OpenSSL. The `builder` feature is deliberately
+# OFF: it drags in `rsa` (RUSTSEC-2023-0071, Marvin timing sidechannel) for RSA
+# signing we never do, so the SignedData is assembled from the base types and
+# signed with `p256` directly — the same reason the web-push `vapid` feature is
+# disabled above.
+cms = { version = "0.2.3", default-features = false, features = ["std", "alloc"] }
+# https://crates.io/crates/x509-cert — parse the issued chain into the DER
+# certificate + issuer/serial the CMS signer embeds.
+x509-cert = { version = "0.2", features = ["pem"] }
+# https://crates.io/crates/p256 — sign the CMS SignerInfo with the leaf's
+# ECDSA P-256 key (rcgen generates a P-256 leaf), matching the cert's algorithm.
+p256 = { version = "0.13", features = ["ecdsa", "pem", "pkcs8"] }
+# https://crates.io/crates/der — encode the `.mobileconfig` bytes as the CMS
+# encapsulated content (OctetString → Any).
+der = { version = "0.7", features = ["oid"] }
+# https://crates.io/crates/const-oid — the id-data / SHA-256 OIDs the CMS
+# structure references.
+const-oid = "0.9"
+# https://crates.io/crates/spki — the SHA-256 AlgorithmIdentifier for the CMS
+# digest algorithms set.
+spki = "0.7"
 # https://crates.io/crates/rustls — install the aws-lc-rs crypto provider as the
 # process default for :443 TLS (both ring + aws-lc-rs are in the tree, so rustls
 # 0.23 can't auto-pick).
 rustls = { version = "0.23", features = ["aws_lc_rs"] }
+# https://crates.io/crates/tokio-rustls — async TLS acceptor for the DoT :853
+# listener (issue #912); same 0.26 the tree already resolves via axum-server.
+tokio-rustls = "0.26"
 # https://crates.io/crates/sd-notify — pure-Rust sd_notify(3): READY=1 +
 # WATCHDOG=1 for the Type=notify unit and the health-gated soft watchdog
 # (issue #214). No libsystemd C dependency; a graceful no-op when

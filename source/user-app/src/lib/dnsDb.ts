@@ -24,6 +24,15 @@ export const META_STORE = "meta";
 const EVENTS_RING_CAP = 500;
 const CURSOR_KEY = "lastAggregatedId";
 
+/**
+ * The window (today plus the prior six days) that the Stats page reads for its
+ * trend strip and, equivalently, the retention window `pruneDaily` keeps in the
+ * aggregate store. Single source of truth: `useDnsStats` (the reader) and
+ * `pruneDaily` (the pruner) both derive from this constant so the read window
+ * and the retention window can never drift apart.
+ */
+export const TREND_DAYS = 7;
+
 export interface DnsEventItem {
   id: number;
   domain: string;
@@ -164,6 +173,37 @@ export function pruneEvents(db: IDBDatabase): Promise<void> {
           cur.continue();
         }
       };
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error("transaction aborted"));
+  });
+}
+
+/**
+ * Trim the `daily` aggregate store to the `TREND_DAYS` window the Stats page
+ * reads. Rows keyed by a `date` older than the oldest retained day are deleted;
+ * the newest `TREND_DAYS` days (today included) are kept. Mirrors `pruneEvents`
+ * — it likewise skips the write when there is nothing to prune — and runs on
+ * the same ack/prune cadence.
+ */
+export function pruneDaily(db: IDBDatabase): Promise<void> {
+  return new Promise((resolve, reject) => {
+    // Oldest date we keep; anything strictly before it is expired.
+    const cutoff = recentDates(TREND_DAYS)[0];
+    const tx = db.transaction(DAILY_STORE, "readwrite");
+    const store = tx.objectStore(DAILY_STORE);
+    // Composite key [date, domain]. [cutoff, ""] is the smallest possible key
+    // for the cutoff day, so an exclusive upper bound there covers every row
+    // whose date is earlier than the cutoff while keeping the cutoff day itself.
+    const range = IDBKeyRange.upperBound([cutoff, ""], true);
+    // Only open a delete when the range actually holds expired rows — on the
+    // common tick nothing is out of window, so this stays a cheap no-op.
+    const countReq = store.count(range);
+    countReq.onsuccess = () => {
+      if (countReq.result > 0) {
+        store.delete(range);
+      }
     };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);

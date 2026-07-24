@@ -58,6 +58,15 @@ pub trait DeviceRepository: Send + Sync {
         mode: DeviceConnectionMode,
     ) -> anyhow::Result<()>;
 
+    /// Clear a device's `last_ip`, leaving the row otherwise intact.
+    ///
+    /// Called when a device is marked gone so its (now stale) row can no longer
+    /// collide with a live device's address in [`find_by_ip`](Self::find_by_ip)
+    /// once DHCP recycles the departed device's IP. The address is emptied
+    /// rather than the row deleted — device history is retained; the row is just
+    /// no longer resolvable by IP until the device is observed again.
+    async fn clear_last_ip(&self, id: &str) -> anyhow::Result<()>;
+
     /// Batch update `last_seen` timestamps. Each tuple is (`device_id`, `last_seen_iso`).
     async fn update_last_seen_batch(&self, updates: &[(String, String)]) -> anyhow::Result<()>;
 

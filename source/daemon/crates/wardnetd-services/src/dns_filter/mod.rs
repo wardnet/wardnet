@@ -18,7 +18,7 @@ pub mod service;
 
 pub use blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
 pub use device_context::DeviceFilterContext;
-pub use filter::{DnsFilter, DnsFilterInputs, FilterStats};
+pub use filter::{BlocklistFilterBuilder, DnsFilter, DnsFilterInputs, FilterStats};
 pub use filter_profile::RuntimeDnsFilterProfile;
 pub use runner::DnsFilterRunner;
 pub use service::{DnsFilterService, DnsFilterServiceImpl};

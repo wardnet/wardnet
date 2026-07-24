@@ -282,6 +282,69 @@ async fn admin_lock_notifies_the_target_device_only() {
     assert!(sent[0].payload.contains("locked your routing"));
 }
 
+/// Call an admin-gated service method the way a handler does — under an admin
+/// context.
+async fn notify(service: &PushServiceImpl, device_id: Uuid) -> bool {
+    auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: Uuid::nil(),
+        },
+        service.notify_private_dns_granted(device_id),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn private_dns_notify_resolves_uuid_to_mac_and_reports_delivered() {
+    let device_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    // Subscriptions are keyed by MAC; the endpoint speaks device UUID, so the
+    // service must resolve UUID -> MAC before targeting.
+    insert_device(&h.devices, device_id, "aa:bb:cc:11", Some("Phone")).await;
+    seed(
+        &h.push_repo,
+        OWNER_KIND_DEVICE,
+        "aa:bb:cc:11",
+        "https://push/device",
+    )
+    .await;
+
+    let delivered = notify(&h.service, device_id).await;
+
+    assert!(delivered, "a subscription existed, so delivered is true");
+    let sent = h.sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0].endpoint, "https://push/device");
+    assert!(sent[0].payload.contains("private_dns_granted"));
+    assert!(sent[0].payload.contains("/private-dns"));
+    assert!(sent[0].payload.contains("Private DNS is ready"));
+    assert!(sent[0].payload.contains(&device_id.to_string()));
+}
+
+#[tokio::test]
+async fn private_dns_notify_reports_not_delivered_without_a_subscription() {
+    let device_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    // The device exists but has no push subscription (the household member
+    // hasn't enabled notifications) — not an error, just `false`.
+    insert_device(&h.devices, device_id, "aa:bb:cc:12", Some("Phone")).await;
+
+    let delivered = notify(&h.service, device_id).await;
+
+    assert!(!delivered);
+    assert!(h.sender.sent.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn private_dns_notify_unknown_device_reports_not_delivered() {
+    let h = build(SendOutcome::Delivered).await;
+    // No device row: UUID -> MAC resolution misses, so nothing is targeted.
+    let delivered = notify(&h.service, Uuid::new_v4()).await;
+    assert!(!delivered);
+    assert!(h.sender.sent.lock().unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn admin_routing_change_targets_device_user_change_targets_admins() {
     let device_id = Uuid::new_v4();
@@ -1236,4 +1299,33 @@ fn build_request_rejects_wrong_length_auth() {
         )
         .unwrap_err();
     assert!(err.to_string().contains("16 bytes"), "got {err}");
+}
+
+#[tokio::test]
+async fn send_unbuildable_subscription_warn_names_the_endpoint() {
+    // The drop-on-unbuildable warn must name the offending endpoint in the
+    // message text; on a plain-text backend "dropping unbuildable
+    // subscription" alone gives an operator nothing to act on.
+    let capture = wardnet_test_support::capture_logs(tracing::Level::WARN);
+
+    let sender = ReqwestWebPushSender::new(reqwest::Client::new(), "mailto:a@b.c".to_owned());
+    let vapid = VapidKey::generate();
+    let outcome = sender
+        .send(
+            &vapid,
+            PushTarget {
+                endpoint: "https://push.example.com/x",
+                p256dh: "not-a-valid-point",
+                auth: "YXV0aA",
+            },
+            b"{}".to_vec(),
+        )
+        .await;
+    assert_eq!(outcome, SendOutcome::Gone);
+
+    let logs = capture.contents();
+    assert!(
+        logs.contains("endpoint=https://push.example.com/x"),
+        "warn must interpolate the endpoint, got: {logs}"
+    );
 }

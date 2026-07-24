@@ -4,6 +4,7 @@ import { AppLayout } from "@/layouts/AppLayout";
 import Home from "@/pages/Home";
 import Stats from "@/pages/Stats";
 import Settings from "@/pages/Settings";
+import PrivateDns from "@/pages/PrivateDns";
 import { useDnsEventsSync } from "@/hooks/useDnsEventsSync";
 
 /**
@@ -12,8 +13,8 @@ import { useDnsEventsSync } from "@/hooks/useDnsEventsSync";
  * The User PWA is the device-keyed, non-admin self-service surface (see
  * CONTEXT.md). Identity is the device on the LAN — there is no login or admin
  * session, so the shell wires only the React Query client, the online-status
- * context, and the mobile layout. Each tab is a placeholder until its feature
- * stage (#590–#594) fills it in.
+ * context, and the mobile layout. Routing mounts the Home, Stats and Settings
+ * tabs, with any unknown path redirected back to Home.
  */
 function DnsSync() {
   useDnsEventsSync();
@@ -29,6 +30,7 @@ export default function App() {
           <Route index element={<Home />} />
           <Route path="stats" element={<Stats />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="private-dns" element={<PrivateDns />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

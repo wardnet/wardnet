@@ -118,6 +118,31 @@ impl ReleaseSource for StubReleaseSource {
     }
 }
 
+/// Release source that blocks inside `latest()` until the test releases it, so
+/// two concurrent `install()` calls can be pinned in the check-then-fetch
+/// window at the same time. Counts `latest()` entries to prove how many callers
+/// actually reached the resolution/staging stage.
+struct GatingReleaseSource {
+    release: Release,
+    latest_calls: Arc<std::sync::atomic::AtomicUsize>,
+    entered: Arc<tokio::sync::Notify>,
+    proceed: Arc<tokio::sync::Notify>,
+}
+
+#[async_trait]
+impl ReleaseSource for GatingReleaseSource {
+    async fn latest(&self, _channel: UpdateChannel) -> anyhow::Result<Option<Release>> {
+        self.latest_calls
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.entered.notify_one();
+        self.proceed.notified().await;
+        Ok(Some(self.release.clone()))
+    }
+    async fn fetch_asset(&self, _url: &str) -> anyhow::Result<Vec<u8>> {
+        Ok(Vec::new())
+    }
+}
+
 struct AlwaysOkVerifier;
 
 #[async_trait]
@@ -339,6 +364,122 @@ async fn install_rejects_downgrade() {
     )
     .await;
     assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+}
+
+#[tokio::test]
+async fn install_rejects_requested_version_that_is_not_latest() {
+    // Requesting a specific version that isn't the channel's latest is refused
+    // during resolution, before the slot is handed a handle or anything is
+    // staged — and the claim is released so a later install can proceed.
+    let release = Release {
+        version: "0.2.0".to_owned(),
+        tarball_url: "http://example/t.tar.gz".to_owned(),
+        sha256_url: "http://example/t.tar.gz.sha256".to_owned(),
+        minisig_url: None,
+        published_at: None,
+        notes: None,
+    };
+    let (svc, applier, _) = build_service(Some(release));
+    let svc_trait: Arc<dyn UpdateService> = svc;
+    let result = auth_context::with_context(
+        test_admin_ctx(),
+        svc_trait.install(InstallUpdateRequest {
+            version: Some("9.9.9".to_owned()),
+        }),
+    )
+    .await;
+    assert!(matches!(result, Err(crate::error::AppError::BadRequest(_))));
+    assert_eq!(*applier.apply_count.lock().unwrap(), 0);
+}
+
+#[tokio::test]
+async fn concurrent_install_calls_stage_exactly_one() {
+    // TOCTOU regression: the hourly `UpdateRunner` and an admin
+    // `POST /api/update/install` can call `install()` at the same time. Before
+    // the fix both passed a handle-only check, both fetched, and both staged
+    // against the fixed temp path in `write_atomic` — the loser's rename failed
+    // and published a spurious `UpdateFailed`. The claim must be atomic so the
+    // second caller backs off before it fetches or stages anything.
+    let latest_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let proceed = Arc::new(tokio::sync::Notify::new());
+
+    let applier = Arc::new(RecordingApplier::default());
+    let events = Arc::new(BroadcastEventBus::new(32));
+    let svc = Arc::new(UpdateServiceImpl::new(
+        Arc::new(MemoryConfig::default()),
+        Arc::new(MemoryHistory::default()),
+        Arc::new(GatingReleaseSource {
+            release: test_release_with_minisig(),
+            latest_calls: latest_calls.clone(),
+            entered: entered.clone(),
+            proceed: proceed.clone(),
+        }),
+        Arc::new(AlwaysOkVerifier),
+        applier.clone(),
+        events.clone(),
+        false,
+        false,
+        "0.1.0",
+        tokio_util::sync::CancellationToken::new(),
+    ));
+
+    let mut rx = events.subscribe();
+
+    // Caller A enters `install()`, claims the slot, then parks inside `latest()`.
+    let svc_a = svc.clone();
+    let a = tokio::spawn(async move {
+        auth_context::with_context(
+            test_admin_ctx(),
+            (svc_a as Arc<dyn UpdateService>).install(InstallUpdateRequest::default()),
+        )
+        .await
+    });
+
+    // Once A is parked in `latest()`, the claim is held.
+    entered.notified().await;
+
+    // Caller B arrives mid-claim. It must be turned away before reaching
+    // `latest()`, i.e. without resolving or staging a second install.
+    let b = auth_context::with_context(
+        test_admin_ctx(),
+        (svc.clone() as Arc<dyn UpdateService>).install(InstallUpdateRequest::default()),
+    )
+    .await;
+    assert!(
+        matches!(b, Err(crate::error::AppError::Conflict(_))),
+        "second concurrent install should conflict, got {b:?}"
+    );
+
+    // Let A finish resolving and stage its install.
+    proceed.notify_one();
+    let a_result = a.await.expect("task A panicked");
+    assert!(
+        a_result.is_ok(),
+        "first install should succeed, got {a_result:?}"
+    );
+
+    // Wait for A's background `run_install` to run through `apply`.
+    let completed = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        while let Ok(evt) = rx.recv().await {
+            if matches!(
+                evt,
+                wardnet_common::event::WardnetEvent::UpdateCompleted { .. }
+            ) {
+                return;
+            }
+        }
+    })
+    .await;
+    assert!(completed.is_ok(), "run_install did not complete in time");
+
+    // Exactly one caller resolved a release, and exactly one install staged.
+    assert_eq!(
+        latest_calls.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "only the winning caller should reach release resolution"
+    );
+    assert_eq!(*applier.apply_count.lock().unwrap(), 1);
 }
 
 #[tokio::test]

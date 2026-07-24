@@ -34,10 +34,11 @@ import {
  * Two actions are NOT fired, for hard infra reasons documented at their tests:
  *   - Device *reboot* can't recover the compose container (mirrors the
  *     admin-site power.spec, which also avoids reboot/shutdown) — open + cancel.
- *   - Tunnel *rebuild* / *speed test* would run against the only seedable
- *     tunnel, a non-functional dummy (status down, throwaway WireGuard keys),
- *     so firing them is meaningless and flaky — presence + enabled is the
- *     contract.
+ *   - Tunnel *rebuild* would run against the only seedable tunnel, a
+ *     non-functional dummy (status down, throwaway WireGuard keys), so firing
+ *     it is meaningless and flaky — presence + enabled is the contract. (The
+ *     *speed test* is fired end-to-end against the deterministic stub backends
+ *     in tunnel-speed-test.spec.ts; here it too is presence + enabled only.)
  */
 
 const TUNNEL_LABEL = "E2E Test Tunnel";
@@ -158,10 +159,11 @@ test.describe("tunnels", () => {
     await expect(card).toBeVisible();
     await expect(card).toContainText("198.51.100.1");
 
-    // Primary actions are present and actionable. They are NOT fired: the
+    // Primary actions are present and actionable. They are NOT fired here: the
     // only seedable tunnel is a non-functional dummy (status down, throwaway
-    // keys), so a real rebuild / speed test against it is meaningless and
-    // flaky — the contract here is that the controls are wired and enabled.
+    // keys), so a real rebuild against it is meaningless. The speed test's
+    // end-to-end run lives in tunnel-speed-test.spec.ts (deterministic stub
+    // backends); the contract here is that the controls are wired and enabled.
     const speedTest = card.getByTestId("tunnel-speed-test-button");
     await expect(speedTest).toBeVisible();
     await expect(speedTest).toBeEnabled();

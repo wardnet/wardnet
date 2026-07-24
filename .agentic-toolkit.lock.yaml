@@ -8,4 +8,4 @@ sources:
   sha: 13fbcd81632de892d516a451b64fa07197a93893
 - url: github.com/anthropics/skills.git
   ref: main
-  sha: 9d2f1ae187231d8199c64b5b762e1bdf2244733d
+  sha: 1f630fdf9259cec4a14913127dfd7c3b69ef72eb

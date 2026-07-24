@@ -35,6 +35,7 @@ import {
   useRebuildTunnel,
   useSetTunnelDnsOverride,
   useSpeedTestResults,
+  useSpeedTestResultsList,
   useStartSpeedTest,
 } from "../../src/hooks/useTunnels";
 
@@ -70,6 +71,29 @@ describe("useTunnels queries", () => {
   it("skips fetching a tunnel with an empty id", () => {
     const { result } = renderHook(() => useTunnel(""), { wrapper: wrapper() });
     expect(result.current.fetchStatus).toBe("idle");
+  });
+
+  it("maps the latest speed-test result per id, defaulting missing to null", async () => {
+    tunnelService.getSpeedTestResults.mockImplementation((id: string) =>
+      id === "t1"
+        ? Promise.resolve({ results: [{ id: "s1", tunnel_id: "t1" }] })
+        : Promise.resolve({ results: [] }),
+    );
+    const { result } = renderHook(() => useSpeedTestResultsList(["t1", "t2"]), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() =>
+      expect(result.current.t1).toEqual({ id: "s1", tunnel_id: "t1" }),
+    );
+    // A tunnel with no runs yet resolves to null rather than being absent.
+    expect(result.current.t2).toBeNull();
+  });
+
+  it("returns an empty map when given no ids", () => {
+    const { result } = renderHook(() => useSpeedTestResultsList([]), {
+      wrapper: wrapper(),
+    });
+    expect(result.current).toEqual({});
   });
 });
 

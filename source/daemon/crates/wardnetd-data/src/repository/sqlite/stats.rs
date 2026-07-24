@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use sqlx::SqlitePool;
-use wardnet_common::stats::StatsTopEntry;
+use wardnet_common::stats::{StatsBucket, StatsTopEntry};
 
 use super::super::stats::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 use crate::db::DbPools;
@@ -376,25 +376,40 @@ impl StatsRepository for SqliteStatsRepository {
 
     // ── Top-N ─────────────────────────────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     async fn top_n(
         &self,
         metric: &str,
         label_key: &str,
         fallback_label_key: Option<&str>,
+        bucket: StatsBucket,
         from: i64,
         to: i64,
         limit: u32,
     ) -> anyhow::Result<Vec<StatsTopEntry>> {
         // json_extract is covered by the expression indexes for the known
-        // label keys (outcome, domain, client, device_id). Unknown keys —
-        // and the COALESCE form — fall back to a scan of the (small,
-        // 25 h-bounded, pre-aggregated) intraday table but still return
-        // correct results.
+        // label keys (outcome, domain, client, device_id, company) on each
+        // tier. Unknown keys — and the COALESCE form — fall back to a scan of
+        // the (pre-aggregated) tier table but still return correct results.
+        //
+        // The tier is chosen by `bucket` so top-N spans the same window the
+        // caller charts: intraday for short ranges, hourly/daily for longer
+        // ones. `from`/`to` are Unix seconds throughout; the daily tier keys on
+        // calendar day, so its predicate converts the bounds with
+        // `date(?, 'unixepoch')`.
         //
         // With a fallback key one group can span rows with different label
         // strings (a device seen under several IPs); MAX(labels) keeps the
         // representative row deterministic instead of leaving SQLite to
         // pick an arbitrary member.
+        let (table, time_pred) = match bucket {
+            StatsBucket::Minute => ("stats_intraday", "bucket_ts BETWEEN ? AND ?"),
+            StatsBucket::Hour => ("stats_hourly", "hour_ts BETWEEN ? AND ?"),
+            StatsBucket::Day => (
+                "stats_daily",
+                "day BETWEEN date(?, 'unixepoch') AND date(?, 'unixepoch')",
+            ),
+        };
         let key_path = format!("$.{label_key}");
         let fallback_path = fallback_label_key.map(|f| format!("$.{f}"));
         let group_expr = match &fallback_path {
@@ -403,8 +418,8 @@ impl StatsRepository for SqliteStatsRepository {
         };
         let sql = format!(
             "SELECT MAX(labels) AS labels, SUM(value) AS total \
-             FROM stats_intraday \
-             WHERE metric = ? AND bucket_ts BETWEEN ? AND ? \
+             FROM {table} \
+             WHERE metric = ? AND {time_pred} \
                AND {group_expr} IS NOT NULL \
              GROUP BY {group_expr} \
              ORDER BY total DESC \

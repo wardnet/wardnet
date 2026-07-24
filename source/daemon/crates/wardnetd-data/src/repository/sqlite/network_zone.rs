@@ -68,9 +68,24 @@ impl ZoneRow {
     }
 }
 
-const SELECT_COLS: &str = "id, name, provenance, isolation_stance, allowed_targets, \
-    member_isolation, subnet_cidr, admin_ui_reachable, is_default, is_default_for_new, \
-    created_at, updated_at";
+// Static SQL strings — the column list is inlined into each fixed SELECT so no
+// runtime format!() allocation is needed.
+const FIND_ALL_SQL: &str = "SELECT id, name, provenance, isolation_stance, allowed_targets, \
+     member_isolation, subnet_cidr, admin_ui_reachable, is_default, is_default_for_new, \
+     created_at, updated_at \
+     FROM network_zones ORDER BY name";
+const FIND_BY_ID_SQL: &str = "SELECT id, name, provenance, isolation_stance, allowed_targets, \
+     member_isolation, subnet_cidr, admin_ui_reachable, is_default, is_default_for_new, \
+     created_at, updated_at \
+     FROM network_zones WHERE id = ?";
+const FIND_DEFAULT_SQL: &str = "SELECT id, name, provenance, isolation_stance, allowed_targets, \
+     member_isolation, subnet_cidr, admin_ui_reachable, is_default, is_default_for_new, \
+     created_at, updated_at \
+     FROM network_zones WHERE is_default = 1";
+const FIND_DEFAULT_FOR_NEW_SQL: &str = "SELECT id, name, provenance, isolation_stance, allowed_targets, \
+     member_isolation, subnet_cidr, admin_ui_reachable, is_default, is_default_for_new, \
+     created_at, updated_at \
+     FROM network_zones WHERE is_default_for_new = 1";
 
 /// Serialize a scalar enum to its `snake_case` wire string (strip the JSON quotes).
 fn enum_str<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {
@@ -80,16 +95,14 @@ fn enum_str<T: serde::Serialize>(value: &T) -> anyhow::Result<String> {
 #[async_trait]
 impl NetworkZoneRepository for SqliteNetworkZoneRepository {
     async fn find_all(&self) -> anyhow::Result<Vec<NetworkZone>> {
-        let query = format!("SELECT {SELECT_COLS} FROM network_zones ORDER BY name");
-        let rows = sqlx::query_as::<_, ZoneRow>(sqlx::AssertSqlSafe(query))
+        let rows = sqlx::query_as::<_, ZoneRow>(FIND_ALL_SQL)
             .fetch_all(&self.pools.read)
             .await?;
         rows.into_iter().map(ZoneRow::into_zone).collect()
     }
 
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<NetworkZone>> {
-        let query = format!("SELECT {SELECT_COLS} FROM network_zones WHERE id = ?");
-        let row = sqlx::query_as::<_, ZoneRow>(sqlx::AssertSqlSafe(query))
+        let row = sqlx::query_as::<_, ZoneRow>(FIND_BY_ID_SQL)
             .bind(id)
             .fetch_optional(&self.pools.read)
             .await?;
@@ -97,8 +110,7 @@ impl NetworkZoneRepository for SqliteNetworkZoneRepository {
     }
 
     async fn find_default(&self) -> anyhow::Result<NetworkZone> {
-        let query = format!("SELECT {SELECT_COLS} FROM network_zones WHERE is_default = 1");
-        let row = sqlx::query_as::<_, ZoneRow>(sqlx::AssertSqlSafe(query))
+        let row = sqlx::query_as::<_, ZoneRow>(FIND_DEFAULT_SQL)
             .fetch_optional(&self.pools.read)
             .await?
             .ok_or_else(|| anyhow::anyhow!("no default network zone configured"))?;
@@ -106,8 +118,7 @@ impl NetworkZoneRepository for SqliteNetworkZoneRepository {
     }
 
     async fn find_default_for_new(&self) -> anyhow::Result<NetworkZone> {
-        let query = format!("SELECT {SELECT_COLS} FROM network_zones WHERE is_default_for_new = 1");
-        let row = sqlx::query_as::<_, ZoneRow>(sqlx::AssertSqlSafe(query))
+        let row = sqlx::query_as::<_, ZoneRow>(FIND_DEFAULT_FOR_NEW_SQL)
             .fetch_optional(&self.pools.read)
             .await?
             .ok_or_else(|| anyhow::anyhow!("no default-for-new network zone configured"))?;

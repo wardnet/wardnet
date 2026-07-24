@@ -6,6 +6,7 @@ mod health;
 mod health_checks;
 mod init;
 mod jobs;
+mod maintenance;
 mod request_context;
 mod subnet;
 mod version;

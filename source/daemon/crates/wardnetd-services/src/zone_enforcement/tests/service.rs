@@ -66,6 +66,9 @@ impl FirewallManager for RecordingFirewall {
     async fn init_wardnet_table(&self) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn flush_wardnet_table(&self) -> anyhow::Result<()> {
         Ok(())
     }
@@ -164,6 +167,49 @@ impl PolicyRouter for RecordingPolicy {
     async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
         Ok(Vec::new())
     }
+    async fn add_switchback_rule(
+        &self,
+        _src_ip: &str,
+        _dst_cidr: &str,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn remove_switchback_rule(
+        &self,
+        _src_ip: &str,
+        _dst_cidr: &str,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>> {
+        Ok(Vec::new())
+    }
+    async fn add_domain_route_rule(
+        &self,
+        _src_ip: &str,
+        _dst_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn remove_domain_route_rule(
+        &self,
+        _src_ip: &str,
+        _dst_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn list_domain_route_rules(
+        &self,
+        _priority: u32,
+    ) -> anyhow::Result<Vec<(String, String, u32)>> {
+        Ok(Vec::new())
+    }
     async fn flush_conntrack(&self, src_ip: &str) -> anyhow::Result<()> {
         self.calls
             .lock()
@@ -220,6 +266,8 @@ impl PolicyRouter for RecordingPolicy {
 struct RecordingRouting {
     /// `<device_id>=<target-debug>` for each clamp callback.
     clamps: Arc<Mutex<Vec<String>>>,
+    /// `<device_id>=<device_ip>=[<cidr>,...]` for each switchback-target push.
+    switchback: Arc<Mutex<Vec<String>>>,
 }
 
 #[async_trait]
@@ -280,6 +328,31 @@ impl RoutingService for RecordingRouting {
     ) -> Result<(), AppError> {
         unimplemented!()
     }
+    #[allow(clippy::similar_names)]
+    async fn set_switchback_targets(
+        &self,
+        device_id: Uuid,
+        device_ip: String,
+        target_cidrs: Vec<String>,
+    ) -> Result<(), AppError> {
+        self.switchback
+            .lock()
+            .await
+            .push(format!("{device_id}={device_ip}={target_cidrs:?}"));
+        Ok(())
+    }
+    async fn route_resolved_domain(
+        &self,
+        _device_ip: &str,
+        _resolved_ips: &[std::net::IpAddr],
+        _target: &wardnet_common::routing_profile::DomainRoutingTarget,
+        _ttl_secs: u32,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn gc_domain_routes(&self) -> Result<(), AppError> {
+        Ok(())
+    }
     async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
         unimplemented!()
     }
@@ -314,6 +387,7 @@ struct Harness {
     policy_calls: Arc<Mutex<Vec<String>>>,
     existing_aliases: Arc<Mutex<Vec<(String, u8)>>>,
     clamps: Arc<Mutex<Vec<String>>>,
+    switchback: Arc<Mutex<Vec<String>>>,
 }
 
 async fn test_pool() -> SqlitePool {
@@ -353,8 +427,10 @@ async fn build() -> Harness {
         existing_aliases: existing_aliases.clone(),
     });
     let clamps = Arc::new(Mutex::new(Vec::new()));
+    let switchback = Arc::new(Mutex::new(Vec::new()));
     let routing: Arc<dyn RoutingService> = Arc::new(RecordingRouting {
         clamps: clamps.clone(),
+        switchback: switchback.clone(),
     });
 
     // A real DHCP service over the same in-memory pool so `release_lease` and
@@ -395,6 +471,7 @@ async fn build() -> Harness {
         policy_calls,
         existing_aliases,
         clamps,
+        switchback,
     }
 }
 
@@ -1176,5 +1253,233 @@ async fn reconcile_skips_devices_without_a_usable_ip() {
     assert!(
         bogus.is_empty(),
         "reconcile must not apply rules keyed on an empty IP (#886): {bogus:?}"
+    );
+}
+
+/// Recorded `set_switchback_targets` pushes as `<device_id>=<ip>=[<cidr>,...]`.
+async fn switchback(h: &Harness) -> Vec<String> {
+    h.switchback.lock().await.clone()
+}
+
+#[tokio::test]
+async fn zone_scoped_casting_exception_pushes_switchback_subnets() {
+    // A Family(zone)↔Entertainment(zone) casting exception (bidirectional) must
+    // push each side's device the OTHER zone's subnet as a switchback target, so
+    // a tunnel-bound caster can reach the far zone's LAN across the tunnel.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Entertainment", "192.168.201.0/24", false).await;
+    let family_dev = insert_device(&h.devices, "192.168.200.10", ZONE_A).await;
+    let ent_dev = insert_device(&h.devices, "192.168.201.20", ZONE_B).await;
+    let now = chrono::Utc::now();
+    h.exceptions
+        .insert(&ZoneException {
+            id: Uuid::new_v4(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_A.parse().unwrap(),
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_B.parse().unwrap(),
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+
+    as_admin(h.svc.handle_exceptions_changed()).await.unwrap();
+
+    let sw = switchback(&h).await;
+    assert!(
+        sw.contains(&format!(
+            "{family_dev}=192.168.200.10=[\"192.168.201.0/24\"]"
+        )),
+        "family device must get the Entertainment subnet: {sw:?}"
+    );
+    assert!(
+        sw.contains(&format!("{ent_dev}=192.168.201.20=[\"192.168.200.0/24\"]")),
+        "entertainment device must get the Family subnet: {sw:?}"
+    );
+}
+
+#[tokio::test]
+async fn device_scoped_exception_pushes_switchback_slash32() {
+    // A device→device casting exception resolves each endpoint to a `/32`.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Entertainment", "192.168.201.0/24", false).await;
+    let phone = insert_device(&h.devices, "192.168.200.10", ZONE_A).await;
+    let tv = insert_device(&h.devices, "192.168.201.20", ZONE_B).await;
+    let now = chrono::Utc::now();
+    h.exceptions
+        .insert(&ZoneException {
+            id: Uuid::new_v4(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: phone,
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: tv,
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+
+    as_admin(h.svc.handle_exceptions_changed()).await.unwrap();
+
+    let sw = switchback(&h).await;
+    assert!(
+        sw.contains(&format!("{phone}=192.168.200.10=[\"192.168.201.20/32\"]")),
+        "phone must get the TV /32: {sw:?}"
+    );
+    assert!(
+        sw.contains(&format!("{tv}=192.168.201.20=[\"192.168.200.10/32\"]")),
+        "TV must get the phone /32: {sw:?}"
+    );
+}
+
+#[tokio::test]
+async fn casting_exception_populates_deduped_nat_exempt_pairs() {
+    // The cross-zone exception's (from, to) CIDR pair must appear ONCE in
+    // nat_exempt_pairs even though the casting preset expands to many ports
+    // (each of which produces an allow with the same CIDR pair).
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Entertainment", "192.168.201.0/24", false).await;
+    let phone = insert_device(&h.devices, "192.168.200.10", ZONE_A).await;
+    let tv = insert_device(&h.devices, "192.168.201.20", ZONE_B).await;
+    let now = chrono::Utc::now();
+    h.exceptions
+        .insert(&ZoneException {
+            id: Uuid::new_v4(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: phone,
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: tv,
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+
+    as_admin(h.svc.handle_exceptions_changed()).await.unwrap();
+
+    let rules = isolation(&h).await;
+    assert_eq!(
+        rules.nat_exempt_pairs,
+        vec![(
+            "192.168.200.10/32".to_owned(),
+            "192.168.201.20/32".to_owned()
+        )],
+        "the (from, to) pair must appear exactly once despite many casting ports: {:?}",
+        rules.nat_exempt_pairs
+    );
+}
+
+/// Insert a bidirectional casting exception between `ZONE_A` and `ZONE_B`.
+async fn insert_zone_casting_exception(h: &Harness) {
+    let now = chrono::Utc::now();
+    h.exceptions
+        .insert(&ZoneException {
+            id: Uuid::new_v4(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_A.parse().unwrap(),
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_B.parse().unwrap(),
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn identical_reconcile_pushes_switchback_once() {
+    // A startup burst of identical reconciles must push switchback exactly once
+    // per device — the per-device push loop is debounced against last_switchback,
+    // not re-run on every reconcile (avoiding O(N^2) over the burst).
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Entertainment", "192.168.201.0/24", false).await;
+    let family = insert_device(&h.devices, "192.168.200.10", ZONE_A).await;
+    let _tv = insert_device(&h.devices, "192.168.201.20", ZONE_B).await;
+    insert_zone_casting_exception(&h).await;
+
+    as_admin(h.svc.apply_device(family)).await.unwrap();
+    let after_first = h.switchback.lock().await.len();
+    as_admin(h.svc.apply_device(family)).await.unwrap();
+    as_admin(h.svc.apply_device(family)).await.unwrap();
+    let after_repeats = h.switchback.lock().await.len();
+
+    assert_eq!(
+        after_first, 2,
+        "first reconcile pushes once per device (2 devices)"
+    );
+    assert_eq!(
+        after_first, after_repeats,
+        "identical reconciles must not re-push switchback: {after_first} vs {after_repeats}"
+    );
+}
+
+#[tokio::test]
+async fn device_zone_change_repushes_switchback() {
+    // A device changing zone alters switchback membership without changing the
+    // isolation `rules`, so it must still trigger a fresh push.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Entertainment", "192.168.201.0/24", false).await;
+    let family = insert_device(&h.devices, "192.168.200.10", ZONE_A).await;
+    let _tv = insert_device(&h.devices, "192.168.201.20", ZONE_B).await;
+    insert_zone_casting_exception(&h).await;
+
+    as_admin(h.svc.apply_device(family)).await.unwrap();
+    let baseline = h.switchback.lock().await.len();
+
+    // Move the family device into ZONE_B: its target CIDR flips (Family subnet
+    // instead of Entertainment subnet), so the snapshot changes.
+    h.devices
+        .assign_zone(&family.to_string(), ZONE_B)
+        .await
+        .unwrap();
+    as_admin(h.svc.handle_zone_change(family)).await.unwrap();
+
+    let after = h.switchback.lock().await.len();
+    assert!(
+        after > baseline,
+        "a device-zone change must re-push switchback: {after} vs {baseline}"
     );
 }

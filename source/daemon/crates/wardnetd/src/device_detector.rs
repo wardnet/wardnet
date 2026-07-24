@@ -5,7 +5,9 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
+use uuid::Uuid;
 
+use wardnet_common::auth::AuthContext;
 use wardnet_common::config::DetectionConfig;
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::SystemConfigRepository;
@@ -14,6 +16,16 @@ use wardnetd_services::event::EventPublisher;
 use wardnetd_services::{DeviceDiscoveryService, ObservationResult};
 
 use crate::garp_learning;
+
+/// Auth context every device-detector background call establishes before
+/// reaching the discovery service. These tasks run outside the HTTP middleware,
+/// so no `AuthContext` is set by default; `Uuid::nil()` marks the work as
+/// system-initiated in audit logs (see `.agents/auth.md`).
+fn system_ctx() -> AuthContext {
+    AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    }
+}
 
 /// Background device detection orchestrator.
 ///
@@ -172,7 +184,12 @@ async fn processor_task(
                     );
                 }
 
-                match discovery.process_observation(&obs).await {
+                match wardnetd_services::auth_context::with_context(
+                    system_ctx(),
+                    discovery.process_observation(&obs),
+                )
+                .await
+                {
                     Ok(ObservationResult::NewDevice { device_id, .. }) => {
                         tracing::info!(mac = %obs.mac, ip = %obs.ip, "device detected: mac={mac}, ip={ip}", mac = obs.mac, ip = obs.ip);
 
@@ -185,8 +202,11 @@ async fn processor_task(
                         let resolve_span = tracing::Span::current();
                         tokio::spawn(
                             async move {
-                                if let Err(e) =
-                                    discovery_clone.resolve_hostname(&mac, &ip).await
+                                if let Err(e) = wardnetd_services::auth_context::with_context(
+                                    system_ctx(),
+                                    discovery_clone.resolve_hostname(&mac, &ip),
+                                )
+                                .await
                                 {
                                     tracing::warn!(
                                         device_id = %device_id,
@@ -240,7 +260,12 @@ async fn flush_task(
             _ = tick.tick() => {}
         }
 
-        match discovery.flush_last_seen().await {
+        match wardnetd_services::auth_context::with_context(
+            system_ctx(),
+            discovery.flush_last_seen(),
+        )
+        .await
+        {
             Ok(count) => {
                 tracing::debug!(count, "flushed last_seen timestamps: count={count}");
             }
@@ -266,7 +291,12 @@ async fn departure_task(
             _ = tick.tick() => {}
         }
 
-        match discovery.scan_departures(timeout_secs).await {
+        match wardnetd_services::auth_context::with_context(
+            system_ctx(),
+            discovery.scan_departures(timeout_secs),
+        )
+        .await
+        {
             Ok(departed) => {
                 tracing::info!(
                     count = departed.len(),
@@ -326,7 +356,12 @@ async fn hostname_listener_task(
                         WardnetEvent::DhcpLeaseAssigned { mac, ip, hostname: Some(h), .. }
                         | WardnetEvent::DhcpLeaseRenewed { mac, ip, hostname: Some(h), .. },
                     ) if !h.trim().is_empty() => {
-                        if let Err(e) = discovery.resolve_hostname(&mac, &ip).await {
+                        if let Err(e) = wardnetd_services::auth_context::with_context(
+                            system_ctx(),
+                            discovery.resolve_hostname(&mac, &ip),
+                        )
+                        .await
+                        {
                             tracing::warn!(
                                 %mac,
                                 error = %e,
@@ -372,7 +407,12 @@ async fn zone_subnet_listener_task(
             result = event_rx.recv() => {
                 match result {
                     Ok(WardnetEvent::NetworkZoneChanged { .. }) => {
-                        if let Err(e) = discovery.rebuild_trusted_subnets().await {
+                        if let Err(e) = wardnetd_services::auth_context::with_context(
+                            system_ctx(),
+                            discovery.rebuild_trusted_subnets(),
+                        )
+                        .await
+                        {
                             tracing::warn!(
                                 error = %e,
                                 "device discovery: failed to rebuild trusted subnets after zone change: {e}"
@@ -393,7 +433,12 @@ async fn zone_subnet_listener_task(
                             "zone-subnet listener lagged behind event bus, skipped {n} events; \
                              forcing a trusted-subnet rebuild"
                         );
-                        if let Err(e) = discovery.rebuild_trusted_subnets().await {
+                        if let Err(e) = wardnetd_services::auth_context::with_context(
+                            system_ctx(),
+                            discovery.rebuild_trusted_subnets(),
+                        )
+                        .await
+                        {
                             tracing::warn!(
                                 error = %e,
                                 "device discovery: failed to rebuild trusted subnets after lag: {e}"

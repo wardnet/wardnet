@@ -5,7 +5,9 @@ use wardnet_common::dns::{
     DnsZoneSource,
 };
 
-use crate::dns::authoritative::{AuthoritativeView, build_soa, parse_conditional_upstream};
+use crate::dns::authoritative::{
+    AuthoritativeView, build_soa, parse_conditional_upstream, parse_ptr_ipv4, private_reverse_zone,
+};
 
 fn zone(name: &str, enabled: bool) -> DnsZone {
     DnsZone {
@@ -257,5 +259,261 @@ fn build_soa_record_shape() {
     assert!(
         matches!(rec.data, RData::SOA(_)),
         "authority record must carry SOA rdata"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Wildcard records (issue #912) — `*.suffix` matches names below the suffix,
+// exact records shadow, the apex never matches its own wildcard.
+// ---------------------------------------------------------------------------
+
+const WILDCARD: &str = "*.casa.my.wardnet.services";
+
+fn wildcard_view() -> AuthoritativeView {
+    AuthoritativeView::build(
+        &[],
+        vec![record(
+            WILDCARD,
+            DnsRecordType::A,
+            "192.168.1.1",
+            None,
+            true,
+        )],
+        vec![],
+    )
+}
+
+#[test]
+fn wildcard_matches_one_label_below_the_suffix() {
+    let view = wildcard_view();
+    let recs = view
+        .lookup(
+            "mgrmzsc2ytemzsg4.casa.my.wardnet.services",
+            DnsRecordType::A,
+        )
+        .expect("token hostname must match the wildcard");
+    assert_eq!(recs.len(), 1);
+    assert_eq!(recs[0].value, "192.168.1.1");
+}
+
+#[test]
+fn wildcard_matches_deeper_names_too() {
+    let view = wildcard_view();
+    assert!(
+        view.lookup_all("a.b.casa.my.wardnet.services").is_some(),
+        "left-most wildcard covers multi-label prefixes"
+    );
+}
+
+#[test]
+fn wildcard_never_matches_the_bare_suffix() {
+    let view = wildcard_view();
+    assert!(
+        view.lookup("casa.my.wardnet.services", DnsRecordType::A)
+            .is_none(),
+        "the apex resolves through its own records, not the wildcard"
+    );
+}
+
+#[test]
+fn wildcard_requires_a_label_boundary() {
+    let view = wildcard_view();
+    assert!(
+        view.lookup("evilcasa.my.wardnet.services", DnsRecordType::A)
+            .is_none(),
+        "a name merely ending in the suffix string must not match"
+    );
+}
+
+#[test]
+fn wildcard_type_miss_falls_through_not_nodata() {
+    // A wildcard covers a whole subtree, so a type it doesn't carry must
+    // fall through (None) to forwarding/upstream rather than short-circuit
+    // the subtree to authoritative NODATA (issue #912 review fix).
+    let view = wildcard_view();
+    assert!(
+        view.lookup("token.casa.my.wardnet.services", DnsRecordType::Aaaa)
+            .is_none(),
+        "an A-only wildcard must not NODATA AAAA for the whole subtree"
+    );
+    // The carried type still resolves.
+    assert!(
+        view.lookup("token.casa.my.wardnet.services", DnsRecordType::A)
+            .is_some_and(|r| !r.is_empty())
+    );
+}
+
+#[test]
+fn explicit_record_shadows_the_wildcard() {
+    let view = AuthoritativeView::build(
+        &[],
+        vec![
+            record(WILDCARD, DnsRecordType::A, "192.168.1.1", None, true),
+            record(
+                "pinned.casa.my.wardnet.services",
+                DnsRecordType::A,
+                "10.0.0.9",
+                None,
+                true,
+            ),
+        ],
+        vec![],
+    );
+    let recs = view
+        .lookup("pinned.casa.my.wardnet.services", DnsRecordType::A)
+        .expect("explicit record resolves");
+    assert_eq!(recs.len(), 1);
+    assert_eq!(recs[0].value, "10.0.0.9", "exact match beats the wildcard");
+}
+
+#[test]
+fn longest_wildcard_suffix_wins() {
+    let view = AuthoritativeView::build(
+        &[],
+        vec![
+            record("*.example.com", DnsRecordType::A, "1.1.1.1", None, true),
+            record(
+                "*.deep.example.com",
+                DnsRecordType::A,
+                "2.2.2.2",
+                None,
+                true,
+            ),
+        ],
+        vec![],
+    );
+    let recs = view
+        .lookup("host.deep.example.com", DnsRecordType::A)
+        .expect("wildcard match");
+    assert_eq!(recs[0].value, "2.2.2.2", "most specific wildcard wins");
+}
+
+#[test]
+fn disabled_wildcard_is_ignored() {
+    let view = AuthoritativeView::build(
+        &[],
+        vec![record(
+            WILDCARD,
+            DnsRecordType::A,
+            "192.168.1.1",
+            None,
+            false,
+        )],
+        vec![],
+    );
+    assert!(
+        view.lookup("token.casa.my.wardnet.services", DnsRecordType::A)
+            .is_none()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Reverse PTR: name parsing, the private-zone classifier, and the reverse
+// index built from forward A records.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_ptr_ipv4_reverses_the_octet_order() {
+    use std::net::Ipv4Addr;
+    assert_eq!(
+        parse_ptr_ipv4("5.100.168.192.in-addr.arpa"),
+        Some(Ipv4Addr::new(192, 168, 100, 5)),
+    );
+    assert_eq!(
+        parse_ptr_ipv4("1.0.0.10.in-addr.arpa"),
+        Some(Ipv4Addr::new(10, 0, 0, 1)),
+    );
+}
+
+#[test]
+fn parse_ptr_ipv4_rejects_non_host_names() {
+    // A zone-apex query (three labels), a too-long name, an out-of-range
+    // octet, and an ip6.arpa name all fall through to normal forwarding.
+    assert_eq!(parse_ptr_ipv4("100.168.192.in-addr.arpa"), None);
+    assert_eq!(parse_ptr_ipv4("1.5.100.168.192.in-addr.arpa"), None);
+    assert_eq!(parse_ptr_ipv4("256.100.168.192.in-addr.arpa"), None);
+    assert_eq!(parse_ptr_ipv4("a.b.c.d.in-addr.arpa"), None);
+    assert_eq!(
+        parse_ptr_ipv4("1.0.0.0.0.0.0.0.0.0.0.0.0.0.0.0.ip6.arpa"),
+        None,
+    );
+}
+
+#[test]
+fn private_reverse_zone_classifies_rfc6303_blocks() {
+    use std::net::Ipv4Addr;
+    assert_eq!(
+        private_reverse_zone(Ipv4Addr::new(10, 1, 2, 3)).as_deref(),
+        Some("10.in-addr.arpa"),
+    );
+    assert_eq!(
+        private_reverse_zone(Ipv4Addr::new(172, 20, 5, 5)).as_deref(),
+        Some("20.172.in-addr.arpa"),
+    );
+    assert_eq!(
+        private_reverse_zone(Ipv4Addr::new(192, 168, 100, 5)).as_deref(),
+        Some("168.192.in-addr.arpa"),
+    );
+    assert_eq!(
+        private_reverse_zone(Ipv4Addr::new(169, 254, 1, 1)).as_deref(),
+        Some("254.169.in-addr.arpa"),
+    );
+    assert_eq!(
+        private_reverse_zone(Ipv4Addr::new(100, 100, 0, 1)).as_deref(),
+        Some("100.100.in-addr.arpa"),
+    );
+    // Public and just-outside-the-block addresses are not ours.
+    assert_eq!(private_reverse_zone(Ipv4Addr::new(8, 8, 8, 8)), None);
+    assert_eq!(private_reverse_zone(Ipv4Addr::new(172, 15, 0, 1)), None);
+    assert_eq!(private_reverse_zone(Ipv4Addr::new(172, 32, 0, 1)), None);
+    assert_eq!(private_reverse_zone(Ipv4Addr::new(100, 63, 0, 1)), None);
+}
+
+#[test]
+fn reverse_index_inverts_private_a_records() {
+    use std::net::Ipv4Addr;
+    let view = AuthoritativeView::build(
+        &[],
+        vec![
+            record("laptop.lan", DnsRecordType::A, "192.168.100.5", None, true),
+            // A second name for the same address — both are returned.
+            record(
+                "laptop-wifi.lan",
+                DnsRecordType::A,
+                "192.168.100.5",
+                None,
+                true,
+            ),
+        ],
+        vec![],
+    );
+    let recs = view
+        .reverse_lookup(Ipv4Addr::new(192, 168, 100, 5))
+        .expect("reverse hit");
+    let mut names: Vec<&str> = recs.iter().map(|r| r.domain.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["laptop-wifi.lan", "laptop.lan"]);
+}
+
+#[test]
+fn reverse_index_skips_public_and_disabled_records() {
+    use std::net::Ipv4Addr;
+    let view = AuthoritativeView::build(
+        &[],
+        vec![
+            // Public target — reverse stays upstream, never indexed.
+            record("cdn.lan", DnsRecordType::A, "93.184.216.34", None, true),
+            // Disabled — excluded like everywhere else.
+            record("old.lan", DnsRecordType::A, "192.168.100.9", None, false),
+        ],
+        vec![],
+    );
+    assert!(
+        view.reverse_lookup(Ipv4Addr::new(93, 184, 216, 34))
+            .is_none()
+    );
+    assert!(
+        view.reverse_lookup(Ipv4Addr::new(192, 168, 100, 9))
+            .is_none()
     );
 }

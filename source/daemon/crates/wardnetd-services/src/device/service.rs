@@ -58,6 +58,16 @@ pub trait DeviceService: Send + Sync {
     /// Requires admin privileges via the [`AuthContext`].
     async fn current_rules(&self) -> Result<HashMap<Uuid, RoutingTarget>, AppError>;
 
+    /// Return the current routing target for a single device by its ID, if it
+    /// has one.
+    ///
+    /// Resolves the rule directly from the device ID rather than round-tripping
+    /// through the device's `last_ip` — a departed device's `last_ip` is cleared,
+    /// so an IP-keyed lookup would either miss the rule or resolve to a
+    /// different device. Requires admin privileges via the [`AuthContext`].
+    async fn get_rule_for_device(&self, device_id: &str)
+    -> Result<Option<RoutingTarget>, AppError>;
+
     /// Update the `admin_locked` flag for a device.
     ///
     /// Requires admin privileges via the [`AuthContext`].
@@ -95,9 +105,9 @@ pub trait DeviceService: Send + Sync {
         enabled: bool,
     ) -> Result<DnsCaptureSettingsResponse, AppError>;
 
-    /// Return pending (unsynced) DNS events for the device with `id > after_id`,
-    /// oldest first, up to `limit` rows. No auth check — caller resolves device
-    /// by IP.
+    /// Return pending DNS events for the device with `id > after_id`, oldest
+    /// first, up to `limit` rows. Self-service: the caller must be the device
+    /// itself (matched by IP/MAC) or an admin.
     async fn fetch_pending_dns_events(
         &self,
         device_id: &str,
@@ -105,19 +115,17 @@ pub trait DeviceService: Send + Sync {
         limit: i64,
     ) -> Result<Vec<DnsEventItem>, AppError>;
 
-    /// Mark all DNS events with `id <= up_to_id` as synced for the device.
-    async fn mark_dns_events_synced(&self, device_id: &str, up_to_id: i64) -> Result<(), AppError>;
-
     /// Delete all DNS events with `id <= up_to_id` for the device (called on
-    /// client ack).
+    /// client ack). Self-service: the caller must be the device itself (matched
+    /// by IP/MAC) or an admin.
     async fn ack_dns_events(&self, device_id: &str, up_to_id: i64) -> Result<(), AppError>;
 
     /// Return all device IDs that currently have DNS capture enabled.
-    /// For internal use by background tasks — no auth check.
+    /// Requires admin privileges via the [`AuthContext`].
     async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError>;
 
     /// Return the DNS capture settings for a device by ID, or `None` if the
-    /// device does not exist. For internal use by background tasks — no auth check.
+    /// device does not exist. Requires admin privileges via the [`AuthContext`].
     async fn get_device_capture_settings(
         &self,
         device_id: &str,
@@ -276,6 +284,7 @@ impl DeviceService for DeviceServiceImpl {
             admin_locked,
             available_tunnels: vec![], // Enriched by the API handler.
             zone: None,                // Enriched by the API handler.
+            routing_profiles: vec![],  // Enriched by the API handler.
         })
     }
 
@@ -284,6 +293,11 @@ impl DeviceService for DeviceServiceImpl {
         ip: &str,
         target: RoutingTarget,
     ) -> Result<SetMyRuleResponse, AppError> {
+        // Category-(c) guard-not-first (.agents/auth.md §Rules #2): the device's MAC
+        // is the subject of the `check_device_mutation_auth` check below, so the
+        // device is resolved first. This deviation from "guard must be first" is
+        // deliberate, not an oversight — the lookup only materializes the subject,
+        // and the auth check remains the first thing done with the caller's identity.
         let device = self
             .devices
             .find_by_ip(ip)
@@ -330,6 +344,11 @@ impl DeviceService for DeviceServiceImpl {
     }
 
     async fn set_rule(&self, device_id: &str, target: RoutingTarget) -> Result<(), AppError> {
+        // Category-(c) guard-not-first (.agents/auth.md §Rules #2): the device's MAC
+        // is the subject of the `check_device_mutation_auth` check below, so the
+        // device is resolved first. This deviation from "guard must be first" is
+        // deliberate, not an oversight — the lookup only materializes the subject,
+        // and the auth check remains the first thing done with the caller's identity.
         let device = self
             .devices
             .find_by_id(device_id)
@@ -384,11 +403,23 @@ impl DeviceService for DeviceServiceImpl {
         Ok(rules.into_iter().map(|r| (r.device_id, r.target)).collect())
     }
 
+    async fn get_rule_for_device(
+        &self,
+        device_id: &str,
+    ) -> Result<Option<RoutingTarget>, AppError> {
+        auth_context::require_admin()?;
+
+        let rule = self
+            .devices
+            .find_rule_for_device(device_id)
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(rule.map(|r| r.target))
+    }
+
     async fn update_admin_locked(&self, device_id: &str, locked: bool) -> Result<(), AppError> {
-        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
-        if !ctx.is_admin() {
-            return Err(AppError::Forbidden("admin privileges required".to_owned()));
-        }
+        auth_context::require_admin()?;
 
         self.devices
             .update_admin_locked(device_id, locked)
@@ -410,10 +441,7 @@ impl DeviceService for DeviceServiceImpl {
         &self,
         device_id: &str,
     ) -> Result<DnsCaptureSettingsResponse, AppError> {
-        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
-        if !ctx.is_admin() {
-            return Err(AppError::Forbidden("admin privileges required".to_owned()));
-        }
+        auth_context::require_admin()?;
 
         let device = self
             .devices
@@ -444,10 +472,7 @@ impl DeviceService for DeviceServiceImpl {
         cap_count: Option<i64>,
         cap_days: Option<i64>,
     ) -> Result<(), AppError> {
-        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
-        if !ctx.is_admin() {
-            return Err(AppError::Forbidden("admin privileges required".to_owned()));
-        }
+        auth_context::require_admin()?;
 
         let found = self
             .devices
@@ -490,6 +515,11 @@ impl DeviceService for DeviceServiceImpl {
         ip: &str,
         enabled: bool,
     ) -> Result<DnsCaptureSettingsResponse, AppError> {
+        // Category-(c) guard-not-first (.agents/auth.md §Rules #2): the device's MAC
+        // is the subject of the `check_device_mutation_auth` check below, so the
+        // device is resolved first. This deviation from "guard must be first" is
+        // deliberate, not an oversight — the lookup only materializes the subject,
+        // and the auth check remains the first thing done with the caller's identity.
         let device = self
             .devices
             .find_by_ip(ip)
@@ -542,6 +572,20 @@ impl DeviceService for DeviceServiceImpl {
         after_id: i64,
         limit: i64,
     ) -> Result<Vec<DnsEventItem>, AppError> {
+        // Self-service (category c, `.agents/auth.md`): the DNS-events stream is
+        // reached by the device itself (resolved by source IP) or an admin.
+        // Match the current context against the device's MAC before returning
+        // its captured events. Capture is independent of the routing
+        // admin-lock, so pass `false`.
+        let device = self
+            .devices
+            .find_by_id(device_id)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::NotFound("device not found".to_owned()))?;
+        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
+        Self::check_device_mutation_auth(&ctx, &device.mac, false)?;
+
         let rows = self
             .dns_events
             .fetch_pending(device_id, after_id, limit)
@@ -558,15 +602,21 @@ impl DeviceService for DeviceServiceImpl {
             .collect())
     }
 
-    async fn mark_dns_events_synced(&self, device_id: &str, up_to_id: i64) -> Result<(), AppError> {
-        self.dns_events
-            .mark_synced_up_to(device_id, up_to_id)
-            .await
-            .map_err(AppError::Internal)?;
-        Ok(())
-    }
-
     async fn ack_dns_events(&self, device_id: &str, up_to_id: i64) -> Result<(), AppError> {
+        // Self-service (category c, `.agents/auth.md`): the ack route is reached
+        // by the device itself (resolved by source IP) or an admin. Match the
+        // current context against the device's MAC before deleting its captured
+        // events. Capture is independent of the routing admin-lock, so pass
+        // `false`.
+        let device = self
+            .devices
+            .find_by_id(device_id)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::NotFound("device not found".to_owned()))?;
+        let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
+        Self::check_device_mutation_auth(&ctx, &device.mac, false)?;
+
         self.dns_events
             .delete_up_to(device_id, up_to_id)
             .await
@@ -575,6 +625,8 @@ impl DeviceService for DeviceServiceImpl {
     }
 
     async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError> {
+        auth_context::require_admin()?;
+
         self.devices
             .find_all_capture_enabled_ids()
             .await
@@ -585,6 +637,8 @@ impl DeviceService for DeviceServiceImpl {
         &self,
         device_id: &str,
     ) -> Result<Option<(bool, i64, i64)>, AppError> {
+        auth_context::require_admin()?;
+
         match self
             .devices
             .find_by_id(device_id)

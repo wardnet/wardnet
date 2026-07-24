@@ -7,30 +7,10 @@ import {
   type RequestTarget,
 } from "../../src/features/RequestRuleModal";
 
-const { useCreateRuleRequest } = vi.hoisted(() => ({
-  useCreateRuleRequest: vi.fn(),
-}));
-
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, useCreateRuleRequest };
-});
-
-const mutate = vi.fn();
-
-function setup(mutateState: Record<string, unknown> = {}) {
-  useCreateRuleRequest.mockReturnValue({
-    mutate,
-    isPending: false,
-    ...mutateState,
-  });
-}
-
 const target: RequestTarget = { domain: "ads.example.com", kind: "block" };
 
 beforeEach(() => {
   vi.clearAllMocks();
-  setup();
 });
 
 afterEach(() => {
@@ -39,21 +19,42 @@ afterEach(() => {
 
 describe("RequestRuleModal", () => {
   it("renders nothing visible when target is null", () => {
-    render(<RequestRuleModal target={null} onClose={vi.fn()} />);
+    render(
+      <RequestRuleModal
+        target={null}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        isSubmitting={false}
+      />,
+    );
     expect(
       screen.queryByText("Ask your administrator"),
     ).not.toBeInTheDocument();
   });
 
   it("shows the targeted domain when open", () => {
-    render(<RequestRuleModal target={target} onClose={vi.fn()} />);
+    render(
+      <RequestRuleModal
+        target={target}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        isSubmitting={false}
+      />,
+    );
     expect(screen.getByText("Ask your administrator")).toBeInTheDocument();
     expect(screen.getByText("ads.example.com")).toBeInTheDocument();
   });
 
-  it("submits the request with the selected kind and trimmed reason", async () => {
-    const onClose = vi.fn();
-    render(<RequestRuleModal target={target} onClose={onClose} />);
+  it("fires onSubmit with the selected kind and trimmed reason", async () => {
+    const onSubmit = vi.fn();
+    render(
+      <RequestRuleModal
+        target={target}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+        isSubmitting={false}
+      />,
+    );
 
     // Switch to "allow".
     await userEvent.click(screen.getByRole("button", { name: "Allow it" }));
@@ -63,38 +64,55 @@ describe("RequestRuleModal", () => {
     );
     await userEvent.click(screen.getByRole("button", { name: "Send request" }));
 
-    expect(mutate).toHaveBeenCalledTimes(1);
-    const [payload, opts] = mutate.mock.calls[0];
-    expect(payload).toEqual({
+    expect(onSubmit).toHaveBeenCalledTimes(1);
+    expect(onSubmit).toHaveBeenCalledWith({
       kind: "allow",
       domain: "ads.example.com",
       reason: "please",
     });
-    // onSuccess callback closes the sheet.
-    (opts as { onSuccess: () => void }).onSuccess();
-    expect(onClose).toHaveBeenCalled();
   });
 
-  it("sends a null reason when the note is blank", async () => {
-    render(<RequestRuleModal target={target} onClose={vi.fn()} />);
+  it("submits a null reason when the note is blank", async () => {
+    const onSubmit = vi.fn();
+    render(
+      <RequestRuleModal
+        target={target}
+        onClose={vi.fn()}
+        onSubmit={onSubmit}
+        isSubmitting={false}
+      />,
+    );
     await userEvent.click(screen.getByRole("button", { name: "Send request" }));
-    expect(mutate.mock.calls[0][0]).toEqual({
+    expect(onSubmit).toHaveBeenCalledWith({
       kind: "block",
       domain: "ads.example.com",
       reason: null,
     });
   });
 
-  it("shows a pending label and disables submit while sending", () => {
-    setup({ isPending: true });
-    render(<RequestRuleModal target={target} onClose={vi.fn()} />);
+  it("shows a pending label and disables submit while submitting", () => {
+    render(
+      <RequestRuleModal
+        target={target}
+        onClose={vi.fn()}
+        onSubmit={vi.fn()}
+        isSubmitting
+      />,
+    );
     const btn = screen.getByRole("button", { name: "Sending…" });
     expect(btn).toBeDisabled();
   });
 
   it("calls onClose from the Cancel button", async () => {
     const onClose = vi.fn();
-    render(<RequestRuleModal target={target} onClose={onClose} />);
+    render(
+      <RequestRuleModal
+        target={target}
+        onClose={onClose}
+        onSubmit={vi.fn()}
+        isSubmitting={false}
+      />,
+    );
     await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
     expect(onClose).toHaveBeenCalled();
   });

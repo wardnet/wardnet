@@ -15,10 +15,17 @@
  * fixtures (see seed.ts for why this harness avoids the source-only SDK).
  */
 
-import { api, ensureAdminSetup } from "./seed";
+import { API_BASE_URL, api, ensureAdminSetup } from "./seed";
 
 /** Label the import→detail→delete lifecycle test creates through the UI. */
 export const TUNNEL_IMPORT_LABEL = "e2e-tunnel-import";
+
+/** Label the admin-site speed-test spec owns (comparison + detail history). */
+export const TUNNEL_SPEED_TEST_LABEL = "e2e-tunnel-speed";
+
+/** Label the admin-app speed-test spec owns. Distinct from the admin-site
+ *  label so the two specs never see each other's card in the shared daemon. */
+export const TUNNEL_SPEED_TEST_APP_LABEL = "e2e-tunnel-speed-app";
 
 /**
  * Label the list-page delete test seeds via the API then deletes through the
@@ -100,4 +107,83 @@ export async function importTunnel(
     }),
   });
   return label;
+}
+
+/**
+ * Import a tunnel and return its daemon-assigned id. The speed-test specs need
+ * the id to drive `POST /tunnels/{id}/speed-test` directly (the concurrency
+ * 409 case and history pre-seeding). Labels are not unique, so callers are
+ * expected to `deleteTestTunnels(label)` first; this returns the id of the
+ * (then only) matching row.
+ */
+export async function importTunnelReturningId(
+  label: string,
+  countryCode = "de",
+): Promise<string> {
+  await importTunnel(label, countryCode);
+  const token = await ensureAdminSetup();
+  const { tunnels } = await api<ListTunnelsResponse>("/tunnels", { token });
+  const found = tunnels.find((t) => t.label === label);
+  if (!found) {
+    throw new Error(`imported tunnel '${label}' not found after create`);
+  }
+  return found.id;
+}
+
+interface JobDispatched {
+  job_id: string;
+}
+
+interface JobState {
+  status: "PENDING" | "RUNNING" | "SUCCEED" | "TERMINATED_WITH_ERRORS";
+}
+
+/**
+ * Dispatch a speed test and return the raw HTTP status without throwing, so a
+ * spec can assert the 409 a concurrent run produces. (`api()` throws on
+ * non-2xx, which would mask the status.)
+ */
+export async function dispatchSpeedTest(
+  token: string,
+  tunnelId: string,
+): Promise<number> {
+  const res = await fetch(`${API_BASE_URL}/tunnels/${tunnelId}/speed-test`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  await res.text(); // Drain the body so the socket is released.
+  return res.status;
+}
+
+/**
+ * Run a speed test to completion via the API: dispatch the job, then poll it
+ * until terminal. Used to pre-seed history rows (e.g. the admin-app expand
+ * case needs a prior run so the latest result has something to expand into).
+ * Throws if the job errors or does not finish in time.
+ */
+export async function runSpeedTest(
+  token: string,
+  tunnelId: string,
+): Promise<void> {
+  const { job_id } = await api<JobDispatched>(
+    `/tunnels/${tunnelId}/speed-test`,
+    { method: "POST", token },
+  );
+
+  const deadline = Date.now() + 30_000;
+  while (Date.now() < deadline) {
+    const job = await api<JobState>(`/jobs/${job_id}`, { token });
+    // Any status other than the two in-flight ones is terminal; surface it
+    // directly rather than polling to the deadline on an unexpected state.
+    if (job.status === "PENDING" || job.status === "RUNNING") {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      continue;
+    }
+    if (job.status === "SUCCEED") return;
+    throw new Error(`speed test job ${job_id} ended in ${job.status}`);
+  }
+  throw new Error(`speed test job ${job_id} did not complete within 30s`);
 }

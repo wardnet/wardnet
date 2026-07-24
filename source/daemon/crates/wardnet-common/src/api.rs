@@ -12,6 +12,7 @@ use crate::dns::{
 use crate::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
 use crate::network_zone::{AllowedTargetKind, NetworkZone, ZoneStance, ZoneSubnet};
 use crate::routing::RoutingTarget;
+use crate::routing_profile::{DomainRoutingRule, DomainRoutingTarget, RoutingProfile};
 use crate::tunnel::{BestServerSelector, Tunnel, TunnelStatus};
 use crate::update::{InstallHandle, UpdateChannel, UpdateHistoryEntry, UpdateStatus};
 use crate::vpn_provider::{
@@ -94,6 +95,21 @@ pub struct ZoneSummary {
     pub is_default: bool,
 }
 
+/// Minimal routing-profile info exposed to a self-service caller for the
+/// read-only "profiles applied to your device" display in the user PWA.
+///
+/// Like [`ZoneSummary`], the caller is device-keyed and cannot call the
+/// admin-gated `GET /api/routing/profiles`; `GET /api/devices/me` resolves the
+/// caller's assigned profiles (via an internal admin context) and hands back
+/// just id + name — enough to show "Netflix → UK is routing some of your
+/// traffic" without exposing the rules or letting the user edit them.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct RoutingProfileSummary {
+    pub id: String,
+    /// Human-readable profile name (e.g. "Streaming (UK)").
+    pub name: String,
+}
+
 /// Response for GET /api/devices/me.
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct DeviceMeResponse {
@@ -106,6 +122,11 @@ pub struct DeviceMeResponse {
     /// read-only zone display. `None` if the device or its zone can't be
     /// resolved.
     pub zone: Option<ZoneSummary>,
+    /// Routing profiles assigned to the caller device, in priority order.
+    /// Read-only — a device-keyed caller cannot manage profiles. Empty when
+    /// none are assigned.
+    #[serde(default)]
+    pub routing_profiles: Vec<RoutingProfileSummary>,
 }
 
 /// Request body for PUT /api/devices/me/rule.
@@ -356,6 +377,93 @@ pub struct ListInboundWgPeersResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SetInboundWgPeerEnabledRequest {
     pub enabled: bool,
+}
+
+// -- Private DNS (encrypted DNS at home + roaming, issue #914) -------------
+
+/// Enable prerequisites for Private DNS, surfaced to the admin UI so it can
+/// explain *why* the toggle is blocked.
+///
+/// The first three are **hard gates** — [`PrivateDnsStatusResponse::enabled`]
+/// cannot be turned on unless all are `true`. `relay_connected` is
+/// **informational**: the LAN (split-horizon) path works without the reverse
+/// tunnel; only roaming needs it, so a disconnected relay never blocks enable.
+#[allow(clippy::struct_excessive_bools)] // four independent prerequisite flags, not a state machine
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PrivateDnsPrerequisites {
+    /// The box is on the wardnet DDNS provider (so grants get a wildcard-SAN
+    /// hostname).
+    pub wardnet_provider: bool,
+    /// An issued TLS certificate is live (the `DoT` listener derives its config
+    /// from it).
+    pub certificate: bool,
+    /// The box currently holds an active Premium entitlement.
+    pub entitled: bool,
+    /// The reverse tunnel to the regional edge is up. Informational only —
+    /// roaming queries need it, LAN queries do not.
+    pub relay_connected: bool,
+}
+
+/// One per-device grant, carrying the full minted hostname the phone dials.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PrivateDnsGrantSummary {
+    pub id: Uuid,
+    pub device_id: Uuid,
+    /// The device's secret hostname (`<token>.<domain>`) — entered into
+    /// Android Private DNS and carried as the `ServerName` in the iOS profile.
+    pub hostname: String,
+    /// RFC 3339 creation timestamp.
+    pub created_at: String,
+}
+
+/// Response for `GET /api/private-dns/status` and `PUT /api/private-dns`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PrivateDnsStatusResponse {
+    /// Whether the feature (and therefore the `:853` listener) is enabled.
+    pub enabled: bool,
+    /// The wardnet FQDN grants live under (`<token>.<domain>`), when the
+    /// provider is configured; `null` otherwise.
+    pub domain: Option<String>,
+    pub prerequisites: PrivateDnsPrerequisites,
+    /// Every grant, oldest first.
+    pub grants: Vec<PrivateDnsGrantSummary>,
+}
+
+/// Request body for `PUT /api/private-dns`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetPrivateDnsEnabledRequest {
+    pub enabled: bool,
+}
+
+/// Request body for `POST /api/private-dns/grants`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreatePrivateDnsGrantRequest {
+    /// The device to grant encrypted-DNS access. Must already exist and must
+    /// not already hold a grant.
+    pub device_id: Uuid,
+}
+
+/// Response for `GET /api/private-dns/me` — the device-keyed self-service view
+/// (identified by source IP, like `GET /api/devices/me`).
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct PrivateDnsMeResponse {
+    /// Whether Private DNS is enabled on the box at all.
+    pub enabled: bool,
+    /// Whether *this* device holds a grant.
+    pub granted: bool,
+    /// This device's full hostname, present only when granted and the wardnet
+    /// domain is known; `null` otherwise.
+    pub hostname: Option<String>,
+}
+
+/// Response for `POST /api/private-dns/grants/{device_id}/notify` — the result
+/// of nudging a granted device's household member to set up Private DNS.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SendPrivateDnsNotificationResponse {
+    /// Whether at least one push subscription for the device was targeted.
+    /// `false` (not an error) when the device holds a grant but the household
+    /// member hasn't enabled notifications, so no subscription exists.
+    pub delivered: bool,
 }
 
 /// Response for `GET /api/tunnels/{id}/devices`.
@@ -1650,6 +1758,8 @@ pub struct QueryLogEvent {
     pub device_id: Option<String>,
 }
 
+/// Request body for `PATCH /api/devices/{id}/dns-capture` — the admin capture
+/// controls. Omitted fields are left unchanged (merged via SQL `COALESCE`).
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema, Default)]
 pub struct DnsCaptureSettingsRequest {
     pub enabled: Option<bool>,
@@ -1657,6 +1767,8 @@ pub struct DnsCaptureSettingsRequest {
     pub cap_days: Option<i64>,
 }
 
+/// Response for `GET`/`PATCH /api/devices/{id}/dns-capture` — current capture
+/// settings alongside storage stats for the device.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsCaptureSettingsResponse {
     pub enabled: bool,
@@ -1878,6 +1990,8 @@ pub struct DeleteForwardingRuleResponse {
     pub message: String,
 }
 
+/// A single captured DNS event streamed over
+/// `GET /api/devices/me/dns-events/stream` as an SSE message.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DnsEventItem {
     pub id: i64,
@@ -1886,6 +2000,8 @@ pub struct DnsEventItem {
     pub captured_at: String,
 }
 
+/// Request body for `POST /api/devices/me/dns-events/ack` — acknowledges every
+/// captured event up to and including `up_to_id` so the daemon can delete them.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct DnsEventsAckRequest {
     pub up_to_id: i64,
@@ -2109,4 +2225,123 @@ pub struct UpdateZoneExceptionResponse {
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct DeleteZoneExceptionResponse {
     pub deleted: bool,
+}
+
+// --- Routing profiles (issue #241) -----------------------------------------
+
+/// Response for GET /api/routing/profiles.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListRoutingProfilesResponse {
+    pub profiles: Vec<RoutingProfile>,
+}
+
+/// Response for GET /api/routing/profiles/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetRoutingProfileResponse {
+    pub profile: RoutingProfile,
+}
+
+/// Request body for POST /api/routing/profiles.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateRoutingProfileRequest {
+    pub name: String,
+}
+
+/// Response for POST /api/routing/profiles.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateRoutingProfileResponse {
+    pub profile: RoutingProfile,
+    pub message: String,
+}
+
+/// Request body for PUT /api/routing/profiles/{id}.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRoutingProfileRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// Response for PUT /api/routing/profiles/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRoutingProfileResponse {
+    pub profile: RoutingProfile,
+    pub message: String,
+}
+
+/// Response for DELETE /api/routing/profiles/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteRoutingProfileResponse {
+    pub message: String,
+}
+
+/// Response for GET /api/routing/profiles/{id}/rules.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListDomainRoutingRulesResponse {
+    pub rules: Vec<DomainRoutingRule>,
+}
+
+/// Request body for POST /api/routing/profiles/{id}/rules.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateDomainRoutingRuleRequest {
+    pub pattern: String,
+    pub target: DomainRoutingTarget,
+    pub enabled: bool,
+}
+
+/// Response for POST /api/routing/profiles/{id}/rules.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct CreateDomainRoutingRuleResponse {
+    pub rule: DomainRoutingRule,
+    pub message: String,
+}
+
+/// Request body for PUT /api/routing/rules/{id} (partial update).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateDomainRoutingRuleRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target: Option<DomainRoutingTarget>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+}
+
+/// Response for PUT /api/routing/rules/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UpdateDomainRoutingRuleResponse {
+    pub rule: DomainRoutingRule,
+    pub message: String,
+}
+
+/// Response for DELETE /api/routing/rules/{id}.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeleteDomainRoutingRuleResponse {
+    pub message: String,
+}
+
+/// Response for GET /`api/routing/devices/{device_id}/profiles`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct GetDeviceRoutingProfilesResponse {
+    /// Assigned profile ids, in priority order (first = highest priority).
+    pub profile_ids: Vec<Uuid>,
+}
+
+/// Request body for PUT /`api/routing/devices/{device_id}/profiles`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetDeviceRoutingProfilesRequest {
+    /// Profile ids in priority order (first = highest priority).
+    pub profile_ids: Vec<Uuid>,
+}
+
+/// Response for PUT /`api/routing/devices/{device_id}/profiles`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct SetDeviceRoutingProfilesResponse {
+    pub message: String,
+}
+
+/// Response for GET /`api/routing/profiles/{id}/devices`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListProfileDevicesResponse {
+    /// Device ids the profile is currently assigned to.
+    pub device_ids: Vec<Uuid>,
 }

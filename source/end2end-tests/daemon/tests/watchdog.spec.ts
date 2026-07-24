@@ -84,8 +84,11 @@ describe("Hardware/soft watchdog (issue #214)", () => {
     expect(status).toBe(200);
     expect(body.status).toBe("UP");
     const names = body.components.map((c) => c.name).sort();
-    // The production daemon registers all four probes.
-    expect(names).toEqual(["database", "dhcp", "dns", "liveness"]);
+    // The production daemon registers all five probes. `dot` (the Private
+    // DNS :853 listener, #912) is UP here because the feature is disabled by
+    // default — the probe is desired-vs-actual, so a toggled-off listener is
+    // healthy, not a failure.
+    expect(names).toEqual(["database", "dhcp", "dns", "dot", "liveness"]);
     expect(body.components.every((c) => c.status === "UP")).toBe(true);
   });
 

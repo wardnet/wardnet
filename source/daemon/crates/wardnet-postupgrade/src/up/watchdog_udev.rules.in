@@ -1,0 +1,11 @@
+# Wardnet: hardware watchdog access for the unprivileged daemon (issue #214).
+#
+# The daemon runs as User=wardnet (no CAP_DAC_OVERRIDE) and opens
+# /dev/watchdog directly for the ungated hardware-reboot backstop. The kernel
+# creates that device root:root 0600, so without this rule the open fails with
+# EACCES and the daemon logs "failed to open watchdog device; running without
+# hardware backstop: Permission denied" — the host-reboot safety net silently
+# stays off. Hand the device to the `wardnet` group (the daemon's own group)
+# at mode 0660 so it can arm and pet it, while keeping it off-limits to others.
+KERNEL=="watchdog", GROUP="wardnet", MODE="0660"
+KERNEL=="watchdog[0-9]*", GROUP="wardnet", MODE="0660"

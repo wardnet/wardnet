@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, renderHook } from "@testing-library/react";
 import { IDBFactory } from "fake-indexeddb";
 
-import { openDb, EVENTS_STORE, type DnsEventItem } from "../../src/lib/dnsDb";
+import {
+  openDb,
+  DAILY_STORE,
+  EVENTS_STORE,
+  type DailyStat,
+  type DnsEventItem,
+} from "../../src/lib/dnsDb";
+import { getAllRows, putDaily } from "../helpers/idb";
 import { useDnsEventsSync } from "../../src/hooks/useDnsEventsSync";
 
 /** Minimal controllable EventSource stand-in. */
@@ -48,6 +55,24 @@ async function countEvents(): Promise<number> {
   });
   db.close();
   return n;
+}
+
+async function dailyDates(): Promise<string[]> {
+  const db = await openDb();
+  const rows = await getAllRows<DailyStat>(db, DAILY_STORE);
+  db.close();
+  return rows.map((r) => r.date);
+}
+
+async function seedStaleDaily(): Promise<void> {
+  const db = await openDb();
+  await putDaily(db, {
+    date: "2000-01-01",
+    domain: "stale.com",
+    blocked: 1,
+    allowed: 0,
+  });
+  db.close();
 }
 
 let fetchSpy: ReturnType<typeof vi.fn>;
@@ -125,6 +150,43 @@ describe("useDnsEventsSync", () => {
     expect(JSON.parse((ackCall[1] as RequestInit).body as string)).toEqual({
       up_to_id: 50,
     });
+  });
+
+  it("prunes both the events ring and the daily store on the ack tick", async () => {
+    // An out-of-window aggregate row seeded before the hook mounts.
+    await seedStaleDaily();
+
+    renderHook(() => useDnsEventsSync());
+    await vi.waitFor(() => expect(FakeEventSource.instances).toHaveLength(1));
+    const es = FakeEventSource.instances[0];
+
+    // Emit a full batch of in-window events (today) to trigger the ack flush,
+    // which also runs pruneEvents + pruneDaily.
+    const now = new Date().toISOString();
+    await act(async () => {
+      for (let i = 1; i <= 50; i += 1) {
+        es.onmessage?.({
+          data: JSON.stringify({
+            id: i,
+            domain: `d${i}.com`,
+            status: "forwarded",
+            captured_at: now,
+          }),
+        } as MessageEvent<string>);
+        // Let each applyEvent promise chain settle.
+        await Promise.resolve();
+        await Promise.resolve();
+      }
+    });
+
+    // The stale row is pruned; today's freshly aggregated rows survive.
+    await vi.waitFor(async () => {
+      const dates = await dailyDates();
+      expect(dates).not.toContain("2000-01-01");
+      expect(dates.length).toBeGreaterThan(0);
+    });
+    // The event ring is untouched below its cap — pruneEvents behavior intact.
+    expect(await countEvents()).toBe(50);
   });
 
   it("flushes a pending ack on unmount", async () => {

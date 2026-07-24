@@ -1,73 +1,65 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useDnsFilterConfig, useUpdateDnsFilterConfig } from "@wardnet/web";
+import { describe, expect, it, vi } from "vitest";
+import type { DnsFilterConfig } from "@wardnet/js";
 import { DnsFilterSettingsCard } from "@/components/features/DnsFilterSettingsCard";
 import { renderWithProviders } from "../../test-utils";
 
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useDnsFilterConfig: vi.fn(),
-    useUpdateDnsFilterConfig: vi.fn(),
-  };
-});
-
-const mockConfig = vi.mocked(useDnsFilterConfig);
-const mockUpdate = vi.mocked(useUpdateDnsFilterConfig);
-const mutate = vi.fn();
-
-function setUpdate(over: Record<string, unknown> = {}) {
-  mockUpdate.mockReturnValue({
-    mutate,
-    isPending: false,
-    ...over,
-  } as unknown as ReturnType<typeof useUpdateDnsFilterConfig>);
+function makeConfig(over: Partial<DnsFilterConfig> = {}): DnsFilterConfig {
+  return { enabled: true, default_profile_ids: [], ...over };
 }
 
 describe("DnsFilterSettingsCard", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    setUpdate();
-  });
-
   it("shows Enabled and a checked toggle when filtering is on", () => {
-    mockConfig.mockReturnValue({
-      data: { config: { enabled: true } },
-      isLoading: false,
-    } as unknown as ReturnType<typeof useDnsFilterConfig>);
-
-    renderWithProviders(<DnsFilterSettingsCard />);
+    renderWithProviders(
+      <DnsFilterSettingsCard
+        config={makeConfig({ enabled: true })}
+        isLoading={false}
+        onToggle={vi.fn()}
+      />,
+    );
 
     expect(screen.getByText("Enabled")).toBeInTheDocument();
     expect(screen.getByLabelText("Enable DNS filtering")).toBeChecked();
   });
 
   it("shows Disabled when filtering is off and toggles it on", async () => {
-    mockConfig.mockReturnValue({
-      data: { config: { enabled: false } },
-      isLoading: false,
-    } as unknown as ReturnType<typeof useDnsFilterConfig>);
-
-    renderWithProviders(<DnsFilterSettingsCard />);
+    const onToggle = vi.fn();
+    renderWithProviders(
+      <DnsFilterSettingsCard
+        config={makeConfig({ enabled: false })}
+        isLoading={false}
+        onToggle={onToggle}
+      />,
+    );
 
     expect(screen.getByText("Disabled")).toBeInTheDocument();
     const toggle = screen.getByLabelText("Enable DNS filtering");
     expect(toggle).not.toBeChecked();
 
     await userEvent.click(toggle);
-    expect(mutate).toHaveBeenCalledWith({ enabled: true });
+    expect(onToggle).toHaveBeenCalledWith(true);
   });
 
-  it("disables the toggle while loading", () => {
-    mockConfig.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-    } as unknown as ReturnType<typeof useDnsFilterConfig>);
+  it("treats a missing config as disabled", () => {
+    renderWithProviders(
+      <DnsFilterSettingsCard
+        config={undefined}
+        isLoading={false}
+        onToggle={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("Disabled")).toBeInTheDocument();
+  });
 
-    renderWithProviders(<DnsFilterSettingsCard />);
-
+  it("disables the toggle while loading or updating", () => {
+    renderWithProviders(
+      <DnsFilterSettingsCard
+        config={makeConfig()}
+        isLoading
+        onToggle={vi.fn()}
+      />,
+    );
     expect(screen.getByLabelText("Enable DNS filtering")).toBeDisabled();
   });
 });

@@ -86,11 +86,16 @@ export function DeviceSettingsCard({
     updateDevice.reset();
   }
 
+  const trimmedName = name.trim();
+
   async function handleSave() {
     await updateDevice.mutateAsync({
       id: device.id,
       body: {
-        name: name || undefined,
+        // A managed device is defined by having a name. Sending an empty name
+        // leaves the device unmanaged while still persisting routing/type/lock —
+        // so editing an unnamed device's routing works without forcing a name.
+        name: trimmedName || undefined,
         device_type: deviceType,
         routing_target: routingTarget ?? undefined,
         admin_locked: adminLocked,
@@ -99,8 +104,12 @@ export function DeviceSettingsCard({
     setEditing(false);
   }
 
-  const saveLabel = isManaged ? "Save" : "To Managed Device";
-  const savingLabel = isManaged ? "Saving…" : "Promoting…";
+  // Only claim "To Managed Device" when a name will actually make it managed;
+  // otherwise the save just persists settings (the old label promised a
+  // promotion an empty name never delivered).
+  const willPromote = !isManaged && trimmedName !== "";
+  const saveLabel = willPromote ? "To Managed Device" : "Save";
+  const savingLabel = willPromote ? "Promoting…" : "Saving…";
 
   return (
     <Card>
@@ -123,7 +132,13 @@ export function DeviceSettingsCard({
       {editing ? (
         <>
           <CardContent className="grid grid-cols-1 gap-x-6 gap-y-5 md:grid-cols-2">
-            <Field label="Friendly name" htmlFor="device-name">
+            <Field
+              label="Friendly name"
+              htmlFor="device-name"
+              help={
+                isManaged ? undefined : "Give the device a name to manage it."
+              }
+            >
               <Input
                 id="device-name"
                 value={name}
@@ -153,7 +168,7 @@ export function DeviceSettingsCard({
               </Select>
             </Field>
 
-            <Field label="Routing">
+            <Field label="Default route">
               <RoutingSelector
                 value={routingTarget}
                 onChange={setRoutingTarget}
@@ -218,7 +233,7 @@ export function DeviceSettingsCard({
           </div>
           <div className="flex flex-col gap-0.5">
             <Text size="xs" className="uppercase tracking-wide text-ink-3">
-              Routing
+              Default route
             </Text>
             <Text size="sm" data-testid="device-settings-routing-value">
               {routingLabel(currentRule, tunnels)}

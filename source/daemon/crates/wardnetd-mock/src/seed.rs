@@ -12,13 +12,14 @@
 
 use chrono::{Datelike, Duration, Utc};
 use uuid::Uuid;
+use wardnet_common::routing_profile::DomainRoutingTarget;
 use wardnet_common::zone_exception::{
     ExceptionEndpoint, ExceptionEndpointKind, ServiceSet, ServiceSpec, ZoneException,
 };
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
     AllowlistRow, CustomRuleRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow, IntradayStatRow,
-    NewNotification, QueryLogRow, TunnelRow,
+    NewNotification, QueryLogRow, RoutingProfileRow, RoutingRuleRow, TunnelRow,
 };
 
 /// IDs of the entities inserted by [`populate`], so the event emitter can
@@ -395,6 +396,77 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             );
         }
     }
+
+    // ------------------------------------------------------------------
+    // Domain routing profiles (issue #241): a "Streaming (UK)" profile routing
+    // streaming domains through the "up" tunnel, and a "Work" profile mixing a
+    // tunnel rule with a direct carve-out. Assigned to alice-laptop (the user
+    // PWA's `me` device) and living-room-tv, so the admin Routing pages, the
+    // device routing-profiles card, the profile "Used by" list, and the user
+    // PWA all have data. Falls back to Direct when no "up" tunnel came up.
+    // ------------------------------------------------------------------
+    let routing_profile_repo = factory.routing_profile();
+    let tunnel_or_direct = match up_tunnel_id {
+        Some(t) => DomainRoutingTarget::Tunnel { tunnel_id: t },
+        None => DomainRoutingTarget::Direct,
+    };
+
+    let streaming_profile = routing_profile_repo
+        .create_profile(&RoutingProfileRow {
+            id: Uuid::new_v4().to_string(),
+            name: "Streaming (UK)".to_owned(),
+        })
+        .await?;
+    for pattern in ["*.netflix.com", "*.bbc.co.uk"] {
+        routing_profile_repo
+            .create_rule(&RoutingRuleRow {
+                id: Uuid::new_v4().to_string(),
+                profile_id: streaming_profile.id,
+                pattern: pattern.to_owned(),
+                target: tunnel_or_direct.clone(),
+                enabled: true,
+            })
+            .await?;
+    }
+
+    let work_profile = routing_profile_repo
+        .create_profile(&RoutingProfileRow {
+            id: Uuid::new_v4().to_string(),
+            name: "Work".to_owned(),
+        })
+        .await?;
+    routing_profile_repo
+        .create_rule(&RoutingRuleRow {
+            id: Uuid::new_v4().to_string(),
+            profile_id: work_profile.id,
+            pattern: "*.slack.com".to_owned(),
+            target: tunnel_or_direct.clone(),
+            enabled: true,
+        })
+        .await?;
+    routing_profile_repo
+        .create_rule(&RoutingRuleRow {
+            id: Uuid::new_v4().to_string(),
+            profile_id: work_profile.id,
+            pattern: "intranet.example.com".to_owned(),
+            target: DomainRoutingTarget::Direct,
+            enabled: true,
+        })
+        .await?;
+
+    // alice-laptop (user PWA `me`) gets Streaming; living-room-tv gets both in
+    // priority order so multi-profile display + reordering have data.
+    if let Some(alice) = localhost_device_id {
+        routing_profile_repo
+            .set_device_profiles(alice, &[streaming_profile.id])
+            .await?;
+    }
+    if let Some(tv) = casting_to_id {
+        routing_profile_repo
+            .set_device_profiles(tv, &[streaming_profile.id, work_profile.id])
+            .await?;
+    }
+    tracing::debug!("seeded routing profiles: 'Streaming (UK)' + 'Work'");
 
     // ------------------------------------------------------------------
     // DNS: one allowlist entry and one custom rule. Two default blocklists
@@ -823,6 +895,7 @@ fn generate_dns_query_log(
                 upstream,
                 latency_ms,
                 device_id: device_id.clone(),
+                protocol: "udp".to_owned(),
             });
         }
     }

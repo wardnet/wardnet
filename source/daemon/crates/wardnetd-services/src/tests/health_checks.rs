@@ -343,6 +343,14 @@ impl wardnetd_data::repository::MaintenanceRepository for MockMaintenanceRepo {
     async fn incremental_vacuum(&self) -> anyhow::Result<u64> {
         unimplemented!()
     }
+    async fn wal_checkpoint_truncate(
+        &self,
+    ) -> anyhow::Result<wardnetd_data::repository::WalCheckpointOutcome> {
+        unimplemented!()
+    }
+    async fn optimize(&self) -> anyhow::Result<()> {
+        unimplemented!()
+    }
     async fn ping(&self) -> anyhow::Result<()> {
         if self.fail {
             Err(anyhow::anyhow!("simulated db failure"))

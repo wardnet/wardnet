@@ -7,7 +7,8 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
     ApiError, AssignDeviceZoneRequest, DeviceDetailResponse, DeviceMeResponse, DeviceWithStatus,
-    ListDevicesResponse, SetMyRuleRequest, SetMyRuleResponse, UpdateDeviceRequest, ZoneSummary,
+    ListDevicesResponse, RoutingProfileSummary, SetMyRuleRequest, SetMyRuleResponse,
+    UpdateDeviceRequest, ZoneSummary,
 };
 use wardnet_common::device::DhcpStatus;
 use wardnet_common::routing::RoutingTarget;
@@ -86,6 +87,7 @@ pub async fn get_me(
     // the tunnel listing above — we resolve it under an internal admin context.
     if let Some(device) = response.device.as_ref() {
         let zone_id = device.zone_id;
+        let device_id = device.id;
         response.zone = wardnetd_services::auth_context::with_context(
             wardnet_common::auth::AuthContext::Admin {
                 admin_id: uuid::Uuid::nil(),
@@ -98,6 +100,38 @@ pub async fn get_me(
             name: z.zone.name,
             is_default: z.zone.is_default,
         });
+
+        // Enrich with the caller's assigned routing profiles (id + name, in
+        // priority order) for the read-only "profiles applied to your device"
+        // display. Profile management is admin-only, so — like the tunnel and
+        // zone lookups above — resolve under an internal admin context.
+        response.routing_profiles = wardnetd_services::auth_context::with_context(
+            wardnet_common::auth::AuthContext::Admin {
+                admin_id: uuid::Uuid::nil(),
+            },
+            async {
+                let svc = state.routing_profile_service();
+                let ids = svc.get_device_profiles(device_id).await?;
+                // Resolve each assigned profile by id — the cost is bounded by
+                // the device's assignment count (an indexed primary-key lookup
+                // each) rather than scanning the whole profile catalogue, which
+                // matters on this 10s-polled `/me` endpoint.
+                let mut summaries = Vec::with_capacity(ids.len());
+                for id in ids {
+                    // A profile can be deleted between the assignment read and
+                    // this lookup; skip it rather than failing the /me response.
+                    if let Ok(profile) = svc.get_profile(id).await {
+                        summaries.push(RoutingProfileSummary {
+                            id: profile.id.to_string(),
+                            name: profile.name,
+                        });
+                    }
+                }
+                Ok::<_, AppError>(summaries)
+            },
+        )
+        .await
+        .unwrap_or_default();
     }
 
     Ok(Json(response))
@@ -234,10 +268,10 @@ pub async fn get_device(
     let device = state.discovery_service().get_device_by_id(uuid).await?;
     let rule = state
         .device_service()
-        .get_device_for_ip(&device.last_ip)
+        .get_rule_for_device(&device.id.to_string())
         .await
         .ok()
-        .and_then(|r| r.current_rule);
+        .flatten();
     let dhcp_map = build_dhcp_status_map(&state).await?;
     let device = enrich_device(device, &dhcp_map, rule.clone());
     Ok(Json(DeviceDetailResponse {
@@ -309,10 +343,10 @@ pub async fn update_device(
     // Fetch current rule for the response.
     let rule = state
         .device_service()
-        .get_device_for_ip(&device.last_ip)
+        .get_rule_for_device(&device_id_str)
         .await
         .ok()
-        .and_then(|r| r.current_rule);
+        .flatten();
 
     let dhcp_map = build_dhcp_status_map(&state).await?;
     let device = enrich_device(device, &dhcp_map, rule.clone());
@@ -355,10 +389,10 @@ pub async fn assign_device_zone(
     let device = state.discovery_service().get_device_by_id(uuid).await?;
     let rule = state
         .device_service()
-        .get_device_for_ip(&device.last_ip)
+        .get_rule_for_device(&device.id.to_string())
         .await
         .ok()
-        .and_then(|r| r.current_rule);
+        .flatten();
     let dhcp_map = build_dhcp_status_map(&state).await?;
     let device = enrich_device(device, &dhcp_map, rule.clone());
     Ok(Json(DeviceDetailResponse {

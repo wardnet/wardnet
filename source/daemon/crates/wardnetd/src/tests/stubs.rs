@@ -168,6 +168,12 @@ impl DeviceService for StubDeviceService {
     ) -> Result<std::collections::HashMap<Uuid, RoutingTarget>, AppError> {
         unimplemented!()
     }
+    async fn get_rule_for_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<RoutingTarget>, AppError> {
+        unimplemented!()
+    }
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
         unimplemented!()
     }
@@ -199,13 +205,6 @@ impl DeviceService for StubDeviceService {
         _after_id: i64,
         _limit: i64,
     ) -> Result<Vec<wardnet_common::api::DnsEventItem>, AppError> {
-        unimplemented!()
-    }
-    async fn mark_dns_events_synced(
-        &self,
-        _device_id: &str,
-        _up_to_id: i64,
-    ) -> Result<(), AppError> {
         unimplemented!()
     }
     async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
@@ -514,6 +513,28 @@ impl RoutingService for StubRoutingService {
     ) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn set_switchback_targets(
+        &self,
+        _device_id: Uuid,
+        _device_ip: String,
+        _target_cidrs: Vec<String>,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn route_resolved_domain(
+        &self,
+        _device_ip: &str,
+        _resolved_ips: &[std::net::IpAddr],
+        _target: &wardnet_common::routing_profile::DomainRoutingTarget,
+        _ttl_secs: u32,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn gc_domain_routes(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
     async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
         unimplemented!()
     }
@@ -1076,7 +1097,7 @@ impl wardnetd_services::logging::LogService for StubLogService {
     }
     fn get_recent_errors(
         &self,
-    ) -> Result<Vec<wardnetd_services::logging::error_notifier::ErrorEntry>, AppError> {
+    ) -> Result<Vec<wardnetd_services::diagnostics::Diagnostic>, AppError> {
         Ok(Vec::new())
     }
     async fn list_log_files(

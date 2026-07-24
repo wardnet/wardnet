@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +7,13 @@ const h = vi.hoisted(() => ({
   useTunnels: vi.fn(),
   useDefaultPolicy: vi.fn(),
   useUpdateDevice: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
+  // Typed return so the empty default isn't inferred as `never[]`, which would
+  // reject the populated-zone override in the zone-reassignment spec.
+  useNetworkZones: vi.fn(
+    (): {
+      data: { zones: Array<{ id: string; name: string; is_default: boolean }> };
+    } => ({ data: { zones: [] } }),
+  ),
   usePendingDevices: vi.fn(),
   useAssignDeviceZone: vi.fn(),
   approve: vi.fn(),
@@ -20,6 +27,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useTunnels: h.useTunnels,
     useDefaultPolicy: h.useDefaultPolicy,
     useUpdateDevice: h.useUpdateDevice,
+    useNetworkZones: h.useNetworkZones,
     usePendingDevices: h.usePendingDevices,
     useAssignDeviceZone: h.useAssignDeviceZone,
   };
@@ -46,6 +54,7 @@ describe("Devices page", () => {
       isLoading: false,
     });
     h.useUpdateDevice.mockReturnValue({ mutate: vi.fn(), isPending: false });
+    h.useNetworkZones.mockReturnValue({ data: { zones: [] } });
     // Default: no pending devices → the "awaiting review" section stays hidden
     // so the existing specs are unaffected.
     h.usePendingDevices.mockReturnValue({
@@ -139,6 +148,74 @@ describe("Devices page", () => {
     expect(
       within(sheet).getByTestId("device-routing-default"),
     ).toBeInTheDocument();
+  });
+
+  it("routes the tapped device and closes the sheet on success", async () => {
+    const mutate = vi.fn((_vars, opts) => opts?.onSuccess?.());
+    h.useUpdateDevice.mockReturnValue({ mutate, isPending: false });
+    h.useDevices.mockReturnValue({
+      isLoading: false,
+      data: {
+        devices: [makeDevice({ id: "a", name: "Tap-Me", last_seen: now })],
+      },
+    });
+    renderWithProviders(<Devices />);
+
+    await userEvent.click(screen.getByText("Tap-Me"));
+    const sheet = await screen.findByTestId("device-routing-sheet");
+    await userEvent.click(within(sheet).getByTestId("device-routing-default"));
+
+    expect(mutate).toHaveBeenCalledWith(
+      { id: "a", body: { routing_target: { type: "default" } } },
+      expect.any(Object),
+    );
+    // The mutation's onSuccess closes the sheet (Radix unmounts the content).
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("device-routing-sheet"),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  it("reassigns the tapped device's zone and closes the sheet on success", async () => {
+    const assign = vi.fn((_vars, opts) => opts?.onSuccess?.());
+    h.useAssignDeviceZone.mockReturnValue({ mutate: assign, isPending: false });
+    h.useNetworkZones.mockReturnValue({
+      data: {
+        zones: [
+          { id: "z1", name: "Trusted", is_default: true },
+          { id: "z2", name: "Guest", is_default: false },
+        ],
+      },
+    });
+    h.useDevices.mockReturnValue({
+      isLoading: false,
+      data: {
+        devices: [
+          makeDevice({
+            id: "a",
+            name: "Tap-Me",
+            zone_id: "z1",
+            last_seen: now,
+          }),
+        ],
+      },
+    });
+    renderWithProviders(<Devices />);
+
+    await userEvent.click(screen.getByText("Tap-Me"));
+    const sheet = await screen.findByTestId("device-routing-sheet");
+    await userEvent.click(within(sheet).getByText("Guest"));
+
+    expect(assign).toHaveBeenCalledWith(
+      { deviceId: "a", zoneId: "z2" },
+      expect.any(Object),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("device-routing-sheet"),
+      ).not.toBeInTheDocument(),
+    );
   });
 
   it("lists new devices awaiting review and approves one to the home zone", async () => {

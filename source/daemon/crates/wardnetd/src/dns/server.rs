@@ -25,13 +25,16 @@ use wardnet_common::dns::{
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::TunnelRepository;
 use wardnetd_services::DnsFilterService;
+use wardnetd_services::RoutingProfileService;
 use wardnetd_services::dns::DnsLogSink;
 use wardnetd_services::dns::authoritative::AuthoritativeView;
 use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::EventPublisher;
 
-use crate::dns::pipeline::{ClientIdentity, QueryPipeline, TokioRecursor, TokioResolver};
+use crate::dns::pipeline::{
+    ClientIdentity, QueryPipeline, TokioRecursor, TokioResolver, TransportProtocol,
+};
 use crate::dns::rate_limit::RateLimiter;
 
 // The per-query hot path — `QueryPipeline::handle` and its helpers — lives
@@ -50,6 +53,7 @@ pub(crate) use crate::dns::pipeline::{
 // UdpDnsSocket — production socket impl
 // ---------------------------------------------------------------------------
 
+/// Production [`DnsSocket`] backed by a real tokio UDP socket.
 pub struct UdpDnsSocket {
     socket: UdpSocket,
 }
@@ -146,6 +150,7 @@ impl UdpDnsServer {
     pub fn new(
         config: DnsConfig,
         dns_filter: Arc<dyn DnsFilterService>,
+        routing_profile: Option<Arc<dyn RoutingProfileService>>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
         device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
@@ -155,6 +160,7 @@ impl UdpDnsServer {
             config,
             SocketAddr::from(([0, 0, 0, 0], 53)),
             dns_filter,
+            routing_profile,
             routing_snapshot,
             device_snapshot,
             tunnel_repo,
@@ -165,12 +171,13 @@ impl UdpDnsServer {
     // `events` is consumed (subscribed once, then dropped) — keeping the
     // by-value signature mirrors the other Arc params and lets call
     // sites read like a plain construction.
-    #[allow(clippy::needless_pass_by_value)]
+    #[allow(clippy::needless_pass_by_value, clippy::too_many_arguments)]
     #[must_use]
     pub fn with_bind_addr(
         config: DnsConfig,
         bind_addr: SocketAddr,
         dns_filter: Arc<dyn DnsFilterService>,
+        routing_profile: Option<Arc<dyn RoutingProfileService>>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
         device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
@@ -216,6 +223,7 @@ impl UdpDnsServer {
             rate_limiter,
             cache,
             dns_filter,
+            routing_profile,
             routing_snapshot,
             device_snapshot,
             tunnel_repo,
@@ -247,6 +255,15 @@ impl UdpDnsServer {
             .expect("with_log_sink must run before the pipeline is shared")
             .log_sink = Some(sink);
         self
+    }
+
+    /// The shared resolve core, for a second transport (the `DoT` `:853`
+    /// listener) to serve queries through. Must be taken **after**
+    /// [`Self::with_log_sink`] — the builder mutates the pipeline through
+    /// `Arc::get_mut` and panics once a clone exists.
+    #[must_use]
+    pub fn pipeline(&self) -> Arc<QueryPipeline> {
+        Arc::clone(&self.pipeline)
     }
 
     /// Return the local address the server is bound to, if `start()` has
@@ -454,7 +471,13 @@ async fn server_loop(
                         // the tracker before returning.
                         tracker.spawn(async move {
                             if let Err(e) = pipeline
-                                .handle(&packet, src, &socket, ClientIdentity::Ip(src.ip()))
+                                .handle(
+                                    &packet,
+                                    src,
+                                    &socket,
+                                    ClientIdentity::Ip(src.ip()),
+                                    TransportProtocol::Udp,
+                                )
                                 .await
                             {
                                 tracing::debug!(error = %e, %src, "failed to handle DNS query from {src}: {e}");

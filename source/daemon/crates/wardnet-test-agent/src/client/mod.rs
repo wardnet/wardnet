@@ -16,6 +16,7 @@ mod dns;
 mod interfaces;
 mod models;
 mod ping;
+mod proxy;
 mod routes;
 mod serve;
 

@@ -73,6 +73,7 @@ enum NotificationKind {
     TunnelOffline,
     NewDeviceQuarantined,
     RuleRequestCreated,
+    PrivateDnsGranted,
 }
 
 impl NotificationKind {
@@ -84,6 +85,7 @@ impl NotificationKind {
             Self::TunnelOffline => "tunnel_offline",
             Self::NewDeviceQuarantined => "new_device_quarantined",
             Self::RuleRequestCreated => "rule_request_created",
+            Self::PrivateDnsGranted => "private_dns_granted",
         }
     }
 }
@@ -157,6 +159,17 @@ pub trait PushService: Send + Sync {
     /// Admin only. The feed is shared across admin accounts, so this clears
     /// it for everyone.
     async fn clear_notifications(&self) -> Result<(), AppError>;
+
+    /// Send the device-keyed "Private DNS is ready" nudge to a granted device,
+    /// deep-linking the user PWA to `/private-dns`. Resolves the device UUID to
+    /// its MAC (the subscription owner key) internally. Returns whether any
+    /// subscription for the device was targeted, so the admin API can report
+    /// `delivered`. Admin only. A default `Ok(false)` keeps test doubles that
+    /// predate it compiling.
+    async fn notify_private_dns_granted(&self, device_id: uuid::Uuid) -> Result<bool, AppError> {
+        let _ = device_id;
+        Ok(false)
+    }
 }
 
 pub struct PushServiceImpl {
@@ -263,6 +276,25 @@ impl PushServiceImpl {
             Ok(subs) => self.deliver(subs, &notif).await,
             Err(error) => tracing::warn!(%error, "push: failed to load device subscriptions"),
         }
+    }
+
+    /// Like [`Self::deliver_to_device`] but surfaces whether the device had any
+    /// subscription to target — the admin resend endpoint reports that as
+    /// `delivered`. A load error propagates (the admin caller wants to know),
+    /// unlike the best-effort event-driven path.
+    async fn deliver_to_device_reporting(
+        &self,
+        mac: &str,
+        notif: Notification,
+    ) -> Result<bool, AppError> {
+        let subs = self
+            .push_repo
+            .list_by_owner(OWNER_KIND_DEVICE, mac)
+            .await
+            .map_err(AppError::Internal)?;
+        let delivered = !subs.is_empty();
+        self.deliver(subs, &notif).await;
+        Ok(delivered)
     }
 
     async fn deliver_to_admins(&self, notif: Notification) {
@@ -593,5 +625,33 @@ impl PushService for PushServiceImpl {
             .await
             .map_err(AppError::Internal)?;
         Ok(())
+    }
+
+    async fn notify_private_dns_granted(&self, device_id: uuid::Uuid) -> Result<bool, AppError> {
+        auth_context::require_admin()?;
+
+        // Subscriptions are keyed by device MAC (`owner_key`), but the grant —
+        // and this endpoint — speak device UUID, so resolve UUID -> MAC first.
+        // An unknown device simply has no subscription: report `false`, not an
+        // error (the grant check upstream already guards the real 404).
+        let Some(device) = self
+            .device_repo
+            .find_by_id(&device_id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+        else {
+            return Ok(false);
+        };
+
+        let notif = Notification {
+            title: "Private DNS is ready",
+            body: "Tap to set up encrypted DNS on this device.".to_owned(),
+            data: NotificationData {
+                kind: NotificationKind::PrivateDnsGranted,
+                url: Some("/private-dns"),
+                subject_id: Some(device_id.to_string()),
+            },
+        };
+        self.deliver_to_device_reporting(&device.mac, notif).await
     }
 }

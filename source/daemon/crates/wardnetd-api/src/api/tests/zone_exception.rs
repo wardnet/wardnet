@@ -249,3 +249,75 @@ async fn delete_exception_returns_deleted_true() {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["deleted"], true);
 }
+
+// ── Auth gate ──────────────────────────────────────────────────────────────
+// The shared `send()` helper always attaches a session cookie, so the tests
+// above cannot see the `AdminAuth` guard. These drive each handler with no
+// credentials: a handler that lost its `_auth: AdminAuth` extractor would
+// answer 200/201 here instead of 401.
+
+/// Same as `send`, but omits the session cookie so the request is anonymous.
+async fn send_unauthenticated(method: &str, uri: &str, body: Option<&str>) -> StatusCode {
+    let req = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("Content-Type", "application/json")
+        .extension(connect_info())
+        .body(body.map_or_else(Body::empty, |b| Body::from(b.to_owned())))
+        .unwrap();
+    exception_router().oneshot(req).await.unwrap().status()
+}
+
+#[tokio::test]
+async fn list_exceptions_rejects_unauthenticated() {
+    assert_eq!(
+        send_unauthenticated("GET", "/api/network/zones/exceptions", None).await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn create_exception_rejects_unauthenticated() {
+    let body = r#"{"from":{"kind":"device","id":"00000000-0000-0000-0000-000000000000"},"to":{"kind":"zone","id":"00000000-0000-0000-0000-000000000202"},"service":{"type":"preset","set":"casting"},"bidirectional":true}"#;
+    assert_eq!(
+        send_unauthenticated("POST", "/api/network/zones/exceptions", Some(body)).await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn get_exception_rejects_unauthenticated() {
+    let id = Uuid::nil();
+    assert_eq!(
+        send_unauthenticated("GET", &format!("/api/network/zones/exceptions/{id}"), None).await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn update_exception_rejects_unauthenticated() {
+    let id = Uuid::nil();
+    assert_eq!(
+        send_unauthenticated(
+            "PUT",
+            &format!("/api/network/zones/exceptions/{id}"),
+            Some(r#"{"bidirectional":false}"#),
+        )
+        .await,
+        StatusCode::UNAUTHORIZED
+    );
+}
+
+#[tokio::test]
+async fn delete_exception_rejects_unauthenticated() {
+    let id = Uuid::nil();
+    assert_eq!(
+        send_unauthenticated(
+            "DELETE",
+            &format!("/api/network/zones/exceptions/{id}"),
+            None
+        )
+        .await,
+        StatusCode::UNAUTHORIZED
+    );
+}

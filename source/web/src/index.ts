@@ -24,6 +24,7 @@ export {
   statsService,
   updateService,
   backupService,
+  privateDnsService,
 } from "./lib/sdk";
 
 // Format utilities
@@ -48,6 +49,7 @@ export {
 
 // Country / device helpers
 export { countryFlag } from "./lib/country";
+export { poolUsagePercent } from "./lib/dhcp";
 export { tunnelStatusVariant, tunnelStatusLabel } from "./lib/tunnel";
 export { TunnelStatusPill } from "./components/TunnelStatusPill";
 export {
@@ -136,6 +138,7 @@ export {
   useRebuildTunnel,
   useSetTunnelDnsOverride,
   useSpeedTestResults,
+  useSpeedTestResultsList,
   useStartSpeedTest,
 } from "./hooks/useTunnels";
 
@@ -154,7 +157,7 @@ export {
   useAcknowledgeShutdown,
   useRecentErrors,
 } from "./hooks/useSystemStatus";
-export type { RecentError } from "./hooks/useSystemStatus";
+export type { SystemDiagnostic } from "./hooks/useSystemStatus";
 
 export {
   useDefaultPolicy,
@@ -181,6 +184,9 @@ export {
   useDnsStatsDashboard,
   useDashboardDnsStats,
   useDnsTopBlockedDomains,
+  useDnsTopTrackers,
+  useDnsPeriodComparison,
+  useDnsPerDeviceStats,
   parseLabels,
   RANGES,
   RANGE_HOURS,
@@ -189,6 +195,9 @@ export type {
   StatsRange,
   DnsStatsDashboardData,
   DashboardDnsStats,
+  DnsPeriodTotals,
+  DnsPeriodComparison,
+  DevicePoint,
 } from "./hooks/useStats";
 export { useTunnelStats } from "./hooks/useTunnelStats";
 export type { TunnelStatsPoint, TunnelStatsData } from "./hooks/useTunnelStats";
@@ -267,6 +276,22 @@ export {
   useUpdateDnsFilterConfig,
 } from "./hooks/useDnsFilter";
 
+// Hooks — routing profiles (per-domain routing rules, issue #241)
+export {
+  useRoutingProfiles,
+  useRoutingProfile,
+  useCreateRoutingProfile,
+  useUpdateRoutingProfile,
+  useDeleteRoutingProfile,
+  useDomainRoutingRules,
+  useCreateDomainRoutingRule,
+  useUpdateDomainRoutingRule,
+  useDeleteDomainRoutingRule,
+  useDeviceRoutingProfiles,
+  useSetDeviceRoutingProfiles,
+  useProfileDevices,
+} from "./hooks/useRoutingProfiles";
+
 export { useDnsQueryLog } from "./hooks/useDnsLogs";
 
 // Hooks — network + DHCP
@@ -339,6 +364,18 @@ export { DnsFilterNotReadyNotice } from "./components/DnsFilterNotReadyNotice";
 export { triggerBrowserDownload } from "./lib/download";
 export { ModalTitleBlock } from "./components/ModalTitleBlock";
 export { AlertModalTitleBlock } from "./components/AlertModalTitleBlock";
+
+// Private DNS — encrypted DNS at home + roaming (issues #910/#915/#916)
+export {
+  usePrivateDnsStatus,
+  useSetPrivateDnsEnabled,
+  useGrantPrivateDnsDevice,
+  useRevokePrivateDnsDevice,
+  useSendPrivateDnsToDevice,
+  usePrivateDnsMe,
+} from "./hooks/usePrivateDns";
+export { PrivateDnsInstructions } from "./components/PrivateDnsInstructions";
+export { CopyButton } from "./components/CopyButton";
 
 // Custom icons (composed marks not in lucide). Exported individually so
 // consumers only bundle the ones they import.

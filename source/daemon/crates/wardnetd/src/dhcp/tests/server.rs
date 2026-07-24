@@ -112,6 +112,10 @@ struct MockDhcpService {
     lease: DhcpLease,
     /// Records `(method_name, mac)` calls.
     calls: Mutex<Vec<(String, String)>>,
+    /// When set, `active_lease` returns an error instead of a lookup result.
+    active_lease_errors: bool,
+    /// When set, `release_lease` records the call then returns an error.
+    release_errors: bool,
 }
 
 impl MockDhcpService {
@@ -119,7 +123,22 @@ impl MockDhcpService {
         Self {
             lease,
             calls: Mutex::new(Vec::new()),
+            active_lease_errors: false,
+            release_errors: false,
         }
+    }
+
+    /// Make `active_lease` fail, to exercise the release runtime's lookup-error path.
+    fn failing_active_lease(mut self) -> Self {
+        self.active_lease_errors = true;
+        self
+    }
+
+    /// Make `release_lease` fail after recording the call, to exercise the
+    /// release runtime's release-error path.
+    fn failing_release(mut self) -> Self {
+        self.release_errors = true;
+        self
     }
 
     async fn recorded_calls(&self) -> Vec<(String, String)> {
@@ -200,7 +219,26 @@ impl DhcpService for MockDhcpService {
             .lock()
             .await
             .push(("release_lease".to_owned(), mac.to_owned()));
+        if self.release_errors {
+            return Err(AppError::Internal(anyhow::anyhow!("mock release failure")));
+        }
         Ok(())
+    }
+
+    /// Returns the configured lease when its MAC is queried, mirroring an
+    /// active lease recorded for that device. Intentionally does NOT record a
+    /// call so ownership lookups don't perturb `release_lease` assertions.
+    async fn active_lease(&self, mac: &str) -> Result<Option<DhcpLease>, AppError> {
+        if self.active_lease_errors {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "mock active_lease failure"
+            )));
+        }
+        if mac == self.lease.mac_address {
+            Ok(Some(self.lease.clone()))
+        } else {
+            Ok(None)
+        }
     }
 
     async fn cleanup_expired(&self) -> Result<u64, AppError> {
@@ -290,6 +328,16 @@ fn build_release(mac: [u8; 6]) -> Message {
     msg.set_opcode(Opcode::BootRequest).set_chaddr(&mac);
     msg.opts_mut()
         .insert(DhcpOption::MessageType(MessageType::Release));
+    msg
+}
+
+/// Like [`build_release`] but with `ciaddr` set. An RFC 2131 conformant client
+/// fills `ciaddr` with its own leased address, but the field is decoded
+/// straight from the packet body, so a forging attacker can set it to any
+/// value with no spoofing. Used to prove the release authorization ignores it.
+fn build_release_with_ciaddr(mac: [u8; 6], ciaddr: Ipv4Addr) -> Message {
+    let mut msg = build_release(mac);
+    msg.set_ciaddr(ciaddr);
     msg
 }
 
@@ -975,12 +1023,15 @@ async fn server_loop_responds_to_request_with_ack() {
 #[tokio::test]
 async fn server_loop_handles_release_without_response() {
     let lease = test_lease();
+    // A legitimate release is unicast from the client's own leased address, so
+    // the packet source must match the lease IP for the release to be honoured.
+    let lease_src = SocketAddr::from((lease.ip_address, 68));
     let mock_service = Arc::new(MockDhcpService::new(lease));
     let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
     let socket = Arc::new(MockDhcpSocket::new());
 
     let release = build_release([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
-    socket.push_message(&release, client_addr()).await;
+    socket.push_message(&release, lease_src).await;
 
     let socket = run_server_loop_until_idle(socket, service).await;
 
@@ -989,6 +1040,184 @@ async fn server_loop_handles_release_without_response() {
     assert!(messages.is_empty(), "RELEASE should not produce a response");
 
     // But the service should have been called.
+    let calls = mock_service.recorded_calls().await;
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "release_lease");
+    assert_eq!(calls[0].1, "aa:bb:cc:dd:ee:ff");
+}
+
+#[tokio::test]
+async fn server_loop_release_from_lease_ip_releases_lease() {
+    // A DHCPRELEASE whose source is the lease's own recorded IP is a legitimate
+    // client releasing its own lease and must free it (RFC 2131 unicast release).
+    let lease = test_lease(); // ip 192.168.1.100, mac aa:bb:cc:dd:ee:ff
+    let lease_src = SocketAddr::from((lease.ip_address, 68));
+    let mock_service = Arc::new(MockDhcpService::new(lease));
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let release = build_release([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket.push_message(&release, lease_src).await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    // RELEASE never produces a response.
+    assert!(socket.sent_messages().await.is_empty());
+
+    // The lease was released because the source matched its recorded IP.
+    let calls = mock_service.recorded_calls().await;
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].0, "release_lease");
+    assert_eq!(calls[0].1, "aa:bb:cc:dd:ee:ff");
+}
+
+#[tokio::test]
+async fn server_loop_release_from_spoofed_source_does_not_release_lease() {
+    // Attacker forges the victim's MAC in a DHCPRELEASE but sends it from a
+    // different source IP (and no ciaddr). The claimed source does not match the
+    // victim's recorded lease IP, so the release MUST be dropped — the victim's
+    // lease stays intact (CWE-639, finding F3).
+    let lease = test_lease(); // victim: ip 192.168.1.100, mac aa:bb:cc:dd:ee:ff
+    let mock_service = Arc::new(MockDhcpService::new(lease));
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let forged = build_release([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    let attacker_src: SocketAddr = "192.168.1.66:68".parse().unwrap();
+    socket.push_message(&forged, attacker_src).await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    // RELEASE never produces a response.
+    assert!(socket.sent_messages().await.is_empty());
+
+    // Crucially, `release_lease` was never called — the victim keeps its lease.
+    let calls = mock_service.recorded_calls().await;
+    assert!(
+        !calls.iter().any(|(method, _)| method == "release_lease"),
+        "forged DHCPRELEASE from a spoofed source must not release the victim's lease, got: {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn server_loop_release_with_forged_ciaddr_does_not_release_lease() {
+    // The `ciaddr` wire field is attacker-controlled packet payload. An attacker
+    // forges the victim's MAC AND sets `ciaddr` to the victim's lease IP — both
+    // discoverable via ARP — but sends from their own source address, with no
+    // network-layer spoofing. Authorization is on the real UDP source, not
+    // `ciaddr`, so the source (192.168.1.66) does not match the victim's lease
+    // IP (192.168.1.100) and the release MUST be dropped (CWE-639, finding F3).
+    let lease = test_lease(); // victim: ip 192.168.1.100, mac aa:bb:cc:dd:ee:ff
+    let mock_service = Arc::new(MockDhcpService::new(lease));
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let victim_ip: Ipv4Addr = "192.168.1.100".parse().unwrap();
+    let forged = build_release_with_ciaddr([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff], victim_ip);
+    let attacker_src: SocketAddr = "192.168.1.66:68".parse().unwrap();
+    socket.push_message(&forged, attacker_src).await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    // RELEASE never produces a response.
+    assert!(socket.sent_messages().await.is_empty());
+
+    // The victim keeps its lease: trusting `ciaddr` would have wrongly freed it.
+    let calls = mock_service.recorded_calls().await;
+    assert!(
+        !calls.iter().any(|(method, _)| method == "release_lease"),
+        "a DHCPRELEASE with a forged ciaddr from a mismatched source must not release the victim's lease, got: {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn server_loop_release_from_ipv6_source_does_not_release_lease() {
+    // A DHCPv4 client is always reached over IPv4. A release arriving from an
+    // IPv6 source cannot own an IPv4 lease, so its claimed IPv4 source collapses
+    // to 0.0.0.0 and the packet is dropped as unauthenticated.
+    let lease = test_lease();
+    let mock_service = Arc::new(MockDhcpService::new(lease));
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let release = build_release([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    let ipv6_src: SocketAddr = "[fe80::1]:68".parse().unwrap();
+    socket.push_message(&release, ipv6_src).await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+    assert!(socket.sent_messages().await.is_empty());
+
+    let calls = mock_service.recorded_calls().await;
+    assert!(
+        !calls.iter().any(|(method, _)| method == "release_lease"),
+        "a DHCPRELEASE from an IPv6 source must not release an IPv4 lease, got: {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn server_loop_release_for_unknown_mac_does_not_release_lease() {
+    // A release for a MAC with no recorded active lease is dropped: there is
+    // nothing to authorise the release against.
+    let lease = test_lease(); // recorded mac aa:bb:cc:dd:ee:ff
+    let mock_service = Arc::new(MockDhcpService::new(lease));
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let release = build_release([0x11, 0x22, 0x33, 0x44, 0x55, 0x66]);
+    let src: SocketAddr = "192.168.1.77:68".parse().unwrap();
+    socket.push_message(&release, src).await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+    assert!(socket.sent_messages().await.is_empty());
+
+    let calls = mock_service.recorded_calls().await;
+    assert!(
+        !calls.iter().any(|(method, _)| method == "release_lease"),
+        "a DHCPRELEASE for a MAC with no active lease must not release anything, got: {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn server_loop_release_lookup_error_does_not_release_lease() {
+    // If the active-lease lookup itself fails, the release is dropped
+    // (fail-closed): we never release without a verified ownership match.
+    let lease = test_lease();
+    let lease_src = SocketAddr::from((lease.ip_address, 68));
+    let mock_service = Arc::new(MockDhcpService::new(lease).failing_active_lease());
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let release = build_release([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket.push_message(&release, lease_src).await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+    assert!(socket.sent_messages().await.is_empty());
+
+    let calls = mock_service.recorded_calls().await;
+    assert!(
+        !calls.iter().any(|(method, _)| method == "release_lease"),
+        "a failed active-lease lookup must not release the lease, got: {calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn server_loop_release_service_error_is_logged_and_swallowed() {
+    // An authorised release whose service call fails is logged and does not
+    // crash the loop. The release was attempted (the call is recorded before
+    // the service returns its error).
+    let lease = test_lease();
+    let lease_src = SocketAddr::from((lease.ip_address, 68));
+    let mock_service = Arc::new(MockDhcpService::new(lease).failing_release());
+    let service: Arc<dyn DhcpService> = Arc::clone(&mock_service) as Arc<dyn DhcpService>;
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let release = build_release([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket.push_message(&release, lease_src).await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+    assert!(socket.sent_messages().await.is_empty());
+
+    // The release was authorised and attempted even though the service errored.
     let calls = mock_service.recorded_calls().await;
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].0, "release_lease");

@@ -31,6 +31,7 @@ use wardnetd_mock::backends::noop_latency_prober::NoopLatencyProber;
 use wardnetd_mock::backends::noop_network_inspector::NoopNetworkInspector;
 use wardnetd_mock::backends::noop_network_probe::NoopNetworkProbe;
 use wardnetd_mock::backends::noop_power_ops::NoopSystemPowerOps;
+use wardnetd_mock::backends::noop_private_dns::MockPrivateDnsService;
 use wardnetd_mock::backends::noop_remote_access::{
     MockDdnsService, MockRemoteAccessState, MockTlsService,
 };
@@ -41,13 +42,13 @@ use wardnetd_mock::backends::noop_watchdog::NoopWatchdog;
 use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
+use wardnetd_services::diagnostics::DiagnosticStore;
+use wardnetd_services::diagnostics::listener::DiagnosticsListener;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::HttpBlocklistFetcher;
 use wardnetd_services::health::checks::{DbHealthCheck, LivenessHealthCheck};
-use wardnetd_services::logging::{
-    ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
-};
+use wardnetd_services::logging::{LogService, LogServiceImpl, LogStreamService};
 use wardnetd_services::secret_store::FileSecretStore;
 use wardnetd_services::stats::flush_runner::{DEFAULT_FLUSH_INTERVAL, StatsFlushRunner};
 use wardnetd_services::update::{
@@ -127,19 +128,18 @@ async fn main() -> anyhow::Result<()> {
         LogStreamService::new(config.logging.broadcast_capacity)
             .with_suppressed_targets(config.logging.ui_suppressed_targets.clone()),
     );
-    let error_notifier = Arc::new(
-        ErrorNotifierService::new(config.logging.max_recent_errors)
-            .with_suppressed_targets(config.logging.ui_suppressed_targets.clone()),
-    );
+    // Recent-diagnostics buffer: read handle for the log service, write handle
+    // for the diagnostics listener wired up in `run`.
+    let diagnostics = Arc::new(DiagnosticStore::new(config.logging.max_recent_errors));
     let log_service: Arc<dyn LogService> = Arc::new(LogServiceImpl::new(
         log_stream,
-        error_notifier,
+        diagnostics.clone(),
         config.logging.path.clone(),
     ));
 
     init_tracing(cli.verbose, log_service.as_ref());
 
-    run(cli, config, log_service).await
+    run(cli, config, log_service, diagnostics).await
 }
 
 #[allow(clippy::too_many_lines)]
@@ -147,6 +147,7 @@ async fn run(
     cli: Cli,
     config: ApplicationConfiguration,
     log_service: Arc<dyn LogService>,
+    diagnostics: Arc<DiagnosticStore>,
 ) -> anyhow::Result<()> {
     let started_at = Instant::now();
 
@@ -400,7 +401,11 @@ async fn run(
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
+    .with_routing_profile_service(services.routing_profile.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
+    // Private DNS reaches the live DDNS/TLS/secret store, which the mock stands
+    // in for offline; swap in the stateful in-memory fake, mirroring DDNS/TLS.
+    .with_private_dns_service(Arc::new(MockPrivateDnsService::default()))
     .with_entitlement(services.entitlement.clone())
     .with_health_monitor(health_monitor);
 
@@ -471,6 +476,14 @@ async fn run(
     let push_listener = wardnetd_services::push::listener::PushNotificationListener::start(
         &services.event_publisher,
         services.push.clone(),
+        &tracing::Span::current(),
+    );
+
+    // Surface error-flavoured fake events in the dashboard's recent-errors
+    // panel, exactly like the real daemon.
+    let _diagnostics_listener = DiagnosticsListener::start(
+        &services.event_publisher,
+        diagnostics,
         &tracing::Span::current(),
     );
 

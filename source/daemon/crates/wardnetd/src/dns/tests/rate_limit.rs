@@ -52,3 +52,19 @@ fn refills_over_time() {
     let later = t + Duration::from_secs(1);
     assert!(rl.check_at(IP, 3, later));
 }
+
+#[test]
+fn distinct_keys_get_independent_buckets_across_shards() {
+    // With buckets sharded by key hash, distinct clients must still each get
+    // their own bucket — a query must never consume a token from a different
+    // client that happened to hash to the same shard.
+    let rl = RateLimiter::new(0);
+    let t = Instant::now();
+    for i in 0..1000u32 {
+        let ip = std::net::IpAddr::V4(std::net::Ipv4Addr::from(0x0A00_0100 + i));
+        // Capacity 2: this client's own burst, independent of every other.
+        assert!(rl.check_at(ip, 2, t), "client {i} first query");
+        assert!(rl.check_at(ip, 2, t), "client {i} second query");
+        assert!(!rl.check_at(ip, 2, t), "client {i} third query denied");
+    }
+}

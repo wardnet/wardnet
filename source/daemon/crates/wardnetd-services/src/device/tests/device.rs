@@ -42,6 +42,9 @@ impl DeviceRepository for MockDeviceRepo {
     async fn insert(&self, _device: &DeviceRow) -> anyhow::Result<()> {
         Ok(())
     }
+    async fn clear_last_ip(&self, _id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
     async fn update_last_seen_and_ip(
         &self,
         _id: &str,
@@ -160,9 +163,6 @@ impl DnsEventsRepository for MockDnsEventsRepo {
         _limit: i64,
     ) -> anyhow::Result<Vec<wardnetd_data::repository::DnsEventRow>> {
         Ok(vec![])
-    }
-    async fn mark_synced_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
-        Ok(0)
     }
     async fn delete_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
         Ok(0)
@@ -572,6 +572,49 @@ async fn set_rule_by_id_device_not_found() {
     assert!(result.is_err());
 }
 
+// -- Tests: set_my_capture_enabled (auth context) ------------------------
+
+#[tokio::test]
+async fn set_my_capture_enabled_anonymous_forbidden() {
+    let svc = make_svc(false, None);
+
+    let result = auth_context::with_context(AuthContext::Anonymous, async {
+        svc.set_my_capture_enabled("192.168.1.10", true).await
+    })
+    .await;
+
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn set_my_capture_enabled_foreign_device_forbidden() {
+    let svc = make_svc(false, None);
+    let ctx = device_ctx("FF:FF:FF:FF:FF:FF");
+
+    let result = auth_context::with_context(ctx, async {
+        svc.set_my_capture_enabled("192.168.1.10", true).await
+    })
+    .await;
+
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn set_my_capture_enabled_own_device_allowed() {
+    let svc = make_svc(false, None);
+    let ctx = device_ctx("AA:BB:CC:DD:EE:01");
+
+    let result = auth_context::with_context(ctx, async {
+        svc.set_my_capture_enabled("192.168.1.10", true).await
+    })
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "owning device should be allowed: {result:?}"
+    );
+}
+
 // -- Tests: update_admin_locked ------------------------------------------
 
 #[tokio::test]
@@ -701,6 +744,40 @@ async fn current_rules_anonymous_forbidden() {
     assert!(result.is_err());
 }
 
+// -- Tests: get_rule_for_device ------------------------------------------
+
+#[tokio::test]
+async fn get_rule_for_device_returns_target() {
+    let svc = make_svc(false, Some(sample_rule()));
+
+    let rule = auth_context::with_context(admin_ctx(), svc.get_rule_for_device("dev-id"))
+        .await
+        .unwrap();
+
+    assert_eq!(rule, Some(RoutingTarget::Direct));
+}
+
+#[tokio::test]
+async fn get_rule_for_device_none_when_no_rule() {
+    let svc = make_svc(false, None);
+
+    let rule = auth_context::with_context(admin_ctx(), svc.get_rule_for_device("dev-id"))
+        .await
+        .unwrap();
+
+    assert_eq!(rule, None);
+}
+
+#[tokio::test]
+async fn get_rule_for_device_anonymous_forbidden() {
+    let svc = make_svc(false, Some(sample_rule()));
+
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, svc.get_rule_for_device("dev-id")).await;
+
+    assert!(result.is_err());
+}
+
 // -- Tests: get_dns_capture_settings -------------------------------------
 
 #[tokio::test]
@@ -798,6 +875,9 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
             Ok(vec![])
         }
         async fn insert(&self, _device: &DeviceRow) -> anyhow::Result<()> {
+            Ok(())
+        }
+        async fn clear_last_ip(&self, _id: &str) -> anyhow::Result<()> {
             Ok(())
         }
         async fn update_last_seen_and_ip(
@@ -982,9 +1062,6 @@ impl DnsEventsRepository for RowsDnsEventsRepo {
     ) -> anyhow::Result<Vec<DnsEventRow>> {
         Ok(self.rows.clone())
     }
-    async fn mark_synced_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
-        Ok(0)
-    }
     async fn delete_up_to(&self, _device_id: &str, _up_to_id: i64) -> anyhow::Result<u64> {
         Ok(1)
     }
@@ -1077,8 +1154,7 @@ async fn list_capture_enabled_device_ids_delegates_to_repo() {
         Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     );
-    let ids = svc
-        .list_capture_enabled_device_ids()
+    let ids = auth_context::with_context(admin_ctx(), svc.list_capture_enabled_device_ids())
         .await
         .expect("should succeed");
     assert!(ids.is_empty()); // MockDeviceRepo returns empty list
@@ -1100,8 +1176,7 @@ async fn get_device_capture_settings_returns_settings_when_device_found() {
         Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     );
-    let result = svc
-        .get_device_capture_settings("any-id")
+    let result = auth_context::with_context(admin_ctx(), svc.get_device_capture_settings("any-id"))
         .await
         .expect("should succeed");
     let (enabled, c, d) = result.expect("device should be found");
@@ -1123,9 +1198,145 @@ async fn get_device_capture_settings_returns_none_for_unknown_device() {
         Arc::new(MockSystemConfigRepo),
         Arc::new(MockEventPublisher),
     );
-    let result = svc
-        .get_device_capture_settings("unknown-id")
-        .await
-        .expect("should succeed");
+    let result =
+        auth_context::with_context(admin_ctx(), svc.get_device_capture_settings("unknown-id"))
+            .await
+            .expect("should succeed");
     assert!(result.is_none());
+}
+
+// ---------------------------------------------------------------------------
+// Auth guards on the DNS-events / capture methods
+// ---------------------------------------------------------------------------
+
+/// Build a service whose repo resolves any id to [`sample_device`].
+fn svc_with_device() -> DeviceServiceImpl {
+    DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: Some(sample_device(false)),
+            rule: None,
+            all_rules: vec![],
+        }),
+        Arc::new(RowsDnsEventsRepo { rows: vec![] }),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
+        Arc::new(MockEventPublisher),
+    )
+}
+
+/// Build a service whose repo resolves every id to `None` (no such device).
+fn svc_without_device() -> DeviceServiceImpl {
+    DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: None,
+            rule: None,
+            all_rules: vec![],
+        }),
+        Arc::new(RowsDnsEventsRepo { rows: vec![] }),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
+        Arc::new(MockEventPublisher),
+    )
+}
+
+const SAMPLE_ID: &str = "00000000-0000-0000-0000-000000000001";
+
+#[tokio::test]
+async fn fetch_pending_dns_events_not_found_for_unknown_device() {
+    let svc = svc_without_device();
+    // Even an admin gets NotFound when the device row is gone: the guard
+    // resolves the device first to know whose events it would return.
+    let result =
+        auth_context::with_context(admin_ctx(), svc.fetch_pending_dns_events(SAMPLE_ID, 0, 100))
+            .await;
+    assert!(matches!(result, Err(crate::error::AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn ack_dns_events_not_found_for_unknown_device() {
+    let svc = svc_without_device();
+    let result = auth_context::with_context(admin_ctx(), svc.ack_dns_events(SAMPLE_ID, 42)).await;
+    assert!(matches!(result, Err(crate::error::AppError::NotFound(_))));
+}
+
+#[tokio::test]
+async fn fetch_pending_dns_events_rejects_anonymous() {
+    let svc = svc_with_device();
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        svc.fetch_pending_dns_events(SAMPLE_ID, 0, 100),
+    )
+    .await;
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn fetch_pending_dns_events_rejects_other_device() {
+    let svc = svc_with_device();
+    // A device caller whose MAC does not match the target device.
+    let result = auth_context::with_context(
+        device_ctx("00:00:00:00:00:99"),
+        svc.fetch_pending_dns_events(SAMPLE_ID, 0, 100),
+    )
+    .await;
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn fetch_pending_dns_events_accepts_owning_device() {
+    let svc = svc_with_device();
+    // The self-service caller matched by its own MAC succeeds.
+    let result = auth_context::with_context(
+        device_ctx("AA:BB:CC:DD:EE:01"),
+        svc.fetch_pending_dns_events(SAMPLE_ID, 0, 100),
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "owning device should be allowed: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn ack_dns_events_rejects_anonymous() {
+    let svc = svc_with_device();
+    let result =
+        auth_context::with_context(AuthContext::Anonymous, svc.ack_dns_events(SAMPLE_ID, 42)).await;
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn ack_dns_events_accepts_owning_device() {
+    let svc = svc_with_device();
+    let result = auth_context::with_context(
+        device_ctx("AA:BB:CC:DD:EE:01"),
+        svc.ack_dns_events(SAMPLE_ID, 42),
+    )
+    .await;
+    assert!(
+        result.is_ok(),
+        "owning device should be allowed: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn list_capture_enabled_device_ids_rejects_anonymous() {
+    let svc = svc_with_device();
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        svc.list_capture_enabled_device_ids(),
+    )
+    .await;
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn get_device_capture_settings_rejects_anonymous() {
+    let svc = svc_with_device();
+    let result = auth_context::with_context(
+        AuthContext::Anonymous,
+        svc.get_device_capture_settings(SAMPLE_ID),
+    )
+    .await;
+    assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
 }

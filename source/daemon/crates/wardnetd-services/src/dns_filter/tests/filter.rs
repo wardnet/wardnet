@@ -7,7 +7,9 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use hickory_proto::rr::RecordType;
 use wardnet_common::dns::FilterAction;
 
-use crate::dns_filter::filter::{DnsFilter, DnsFilterInputs, MatchKind, MatchOutcome};
+use crate::dns_filter::filter::{
+    BlocklistFilterBuilder, DnsFilter, DnsFilterInputs, MatchKind, MatchOutcome,
+};
 
 fn localhost_v4() -> IpAddr {
     IpAddr::V4(Ipv4Addr::LOCALHOST)
@@ -447,4 +449,82 @@ fn match_kind_blocks_classification() {
     assert!(MatchKind::ImportantBlock.blocks());
     assert!(!MatchKind::Allow.blocks());
     assert!(!MatchKind::ImportantAllow.blocks());
+}
+
+// ---------- Streaming blocklist builder ----------
+
+/// The blocklist rebuild path builds its filter with [`BlocklistFilterBuilder`]
+/// (streaming rows straight into the set) instead of [`DnsFilter::build`]. The
+/// two must be indistinguishable: same normalisation, same de-duplication, same
+/// hot-path verdicts, and — since a blocklist has no allowlist or custom rules —
+/// a pure blocked-domain filter. This guards against the two paths drifting.
+#[test]
+fn blocklist_filter_builder_matches_build() {
+    // Mixed case + a trailing dot + a duplicate that only collapses after
+    // normalisation — exactly the cases the normaliser has to fold.
+    let raw = vec![
+        "ADS.Example.com".to_owned(),
+        "tracker.test.".to_owned(),
+        "Dup.test".to_owned(),
+        "dup.test".to_owned(),
+    ];
+
+    // Path A: the legacy Vec -> DnsFilterInputs -> build route.
+    let via_build = DnsFilter::build(DnsFilterInputs {
+        blocked_domains: raw.clone(),
+        ..DnsFilterInputs::default()
+    });
+
+    // Path B: the streaming builder used by `rebuild_blocklist_inner`.
+    let mut builder = BlocklistFilterBuilder::new();
+    for domain in &raw {
+        builder.insert(domain);
+    }
+    let via_builder = builder.finish();
+
+    // Identical, de-duplicated, normalised set (the two `dup.test` collapse).
+    assert_eq!(via_builder.stats().blocked_count, 3);
+    assert_eq!(
+        via_build.stats().blocked_count,
+        via_builder.stats().blocked_count,
+    );
+    // A blocklist is a *pure* blocked-domain filter.
+    assert_eq!(via_builder.stats().allowed_count, 0);
+    assert_eq!(via_builder.stats().complex_count, 0);
+    assert!(!via_builder.is_empty());
+
+    // Identical hot-path verdicts, including query-side normalisation and
+    // subdomain matching.
+    for (query, expect_blocked) in [
+        ("ads.example.com", true),
+        ("ADS.EXAMPLE.COM", true),
+        ("sub.ads.example.com", true),
+        ("tracker.test", true),
+        ("dup.test", true),
+        ("allowed.test", false),
+    ] {
+        let from_builder = via_builder.check_action(query, RecordType::A, localhost_v4());
+        assert_eq!(
+            from_builder,
+            via_build.check_action(query, RecordType::A, localhost_v4()),
+            "verdict diverged between build paths for {query}",
+        );
+        assert_eq!(
+            from_builder == FilterAction::Block,
+            expect_blocked,
+            "unexpected verdict for {query}",
+        );
+    }
+}
+
+/// An empty stream (a downloaded-but-empty or not-yet-populated blocklist)
+/// yields the same empty filter the old `build(default)` path produced.
+#[test]
+fn blocklist_filter_builder_empty_is_empty() {
+    let filter = BlocklistFilterBuilder::new().finish();
+    assert!(filter.is_empty());
+    assert_eq!(
+        filter.check_action("example.com", RecordType::A, localhost_v4()),
+        FilterAction::Pass,
+    );
 }

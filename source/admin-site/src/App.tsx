@@ -11,6 +11,8 @@ import Devices from "@/pages/Devices";
 import DeviceDetail from "@/pages/DeviceDetail";
 import Tunnels from "@/pages/Tunnels";
 import TunnelDetail from "@/pages/TunnelDetail";
+import RoutingProfiles from "@/pages/RoutingProfiles";
+import RoutingProfileDetail from "@/pages/RoutingProfileDetail";
 import Zones from "@/pages/Zones";
 import Settings from "@/pages/Settings";
 import RemoteAccess from "@/pages/RemoteAccess";
@@ -151,6 +153,22 @@ export default function App() {
           element={
             <AdminRoute>
               <TunnelDetail />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="routing"
+          element={
+            <AdminRoute>
+              <RoutingProfiles />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="routing/:id"
+          element={
+            <AdminRoute>
+              <RoutingProfileDetail />
             </AdminRoute>
           }
         />

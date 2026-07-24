@@ -31,6 +31,7 @@ use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 
+use crate::dns::pipeline::{QueryAttribution, TransportProtocol};
 use crate::dns::server::{
     LATENCY_PROBE_INTERVAL, TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver,
     duration_to_ms, effective_upstreams, fold_probe_outcomes, forwarder_ordering,
@@ -342,6 +343,7 @@ fn build_test_server(config: DnsConfig, bind_addr: SocketAddr) -> UdpDnsServer {
         config,
         bind_addr,
         stub_filter(),
+        None,
         empty_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
@@ -614,7 +616,10 @@ fn record_query_with_no_sink_is_a_noop() {
         "example.com",
         RecordType::A,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Udp,
+        },
         "blocked",
         None,
         Duration::from_millis(2),
@@ -634,7 +639,10 @@ async fn record_query_with_sink_pushes_a_row_with_normalized_domain() {
         "example.com.",
         RecordType::AAAA,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Dot,
+        },
         "passed",
         Some("1.1.1.1".into()),
         Duration::from_millis(7),
@@ -650,6 +658,7 @@ async fn record_query_with_sink_pushes_a_row_with_normalized_domain() {
     assert_eq!(row.upstream.as_deref(), Some("1.1.1.1"));
     assert_eq!(row.client_ip, "127.0.0.1");
     assert!(row.device_id.is_none());
+    assert_eq!(row.protocol, "dot");
     // Latency conversion: 7ms = 7000us = 7.0
     assert!((row.latency_ms - 7.0).abs() < 1e-6);
 }
@@ -687,6 +696,7 @@ async fn server_records_query_after_handling_it() {
         DnsConfig::default(),
         loopback_ephemeral(),
         stub_filter(),
+        None,
         empty_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
@@ -960,6 +970,7 @@ fn build_with_filter(
         config,
         loopback_ephemeral(),
         filter,
+        None,
         empty_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
@@ -1082,6 +1093,7 @@ async fn handle_query_tunnel_branch_records_upstream_error_when_forward_fails() 
         DnsConfig::default(),
         loopback_ephemeral(),
         filter,
+        None,
         snapshot,
         empty_device_snapshot(),
         tunnel_repo,
@@ -1568,6 +1580,7 @@ async fn dns_filter_rebuilt_event_flushes_response_cache() {
         cfg,
         loopback_ephemeral(),
         filter.clone() as Arc<dyn wardnetd_services::DnsFilterService>,
+        None,
         empty_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
@@ -1660,6 +1673,7 @@ async fn spawn_invalidator_for_test(
 /// `Pass` answer keyed on `Default`.
 async fn seed_cache(cache: &Arc<RwLock<wardnetd_services::dns::cache::DnsCache>>) {
     use hickory_proto::op::{Message, OpCode};
+    use hickory_proto::serialize::binary::BinEncodable;
     let mut answer = Message::response(0, OpCode::Query);
     answer.metadata.recursion_desired = true;
     answer.metadata.recursion_available = true;
@@ -1667,7 +1681,7 @@ async fn seed_cache(cache: &Arc<RwLock<wardnetd_services::dns::cache::DnsCache>>
         UpstreamId::Default,
         "seed.example.",
         RecordType::A,
-        answer,
+        answer.to_bytes().expect("encode seed response"),
         60,
         1,
         60,
@@ -2217,8 +2231,36 @@ fn udp_upstream(addr: SocketAddr) -> UpstreamDns {
     }
 }
 
+/// Send an A query for an arbitrary `name` (from a fresh client socket) and
+/// return the parsed reply. The companion to [`query_foo_com`] for tests that
+/// need a second, distinct question.
+async fn query_a_named(target: SocketAddr, name: &str, id: u16) -> hickory_proto::op::Message {
+    use hickory_proto::op::{Message, Query};
+    use hickory_proto::rr::{Name, RecordType};
+    use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
+
+    let client = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("client bind");
+    let mut msg = Message::query();
+    msg.metadata.id = id;
+    msg.metadata.recursion_desired = true;
+    msg.add_queries(vec![Query::query(
+        Name::from_str_relaxed(name).expect("query name"),
+        RecordType::A,
+    )]);
+    let bytes = msg.to_bytes().expect("encode query");
+    client.send_to(&bytes, target).await.expect("send");
+    let mut buf = vec![0u8; 4096];
+    let (n, _) = tokio::time::timeout(Duration::from_secs(5), client.recv_from(&mut buf))
+        .await
+        .expect("client recv timeout")
+        .expect("client recv");
+    Message::from_bytes(&buf[..n]).expect("parse response")
+}
+
 #[tokio::test]
-async fn rate_limit_refuses_queries_over_the_per_client_budget() {
+async fn rate_limit_refuses_forwarded_queries_but_not_local_answers() {
     use hickory_proto::op::ResponseCode;
 
     let upstream_addr = spawn_stub_upstream().await;
@@ -2235,10 +2277,24 @@ async fn rate_limit_refuses_queries_over_the_per_client_budget() {
     let first = query_foo_com(bound).await;
     assert_eq!(first.metadata.response_code, ResponseCode::NoError);
 
-    // Second query from the same client IP within the same second → no
-    // token left → REFUSED, before any cache/forward work.
-    let second = query_foo_com(bound).await;
-    assert_eq!(second.metadata.response_code, ResponseCode::Refused);
+    // Second query, same domain, same second: the budget is spent, but this is
+    // now a cache hit — a local answer — so it is served, NOT refused. The
+    // limiter only guards the upstream-bound path.
+    let cached = query_foo_com(bound).await;
+    assert_eq!(
+        cached.metadata.response_code,
+        ResponseCode::NoError,
+        "a cache hit must not be rate-limited"
+    );
+
+    // A different, un-cached domain within the same second would have to be
+    // forwarded → no token left → REFUSED.
+    let forwarded = query_a_named(bound, "bar.com.", 0xBEEF).await;
+    assert_eq!(
+        forwarded.metadata.response_code,
+        ResponseCode::Refused,
+        "a query that must go upstream is rate-limited"
+    );
 
     server.stop().await.unwrap();
 }
@@ -2397,12 +2453,16 @@ async fn recursor_unavailable_falls_back_to_forwarding_when_upstreams_set() {
         foo_com_request(),
         0xCAFE,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Udp,
+        },
         "foo.com",
         RecordType::A,
         std::time::Instant::now(),
         "forwarded",
         UpstreamId::Default,
+        None,
     )
     .await
     .expect("resolve_via_recursor");
@@ -2453,12 +2513,16 @@ async fn recursor_unavailable_servfails_when_no_upstreams() {
         foo_com_request(),
         0xCAFE,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Udp,
+        },
         "foo.com",
         RecordType::A,
         std::time::Instant::now(),
         "forwarded",
         UpstreamId::Default,
+        None,
     )
     .await
     .expect("resolve_via_recursor");
@@ -2555,12 +2619,16 @@ async fn run_recursor_outcome(
         request,
         0xCAFE,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Udp,
+        },
         "foo.com",
         rtype,
         std::time::Instant::now(),
         "forwarded",
         UpstreamId::Default,
+        None,
     )
     .await
     .expect("handle_recursor_outcome");
@@ -2612,7 +2680,7 @@ async fn recursor_nodata_relays_noerror_not_servfail() {
         cache
             .write()
             .await
-            .get(UpstreamId::Default, "foo.com", RecordType::A)
+            .get(UpstreamId::Default, "foo.com", RecordType::A, 0)
             .is_some(),
         "negative response must be cached so repeats don't re-resolve"
     );
@@ -2659,7 +2727,7 @@ async fn recursor_negative_with_zero_minimum_is_not_cached_or_raised() {
         cache
             .write()
             .await
-            .get(UpstreamId::Default, "foo.com", RecordType::A)
+            .get(UpstreamId::Default, "foo.com", RecordType::A, 0)
             .is_none(),
         "a zone-forbidden negative must not be cached"
     );
@@ -2806,12 +2874,16 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
         request,
         0xABCD,
         src,
-        None,
+        QueryAttribution {
+            device_id: None,
+            protocol: TransportProtocol::Udp,
+        },
         "",
         RecordType::A,
         std::time::Instant::now(),
         "forwarded",
         UpstreamId::Default,
+        None,
     )
     .await
     .expect("resolve_via_recursor");
@@ -3164,4 +3236,188 @@ async fn prober_active_publishes_snapshot_for_each_upstream() {
     assert_eq!(snap.len(), 1);
     assert_eq!(snap[0].address, "127.0.0.1");
     cancel.cancel();
+}
+
+// -- Domain-routing post-resolution hook (#241) ----------------------------
+
+/// A `RoutingProfileService` that records every `note_resolution` call so the
+/// pipeline's post-resolution hook can be asserted. Only `note_resolution` is
+/// exercised.
+#[derive(Default)]
+struct RecordingRoutingProfile {
+    calls: StdMutex<Vec<(Uuid, String, usize, u32)>>,
+}
+
+#[async_trait]
+impl wardnetd_services::RoutingProfileService for RecordingRoutingProfile {
+    fn note_resolution(
+        &self,
+        device_id: Uuid,
+        _device_ip: IpAddr,
+        name: &str,
+        answer_ips: &[IpAddr],
+        ttl_secs: u32,
+    ) {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((device_id, name.to_owned(), answer_ips.len(), ttl_secs));
+    }
+
+    async fn list_profiles(
+        &self,
+    ) -> Result<
+        Vec<wardnet_common::routing_profile::RoutingProfile>,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn get_profile(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, wardnetd_services::error::AppError>
+    {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn create_profile(
+        &self,
+        _name: &str,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, wardnetd_services::error::AppError>
+    {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn rename_profile(
+        &self,
+        _id: Uuid,
+        _name: &str,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, wardnetd_services::error::AppError>
+    {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn delete_profile(&self, _id: Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn list_rules(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<
+        Vec<wardnet_common::routing_profile::DomainRoutingRule>,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn create_rule(
+        &self,
+        _profile_id: Uuid,
+        _pattern: &str,
+        _target: wardnet_common::routing_profile::DomainRoutingTarget,
+        _enabled: bool,
+    ) -> Result<
+        wardnet_common::routing_profile::DomainRoutingRule,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn update_rule(
+        &self,
+        _id: Uuid,
+        _pattern: Option<String>,
+        _target: Option<wardnet_common::routing_profile::DomainRoutingTarget>,
+        _enabled: Option<bool>,
+    ) -> Result<
+        wardnet_common::routing_profile::DomainRoutingRule,
+        wardnetd_services::error::AppError,
+    > {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn delete_rule(&self, _id: Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn get_device_profiles(
+        &self,
+        _device_id: Uuid,
+    ) -> Result<Vec<Uuid>, wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn set_device_profiles(
+        &self,
+        _device_id: Uuid,
+        _profile_ids: &[Uuid],
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn list_profile_devices(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<Vec<Uuid>, wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+    async fn refresh_view(&self) -> Result<(), wardnetd_services::error::AppError> {
+        unimplemented!("not exercised by the hook test")
+    }
+}
+
+#[tokio::test]
+async fn resolved_answer_notifies_routing_profile_for_attributed_device() {
+    use hickory_proto::op::{Message, OpCode};
+    use hickory_proto::rr::rdata::A;
+    use hickory_proto::rr::{Name, RData, Record};
+
+    // A recursor answer carrying a single public A record.
+    let mut answer = Message::response(0xCAFE, OpCode::Query);
+    let name = Name::from_ascii("foo.com.").unwrap();
+    answer.add_answer(Record::from_rdata(
+        name,
+        300,
+        RData::A(A(Ipv4Addr::new(93, 184, 216, 34))),
+    ));
+
+    let upstream_addr = spawn_stub_upstream().await;
+    let upstreams = vec![udp_upstream(upstream_addr)];
+    let resolver = Arc::new(RwLock::new(build_resolver(
+        &upstreams,
+        false,
+        ServerOrderingStrategy::QueryStatistics,
+    )));
+    let config = Arc::new(RwLock::new(DnsConfig {
+        resolution_mode: DnsResolutionMode::Recursive,
+        upstream_servers: upstreams,
+        ..DnsConfig::default()
+    }));
+    let cache = Arc::new(RwLock::new(DnsCache::new(1000)));
+    let sent = Arc::new(StdMutex::new(Vec::new()));
+    let socket: Arc<dyn DnsSocket> = Arc::new(RecordingSocket { sent });
+    let src: SocketAddr = SocketAddr::from(([10, 0, 0, 5], 5353));
+    let device_id = Uuid::new_v4();
+    let recorder = Arc::new(RecordingRoutingProfile::default());
+    let recorder_dyn: Arc<dyn wardnetd_services::RoutingProfileService> = recorder.clone();
+
+    handle_recursor_outcome(
+        Some(Ok(answer)),
+        &resolver,
+        &socket,
+        &config,
+        &cache,
+        None,
+        foo_com_request(),
+        0xCAFE,
+        src,
+        QueryAttribution {
+            device_id: Some(device_id),
+            protocol: TransportProtocol::Udp,
+        },
+        "foo.com",
+        RecordType::A,
+        std::time::Instant::now(),
+        "forwarded",
+        UpstreamId::Default,
+        Some(&recorder_dyn),
+    )
+    .await
+    .expect("handle_recursor_outcome");
+
+    // The post-resolution hook queued this device's resolved A record for
+    // routing-profile enforcement.
+    let calls = recorder.calls.lock().unwrap().clone();
+    assert_eq!(calls, vec![(device_id, "foo.com".to_owned(), 1, 300)]);
 }

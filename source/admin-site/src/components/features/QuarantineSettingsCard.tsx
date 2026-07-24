@@ -76,7 +76,11 @@ export function QuarantineSettingsCard() {
               })
             }
           >
-            <SelectTrigger id="default-for-new" className="w-full sm:w-72">
+            <SelectTrigger
+              id="default-for-new"
+              data-testid="quarantine-default-for-new"
+              className="w-full sm:w-72"
+            >
               <SelectValue placeholder="Select a zone" />
             </SelectTrigger>
             <SelectContent>
@@ -133,9 +137,12 @@ function PendingDeviceRow({
   );
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 py-3">
+    <div
+      className="flex flex-wrap items-center justify-between gap-3 py-3"
+      data-testid="quarantine-pending-row"
+    >
       <div className="flex flex-col">
-        <Text size="sm" className="font-medium">
+        <Text size="sm" weight="medium">
           {deviceDisplayName(device)}
         </Text>
         <Text size="xs" className="text-ink-3">

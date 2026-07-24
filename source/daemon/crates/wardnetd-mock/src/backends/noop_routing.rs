@@ -16,6 +16,11 @@ impl FirewallManager for NoopFirewallManager {
         Ok(())
     }
 
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
+        tracing::debug!("mock firewall ensure_isolation_jumps");
+        Ok(())
+    }
+
     async fn flush_wardnet_table(&self) -> anyhow::Result<()> {
         tracing::debug!("mock firewall flush_wardnet_table");
         Ok(())
@@ -166,6 +171,81 @@ impl PolicyRouter for NoopPolicyRouter {
     }
 
     async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
+        Ok(Vec::new())
+    }
+
+    async fn add_switchback_rule(
+        &self,
+        src_ip: &str,
+        dst_cidr: &str,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            src_ip,
+            dst_cidr,
+            priority,
+            "mock policy add_switchback_rule: src_ip={src_ip}, dst_cidr={dst_cidr}, priority={priority}",
+        );
+        Ok(())
+    }
+
+    async fn remove_switchback_rule(
+        &self,
+        src_ip: &str,
+        dst_cidr: &str,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            src_ip,
+            dst_cidr,
+            priority,
+            "mock policy remove_switchback_rule: src_ip={src_ip}, dst_cidr={dst_cidr}, priority={priority}",
+        );
+        Ok(())
+    }
+
+    async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>> {
+        Ok(Vec::new())
+    }
+
+    async fn add_domain_route_rule(
+        &self,
+        src_ip: &str,
+        dst_ip: &str,
+        table: u32,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            src_ip,
+            dst_ip,
+            table,
+            priority,
+            "mock policy add_domain_route_rule: src_ip={src_ip}, dst_ip={dst_ip}, table={table}, priority={priority}",
+        );
+        Ok(())
+    }
+
+    async fn remove_domain_route_rule(
+        &self,
+        src_ip: &str,
+        dst_ip: &str,
+        table: u32,
+        priority: u32,
+    ) -> anyhow::Result<()> {
+        tracing::debug!(
+            src_ip,
+            dst_ip,
+            table,
+            priority,
+            "mock policy remove_domain_route_rule: src_ip={src_ip}, dst_ip={dst_ip}, table={table}, priority={priority}",
+        );
+        Ok(())
+    }
+
+    async fn list_domain_route_rules(
+        &self,
+        _priority: u32,
+    ) -> anyhow::Result<Vec<(String, String, u32)>> {
         Ok(Vec::new())
     }
 

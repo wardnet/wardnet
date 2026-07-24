@@ -19,12 +19,12 @@ use wardnet_common::tunnel::Tunnel;
 use wardnetd_services::auth::service::{LoginResult, WizardState};
 use wardnetd_services::device::ObservationResult;
 use wardnetd_services::dhcp::server::DhcpServer;
+use wardnetd_services::diagnostics::Diagnostic;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::jobs::{BoxedJobTask, JobService};
 use wardnetd_services::logging::component::BoxedLayer;
-use wardnetd_services::logging::error_notifier::ErrorEntry;
 use wardnetd_services::logging::service::{LogFileInfo, LogService};
 use wardnetd_services::logging::stream::LogEntry;
 use wardnetd_services::{
@@ -162,6 +162,12 @@ impl DeviceService for StubDeviceService {
     ) -> Result<std::collections::HashMap<Uuid, RoutingTarget>, AppError> {
         unimplemented!()
     }
+    async fn get_rule_for_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<RoutingTarget>, AppError> {
+        unimplemented!()
+    }
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
         unimplemented!()
     }
@@ -194,13 +200,6 @@ impl DeviceService for StubDeviceService {
         _limit: i64,
     ) -> Result<Vec<wardnet_common::api::DnsEventItem>, AppError> {
         Ok(vec![])
-    }
-    async fn mark_dns_events_synced(
-        &self,
-        _device_id: &str,
-        _up_to_id: i64,
-    ) -> Result<(), AppError> {
-        Ok(())
     }
     async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
         Ok(())
@@ -679,6 +678,27 @@ impl VpnProviderService for StubProviderService {
 pub struct StubRoutingService;
 #[async_trait]
 impl RoutingService for StubRoutingService {
+    async fn set_switchback_targets(
+        &self,
+        _device_id: Uuid,
+        _device_ip: String,
+        _target_cidrs: Vec<String>,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn route_resolved_domain(
+        &self,
+        _device_ip: &str,
+        _resolved_ips: &[std::net::IpAddr],
+        _target: &wardnet_common::routing_profile::DomainRoutingTarget,
+        _ttl_secs: u32,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn gc_domain_routes(&self) -> Result<(), AppError> {
+        Ok(())
+    }
     async fn apply_rule(
         &self,
         _device_id: Uuid,
@@ -1029,7 +1049,7 @@ impl LogService for StubLogService {
         drop(tx);
         Ok(rx)
     }
-    fn get_recent_errors(&self) -> Result<Vec<ErrorEntry>, AppError> {
+    fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
         Ok(Vec::new())
     }
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {

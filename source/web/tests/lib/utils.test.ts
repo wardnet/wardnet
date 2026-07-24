@@ -111,6 +111,25 @@ describe("formatBytes", () => {
     expect(formatBytes(1024 * 1024)).toBe("1.0 MB");
     expect(formatBytes(1.5 * 1024 * 1024 * 1024)).toBe("1.5 GB");
   });
+  // Math.log is -Infinity / NaN for these; without a guard they produced
+  // "NaN undefined" and an out-of-range unit index.
+  it("returns 0 B for non-positive input", () => {
+    expect(formatBytes(-1)).toBe("0 B");
+    expect(formatBytes(-1024)).toBe("0 B");
+  });
+  // Past the last known unit, clamp to TB instead of indexing off the array
+  // and printing "undefined".
+  it("clamps values beyond the largest unit to TB", () => {
+    expect(formatBytes(1024 ** 4)).toBe("1.0 TB");
+    expect(formatBytes(1024 ** 5)).toBe("1024.0 TB");
+    expect(formatBytes(5 * 1024 ** 5)).toBe("5120.0 TB");
+  });
+  // A positive value below 1 byte gives a negative magnitude; without the
+  // lower clamp the index went to -1 and printed "undefined".
+  it("clamps positive sub-byte input to the B unit", () => {
+    expect(formatBytes(0.5)).toBe("1 B");
+    expect(formatBytes(0.001)).toBe("0 B");
+  });
 });
 
 describe("formatMbps / formatMs", () => {

@@ -1,7 +1,16 @@
 import { useEffect, useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useQuery,
+  useQueries,
+  useMutation,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { toast } from "@wardnet/ui";
-import type { CreateTunnelRequest, Job } from "@wardnet/js";
+import type {
+  CreateTunnelRequest,
+  Job,
+  TunnelSpeedTestResult,
+} from "@wardnet/js";
 import { isJobTerminal } from "@wardnet/js";
 import { jobsService, tunnelService } from "../lib/sdk";
 
@@ -103,13 +112,45 @@ export function useSetTunnelDnsOverride() {
   });
 }
 
-/** Recent speed test results for a tunnel (newest first). */
-export function useSpeedTestResults(id: string, enabled = true) {
-  return useQuery({
+/** Shared query config for one tunnel's speed-test history, so the single
+ *  (`useSpeedTestResults`) and list (`useSpeedTestResultsList`) hooks read the
+ *  same cache entry and can't drift on key or fetch shape. */
+function speedTestResultsQuery(id: string) {
+  return {
     queryKey: ["tunnels", id, "speed-test"],
     queryFn: () => tunnelService.getSpeedTestResults(id),
-    enabled: !!id && enabled,
+  };
+}
+
+/** Recent speed test results for a tunnel (newest first). */
+export function useSpeedTestResults(id: string, enabled = true) {
+  return useQuery({ ...speedTestResultsQuery(id), enabled: !!id && enabled });
+}
+
+/**
+ * Latest speed-test result for each tunnel in `ids`, keyed by tunnel id.
+ *
+ * The tunnels grid shows an inline speed-test comparison on every card the user
+ * has run a test on, so the owning page needs the newest result for a set of
+ * tunnels whose size changes as more cards are tested — a fixed number of
+ * `useSpeedTestResults` calls can't cover that. `useQueries` fans the same
+ * per-tunnel query out across `ids`; each entry maps to `results[0]` (or `null`
+ * before any result lands), mirroring how `useSpeedTestResults` is read. Pass
+ * only ids that still exist so a removed tunnel's query drops out instead of
+ * refetching against a deleted tunnel.
+ */
+export function useSpeedTestResultsList(
+  ids: string[],
+): Record<string, TunnelSpeedTestResult | null> {
+  const results = useQueries({
+    queries: ids.map((id) => ({ ...speedTestResultsQuery(id), enabled: !!id })),
   });
+  const latest: Record<string, TunnelSpeedTestResult | null> = {};
+  ids.forEach((id, i) => {
+    // eslint-disable-next-line security/detect-object-injection -- i is the map index into useQueries' output (ids order); id is the tunnel key being written
+    latest[id] = results[i].data?.results[0] ?? null;
+  });
+  return latest;
 }
 
 /**
@@ -118,8 +159,10 @@ export function useSpeedTestResults(id: string, enabled = true) {
  * The server dispatches a job and returns immediately with its id; this hook
  * polls the job (exposing `percentage` for an inline progress bar) and, on
  * success, invalidates the tunnel's speed-test history so the new result
- * renders. Each card uses its own instance, so one in-flight run is tracked
- * per card. A 409 (run already in progress) surfaces as a dedicated toast.
+ * renders. The owning page holds a single instance and passes `start` plus
+ * `activeTunnelId`/`percentage` down to the cards, so one in-flight run is
+ * tracked across the whole list. A 409 (run already in progress) surfaces as a
+ * dedicated toast.
  *
  * Mirrors the job-polling shape of `useRefreshBlocklist`; kept inline rather
  * than extracting a shared poller so the existing blocklist hook is untouched.

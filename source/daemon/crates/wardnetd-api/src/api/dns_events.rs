@@ -68,59 +68,90 @@ pub async fn stream_dns_events(
 
     let (tx, rx) = mpsc::channel::<Result<Event, Infallible>>(64);
 
-    // Clone state + ids for the spawned task.
-    let state_clone = state.clone();
+    // The spawned task runs detached, so it does not inherit this request's
+    // task-local `AuthContext`. Capture it here and re-establish it around the
+    // task so the self-service guard on `fetch_pending_dns_events` sees the same
+    // device/admin identity the request authenticated as.
+    let auth_ctx = wardnetd_services::auth_context::try_current()
+        .unwrap_or(wardnet_common::auth::AuthContext::Anonymous);
 
-    tokio::spawn(async move {
-        // Subscribe to the event bus BEFORE the flush phase so that any
-        // DnsEventInserted emitted while we are paging through pending rows
-        // is buffered in the broadcast receiver rather than lost.
-        let mut event_rx = state_clone.event_publisher().subscribe();
+    tokio::spawn(wardnetd_services::auth_context::with_context(
+        auth_ctx,
+        pump_dns_events(state.clone(), device_uuid, device_id, cursor, tx),
+    ));
 
-        // --- Flush phase: replay all pending rows not yet acked ----
-        let mut last_flushed_id = cursor;
-        loop {
-            let batch = match state_clone
-                .device_service()
-                .fetch_pending_dns_events(&device_id, last_flushed_id, 200)
-                .await
-            {
-                Ok(b) => b,
+    Ok(Sse::new(ReceiverStream::new(rx))
+        .keep_alive(KeepAlive::default())
+        .into_response())
+}
+
+/// Drive one DNS-events SSE connection: replay pending rows (flush phase), then
+/// forward live `DnsEventInserted` events until the client disconnects or the
+/// bus closes. Runs detached under the caller's `AuthContext`, re-established by
+/// [`stream_dns_events`] so the self-service guard on `fetch_pending_dns_events`
+/// sees the request's identity.
+pub(crate) async fn pump_dns_events(
+    state: AppState,
+    device_uuid: Uuid,
+    device_id: String,
+    cursor: i64,
+    tx: mpsc::Sender<Result<Event, Infallible>>,
+) {
+    // Subscribe to the event bus BEFORE the flush phase so that any
+    // DnsEventInserted emitted while we are paging through pending rows is
+    // buffered in the broadcast receiver rather than lost.
+    let mut event_rx = state.event_publisher().subscribe();
+
+    // --- Flush phase: replay all pending rows not yet acked ----
+    let mut last_flushed_id = cursor;
+    loop {
+        let batch = match state
+            .device_service()
+            .fetch_pending_dns_events(&device_id, last_flushed_id, 200)
+            .await
+        {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to fetch pending DNS events; closing stream");
+                return;
+            }
+        };
+
+        if batch.is_empty() {
+            break;
+        }
+
+        let max_id = batch.last().expect("non-empty batch has last element").id;
+        for item in &batch {
+            let data = match serde_json::to_string(item) {
+                Ok(s) => s,
                 Err(e) => {
-                    tracing::warn!(error = %e, "failed to fetch pending DNS events; closing stream");
-                    return;
+                    tracing::warn!(error = %e, "failed to serialize DNS event item");
+                    continue;
                 }
             };
-
-            if batch.is_empty() {
-                break;
-            }
-
-            let max_id = batch.last().expect("non-empty batch has last element").id;
-            for item in &batch {
-                let data = match serde_json::to_string(item) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::warn!(error = %e, "failed to serialize DNS event item");
-                        continue;
-                    }
-                };
-                let event = Event::default().id(item.id.to_string()).data(data);
-                if tx.send(Ok(event)).await.is_err() {
-                    return; // Client disconnected.
-                }
-            }
-
-            last_flushed_id = max_id;
-
-            if batch.len() < 200 {
-                break; // Reached the end of pending rows.
+            let event = Event::default().id(item.id.to_string()).data(data);
+            if tx.send(Ok(event)).await.is_err() {
+                return; // Client disconnected.
             }
         }
 
-        // --- Live phase: forward events from the broadcast bus ----
-        loop {
-            match event_rx.recv().await {
+        last_flushed_id = max_id;
+
+        if batch.len() < 200 {
+            break; // Reached the end of pending rows.
+        }
+    }
+
+    // --- Live phase: forward events from the broadcast bus ----
+    loop {
+        tokio::select! {
+            // Detect client disconnect independently of event traffic. `closed()`
+            // resolves once the `ReceiverStream` behind the SSE response body is
+            // dropped, so an idle device whose bus never carries a matching event
+            // still tears down promptly instead of parking on `recv()` forever.
+            () = tx.closed() => break,
+            recv = event_rx.recv() => match recv {
                 Ok(WardnetEvent::DnsEventInserted {
                     device_id: ev_id,
                     row_id,
@@ -150,8 +181,8 @@ pub async fn stream_dns_events(
                 }
                 Ok(_) => {} // Event not for this device or already seen.
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                    // Broadcast buffer overflowed. Close stream; client
-                    // reconnects and the flush phase re-delivers missing rows.
+                    // Broadcast buffer overflowed. Close stream; client reconnects
+                    // and the flush phase re-delivers missing rows.
                     tracing::debug!(
                         device_id = %device_uuid,
                         "DNS events broadcast lagged; closing stream to trigger client reconnect"
@@ -161,11 +192,7 @@ pub async fn stream_dns_events(
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             }
         }
-    });
-
-    Ok(Sse::new(ReceiverStream::new(rx))
-        .keep_alive(KeepAlive::default())
-        .into_response())
+    }
 }
 
 #[utoipa::path(

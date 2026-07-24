@@ -143,6 +143,7 @@ impl DeviceService for MockDeviceService {
             admin_locked: false,
             available_tunnels: vec![],
             zone: None,
+            routing_profiles: vec![],
         })
     }
     async fn set_rule_for_ip(
@@ -156,6 +157,12 @@ impl DeviceService for MockDeviceService {
         unimplemented!()
     }
     async fn current_rules(&self) -> Result<HashMap<Uuid, RoutingTarget>, AppError> {
+        unimplemented!()
+    }
+    async fn get_rule_for_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<RoutingTarget>, AppError> {
         unimplemented!()
     }
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
@@ -189,13 +196,6 @@ impl DeviceService for MockDeviceService {
         _after_id: i64,
         _limit: i64,
     ) -> Result<Vec<wardnet_common::api::DnsEventItem>, AppError> {
-        unimplemented!()
-    }
-    async fn mark_dns_events_synced(
-        &self,
-        _device_id: &str,
-        _up_to_id: i64,
-    ) -> Result<(), AppError> {
         unimplemented!()
     }
     async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {

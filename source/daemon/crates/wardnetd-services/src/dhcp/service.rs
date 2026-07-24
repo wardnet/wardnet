@@ -103,6 +103,25 @@ pub trait DhcpService: Send + Sync {
     /// Requires admin auth context.
     async fn release_lease(&self, mac: &str) -> Result<(), AppError>;
 
+    /// Look up the active lease currently recorded for a MAC, if any.
+    ///
+    /// Used by the DHCP server runtime to authorize a DHCPRELEASE: because the
+    /// wire `chaddr` is attacker-controllable it is never treated as proof of
+    /// ownership (CWE-639). Per RFC 2131 a legitimate release is unicast from
+    /// the client's own leased address, so the runtime releases only when the
+    /// packet's UDP source address matches the IP recorded here. Requires admin
+    /// auth context.
+    ///
+    /// Defaults to `Ok(None)` so stubs/mocks need not implement it; the real
+    /// [`DhcpServiceImpl`] overrides it with the authenticated repository
+    /// lookup. The default is fail-secure: a runtime backed by a
+    /// non-overriding impl simply never authorises a release. Any real override
+    /// MUST still open with `auth_context::require_admin()?`, like every other
+    /// method on this trait — the fail-secure default is not licence to skip it.
+    async fn active_lease(&self, _mac: &str) -> Result<Option<DhcpLease>, AppError> {
+        Ok(None)
+    }
+
     /// Expire all stale leases whose `lease_end` is in the past.
     ///
     /// Called periodically by the DHCP runner. Returns the number of expired leases.
@@ -1277,6 +1296,15 @@ impl DhcpService for DhcpServiceImpl {
         }
 
         Ok(())
+    }
+
+    async fn active_lease(&self, mac: &str) -> Result<Option<DhcpLease>, AppError> {
+        auth_context::require_admin()?;
+        // Casing is canonicalised at the repository boundary (issue #312).
+        self.dhcp
+            .find_active_lease_by_mac(mac)
+            .await
+            .map_err(AppError::Internal)
     }
 
     async fn cleanup_expired(&self) -> Result<u64, AppError> {

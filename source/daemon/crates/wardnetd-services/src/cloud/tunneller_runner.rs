@@ -6,20 +6,30 @@
 //! component (`ddns::runner`, `tls::runner`, …) is a fixed-interval poll loop with
 //! no long-lived socket. Here the runner:
 //!
-//! 1. **Gates** on `inbound_wg_enabled()` — it never dials while the inbound
-//!    `WireGuard` server is off, and tears the connection (and every local relay
-//!    socket) down promptly if the server is disabled mid-session.
+//! 1. **Gates** on `inbound_wg_enabled() || private_dns_enabled()` — the tunnel
+//!    carries two independent features (inbound `WireGuard`, issue #809, and
+//!    Private DNS's `:853` `DoT` reachability, issue #913), so it dials while
+//!    *either* is on and tears everything down only once *both* are off. Each
+//!    inbound flow is additionally gated per-frame on the feature it belongs to,
+//!    so turning one feature off rejects its flows without disturbing the other's.
 //! 2. **Dials** via [`TunnelerClient`], reusing the same enrollment identity + region
 //!    the DDNS client uses (seed + `ddns_region` slug the wizard persisted).
-//! 3. **Relays** each `conn_id`: on `FRAME_CONNECT` it opens a loopback UDP socket
-//!    to the daemon's *own* `inbound_wg_listen_port` (deliberately **ignoring** the
-//!    frame's `dest_port`, which the cloud currently hard-codes to a placeholder —
-//!    see its `TODO(wardnet#809)`; trusting a port the daemon didn't configure would
-//!    be a local-relay-target-confusion risk), spawns a reader task for the return
-//!    path, and forwards `FRAME_DATA` both ways until `FRAME_CLOSE` or the NAT-style
-//!    idle timeout.
+//! 3. **Relays** each `conn_id`, choosing the path by the `FRAME_CONNECT`
+//!    `dest_port`:
+//!    * `853` (Private DNS): TCP-connect the daemon's own loopback `DoT` listener
+//!      (`127.0.0.1:853`, 5s timeout), emit `FRAME_READY` once connected, then
+//!      relay bytes both ways until `FRAME_CLOSE`, local EOF, or the idle timeout.
+//!    * `443` (HTTPS SNI passthrough): reserved for the reverse web proxy —
+//!      deferred to #816, closed immediately for now.
+//!    * anything else (inbound `WireGuard`): open a loopback UDP socket to the
+//!      daemon's *own* `inbound_wg_listen_port`, deliberately **ignoring** the
+//!      frame's advisory `dest_port` (trusting a port the daemon didn't configure
+//!      would be a local-relay-target-confusion risk), and forward datagrams.
 //! 4. **Reconnects** with exponential backoff (1s → ×2 → 60s cap), reset after a
 //!    connection stays up past [`STABLE_CONNECTION`].
+//!
+//! The relay-socket count is capped per transport ([`MAX_UDP_CONNS`] /
+//! [`MAX_TCP_CONNS`]) so churn on one feature cannot starve the other of slots.
 //!
 //! WS keepalive: the cloud node pings every 30s and closes after 90s idle. The read
 //! loop stays hot (so the transport's auto-pong fires) and additionally answers a
@@ -33,7 +43,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use futures::{SinkExt as _, StreamExt as _};
-use tokio::net::UdpSocket;
+use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+use tokio::net::{TcpStream, UdpSocket};
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
@@ -67,19 +78,39 @@ const GATE_POLL_INTERVAL: Duration = Duration::from_secs(5);
 const DISABLE_CHECK_INTERVAL: Duration = Duration::from_secs(5);
 /// How often the loop sweeps idle `conn_id`s.
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(5);
-/// Idle window after which a relayed `conn_id` is torn down and `FRAME_CLOSE` sent
-/// proactively. Mirrors `wardnet-cloud`'s `UDP_IDLE_TIMEOUT`: UDP/`WireGuard` has no
-/// explicit teardown, so this NAT-style timeout (2 min) comfortably outlasts several
-/// missed keepalives (default 25s) before reclaiming a live-but-quiet peer.
+/// Idle window after which a relayed UDP `conn_id` is torn down and `FRAME_CLOSE`
+/// sent proactively. Mirrors `wardnet-cloud`'s `UDP_IDLE_TIMEOUT`: UDP/`WireGuard`
+/// has no explicit teardown, so this NAT-style timeout (2 min) comfortably outlasts
+/// several missed keepalives (default 25s) before reclaiming a live-but-quiet peer.
 const UDP_IDLE_TIMEOUT: Duration = Duration::from_mins(2);
 
-/// Upper bound on concurrently relayed `conn_id`s over one WS connection. Mirrors
-/// `wardnet-cloud`'s own `UDP_MAX_CONNS = 8`
-/// (`source/crates/tunneller/src/tunnel/udp_relay.rs`) as **defense-in-depth**: the
+/// Idle window for a relayed TCP (`DoT`) `conn_id`. TCP tears down explicitly on
+/// EOF/`FRAME_CLOSE`, so this is only a backstop against a half-open connection that
+/// stops moving bytes without ever closing; a `DoT` query/response is short-lived,
+/// so 2 min is generous headroom.
+const TCP_IDLE_TIMEOUT: Duration = Duration::from_mins(2);
+
+/// The daemon's own loopback `DoT` listener port. A Private-DNS `FRAME_CONNECT`
+/// (`dest_port == 853`) is relayed here — never to a port the frame carries.
+const DOT_PORT: u16 = 853;
+/// HTTPS SNI-passthrough port. The cloud edge can emit this once the reverse web
+/// proxy exists; until #816 the daemon has no local `:443` target and closes it.
+const HTTPS_PORT: u16 = 443;
+/// How long to wait for the loopback `DoT` connect before giving up and closing the
+/// flow, so a stuck local listener can't wedge a `conn_id`.
+const TCP_CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Upper bound on concurrently relayed **UDP** `conn_id`s over one WS connection.
+/// Mirrors `wardnet-cloud`'s own `UDP_MAX_CONNS = 8` as **defense-in-depth**: the
 /// cloud already caps its side, and the daemon independently caps its own so a
 /// misbehaving or compromised node cannot make it open an unbounded number of local
-/// relay sockets before the 2-minute idle sweep reclaims them.
-const MAX_CONNS: usize = 8;
+/// relay sockets before the idle sweep reclaims them.
+const MAX_UDP_CONNS: usize = 8;
+/// Upper bound on concurrently relayed **TCP** (`DoT`) `conn_id`s. Kept separate
+/// from [`MAX_UDP_CONNS`] so a burst of Private-DNS connections cannot exhaust the
+/// slots inbound `WireGuard` needs (and vice versa) — each transport gets its own
+/// independent budget.
+const MAX_TCP_CONNS: usize = 16;
 
 /// Exponential backoff schedule: hands out `initial`, then doubles each call up to
 /// `max`; [`reset`](Self::reset) returns to `initial`. Pure and deterministic so the
@@ -148,12 +179,32 @@ impl TunnelerConnector {
         }
     }
 
-    /// Whether the inbound `WireGuard` server is enabled — the runner's gate.
+    /// The runner's outer gate: the tunnel is wanted while *either* feature it
+    /// carries is enabled. A read error on one flag is treated as that feature
+    /// being off (already logged by the per-feature reader).
     async fn enabled(&self) -> bool {
+        self.wg_enabled().await || self.private_dns_enabled().await
+    }
+
+    /// Whether the inbound `WireGuard` server (issue #809) is enabled — the gate
+    /// for the UDP relay path.
+    async fn wg_enabled(&self) -> bool {
         match self.system_config.inbound_wg_enabled().await {
             Ok(enabled) => enabled,
             Err(error) => {
                 tracing::warn!(%error, "reverse tunnel: failed to read inbound-wg enabled flag");
+                false
+            }
+        }
+    }
+
+    /// Whether Private DNS (issue #913) is enabled — the gate for the `:853` TCP
+    /// relay path.
+    async fn private_dns_enabled(&self) -> bool {
+        match self.system_config.private_dns_enabled().await {
+            Ok(enabled) => enabled,
+            Err(error) => {
+                tracing::warn!(%error, "reverse tunnel: failed to read private-dns enabled flag");
                 false
             }
         }
@@ -334,7 +385,16 @@ async fn run_connection(
                 };
                 match message {
                     Message::Binary(data) => {
-                        handle_frame(&data, connector, port, &out_tx, &mut conns, &open_relay).await;
+                        handle_frame(
+                            &data,
+                            connector,
+                            port,
+                            &out_tx,
+                            &mut conns,
+                            &open_relay,
+                            &open_tcp_relay,
+                        )
+                        .await;
                     }
                     // Answer the WS-level ping explicitly so keepalive never stalls
                     // behind the transport's poll-driven auto-pong.
@@ -388,44 +448,96 @@ async fn run_connection(
     }
 }
 
-/// One active relayed flow: the loopback socket connected to the daemon's inbound
-/// `WireGuard` port, its NAT-style idle deadline, and the cancel handle stopping its
-/// return-path reader task.
+/// The local end of a relayed flow — the transport-specific handle the inbound
+/// `FRAME_DATA` path writes to.
+pub(crate) enum ConnKind {
+    /// Inbound `WireGuard`: a loopback UDP socket connected to the daemon's own
+    /// inbound-WG port; datagrams are written straight to it.
+    Udp(Arc<UdpSocket>),
+    /// Private DNS: the write side of the loopback `DoT` TCP connection, reached
+    /// through the relay task's channel (the task owns the split stream).
+    Tcp(mpsc::Sender<Vec<u8>>),
+}
+
+impl ConnKind {
+    /// The idle window for this transport, used to (re)arm a flow's deadline.
+    fn idle_timeout(&self) -> Duration {
+        match self {
+            ConnKind::Udp(_) => UDP_IDLE_TIMEOUT,
+            ConnKind::Tcp(_) => TCP_IDLE_TIMEOUT,
+        }
+    }
+}
+
+/// One active relayed flow: the local-end handle, its idle deadline, and the cancel
+/// handle stopping its return-path task.
 pub(crate) struct Conn {
-    socket: Arc<UdpSocket>,
+    kind: ConnKind,
     deadline: Instant,
     cancel: CancellationToken,
 }
 
 #[cfg(test)]
 impl Conn {
-    /// Build a `Conn` around an already-bound socket for unit tests, with no
+    /// Build a UDP `Conn` around an already-bound socket for unit tests, with no
     /// return-path reader spawned and a fresh cancel token.
     pub(crate) fn new_for_test(socket: Arc<UdpSocket>) -> Self {
         Self {
-            socket,
+            kind: ConnKind::Udp(socket),
             deadline: Instant::now() + UDP_IDLE_TIMEOUT,
+            cancel: CancellationToken::new(),
+        }
+    }
+
+    /// Build a TCP `Conn` around a write-channel sender for unit tests.
+    pub(crate) fn new_tcp_for_test(tx: mpsc::Sender<Vec<u8>>) -> Self {
+        Self {
+            kind: ConnKind::Tcp(tx),
+            deadline: Instant::now() + TCP_IDLE_TIMEOUT,
             cancel: CancellationToken::new(),
         }
     }
 }
 
+/// Send a `FRAME_CLOSE` for `conn_id` on the outbound funnel — the reject/teardown
+/// signal shared by the cap, gate, open-failure, and data-failure paths so a node
+/// never hangs waiting on a relay that will not (or no longer) exist.
+async fn send_close(out_tx: &mpsc::Sender<Message>, conn_id: u32) {
+    let _ = out_tx
+        .send(Message::Binary(tunneller::encode_close(conn_id).into()))
+        .await;
+}
+
+/// Count the live flows of a given transport, so each cap is enforced against its
+/// own kind rather than the combined total.
+fn count_kind(conns: &HashMap<u32, Conn>, tcp: bool) -> usize {
+    conns
+        .values()
+        .filter(|conn| matches!(conn.kind, ConnKind::Tcp(_)) == tcp)
+        .count()
+}
+
 /// Dispatch one inbound binary frame.
 ///
-/// `open` is the relay-socket opener — production passes [`open_relay`]; tests inject
-/// a fake to force failures or record the resolved port without touching the network.
-/// `fallback_port` is the port captured at connection start, used only when the live
+/// `open_udp` / `open_tcp` are the relay openers — production passes [`open_relay`]
+/// and [`open_tcp_relay`]; tests inject fakes to force failures, record the resolved
+/// port, or stand in for a real socket without touching the network. `fallback_port`
+/// is the inbound-WG port captured at connection start, used only when the live
 /// re-read of `inbound_wg_listen_port` fails.
-pub(crate) async fn handle_frame<F, Fut>(
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn handle_frame<F, Fut, G, Gut>(
     data: &[u8],
     connector: &TunnelerConnector,
     fallback_port: u16,
     out_tx: &mpsc::Sender<Message>,
     conns: &mut HashMap<u32, Conn>,
-    open: &F,
+    open_udp: &F,
+    open_tcp: &G,
 ) where
     F: Fn(u32, u16, mpsc::Sender<Message>) -> Fut,
     Fut: Future<Output = std::io::Result<Conn>>,
+    G: Fn(u32, mpsc::Sender<Message>) -> Gut,
+    Gut: Future<Output = std::io::Result<Conn>>,
 {
     let Some(frame) = tunneller::decode(data) else {
         return;
@@ -436,75 +548,134 @@ pub(crate) async fn handle_frame<F, Fut>(
                 .send(Message::Binary(tunneller::encode_pong().into()))
                 .await;
         }
-        // `dest_port` is intentionally ignored — always relay to the daemon's own
-        // configured inbound-WG port (see module docs).
-        Frame::Connect {
-            conn_id,
-            dest_port: _,
-        } => {
+        Frame::Connect { conn_id, dest_port } => {
             if conns.contains_key(&conn_id) {
                 // Duplicate CONNECT for a live conn_id — keep the existing relay.
                 return;
             }
-            // Defense-in-depth: cap the number of live flows independently of the
-            // cloud's own `UDP_MAX_CONNS`. Reject a new conn_id at the ceiling and
-            // tell the node with a FRAME_CLOSE (as the idle sweep + data-failure
-            // paths do) so it doesn't silently hang waiting for a relay that will
-            // never open.
-            if conns.len() >= MAX_CONNS {
-                tracing::warn!(
-                    conn_id,
-                    max = MAX_CONNS,
-                    "reverse tunnel: at MAX_CONNS cap, rejecting new conn_id"
-                );
-                let _ = out_tx
-                    .send(Message::Binary(tunneller::encode_close(conn_id).into()))
-                    .await;
-                return;
-            }
-            // Re-read the configured inbound-WG port so a live port change takes
-            // effect for every NEW flow. Already-open relay sockets keep their
-            // original target until they close or idle out (documented limitation).
-            let port = connector.listen_port().await.unwrap_or(fallback_port);
-            match open(conn_id, port, out_tx.clone()).await {
-                Ok(conn) => {
-                    conns.insert(conn_id, conn);
+            // The path is selected by `dest_port`: Private DNS terminates the
+            // cloud's `:853` SNI passthrough here, HTTPS is reserved for #816, and
+            // everything else is the inbound-WireGuard UDP relay (whose `dest_port`
+            // stays advisory — see module docs).
+            match dest_port {
+                DOT_PORT => {
+                    connect_tcp(conn_id, connector, out_tx, conns, open_tcp).await;
                 }
-                Err(error) => {
-                    tracing::warn!(conn_id, %error, "reverse tunnel: failed to open local relay socket");
-                    // Tell the node the flow was rejected instead of leaving it to
-                    // hang (matching the cap + data-failure FRAME_CLOSE paths).
-                    let _ = out_tx
-                        .send(Message::Binary(tunneller::encode_close(conn_id).into()))
-                        .await;
+                // deferred to #816: no local `:443` target exists yet, so close it.
+                HTTPS_PORT => send_close(out_tx, conn_id).await,
+                _ => {
+                    connect_udp(conn_id, connector, fallback_port, out_tx, conns, open_udp).await;
                 }
             }
         }
         Frame::Data { conn_id, payload } => {
-            let failed = if let Some(conn) = conns.get_mut(&conn_id) {
-                if conn.socket.send(&payload).await.is_ok() {
-                    conn.deadline = Instant::now() + UDP_IDLE_TIMEOUT;
-                    false
-                } else {
-                    true
+            let failed = match conns.get_mut(&conn_id) {
+                Some(conn) => {
+                    let sent = match &conn.kind {
+                        ConnKind::Udp(socket) => socket.send(&payload).await.is_ok(),
+                        ConnKind::Tcp(tx) => tx.send(payload).await.is_ok(),
+                    };
+                    if sent {
+                        conn.deadline = Instant::now() + conn.kind.idle_timeout();
+                        false
+                    } else {
+                        true
+                    }
                 }
-            } else {
                 // No CONNECT seen for this conn_id — tolerate and ignore.
-                false
+                None => false,
             };
             if failed {
                 if let Some(conn) = conns.remove(&conn_id) {
                     conn.cancel.cancel();
                 }
-                let _ = out_tx
-                    .send(Message::Binary(tunneller::encode_close(conn_id).into()))
-                    .await;
+                send_close(out_tx, conn_id).await;
             }
         }
         Frame::Close { conn_id } => {
             if let Some(conn) = conns.remove(&conn_id) {
                 conn.cancel.cancel();
             }
+        }
+    }
+}
+
+/// Open the inbound-`WireGuard` UDP relay for a new `conn_id`, gated on the WG
+/// feature and its own [`MAX_UDP_CONNS`] cap.
+async fn connect_udp<F, Fut>(
+    conn_id: u32,
+    connector: &TunnelerConnector,
+    fallback_port: u16,
+    out_tx: &mpsc::Sender<Message>,
+    conns: &mut HashMap<u32, Conn>,
+    open_udp: &F,
+) where
+    F: Fn(u32, u16, mpsc::Sender<Message>) -> Fut,
+    Fut: Future<Output = std::io::Result<Conn>>,
+{
+    // Per-frame gate: reject WG flows while the feature is off, even if the tunnel
+    // is up only for Private DNS.
+    if !connector.wg_enabled().await {
+        send_close(out_tx, conn_id).await;
+        return;
+    }
+    if count_kind(conns, false) >= MAX_UDP_CONNS {
+        tracing::warn!(
+            conn_id,
+            max = MAX_UDP_CONNS,
+            "reverse tunnel: at MAX_UDP_CONNS cap, rejecting new UDP conn_id"
+        );
+        send_close(out_tx, conn_id).await;
+        return;
+    }
+    // Re-read the configured inbound-WG port so a live port change takes effect for
+    // every NEW flow. Already-open relay sockets keep their original target until
+    // they close or idle out (documented limitation).
+    let port = connector.listen_port().await.unwrap_or(fallback_port);
+    match open_udp(conn_id, port, out_tx.clone()).await {
+        Ok(conn) => {
+            conns.insert(conn_id, conn);
+        }
+        Err(error) => {
+            tracing::warn!(conn_id, %error, "reverse tunnel: failed to open local UDP relay socket");
+            send_close(out_tx, conn_id).await;
+        }
+    }
+}
+
+/// Open the Private-DNS TCP relay for a new `conn_id`, gated on the Private-DNS
+/// feature and its own [`MAX_TCP_CONNS`] cap. The opener emits `FRAME_READY` on a
+/// successful connect (before any data), so nothing extra is sent here.
+async fn connect_tcp<G, Gut>(
+    conn_id: u32,
+    connector: &TunnelerConnector,
+    out_tx: &mpsc::Sender<Message>,
+    conns: &mut HashMap<u32, Conn>,
+    open_tcp: &G,
+) where
+    G: Fn(u32, mpsc::Sender<Message>) -> Gut,
+    Gut: Future<Output = std::io::Result<Conn>>,
+{
+    if !connector.private_dns_enabled().await {
+        send_close(out_tx, conn_id).await;
+        return;
+    }
+    if count_kind(conns, true) >= MAX_TCP_CONNS {
+        tracing::warn!(
+            conn_id,
+            max = MAX_TCP_CONNS,
+            "reverse tunnel: at MAX_TCP_CONNS cap, rejecting new DoT conn_id"
+        );
+        send_close(out_tx, conn_id).await;
+        return;
+    }
+    match open_tcp(conn_id, out_tx.clone()).await {
+        Ok(conn) => {
+            conns.insert(conn_id, conn);
+        }
+        Err(error) => {
+            tracing::warn!(conn_id, %error, "reverse tunnel: failed to open local DoT relay");
+            send_close(out_tx, conn_id).await;
         }
     }
 }
@@ -525,10 +696,107 @@ async fn open_relay(
     let span = tracing::Span::current();
     tokio::spawn(udp_reader(conn_id, reader_socket, out_tx, reader_cancel).instrument(span));
     Ok(Conn {
-        socket,
+        kind: ConnKind::Udp(socket),
         deadline: Instant::now() + UDP_IDLE_TIMEOUT,
         cancel,
     })
+}
+
+/// Open the loopback `DoT` TCP relay for `conn_id`, targeting the daemon's own
+/// `:853` listener. Thin wrapper over [`connect_dot_relay`] pinning [`DOT_PORT`] so
+/// no frame-carried port can redirect the relay.
+async fn open_tcp_relay(conn_id: u32, out_tx: mpsc::Sender<Message>) -> std::io::Result<Conn> {
+    connect_dot_relay(conn_id, DOT_PORT, out_tx).await
+}
+
+/// Connect `127.0.0.1:<port>` (bounded by [`TCP_CONNECT_TIMEOUT`]), emit
+/// `FRAME_READY` the instant the connect lands, and spawn the bidirectional relay
+/// task. A connect error/timeout returns `Err`, which the caller turns into a
+/// `FRAME_CLOSE`. Parameterised on `port` so tests can drive it against a loopback
+/// echo; production always calls it through [`open_tcp_relay`] at [`DOT_PORT`].
+pub(crate) async fn connect_dot_relay(
+    conn_id: u32,
+    port: u16,
+    out_tx: mpsc::Sender<Message>,
+) -> std::io::Result<Conn> {
+    let stream = tokio::time::timeout(
+        TCP_CONNECT_TIMEOUT,
+        TcpStream::connect((Ipv4Addr::LOCALHOST, port)),
+    )
+    .await
+    .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "DoT connect timed out"))??;
+
+    // FRAME_READY must precede any relayed byte: queue it on the ordered funnel
+    // *before* the relay task can push a FRAME_DATA, so the node sees "local end up"
+    // first exactly as the cloud protocol requires.
+    let _ = out_tx
+        .send(Message::Binary(tunneller::encode_ready(conn_id).into()))
+        .await;
+
+    // The relay task owns the split stream; inbound FRAME_DATA reaches its write half
+    // through this channel.
+    let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>(256);
+    let cancel = CancellationToken::new();
+    let reader_cancel = cancel.clone();
+    let span = tracing::Span::current();
+    tokio::spawn(tcp_relay(conn_id, stream, write_rx, out_tx, reader_cancel).instrument(span));
+    Ok(Conn {
+        kind: ConnKind::Tcp(write_tx),
+        deadline: Instant::now() + TCP_IDLE_TIMEOUT,
+        cancel,
+    })
+}
+
+/// Bidirectional relay for one `DoT` `conn_id`: local socket → `FRAME_DATA` → node,
+/// and node payloads (arriving on `write_rx`) → local socket, until cancelled, either
+/// side EOFs/errors, or the funnel closes. On local EOF it sends a `FRAME_CLOSE` so
+/// the node tears its half down.
+async fn tcp_relay(
+    conn_id: u32,
+    stream: TcpStream,
+    mut write_rx: mpsc::Receiver<Vec<u8>>,
+    out_tx: mpsc::Sender<Message>,
+    cancel: CancellationToken,
+) {
+    let (mut read_half, mut write_half) = stream.into_split();
+    // DoT frames are small (a length-prefixed DNS message), but 16 KiB keeps large
+    // TCP segments in one read without over-allocating per connection.
+    let mut buf = vec![0u8; 16 * 1024];
+    loop {
+        tokio::select! {
+            () = cancel.cancelled() => break,
+
+            // node → local: write each relayed payload to the DoT listener.
+            payload = write_rx.recv() => {
+                // `None` means the Conn (and its write_tx) was dropped — teardown.
+                let Some(payload) = payload else { break };
+                if write_half.write_all(&payload).await.is_err() {
+                    break;
+                }
+            }
+
+            // local → node: forward each segment the DoT listener sends back.
+            result = read_half.read(&mut buf) => match result {
+                Ok(0) => {
+                    // Local EOF: tell the node the flow is done, then stop.
+                    let _ = out_tx
+                        .send(Message::Binary(tunneller::encode_close(conn_id).into()))
+                        .await;
+                    break;
+                }
+                Ok(n) => {
+                    let frame = tunneller::encode_data(conn_id, &buf[..n]);
+                    if out_tx.send(Message::Binary(frame.into())).await.is_err() {
+                        break;
+                    }
+                }
+                Err(error) => {
+                    tracing::debug!(conn_id, %error, "reverse tunnel local DoT socket read error");
+                    break;
+                }
+            },
+        }
+    }
 }
 
 /// Return-path reader for one `conn_id`: forwards each datagram the local inbound-WG

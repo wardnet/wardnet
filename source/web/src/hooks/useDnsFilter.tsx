@@ -438,6 +438,26 @@ export function useUpdateDnsFilterConfig(options?: { silent?: boolean }) {
   return useMutation({
     mutationFn: (body: UpdateDnsFilterConfigRequest) =>
       dnsFilterService.updateConfig(body),
+    // Merge each partial update into the cached config before the request
+    // resolves. The read-modify-write callers (the per-row "Default" toggles
+    // recompute `default_profile_ids` from this cache) would otherwise read a
+    // copy that lags a still-settling mutation, so toggling two profiles in
+    // quick succession dropped the first. Reflecting the pending change
+    // immediately lets successive toggles compose.
+    onMutate: async (body) => {
+      await qc.cancelQueries({ queryKey: ["dns-filter", "config"] });
+      const previous = qc.getQueryData<DnsFilterConfigResponse>([
+        "dns-filter",
+        "config",
+      ]);
+      if (previous) {
+        qc.setQueryData<DnsFilterConfigResponse>(["dns-filter", "config"], {
+          ...previous,
+          config: { ...previous.config, ...body },
+        });
+      }
+      return { previous };
+    },
     onSuccess: () => {
       // Stable `id` collapses rapid successive calls (e.g. clicking
       // a default-profile toggle on and off quickly) into a single
@@ -450,14 +470,21 @@ export function useUpdateDnsFilterConfig(options?: { silent?: boolean }) {
           id: "dns-filter-config-update",
         });
       }
-      qc.invalidateQueries({ queryKey: ["dns-filter", "config"] });
     },
-    onError: () => {
+    onError: (_err, _body, context) => {
+      // Roll the optimistic merge back so a failed write doesn't leave the
+      // UI asserting a state the daemon never accepted.
+      if (context?.previous) {
+        qc.setQueryData(["dns-filter", "config"], context.previous);
+      }
       if (!silent) {
         toast.error("Failed to update DNS filter configuration", {
           id: "dns-filter-config-update",
         });
       }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["dns-filter", "config"] });
     },
   });
 }

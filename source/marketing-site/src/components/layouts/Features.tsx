@@ -3,10 +3,12 @@ import {
   Shield,
   ShieldCheck,
   Ban,
+  BarChart3,
   Layers,
   Server,
   Network,
   Globe,
+  Split,
   Save,
   Radio,
   Smartphone,
@@ -31,6 +33,13 @@ const FEATURES: Feature[] = [
     href: "/docs/device-routing",
   },
   {
+    icon: <Split size={28} />,
+    title: "Domain-based routing",
+    description:
+      "Send traffic to a domain, like netflix.com, through a chosen tunnel and exit country, on every device.",
+    href: "/docs/domain-routing",
+  },
+  {
     icon: <Shield size={28} />,
     title: "WireGuard tunnels",
     description: "Lazy on-demand tunnels that start when needed and tear down after idle timeout.",
@@ -40,6 +49,13 @@ const FEATURES: Feature[] = [
     icon: <Ban size={28} />,
     title: "DNS ad blocking",
     description: "Block ads and trackers at the DNS level for every managed device on your LAN.",
+    href: "/docs/dns-ad-blocking",
+  },
+  {
+    icon: <BarChart3 size={28} />,
+    title: "DNS analytics",
+    description:
+      "Top trackers by company, week-over-week trends, and per-device query charts, at a glance.",
     href: "/docs/dns-ad-blocking",
   },
   {

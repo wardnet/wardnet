@@ -21,8 +21,8 @@ use std::net::{IpAddr, Ipv4Addr};
 use async_trait::async_trait;
 use ipnetwork::IpNetwork;
 use rustables::expr::{
-    Bitwise, Cmp, CmpOp, Immediate, Meta, MetaType, Payload, Register, Reject, RejectType,
-    VerdictKind,
+    Bitwise, Cmp, CmpOp, ConnTrackState, Conntrack, ConntrackKey, Immediate, Meta, MetaType,
+    Payload, Register, Reject, RejectType, VerdictKind,
 };
 use rustables::{
     Batch, Chain, ChainPolicy, ChainType, Hook, HookClass, MsgType, Protocol, ProtocolFamily, Rule,
@@ -72,10 +72,38 @@ const INBOUND_WG_LISTEN_COMMENT: &str = "wardnet:inbound-wg:listen";
 /// isolation rules (issue #737): cross-subnet allows/denies + member isolation.
 /// The base `forward` chain jumps to it. The enforcer owns the whole chain and
 /// rebuilds it atomically (flush + re-add) on every relevant change.
-const ZONE_ISOLATION: &str = "zone_isolation";
+pub(crate) const ZONE_ISOLATION: &str = "zone_isolation";
+
+/// Regular (hookless) postrouting sub-chain holding the per-exception-pair NAT
+/// exemptions. The base `postrouting` chain jumps to it BEFORE any masquerade
+/// rule; an `accept` here is terminal for the postrouting hook, so exempted
+/// cross-zone exception traffic skips masquerade and reaches the far endpoint
+/// with the sender's real source IP.
+pub(crate) const ZONE_NATEXEMPT: &str = "zone_natexempt";
 
 /// Comment on the base-forward jump into the `zone_isolation` chain.
-const ZONE_ISOJUMP_COMMENT: &str = "wardnet:zone:isojump";
+pub(crate) const ZONE_ISOJUMP_COMMENT: &str = "wardnet:zone:isojump";
+
+/// Comment on the base-postrouting jump into the `zone_natexempt` chain.
+pub(crate) const ZONE_NATEXEMPT_JUMP_COMMENT: &str = "wardnet:zone:natexemptjump";
+
+/// Comment on a `zone_natexempt` per-pair ACCEPT (NAT-exemption) rule.
+pub(crate) const ZONE_NATEXEMPT_COMMENT: &str = "wardnet:zone:natexempt";
+
+/// Comment on the stateful cross-zone return-accept rule that sits at the TOP of
+/// the `zone_isolation` chain. Cross-zone reply streams (e.g. a Chromecast
+/// `sport=8009` return) are `ct state established,related` and would otherwise
+/// match no stateless dport allow and be dropped by the cross-subnet deny.
+pub(crate) const ZONE_ESTABLISHED_COMMENT: &str = "wardnet:zone:established";
+
+/// Comment on an `wardnet:zone:allow` cross-subnet service ACCEPT rule.
+const ZONE_ALLOW_COMMENT: &str = "wardnet:zone:allow";
+
+/// Comment on a `wardnet:zone:xdeny` cross-subnet DROP rule.
+const ZONE_XDENY_COMMENT: &str = "wardnet:zone:xdeny";
+
+/// Comment on a `wardnet:zone:memberiso` intra-subnet peer DROP rule.
+const ZONE_MEMBERISO_COMMENT: &str = "wardnet:zone:memberiso";
 
 /// Destination-port field offset within the transport header (both TCP and UDP
 /// carry `dport` at bytes 2..4), for rendering a port *range* match that the
@@ -110,7 +138,7 @@ impl NetlinkFirewallManager {
 
 /// Build the `inet wardnet` table descriptor (sets family + name; carried into
 /// every chain/rule so they address the right object).
-fn wardnet_table() -> Table {
+pub(crate) fn wardnet_table() -> Table {
     Table::new(ProtocolFamily::Inet).with_name(TABLE_NAME)
 }
 
@@ -125,7 +153,7 @@ fn base_chain(table: &Table, name: &str, hook: HookClass, priority: i32, ty: Cha
 
 /// A lightweight chain descriptor used to address an existing chain when
 /// adding or listing rules (name + family only; no hook needed).
-fn chain_ref(table: &Table, name: &str) -> Chain {
+pub(crate) fn chain_ref(table: &Table, name: &str) -> Chain {
     Chain::new(table).with_name(name)
 }
 
@@ -178,7 +206,7 @@ pub fn parse_comment_udata(data: &[u8]) -> Option<String> {
 }
 
 /// Comment of a listed rule, if it carries one.
-fn rule_comment(rule: &Rule) -> Option<String> {
+pub(crate) fn rule_comment(rule: &Rule) -> Option<String> {
     rule.get_userdata().and_then(|u| parse_comment_udata(u))
 }
 
@@ -321,9 +349,214 @@ fn add_allow_rule(chain: &Chain, allow: &ExceptionAllow, batch: &mut Batch) -> a
     }
 
     rule.accept()
-        .with_userdata(comment_udata("wardnet:zone:allow"))
+        .with_userdata(comment_udata(ZONE_ALLOW_COMMENT))
         .add_to_batch(batch);
     Ok(())
+}
+
+/// Append the stateful cross-zone return-accept rule to `batch`. Renders as
+/// `ct state established,related accept`:
+///
+/// ```text
+/// [ ct load state => reg 1 ]
+/// [ bitwise reg 1 = ( reg 1 & 0x00000006 ) ^ 0x00000000 ]
+/// [ cmp neq reg 1 0x00000000 ]
+/// ```
+///
+/// It MUST be added first (top of the `zone_isolation` chain) so a cross-zone
+/// reply stream is accepted before the stateless dport allows and the
+/// cross-subnet deny below it. The mask `0x06` is `ESTABLISHED | RELATED`; the
+/// register holds the ct state in native (little-endian) byte order, matching
+/// the daemon's x86/ARM targets.
+fn add_established_rule(chain: &Chain, batch: &mut Batch) -> anyhow::Result<()> {
+    let mask = (ConnTrackState::ESTABLISHED | ConnTrackState::RELATED).bits();
+    Rule::new(chain)?
+        .with_expr(Conntrack::new(ConntrackKey::State))
+        .with_expr(Bitwise::new(mask.to_le_bytes(), 0u32.to_le_bytes())?)
+        .with_expr(Cmp::new(CmpOp::Neq, 0u32.to_le_bytes()))
+        .accept()
+        .with_userdata(comment_udata(ZONE_ESTABLISHED_COMMENT))
+        .add_to_batch(batch);
+    Ok(())
+}
+
+/// Populate `batch` with the full desired `zone_isolation` chain in order and
+/// return the ordered comment tags of the rules added. The order is:
+///
+/// 1. the stateful return-accept (`wardnet:zone:established`) — first;
+/// 2. the cross-subnet service allows (`wardnet:zone:allow`);
+/// 3. the cross-subnet denies (`wardnet:zone:xdeny`);
+/// 4. the member-isolation intra-subnet peer denies (`wardnet:zone:memberiso`).
+///
+/// Pure aside from `batch` mutation (no socket I/O until [`Batch::send`]), so it
+/// is unit-testable for both content and ordering.
+pub(crate) fn build_zone_isolation_batch(
+    iso: &Chain,
+    rules: &ZoneIsolationRules,
+    batch: &mut Batch,
+) -> anyhow::Result<Vec<&'static str>> {
+    let mut order: Vec<&'static str> = Vec::new();
+
+    // 1. Stateful return-accept first: cross-zone reply streams
+    //    (established,related) bypass the stateless dport allows and the
+    //    cross-subnet deny below.
+    add_established_rule(iso, batch)?;
+    order.push(ZONE_ESTABLISHED_COMMENT);
+
+    // 2. Allows (ACCEPT) so a curated cross-subnet service beats the
+    //    cross-subnet deny that follows.
+    for allow in &rules.allows {
+        add_allow_rule(iso, allow, batch)?;
+        order.push(ZONE_ALLOW_COMMENT);
+        if allow.bidirectional {
+            // The swapped direction on the same ports carries the
+            // return/handshake traffic.
+            let reverse = ExceptionAllow {
+                from_cidr: allow.to_cidr.clone(),
+                to_cidr: allow.from_cidr.clone(),
+                ..allow.clone()
+            };
+            add_allow_rule(iso, &reverse, batch)?;
+            order.push(ZONE_ALLOW_COMMENT);
+        }
+    }
+
+    // 3. Cross-subnet denies (DROP).
+    for (src, dst) in &rules.deny_pairs {
+        let src_net = parse_cidr(src)?;
+        let dst_net = parse_cidr(dst)?;
+        Rule::new(iso)?
+            .snetwork(src_net)?
+            .dnetwork(dst_net)?
+            .drop()
+            .with_userdata(comment_udata(ZONE_XDENY_COMMENT))
+            .add_to_batch(batch);
+        order.push(ZONE_XDENY_COMMENT);
+    }
+
+    // 4. Member-isolation intra-subnet peer denies (DROP). Peer↔peer only:
+    //    device→gateway is INPUT, not forward, so the gateway stays reachable.
+    for net in &rules.member_isolation_subnets {
+        let n = parse_cidr(net)?;
+        Rule::new(iso)?
+            .snetwork(n)?
+            .dnetwork(n)?
+            .drop()
+            .with_userdata(comment_udata(ZONE_MEMBERISO_COMMENT))
+            .add_to_batch(batch);
+        order.push(ZONE_MEMBERISO_COMMENT);
+    }
+
+    Ok(order)
+}
+
+/// Establish (idempotently) the two base-chain jumps into the owned sub-chains:
+/// FORWARD→`zone_isolation` and POSTROUTING→`zone_natexempt`. Each is guarded by
+/// its comment so a re-run is a no-op — unlike chains, a duplicate rule would
+/// stack.
+///
+/// Called both at init AND (crucially) by
+/// [`FirewallManager::ensure_isolation_jumps`] which `RoutingService::reconcile`
+/// invokes AFTER `flush_wardnet_table` and BEFORE `add_masquerade`. That makes
+/// the natexempt jump independent of whether the flush removed it: it is
+/// re-added to the (post-flush, empty) postrouting chain as rule #0, so the
+/// subsequent masquerade appends after it — the ordering the un-NAT relies on.
+fn ensure_isolation_jumps_blocking(table: &Table) -> anyhow::Result<()> {
+    // FORWARD → zone_isolation. Guard on the comment (a duplicate rule stacks).
+    let forward = chain_ref(table, FORWARD);
+    let forward_rules =
+        list_rules_for_chain(&forward).map_err(|e| anyhow::anyhow!("list forward chain: {e}"))?;
+    if !chain_has_comment(&forward_rules, ZONE_ISOJUMP_COMMENT) {
+        let mut jump_batch = Batch::new();
+        Rule::new(&forward)?
+            .with_expr(Immediate::new_verdict(VerdictKind::Jump {
+                chain: ZONE_ISOLATION.to_owned(),
+            }))
+            .with_userdata(comment_udata(ZONE_ISOJUMP_COMMENT))
+            .add_to_batch(&mut jump_batch);
+        jump_batch
+            .send()
+            .map_err(|e| anyhow::anyhow!("add zone_isolation jump: {e}"))?;
+    }
+
+    // POSTROUTING → zone_natexempt.
+    let postrouting = chain_ref(table, POSTROUTING);
+    let postrouting_rules = list_rules_for_chain(&postrouting)
+        .map_err(|e| anyhow::anyhow!("list postrouting chain: {e}"))?;
+    if !chain_has_comment(&postrouting_rules, ZONE_NATEXEMPT_JUMP_COMMENT) {
+        let mut jump_batch = Batch::new();
+        natexempt_jump_rule(&postrouting)?.add_to_batch(&mut jump_batch);
+        jump_batch
+            .send()
+            .map_err(|e| anyhow::anyhow!("add zone_natexempt jump: {e}"))?;
+    }
+    Ok(())
+}
+
+/// True if any rule in `rules` carries the given wardnet comment. This is the
+/// idempotence guard for the base-chain jumps: present ⇒ skip the add (a
+/// duplicate rule would stack); absent ⇒ add it. Pure, so unit-testable.
+pub(crate) fn chain_has_comment(rules: &[Rule], comment: &str) -> bool {
+    rules
+        .iter()
+        .any(|r| rule_comment(r).as_deref() == Some(comment))
+}
+
+/// The `jump zone_natexempt` rule for the base `postrouting` chain, tagged
+/// `wardnet:zone:natexemptjump`. Added by [`ensure_isolation_jumps_blocking`]
+/// BEFORE any masquerade rule (which [`add_masquerade`] appends later), so an
+/// `accept` inside `zone_natexempt` — terminal for the postrouting hook —
+/// pre-empts the masquerade and leaves the sender's source IP intact.
+pub(crate) fn natexempt_jump_rule(postrouting: &Chain) -> anyhow::Result<Rule> {
+    Ok(Rule::new(postrouting)?
+        .with_expr(Immediate::new_verdict(VerdictKind::Jump {
+            chain: ZONE_NATEXEMPT.to_owned(),
+        }))
+        .with_userdata(comment_udata(ZONE_NATEXEMPT_JUMP_COMMENT)))
+}
+
+/// The `oifname <iface> masquerade` rule for the base `postrouting` chain,
+/// tagged `wardnet:<iface>`. Shared by [`add_masquerade`] and the ordering test.
+pub(crate) fn masquerade_rule(postrouting: &Chain, iface: &str) -> anyhow::Result<Rule> {
+    Ok(Rule::new(postrouting)?
+        .oiface(iface)?
+        .masquerade()
+        .with_userdata(comment_udata(&format!("wardnet:{iface}"))))
+}
+
+/// Populate `batch` with the full desired `zone_natexempt` chain: for each
+/// `(from, to)` pair, `ip saddr <from> ip daddr <to> accept` AND the reverse
+/// `ip saddr <to> ip daddr <from> accept`, both tagged `wardnet:zone:natexempt`.
+/// `accept` is terminal for the postrouting hook, so exempted cross-zone
+/// exception traffic skips masquerade in both directions. Returns the ordered
+/// comment tags (pure aside from `batch` mutation), so it is unit-testable.
+pub(crate) fn build_natexempt_batch(
+    chain: &Chain,
+    pairs: &[(String, String)],
+    batch: &mut Batch,
+) -> anyhow::Result<Vec<&'static str>> {
+    let mut order: Vec<&'static str> = Vec::new();
+    for (from, to) in pairs {
+        let from_net = parse_cidr(from)?;
+        let to_net = parse_cidr(to)?;
+        // Forward direction: from -> to.
+        Rule::new(chain)?
+            .snetwork(from_net)?
+            .dnetwork(to_net)?
+            .accept()
+            .with_userdata(comment_udata(ZONE_NATEXEMPT_COMMENT))
+            .add_to_batch(batch);
+        order.push(ZONE_NATEXEMPT_COMMENT);
+        // Reverse direction: to -> from (the return / receiver-initiated path).
+        Rule::new(chain)?
+            .snetwork(to_net)?
+            .dnetwork(from_net)?
+            .accept()
+            .with_userdata(comment_udata(ZONE_NATEXEMPT_COMMENT))
+            .add_to_batch(batch);
+        order.push(ZONE_NATEXEMPT_COMMENT);
+    }
+    Ok(order)
 }
 
 #[async_trait]
@@ -370,34 +603,32 @@ impl FirewallManager for NetlinkFirewallManager {
             // sub-chain the base forward chain jumps to. `Add` is idempotent, so
             // re-adding the chain is a no-op.
             batch.add(&chain_ref(&table, ZONE_ISOLATION), MsgType::Add);
+            // Per-exception-pair NAT exemption: a regular (hookless) sub-chain the
+            // base postrouting chain jumps to (before masquerade). Idempotent add.
+            batch.add(&chain_ref(&table, ZONE_NATEXEMPT), MsgType::Add);
             batch
                 .send()
                 .map_err(|e| anyhow::anyhow!("init wardnet table: {e}"))?;
 
-            // Add the base-forward jump into `zone_isolation` only if it is not
-            // already present — unlike chains, a duplicate rule would stack, so
-            // guard on the comment (mirrors the other base-rule guards).
-            let forward = chain_ref(&table, FORWARD);
-            let have_jump = list_rules_for_chain(&forward)
-                .map_err(|e| anyhow::anyhow!("list forward chain: {e}"))?
-                .iter()
-                .any(|r| rule_comment(r).as_deref() == Some(ZONE_ISOJUMP_COMMENT));
-            if !have_jump {
-                let mut jump_batch = Batch::new();
-                Rule::new(&forward)?
-                    .with_expr(Immediate::new_verdict(VerdictKind::Jump {
-                        chain: ZONE_ISOLATION.to_owned(),
-                    }))
-                    .with_userdata(comment_udata(ZONE_ISOJUMP_COMMENT))
-                    .add_to_batch(&mut jump_batch);
-                jump_batch
-                    .send()
-                    .map_err(|e| anyhow::anyhow!("add zone_isolation jump: {e}"))?;
-            }
+            // Establish the FORWARD→zone_isolation and POSTROUTING→zone_natexempt
+            // jumps. Shared with `ensure_isolation_jumps` (which `reconcile` calls
+            // after the flush) so the logic lives in one place; the comment guards
+            // make it idempotent.
+            ensure_isolation_jumps_blocking(&table)?;
             Ok(())
         })
         .await?;
         tracing::info!("nftables: wardnet table initialised");
+        Ok(())
+    }
+
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
+        run_blocking(|| {
+            let table = wardnet_table();
+            ensure_isolation_jumps_blocking(&table)
+        })
+        .await?;
+        tracing::debug!("nftables: isolation jumps ensured");
         Ok(())
     }
 
@@ -432,12 +663,11 @@ impl FirewallManager for NetlinkFirewallManager {
             let mut batch = Batch::new();
             // oifname <iface> masquerade comment "wardnet:<iface>"
             // `.oiface()` builds the OifName/Cmp pair and rejects an over-long
-            // interface name (IFNAMSIZ); `.masquerade()` appends the verdict.
-            Rule::new(&chain)?
-                .oiface(&iface)?
-                .masquerade()
-                .with_userdata(comment_udata(&format!("wardnet:{iface}")))
-                .add_to_batch(&mut batch);
+            // interface name (IFNAMSIZ); `.masquerade()` appends the verdict. This
+            // appends after the `zone_natexempt` jump that `init_wardnet_table`
+            // placed at the top of postrouting, so NAT-exempt flows are accepted
+            // before this masquerade can fire.
+            masquerade_rule(&chain, &iface)?.add_to_batch(&mut batch);
             batch
                 .send()
                 .map_err(|e| anyhow::anyhow!("add masquerade {iface}: {e}"))?;
@@ -791,68 +1021,36 @@ impl FirewallManager for NetlinkFirewallManager {
         let allows = rules.allows.len();
         let denies = rules.deny_pairs.len();
         let members = rules.member_isolation_subnets.len();
+        let exempts = rules.nat_exempt_pairs.len();
         run_blocking(move || {
             let table = wardnet_table();
             let iso = chain_ref(&table, ZONE_ISOLATION);
+            let natexempt = chain_ref(&table, ZONE_NATEXEMPT);
             let mut batch = Batch::new();
 
-            // 1. Flush the whole chain: the enforcer owns it and rebuilds the
-            //    full desired state, so drop everything currently in it. A
-            //    handle-less DELRULE addressed to the chain flushes it while
-            //    leaving the chain intact. Flush and re-add ride separate
-            //    batches so an absent/empty chain doesn't abort the rebuild.
-            {
+            // 1. Flush both owned sub-chains: the enforcer owns them and rebuilds
+            //    the full desired state, so drop everything currently in them. A
+            //    handle-less DELRULE addressed to a chain flushes it while
+            //    leaving the chain intact. Each flush rides its own batch so an
+            //    absent/empty chain doesn't abort the rebuild.
+            for chain in [&iso, &natexempt] {
                 let mut flush = Batch::new();
-                flush.add(&Rule::new(&iso)?, MsgType::Del);
+                flush.add(&Rule::new(chain)?, MsgType::Del);
                 if let Err(e) = flush.send() {
-                    tracing::debug!(error = %e, "nftables: flush of zone_isolation skipped: {e}");
+                    tracing::debug!(error = %e, "nftables: flush of owned sub-chain skipped: {e}");
                 }
             }
 
-            // 2. Allows first (ACCEPT) so a curated cross-subnet service beats
-            //    the cross-subnet deny that follows.
-            for allow in &rules.allows {
-                add_allow_rule(&iso, allow, &mut batch)?;
-                if allow.bidirectional {
-                    // The swapped direction on the same ports carries the
-                    // return/handshake traffic.
-                    let reverse = ExceptionAllow {
-                        from_cidr: allow.to_cidr.clone(),
-                        to_cidr: allow.from_cidr.clone(),
-                        ..allow.clone()
-                    };
-                    add_allow_rule(&iso, &reverse, &mut batch)?;
-                }
-            }
+            // 2. Rebuild the zone_isolation chain: stateful return-accept first,
+            //    then allows, cross-subnet denies, and member-isolation denies.
+            build_zone_isolation_batch(&iso, &rules, &mut batch)?;
 
-            // 3. Cross-subnet denies (DROP).
-            for (src, dst) in &rules.deny_pairs {
-                let src_net = parse_cidr(src)?;
-                let dst_net = parse_cidr(dst)?;
-                Rule::new(&iso)?
-                    .snetwork(src_net)?
-                    .dnetwork(dst_net)?
-                    .drop()
-                    .with_userdata(comment_udata("wardnet:zone:xdeny"))
-                    .add_to_batch(&mut batch);
-            }
-
-            // 4. Member-isolation intra-subnet peer denies (DROP). Peer↔peer
-            //    only: device→gateway is INPUT, not forward, so the gateway
-            //    stays reachable.
-            for net in &rules.member_isolation_subnets {
-                let n = parse_cidr(net)?;
-                Rule::new(&iso)?
-                    .snetwork(n)?
-                    .dnetwork(n)?
-                    .drop()
-                    .with_userdata(comment_udata("wardnet:zone:memberiso"))
-                    .add_to_batch(&mut batch);
-            }
+            // 3. Rebuild the zone_natexempt chain: both directions per pair.
+            build_natexempt_batch(&natexempt, &rules.nat_exempt_pairs, &mut batch)?;
 
             batch
                 .send()
-                .map_err(|e| anyhow::anyhow!("rebuild zone_isolation chain: {e}"))?;
+                .map_err(|e| anyhow::anyhow!("rebuild zone sub-chains: {e}"))?;
             Ok(())
         })
         .await?;
@@ -860,7 +1058,8 @@ impl FirewallManager for NetlinkFirewallManager {
             allows,
             denies,
             members,
-            "nftables: rebuilt zone_isolation chain"
+            exempts,
+            "nftables: rebuilt zone_isolation + zone_natexempt chains"
         );
         Ok(())
     }

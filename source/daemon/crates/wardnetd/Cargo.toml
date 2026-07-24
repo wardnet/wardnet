@@ -9,6 +9,18 @@ publish.workspace = true
 [lints]
 workspace = true
 
+[features]
+# Widens the visibility of the DNS query-path construction helpers and the
+# in-process stubs (see `dns::bench_support`) so the criterion harness in
+# `benches/dns_resolution.rs` can stand a `QueryPipeline` up without a real
+# socket, upstream, or database. Adds visibility ONLY — it changes no
+# production code path.
+#
+# NEVER enable this in production builds. It exists solely for benches; the
+# stubs it exposes answer canned data and skip every admin/repository code
+# path. Mirrors the `fuzz-internals` seam in `wardnetd-services`.
+bench-internals = []
+
 [dependencies]
 # Internal
 wardnet-common.workspace = true
@@ -104,6 +116,8 @@ axum-server.workspace = true
 rcgen.workspace = true
 # https://crates.io/crates/rustls — install the aws-lc-rs crypto provider as process default
 rustls.workspace = true
+# https://crates.io/crates/tokio-rustls — TLS acceptor for the DoT :853 listener (issue #912)
+tokio-rustls.workspace = true
 # https://crates.io/crates/libc — WDIOC_* ioctls for the /dev/watchdog backstop (issue #214)
 libc.workspace = true
 # https://crates.io/crates/sd-notify — READY=1 + health-gated WATCHDOG=1 (issue #214)
@@ -114,3 +128,16 @@ sd-notify.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 # https://crates.io/crates/tempfile
 tempfile.workspace = true
+# https://crates.io/crates/criterion — macro-benchmark harness for the DNS
+# resolution pipeline (see benches/); needs the `bench-internals` feature.
+criterion.workspace = true
+
+# End-to-end macro-benchmarks for the DNS resolution pipeline: one line per
+# resolution branch (cache-hit, cache-miss→upstream, filter block/rewrite,
+# authoritative). `harness = false` hands the binary's main() to criterion;
+# output lands in target/criterion/**/estimates.json for the `cubit` tool.
+# Gated on `bench-internals` so a plain `cargo build` never pulls in the seam.
+[[bench]]
+name = "dns_resolution"
+harness = false
+required-features = ["bench-internals"]

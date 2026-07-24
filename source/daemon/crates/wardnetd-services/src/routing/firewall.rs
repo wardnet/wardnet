@@ -66,6 +66,12 @@ pub struct ZoneIsolationRules {
     /// Subnets whose forwarded intra-subnet peer traffic is dropped
     /// (member isolation).
     pub member_isolation_subnets: Vec<String>,
+    /// Deduped `(from_cidr, to_cidr)` CIDR pairs whose cross-zone exception
+    /// traffic must NOT be source-NAT'd, so the far endpoint sees the sender's
+    /// real IP (required for mirroring/local-file casting, harmless for the
+    /// rest). The firewall renders BOTH directions per pair, so each `(from, to)`
+    /// is listed once.
+    pub nat_exempt_pairs: Vec<(String, String)>,
 }
 
 /// Abstraction over firewall operations for Wardnet policy routing.
@@ -78,6 +84,16 @@ pub struct ZoneIsolationRules {
 pub trait FirewallManager: Send + Sync {
     /// Initialize the firewall table and base chains (idempotent).
     async fn init_wardnet_table(&self) -> anyhow::Result<()>;
+
+    /// (Re)establish the base-chain jumps into the owned Network-Zone sub-chains
+    /// — FORWARD→`zone_isolation` and POSTROUTING→`zone_natexempt` — idempotently
+    /// (guarded on their comments).
+    ///
+    /// `RoutingService::reconcile` calls this AFTER `flush_wardnet_table` and
+    /// BEFORE `add_masquerade`, so the postrouting NAT-exemption jump is restored
+    /// as rule #0 of the (post-flush) postrouting chain regardless of whether the
+    /// flush removed it — guaranteeing every masquerade appends after it.
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()>;
 
     /// Flush all Wardnet-managed rules (keeps the table and chains intact).
     async fn flush_wardnet_table(&self) -> anyhow::Result<()>;

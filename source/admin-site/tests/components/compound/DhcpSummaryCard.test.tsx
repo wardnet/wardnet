@@ -44,6 +44,18 @@ describe("DhcpSummaryCard", () => {
     expect(screen.getByText(/0% pool used/)).toBeInTheDocument();
   });
 
+  it("clamps the displayed percentage to 100 when the pool is oversubscribed", () => {
+    // A pool shrunk below its active-lease count must read "100%", matching
+    // the bar's own 100% cap — never ">100%".
+    renderWithProviders(
+      <DhcpSummaryCard
+        status={makeStatus({ pool_total: 100, pool_used: 120 })}
+      />,
+    );
+    expect(screen.getByText(/100% pool used/)).toBeInTheDocument();
+    expect(screen.queryByText(/120% pool used/)).not.toBeInTheDocument();
+  });
+
   it("wraps the tile in a link when `to` is provided", () => {
     renderWithProviders(<DhcpSummaryCard status={makeStatus()} to="/dhcp" />);
     expect(screen.getByRole("link")).toHaveAttribute("href", "/dhcp");

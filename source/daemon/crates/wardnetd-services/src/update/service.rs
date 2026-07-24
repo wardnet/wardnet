@@ -92,6 +92,12 @@ fn applied_announce_window() -> chrono::Duration {
 /// Track the in-flight install so concurrent callers see the same handle.
 #[derive(Default)]
 struct InflightState {
+    /// Set while an `install()` call has claimed the slot but has not yet
+    /// resolved the target release (and therefore has no `handle`). Guards the
+    /// check-then-fetch window: a second caller that arrives before the handle
+    /// exists still observes the claim and backs off instead of staging a
+    /// duplicate install against the same fixed temp path.
+    claiming: bool,
     handle: Option<InstallHandle>,
     phase: InstallPhase,
 }
@@ -501,6 +507,42 @@ impl UpdateServiceImpl {
         }
     }
 
+    /// Resolve the release an `install()` call should stage: pick the channel,
+    /// fetch its latest release, and apply the requested-version and
+    /// "must be newer than current" guards. Split out of `install` so the
+    /// inflight claim can be held across it and released on any failure.
+    async fn resolve_install_target(
+        &self,
+        req: &InstallUpdateRequest,
+    ) -> Result<Release, AppError> {
+        let channel = self.get_channel().await?;
+        let release = self
+            .release_source
+            .latest(channel)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::NotFound("no release available".to_owned()))?;
+
+        if let Some(requested) = req.version.as_deref()
+            && requested != release.version
+        {
+            return Err(AppError::BadRequest(format!(
+                "requested version {requested} not available on channel {} (latest: {})",
+                channel.as_str(),
+                release.version,
+            )));
+        }
+
+        if !is_newer(&release.version, &self.current_version) {
+            return Err(AppError::BadRequest(format!(
+                "refusing to install {}: not newer than current {} (use rollback to downgrade)",
+                release.version, self.current_version,
+            )));
+        }
+
+        Ok(release)
+    }
+
     /// Run the download/verify/stage/swap pipeline. Emits progress events at
     /// each phase transition. On failure, returns the phase where the error
     /// occurred so history rows record a useful `phase` column.
@@ -730,10 +772,9 @@ impl UpdateService for UpdateServiceImpl {
 
         let latest = result.map_err(|e| {
             // Emit the full error text in the tracing *message* (not just a
-            // structured field) so `ErrorNotifierService` captures it in the
-            // `/api/system/errors` feed — otherwise the client only sees an
-            // opaque "internal server error" in the toast and the error
-            // notifier only stores "internal server error" as the message.
+            // structured field) so the underlying failure is legible in the
+            // logs — otherwise the client only sees an opaque "internal server
+            // error" in the toast and the log line carries no detail either.
             tracing::warn!(
                 channel = channel.as_str(),
                 error = %e,
@@ -779,9 +820,16 @@ impl UpdateService for UpdateServiceImpl {
     async fn install(&self, req: InstallUpdateRequest) -> Result<InstallUpdateResponse, AppError> {
         auth_context::require_admin()?;
 
-        // Idempotency: if a matching install is already running, return its handle.
+        // Claim the install slot atomically. The target version — and thus the
+        // `handle` — is only known after the release is resolved below, so the
+        // check-and-claim can't hinge on the handle alone: two callers (the
+        // hourly `UpdateRunner` and an admin `POST /api/update/install`) could
+        // both pass a handle-only check, then both fetch and stage against the
+        // fixed temp path in `write_atomic`, and the loser's rename would fail
+        // and toast a spurious "install failed". Guarding with `claiming` in
+        // the same lock scope closes that window.
         {
-            let inflight = self.inflight.lock().await;
+            let mut inflight = self.inflight.lock().await;
             if let Some(handle) = &inflight.handle {
                 if req
                     .version
@@ -798,32 +846,22 @@ impl UpdateService for UpdateServiceImpl {
                     handle.target_version
                 )));
             }
+            if inflight.claiming {
+                return Err(AppError::Conflict("install already in progress".to_owned()));
+            }
+            inflight.claiming = true;
         }
 
-        let channel = self.get_channel().await?;
-        let release = self
-            .release_source
-            .latest(channel)
-            .await
-            .map_err(AppError::Internal)?
-            .ok_or_else(|| AppError::NotFound("no release available".to_owned()))?;
-
-        if let Some(requested) = req.version.as_deref()
-            && requested != release.version
-        {
-            return Err(AppError::BadRequest(format!(
-                "requested version {requested} not available on channel {} (latest: {})",
-                channel.as_str(),
-                release.version,
-            )));
-        }
-
-        if !is_newer(&release.version, &self.current_version) {
-            return Err(AppError::BadRequest(format!(
-                "refusing to install {}: not newer than current {} (use rollback to downgrade)",
-                release.version, self.current_version,
-            )));
-        }
+        // From here the claim is held; every early return must release it (via
+        // the error arm below or by handing off to the real handle) so a failed
+        // resolution doesn't wedge the slot shut.
+        let release = match self.resolve_install_target(&req).await {
+            Ok(release) => release,
+            Err(err) => {
+                self.inflight.lock().await.claiming = false;
+                return Err(err);
+            }
+        };
 
         let handle = InstallHandle {
             install_id: Uuid::new_v4(),
@@ -832,6 +870,7 @@ impl UpdateService for UpdateServiceImpl {
 
         {
             let mut inflight = self.inflight.lock().await;
+            inflight.claiming = false;
             inflight.handle = Some(handle.clone());
             inflight.phase = InstallPhase::Checking;
         }
@@ -946,7 +985,7 @@ impl UpdateService for UpdateServiceImpl {
         }
         {
             let inflight = self.inflight.lock().await;
-            if inflight.handle.is_some() {
+            if inflight.handle.is_some() || inflight.claiming {
                 return Ok(None);
             }
         }

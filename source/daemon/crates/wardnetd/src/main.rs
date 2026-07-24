@@ -33,6 +33,9 @@ use wardnetd::inbound_wg_interface_wireguard::WireGuardInboundInterface;
 use wardnetd::inbound_wg_peer_monitor::InboundWgPeerMonitor;
 use wardnetd::mdns_advertiser::MdnsAdvertiser;
 use wardnetd::metrics_collector::MetricsCollector;
+use wardnetd::noop_tunnel_backends::{
+    NoopExitProbe, NoopLatencyProber, NoopThroughputTester, NoopTunnelInterface,
+};
 use wardnetd::packet_capture_pnet::PnetCapture;
 use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
 use wardnetd::profiling::ProfilingAgent;
@@ -58,6 +61,8 @@ use wardnetd_services::cloud::TunnelerRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::ddns::runner::DdnsUpdateRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
+use wardnetd_services::diagnostics::DiagnosticStore;
+use wardnetd_services::diagnostics::listener::DiagnosticsListener;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::dhcp_lan_runner::DhcpLanRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
@@ -65,11 +70,11 @@ use wardnetd_services::dns::runner::DnsRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
 use wardnetd_services::dns_filter::runner::DnsFilterRunner;
 use wardnetd_services::health::checks::{
-    DbHealthCheck, DhcpServerHealthCheck, DnsServerHealthCheck, LivenessHealthCheck,
+    DbHealthCheck, DhcpServerHealthCheck, DnsServerHealthCheck, DotServerHealthCheck,
+    LivenessHealthCheck,
 };
-use wardnetd_services::logging::{
-    ErrorNotifierService, LogService, LogServiceImpl, LogStreamService,
-};
+use wardnetd_services::logging::{LogService, LogServiceImpl, LogStreamService};
+use wardnetd_services::private_dns::runner::DotRunner;
 use wardnetd_services::push::listener::PushNotificationListener;
 use wardnetd_services::secret_store::build_secret_store;
 use wardnetd_services::system::WatchdogOps;
@@ -77,6 +82,16 @@ use wardnetd_services::update::{
     EMBEDDED_PUBLIC_KEY, FsBinaryApplier, HttpsManifestSource, Sha256MinisignVerifier, UpdateRunner,
 };
 use wardnetd_services::{Backends, UpdateBackends, auth_context, init_services_with_factory};
+
+/// The four tunnel network backends the `[test]` config seam selects together:
+/// the real `WireGuard` / HTTP / ICMP implementations in production, or
+/// deterministic stubs when `stub_tunnel_backends` is set.
+type TunnelBackends = (
+    Arc<dyn wardnetd_services::tunnel::TunnelInterface>,
+    Arc<dyn wardnetd_services::tunnel::exit_probe::TunnelExitProbe>,
+    Arc<dyn wardnetd_services::tunnel::latency_prober::TunnelLatencyProber>,
+    Arc<dyn wardnetd_services::tunnel::throughput_tester::ThroughputTester>,
+);
 
 /// Wardnet daemon — self-hosted network privacy gateway.
 #[derive(Parser)]
@@ -115,13 +130,13 @@ async fn main() -> anyhow::Result<()> {
         LogStreamService::new(config.logging.broadcast_capacity)
             .with_suppressed_targets(config.logging.ui_suppressed_targets.clone()),
     );
-    let error_notifier = Arc::new(
-        ErrorNotifierService::new(config.logging.max_recent_errors)
-            .with_suppressed_targets(config.logging.ui_suppressed_targets.clone()),
-    );
+    // Recent-diagnostics buffer: the read handle goes to the log service (which
+    // serves `/api/system/errors`); the write handle is given to the
+    // diagnostics listener below, once the event bus exists.
+    let diagnostics = Arc::new(DiagnosticStore::new(config.logging.max_recent_errors));
     let log_service: Arc<dyn LogService> = Arc::new(LogServiceImpl::new(
         log_stream,
-        error_notifier,
+        diagnostics.clone(),
         config.logging.path.clone(),
     ));
 
@@ -142,7 +157,7 @@ async fn main() -> anyhow::Result<()> {
     // propagated across `.await` points in the tokio multi-threaded runtime.
     // The `Full` (console) formatter prints span fields on every line, and the
     // JSON formatter includes them via `with_current_span` / `with_span_list`.
-    let result = run(config, cli.config.clone(), log_service)
+    let result = run(config, cli.config.clone(), log_service, diagnostics)
         .instrument(tracing::info_span!(
             "wardnetd",
             version = env!("WARDNET_VERSION")
@@ -176,6 +191,7 @@ async fn run(
     config: ApplicationConfiguration,
     config_path: PathBuf,
     log_service: Arc<dyn LogService>,
+    diagnostics: Arc<DiagnosticStore>,
 ) -> anyhow::Result<()> {
     let started_at = Instant::now();
 
@@ -338,25 +354,51 @@ async fn run(
     let inbound_wg_interface: Arc<dyn wardnetd_services::InboundWgInterface> =
         Arc::new(WireGuardInboundInterface);
 
+    // Tunnel network backends. In production these are the real WireGuard /
+    // HTTP / ICMP implementations; the `[test]` config seam swaps them for
+    // deterministic stubs so the end-to-end suite can exercise the speed-test
+    // path against a compose stack with no live tunnel or internet egress.
+    let (tunnel_interface, tunnel_exit_probe, tunnel_latency_prober, tunnel_throughput_tester): TunnelBackends =
+        if config.test.stub_tunnel_backends {
+            tracing::warn!(
+                "TEST MODE: [test] stub_tunnel_backends is enabled — tunnel interface, throughput \
+                 tester, latency prober and exit probe are deterministic stubs returning \
+                 fabricated results. This must never be set in production."
+            );
+            (
+                Arc::new(NoopTunnelInterface),
+                Arc::new(NoopExitProbe::new(repo_factory.tunnel())),
+                Arc::new(NoopLatencyProber),
+                Arc::new(NoopThroughputTester),
+            )
+        } else {
+            (
+                Arc::new(WireGuardTunnelInterface),
+                Arc::new(ReqwestTunnelExitProbe::new(
+                    config.tunnel.test_probe_url.clone(),
+                )),
+                Arc::new(SurgePingTunnelLatencyProber::new(
+                    config
+                        .tunnel
+                        .latency_probe_target
+                        .parse()
+                        .expect("tunnel.latency_probe_target must be a valid IP address"),
+                )),
+                Arc::new(HttpThroughputTester::new(
+                    config.tunnel.speed_test_url.clone(),
+                    config.tunnel.speed_test_parallel_streams,
+                    std::time::Duration::from_millis(config.tunnel.speed_test_warmup_ms),
+                    std::time::Duration::from_millis(config.tunnel.speed_test_measure_ms),
+                )),
+            )
+        };
+
     let backends = Backends {
-        tunnel_interface: Arc::new(WireGuardTunnelInterface),
+        tunnel_interface,
         inbound_wg_interface: inbound_wg_interface.clone(),
-        tunnel_exit_probe: Arc::new(ReqwestTunnelExitProbe::new(
-            config.tunnel.test_probe_url.clone(),
-        )),
-        tunnel_latency_prober: Arc::new(SurgePingTunnelLatencyProber::new(
-            config
-                .tunnel
-                .latency_probe_target
-                .parse()
-                .expect("tunnel.latency_probe_target must be a valid IP address"),
-        )),
-        tunnel_throughput_tester: Arc::new(HttpThroughputTester::new(
-            config.tunnel.speed_test_url.clone(),
-            config.tunnel.speed_test_parallel_streams,
-            std::time::Duration::from_millis(config.tunnel.speed_test_warmup_ms),
-            std::time::Duration::from_millis(config.tunnel.speed_test_measure_ms),
-        )),
+        tunnel_exit_probe,
+        tunnel_latency_prober,
+        tunnel_throughput_tester,
         policy_router: Arc::new(
             NetlinkPolicyRouter::new(executor.clone())
                 .expect("failed to initialise netlink policy router"),
@@ -404,15 +446,26 @@ async fn run(
         .restore_tunnels()
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    services
-        .discovery
-        .restore_devices()
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        },
+        services.discovery.restore_devices(),
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Capture the root span so background tasks can create child spans that
     // inherit the `wardnetd{version=...}` context.
     let root_span = tracing::Span::current();
+
+    // Start the diagnostics listener first, before any startup work (the
+    // routing reconcile below, the runners further down) can publish an
+    // error-flavoured event. A broadcast subscriber only sees events sent
+    // after it subscribes, so subscribing here is what keeps early-boot
+    // failures in the recent-errors panel.
+    let diagnostics_listener =
+        DiagnosticsListener::start(&services.event_publisher, diagnostics, &root_span);
 
     // Reconcile routing state with kernel on startup.
     auth_context::with_context(
@@ -447,6 +500,14 @@ async fn run(
     // method exempt from the auth guard, so no auth context is needed.
     if let Err(e) = services.inbound_wg.reconcile().await {
         tracing::warn!(error = %e, "inbound wireguard reconcile failed on startup: {e}");
+    }
+
+    // Reconcile Private DNS (#912): persist a disable if the entitlement lapsed
+    // while the daemon was down, so the DoT runner never stands the listener up
+    // for a lapsed box. Best-effort and auth-exempt, like the inbound-WG
+    // reconcile above.
+    if let Err(e) = services.private_dns.reconcile().await {
+        tracing::warn!(error = %e, "private dns reconcile failed on startup: {e}");
     }
 
     // Seed the convenience `wardnet.lan -> <lan_ip>` system record so LAN clients
@@ -561,6 +622,7 @@ async fn run(
     let entitlement_listener = EntitlementListener::start(
         &services.event_publisher,
         services.inbound_wg.clone(),
+        services.private_dns.clone(),
         &root_span,
     );
     let push_listener = PushNotificationListener::start(
@@ -651,10 +713,11 @@ async fn run(
     // Build and start DNS server, the slim DnsRunner (server lifecycle
     // only), and the new DnsFilterRunner (blocklist cron + filter rebuilds
     // driven by `WardnetEvent::DnsFilterChanged` / `DeviceIpChanged`).
-    let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> = Arc::new(
+    let udp_dns_server = Arc::new(
         wardnetd::dns::server::UdpDnsServer::new(
             wardnet_common::dns::DnsConfig::default(),
             services.dns_filter.clone(),
+            Some(services.routing_profile.clone()),
             services.routing.dns_upstream_snapshot(),
             services.device_ip_snapshot.snapshot(),
             services.tunnel_repo.clone(),
@@ -662,6 +725,10 @@ async fn run(
         )
         .with_log_sink(services.dns_log_sink.clone()),
     );
+    // The DoT `:853` listener (#912) serves through the same resolve core;
+    // the pipeline clone must come after `with_log_sink` (see `pipeline()`).
+    let dns_pipeline = udp_dns_server.pipeline();
+    let dns_server: Arc<dyn wardnetd_services::dns::server::DnsServer> = udp_dns_server;
     let dns_runner = DnsRunner::start(
         services.dns.clone(),
         dns_server.clone(),
@@ -675,6 +742,22 @@ async fn run(
         &root_span,
         Duration::from_mins(1),
     );
+
+    // Drain matched-domain resolutions from the DNS server and install their
+    // per-destination `ip rule`s, plus expire TTL'd leases (issue #241).
+    let domain_route_runner = services
+        .domain_route_rx
+        .lock()
+        .expect("domain_route_rx mutex poisoned")
+        .take()
+        .map(|rx| {
+            wardnetd_services::routing_profile::DomainRouteRunner::start(
+                services.routing_profile.clone(),
+                services.routing.clone(),
+                rx,
+                &root_span,
+            )
+        });
 
     // Auto-register `{hostname}.lan` A records as DHCP leases are assigned
     // or renewed. Goes through the auth-gated local-DNS service so the
@@ -831,10 +914,30 @@ async fn run(
         &root_span,
     );
 
-    // Health monitor (issue #214): register the four startup probes — DB
+    // DoT `:853` listener (#912): serves granted devices' encrypted DNS through
+    // the shared pipeline, deriving its TLS config from the live `:443` cert
+    // (`rustls_config` clone shares the hot-reload cell). The runner starts it
+    // only while Private DNS is enabled and an issued cert is live.
+    let dot_server: Arc<dyn wardnetd_services::private_dns::DotServer> =
+        Arc::new(wardnetd::dns::dot::DotDnsServer::new(
+            dns_pipeline,
+            rustls_config.clone(),
+            serving_control.clone(),
+            services.private_dns.clone(),
+        ));
+    let dot_runner = DotRunner::start(
+        services.private_dns.clone(),
+        services.tls.clone(),
+        dot_server.clone(),
+        services.event_publisher.as_ref(),
+        &root_span,
+    );
+
+    // Health monitor (issue #214): register the startup probes — DB
     // connectivity, liveness (a fresh snapshot containing it proves the
-    // refresh loop schedules), and the two always-on core LAN services (DNS,
-    // DHCP). Refresh once synchronously so the first published snapshot
+    // refresh loop schedules), the two always-on core LAN services (DNS,
+    // DHCP), and the DoT listener (#912, desired-vs-actual like the other
+    // two). Refresh once synchronously so the first published snapshot
     // reflects real checks before READY=1 is sent and the soft watchdog reads
     // it.
     let mut health_monitor = HealthMonitor::new(
@@ -850,6 +953,11 @@ async fn run(
     health_monitor.register(Arc::new(DhcpServerHealthCheck::new(
         services.dhcp.clone(),
         dhcp_server.clone(),
+    )));
+    health_monitor.register(Arc::new(DotServerHealthCheck::new(
+        services.private_dns.clone(),
+        services.tls.clone(),
+        dot_server.clone(),
     )));
     let health_monitor = Arc::new(health_monitor);
     health_monitor.refresh().await;
@@ -918,7 +1026,9 @@ async fn run(
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
+    .with_routing_profile_service(services.routing_profile.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
+    .with_private_dns_service(services.private_dns.clone())
     .with_health_monitor(health_monitor.clone())
     // Inject the live entitlement handle (the same one the DDNS cloud clients
     // flip) so the serving layer can gate the premium app surfaces while
@@ -1085,6 +1195,7 @@ async fn run(
     zone_enforcement_listener.shutdown().await;
     entitlement_listener.shutdown().await;
     push_listener.shutdown().await;
+    diagnostics_listener.shutdown().await;
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;
     monitor.shutdown().await;
@@ -1092,6 +1203,9 @@ async fn run(
     dhcp_runner.shutdown().await;
     dns_runner.shutdown().await;
     dns_filter_runner.shutdown().await;
+    if let Some(runner) = domain_route_runner {
+        runner.shutdown().await;
+    }
     dhcp_lan_runner.shutdown().await;
     session_cleanup_runner.shutdown().await;
     dns_query_log_runner.shutdown().await;
@@ -1102,6 +1216,8 @@ async fn run(
     stats_flush_runner.shutdown().await;
     ddns_update_runner.shutdown().await;
     tunneler_runner.shutdown().await;
+    // The DoT runner stops the :853 listener itself on cancellation.
+    dot_runner.shutdown().await;
     tls_renewal_runner.shutdown().await;
     heartbeat_runner.shutdown().await;
     if let Some(advertiser) = mdns_advertiser {

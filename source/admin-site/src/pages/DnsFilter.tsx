@@ -67,7 +67,7 @@ function ProfileCountBadges({ profileId }: { profileId: string }) {
 export default function DnsFilter() {
   const navigate = useNavigate();
   const { data, isLoading } = useDnsFilterProfiles();
-  const { data: configData } = useDnsFilterConfig();
+  const { data: configData, isLoading: configLoading } = useDnsFilterConfig();
   const updateConfig = useUpdateDnsFilterConfig();
 
   const profiles = data?.profiles ?? [];
@@ -187,7 +187,11 @@ export default function DnsFilter() {
 
       <DnsFilterNotReadyNotice />
 
-      <DnsFilterSettingsCard />
+      <DnsFilterSettingsCard
+        config={configData?.config}
+        isLoading={configLoading || updateConfig.isPending}
+        onToggle={(next) => updateConfig.mutate({ enabled: next })}
+      />
 
       {isLoading && (
         <Card>

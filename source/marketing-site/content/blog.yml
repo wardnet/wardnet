@@ -4,6 +4,14 @@
 # publish a post; the body lives in content/blog/<slug>.md.
 
 posts:
+  - slug: see-what-your-network-blocks
+    title: "Blocking ads is easy. Knowing what you blocked is the fun part."
+    date: "2026-07-20"
+    image: /docs/dns-ad-blocking/dns-stats.png
+    description: >-
+      New DNS analytics in Wardnet: top trackers grouped by company,
+      week-over-week trends, and per-device query charts, the glanceable
+      stats that make running a resolver worth it.
   - slug: why-i-built-wardnet
     title: "My TV can't run a VPN. So I gave it one anyway."
     date: "2026-07-17"

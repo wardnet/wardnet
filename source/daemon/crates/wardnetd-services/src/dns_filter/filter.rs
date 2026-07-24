@@ -9,6 +9,7 @@
 //! runner swaps just that one filter via `ArcSwap`, and every profile holding
 //! an `Arc<ArcSwap<DnsFilter>>` to it transparently sees the new state.
 
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::net::IpAddr;
 
@@ -88,12 +89,12 @@ impl DnsFilter {
         let mut blocked_domains: HashSet<String> = inputs
             .blocked_domains
             .into_iter()
-            .map(|d| normalize(&d))
+            .map(|d| normalize_owned(&d))
             .collect();
         let mut allowed_domains: HashSet<String> = inputs
             .allowlist
             .into_iter()
-            .map(|d| normalize(&d))
+            .map(|d| normalize_owned(&d))
             .collect();
         let mut complex = Vec::new();
 
@@ -259,6 +260,76 @@ fn matches_subdomain(domain: &str, set: &HashSet<String>) -> bool {
     false
 }
 
-pub(crate) fn normalize(s: &str) -> String {
+/// Incrementally assembles the blocked-domain set of a *pure blocklist*
+/// [`DnsFilter`] — one with no allowlist and no custom rules, which is
+/// exactly what a single blocklist compiles to.
+///
+/// The blocklist rebuild path streams its domains straight from the
+/// database (a threat-intel feed is ~2.2M rows). Feeding them through this
+/// builder inserts each one into the final [`HashSet`] and drops it, so the
+/// set is the only large allocation that ever exists — no intermediate
+/// `Vec` doubling peak memory. Normalisation matches [`DnsFilter::build`].
+#[derive(Debug, Default)]
+pub struct BlocklistFilterBuilder {
+    blocked_domains: HashSet<String>,
+}
+
+impl BlocklistFilterBuilder {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Normalise and insert one blocked domain.
+    pub fn insert(&mut self, domain: &str) {
+        self.blocked_domains.insert(normalize_owned(domain));
+    }
+
+    /// Finish, yielding a filter whose only rules are the accumulated
+    /// blocked domains.
+    #[must_use]
+    pub fn finish(self) -> DnsFilter {
+        DnsFilter {
+            blocked_domains: self.blocked_domains,
+            ..DnsFilter::default()
+        }
+    }
+}
+
+/// Canonical form of a domain: lowercase, no trailing dot.
+///
+/// Borrows when the input is already canonical — the common case on the
+/// query hot path, where the pipeline hands down a name it has already
+/// lowercased and dot-trimmed, so a query crossing several filter sources
+/// no longer allocates a fresh copy per source. Only a name that actually
+/// needs case folding pays for an owned `String`.
+///
+/// Callers that must own the result (a map key, a cache key) should use
+/// [`normalize_owned`] instead: `normalize(s).into_owned()` scans to decide
+/// whether it can borrow and *then* copies, two passes over the string, which
+/// is pure overhead when the answer is always "own it".
+pub(crate) fn normalize(s: &str) -> Cow<'_, str> {
+    let trimmed = s.trim_end_matches('.');
+    // Scan once to the first byte that needs folding. None → the input is
+    // already canonical and we hand it back borrowed. Some(i) → copy the
+    // bytes and lowercase only from `i` on; the prefix is already lowercase,
+    // so it needs no second pass. ASCII bytes are always char boundaries,
+    // so `i` is a valid split point.
+    match trimmed.bytes().position(|b| b.is_ascii_uppercase()) {
+        None => Cow::Borrowed(trimmed),
+        Some(i) => {
+            let mut owned = trimmed.to_owned();
+            owned[i..].make_ascii_lowercase();
+            Cow::Owned(owned)
+        }
+    }
+}
+
+/// Owned canonical form, in a single fused allocate-and-lowercase pass. For
+/// callers that always need to own the result — building the filter's domain
+/// sets, the cache's key — where borrowing can't help and the [`normalize`]
+/// Cow's scan-then-copy would only add a redundant pass. Produces the exact
+/// same string as `normalize(s).into_owned()`.
+pub(crate) fn normalize_owned(s: &str) -> String {
     s.trim_end_matches('.').to_ascii_lowercase()
 }

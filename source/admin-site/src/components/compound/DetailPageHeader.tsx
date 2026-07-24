@@ -40,12 +40,19 @@ export function DetailPageHeader({
 }: DetailPageHeaderProps) {
   return (
     <header className="col gap-8 pb-4">
-      <nav aria-label="Breadcrumb" className="row gap-8 text-[13px] text-ink-3">
+      <nav aria-label="Breadcrumb" className="row gap-8 text-ink-3">
         <Link to={parentTo} className="text-ink-3 hover:text-ink">
-          {parentLabel}
+          <Text as="span" size="sm">
+            {parentLabel}
+          </Text>
         </Link>
         <ChevronRight aria-hidden className="size-4 text-ink-4" />
-        <Text as="span" weight="semibold" className="truncate text-ink">
+        <Text
+          as="span"
+          size="sm"
+          weight="semibold"
+          className="truncate text-ink"
+        >
           {itemLabel}
         </Text>
       </nav>

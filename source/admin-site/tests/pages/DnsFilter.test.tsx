@@ -153,6 +153,32 @@ describe("DnsFilter", () => {
     expect(configMutate).toHaveBeenCalledWith({ default_profile_ids: [] });
   });
 
+  it("composes the default set from the current config when toggling a second profile", async () => {
+    // p1 is already default; the payload for toggling p2 on must keep p1 —
+    // it recomputes from the config the (optimistically-updated) cache holds,
+    // not from a copy that drops the earlier still-settling toggle.
+    useDnsFilterConfig.mockReturnValue({
+      data: { config: { default_profile_ids: ["p1"], enabled: true } },
+    });
+    useDnsFilterProfiles.mockReturnValue({
+      data: {
+        profiles: [profile(), profile({ id: "p2", name: "Guests" })],
+      },
+      isLoading: false,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<DnsFilter />);
+
+    await user.click(
+      screen.getByRole("switch", {
+        name: /Use Guests as a default profile/i,
+      }),
+    );
+    expect(configMutate).toHaveBeenCalledWith({
+      default_profile_ids: ["p1", "p2"],
+    });
+  });
+
   it("shows a Builtin pill and omits zero-count badges", () => {
     useBlocklists.mockReturnValue({ data: { blocklists: [] } });
     useAllowlist.mockReturnValue({ data: { entries: [] } });

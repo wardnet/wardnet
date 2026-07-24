@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 import {
   AuthService,
@@ -8,10 +9,13 @@ import {
   InfoService,
   JobsService,
   SetupService,
+  TunnelService,
   WardnetClient,
   isJobTerminal,
   type Device,
   type Job,
+  type Tunnel,
+  type TunnelStatus,
 } from "@wardnet/js";
 
 // Compose service names resolve to the corresponding container's IP on
@@ -24,6 +28,13 @@ export const TEST_DEBIAN_AGENT =
   process.env.WARDNET_TEST_DEBIAN_AGENT ?? "http://test_debian:3001";
 export const TEST_UBUNTU_AGENT =
   process.env.WARDNET_TEST_UBUNTU_AGENT ?? "http://test_ubuntu:3001";
+// The wardnetd container also hosts the test-agent in *server* mode on
+// :3001 (baked in via Dockerfile.test). It exposes kernel state the
+// daemon manipulates — `/ip-rules`, `/nft-rules`, `/link/{iface}` — so
+// specs can assert against the real routing tables. Same URL scheme as
+// the LAN client agents, different (server) route set.
+export const DAEMON_AGENT =
+  process.env.WARDNET_DAEMON_AGENT ?? "http://wardnetd:3001";
 
 // Setup-wizard credentials. Generated per-process so a leaked log line
 // can't be replayed against a real instance. `randomBytes` (vs
@@ -48,6 +59,11 @@ export const MALWARE_PHISHING_PROFILE_ID = "00000000-0000-0000-0000-000000000102
  * to every subsequent request. Node's fetch has no cookie jar, so the
  * session cookie the daemon sets is invisible to follow-up calls;
  * `Authorization: Bearer <token>` is the documented non-browser path.
+ *
+ * The token is attached via the `buildHeaders` seam rather than a
+ * `request` override so it also covers the endpoints that bypass
+ * `request` — `BackupService.export`/`previewImport`, which post raw
+ * octet-stream / multipart bodies through `authorizedFetch`.
  */
 export class AuthedClient extends WardnetClient {
   constructor(
@@ -57,11 +73,11 @@ export class AuthedClient extends WardnetClient {
     super({ baseUrl });
   }
 
-  override async request<T>(path: string, init?: RequestInit): Promise<T> {
-    const headers = new Headers(init?.headers);
-    headers.set("Content-Type", "application/json");
-    headers.set("Authorization", `Bearer ${this.token}`);
-    return super.request<T>(path, { ...init, headers });
+  protected override buildHeaders(init?: RequestInit): Record<string, string> {
+    return {
+      ...super.buildHeaders(init),
+      Authorization: `Bearer ${this.token}`,
+    };
   }
 }
 
@@ -418,6 +434,26 @@ export async function findDeviceByIp(
 }
 
 /**
+ * Like [`findDeviceByIp`] but returns `null` instead of throwing on
+ * timeout, mirroring [`findDeviceByIpRangeOrNull`]. Specs use it to fall
+ * back to `ctx.skip()` when the daemon's packet-capture device discovery
+ * isn't reaching `wardnet_lan` in the test environment — a documented
+ * architectural limitation, not a code defect (see the note above
+ * `findDeviceByIpRangeOrNull`).
+ */
+export async function findDeviceByIpOrNull(
+  client: WardnetClient,
+  ip: string,
+  timeoutMs = 60_000,
+): Promise<Device | null> {
+  try {
+    return await findDeviceByIp(client, ip, timeoutMs);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Idempotent DNS-on switch that tolerates the transient `EADDRINUSE` we
  * see under singleFork when two specs both observe `enabled=false` and
  * race the runner's restart cycle. Retries once on the 500 path then
@@ -559,6 +595,124 @@ export async function findDeviceByIpRange(
   );
 }
 
+/** Envelope returned by the client agent's `POST /proxy`. */
+export interface ProxyDaemonResponse<T = unknown> {
+  /**
+   * The daemon's HTTP status. A 4xx/5xx here (e.g. the 403 an admin-locked
+   * device gets) is still a *successful* proxy call — only a transport
+   * failure surfaces as the agent's own non-2xx (which `agentPost` throws on).
+   */
+  status: number;
+  /** The daemon's response body, parsed as JSON when possible. */
+  body: T;
+}
+
+export interface ProxyDaemonOptions {
+  method?: "GET" | "PUT" | "POST" | "PATCH" | "DELETE";
+  /** Path on the daemon, e.g. `/api/devices/me`. */
+  path: string;
+  /**
+   * Local address to bind the outgoing socket to. The daemon classifies
+   * self-service callers by TCP source IP (no forwarded headers trusted),
+   * so pass the device's DHCP-leased IP to be identified as that device.
+   * A LAN client holds both its docker-IPAM IP and its lease on the same
+   * interface; only the lease is a discovered device.
+   */
+  sourceIp?: string;
+  /** Optional JSON request body. */
+  body?: unknown;
+}
+
+/**
+ * Drive a LAN client agent's `POST /proxy` so wardnetd sees the request
+ * as originating from the client's own LAN address. This is the only way
+ * to exercise the source-IP-classified `/api/devices/me` self-service
+ * flows from the test suite: the runner sits on the management network,
+ * so its own requests carry the wrong source IP.
+ */
+export async function proxyToDaemon<T = unknown>(
+  agent: string,
+  opts: ProxyDaemonOptions,
+): Promise<ProxyDaemonResponse<T>> {
+  return agentPost<ProxyDaemonResponse<T>>(agent, "/proxy", {
+    method: opts.method ?? "GET",
+    path: opts.path,
+    ...(opts.sourceIp !== undefined ? { source_ip: opts.sourceIp } : {}),
+    ...(opts.body !== undefined ? { body: opts.body } : {}),
+  });
+}
+
+/** A single parsed entry from the daemon agent's `GET /ip-rules`. */
+export interface DaemonIpRule {
+  priority: number;
+  from: string;
+  table: string;
+}
+
+export interface DaemonIpRulesResponse {
+  rules: DaemonIpRule[];
+  raw: string;
+}
+
+/**
+ * Read the daemon's live `ip rule` set via the test-agent running in
+ * server mode inside the wardnetd container (`http://wardnetd:3001`, see
+ * `arp-failover.spec.ts`). The per-device routing rules the daemon
+ * installs (`from <ip>/32 lookup <table>`) show up here, so specs can
+ * assert kernel state rather than only observable behaviour.
+ */
+export async function daemonIpRules(
+  daemonAgent: string,
+): Promise<DaemonIpRulesResponse> {
+  return agentGet<DaemonIpRulesResponse>(daemonAgent, "/ip-rules");
+}
+
+/**
+ * True for a Wardnet per-device routing rule: a rule bound to a specific
+ * host source (`from` is an address, not the kernel's catch-all `all`)
+ * pointing at a dedicated tunnel table (the daemon numbers those `>= 100`).
+ * Deliberately IP-agnostic — a client's `last_ip` can be either its DHCP
+ * lease or its docker-IPAM address depending on last-observed traffic, and
+ * the daemon installs the rule for whichever the device currently holds.
+ * `ip rule list` may render the host with or without a `/32` suffix
+ * depending on the iproute2 version, so we match on "not `all`" rather than
+ * a fixed IP shape. The kernel's own rules never match: their source is
+ * `all` and their table is a name (`main`/`local`/`default`), not a number.
+ */
+export function isDeviceTunnelRule(rule: DaemonIpRule): boolean {
+  return rule.from !== "all" && Number(rule.table) >= 100;
+}
+
+/**
+ * Poll [`daemonIpRules`] until a per-device tunnel rule (see
+ * [`isDeviceTunnelRule`]) is present (`want = true`) or gone
+ * (`want = false`), returning the matching rule (or `undefined` when it
+ * should be absent). Throws on timeout. The daemon applies rules
+ * asynchronously off a `RoutingRuleChanged` event, so a mutation is never
+ * visible on the first read. In the daemon e2e stack only one device is
+ * tunnel-routed at a time, so "any device tunnel rule" unambiguously
+ * reflects the device under test.
+ */
+export async function waitForTunnelRule(
+  daemonAgent: string,
+  want: boolean,
+  timeoutMs = 30_000,
+): Promise<DaemonIpRule | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  let last: DaemonIpRule[] = [];
+  while (Date.now() < deadline) {
+    last = (await daemonIpRules(daemonAgent)).rules;
+    const match = last.find(isDeviceTunnelRule);
+    if (want === Boolean(match)) return match;
+    await new Promise((resolve) => setTimeout(resolve, 1_000));
+  }
+  throw new Error(
+    `a per-device tunnel rule was ${want ? "not present" : "still present"} after ${timeoutMs}ms (rules: ${last
+      .map((r) => `${r.from}->${r.table}`)
+      .join(", ")})`,
+  );
+}
+
 /**
  * Poll `JobsService.get` until the job reaches a terminal state, or
  * throw on timeout. Returns the final `Job` so callers can assert on
@@ -582,4 +736,195 @@ export async function waitForJob(
   throw new Error(
     `job ${id} did not reach a terminal state within ${timeoutMs}ms (last status=${last?.status})`,
   );
+}
+
+/**
+ * Read a WireGuard `.conf` fixture from `fixtures/tunnels/` and return it
+ * verbatim for `TunnelService.create` (issue #247). Resolved relative to this
+ * file so it works both on a workstation and in the runner image, which copies
+ * the fixtures alongside `tests/` (see Dockerfile.runner). `readFileSync` is
+ * fine here — specs are short-lived and single-threaded.
+ */
+export function readTunnelConfig(name: string): string {
+  // eslint-disable-next-line security/detect-non-literal-fs-filename -- `name` is a fixed fixture basename the specs pass literally (tunnel-a.conf / tunnel-b.conf), resolved against this file's own URL; no external or user input reaches the path.
+  return readFileSync(
+    new URL(`../fixtures/tunnels/${name}`, import.meta.url),
+    "utf8",
+  );
+}
+
+/**
+ * Pull the `[Peer] PublicKey` out of a WireGuard config string. Specs use this
+ * to assert the daemon dials the expected gateway without embedding the key as
+ * a literal in the test source — which is both duplication and a red flag for
+ * secret scanners. The client configs under `fixtures/tunnels` carry exactly
+ * one `PublicKey` line (the peer's; the interface side is a `PrivateKey`).
+ */
+export function wgPeerPublicKey(config: string): string {
+  const match = /^\s*PublicKey\s*=\s*(\S+)/m.exec(config);
+  if (!match) {
+    throw new Error("no [Peer] PublicKey found in WireGuard config");
+  }
+  return match[1];
+}
+
+/**
+ * One peer entry from the daemon agent's `GET /wg/{interface}`. The agent omits
+ * unset optional fields (serde `skip_serializing_if`) rather than sending
+ * `null`, so they read as `undefined` here.
+ */
+export interface WgPeer {
+  public_key: string;
+  endpoint?: string;
+  allowed_ips: string[];
+  latest_handshake?: string;
+  transfer_rx: number;
+  transfer_tx: number;
+}
+
+/**
+ * Shape of the daemon agent's `GET /wg/{interface}` response. When the kernel
+ * interface is absent, `exists` is false and the optional fields are omitted
+ * (see [`WgPeer`]).
+ */
+export interface WgShowResponse {
+  interface: string;
+  exists: boolean;
+  public_key?: string;
+  listening_port?: number;
+  peers?: WgPeer[];
+}
+
+/**
+ * Poll `probe` every `intervalMs` until `done` holds or `timeoutMs` elapses,
+ * returning the value that satisfied it. On timeout, throws with
+ * `describe(lastValue)` appended. Shared by the wait-for-* helpers so the
+ * deadline / backoff / message shape lives in one place.
+ */
+export async function pollUntil<T>(
+  probe: () => Promise<T>,
+  done: (value: T) => boolean,
+  opts: {
+    describe: (last: T | undefined) => string;
+    timeoutMs?: number;
+    intervalMs?: number;
+  },
+): Promise<T> {
+  const timeoutMs = opts.timeoutMs ?? 30_000;
+  const intervalMs = opts.intervalMs ?? 1_000;
+  const deadline = Date.now() + timeoutMs;
+  let last: T | undefined;
+  while (Date.now() < deadline) {
+    last = await probe();
+    if (done(last)) return last;
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(`timed out after ${timeoutMs}ms: ${opts.describe(last)}`);
+}
+
+/**
+ * Read a tunnel's live kernel state via `wg show <interface>` on the test-agent
+ * running in server mode inside the wardnetd container. The daemon names tunnel
+ * interfaces `wg_ward<N>`; pass the `interface_name` the tunnel API returned
+ * rather than hardcoding, since allocation depends on how many tunnels exist.
+ */
+export async function wgShow(
+  daemonAgent: string,
+  iface: string,
+): Promise<WgShowResponse> {
+  return agentGet<WgShowResponse>(daemonAgent, `/wg/${iface}`);
+}
+
+/**
+ * Poll [`wgShow`] until the kernel interface is present (`want = true`) or gone
+ * (`want = false`), returning the final response. Throws on timeout. The daemon
+ * brings tunnels up / tears them down asynchronously off routing and delete
+ * events, so the state change is never visible on the first read.
+ */
+export async function waitForWgInterface(
+  daemonAgent: string,
+  iface: string,
+  want: boolean,
+  timeoutMs = 30_000,
+): Promise<WgShowResponse> {
+  return pollUntil(
+    () => wgShow(daemonAgent, iface),
+    (wg) => wg.exists === want,
+    {
+      timeoutMs,
+      describe: (last) =>
+        `wg interface ${iface} was ${want ? "absent" : "still present"} (last: ${JSON.stringify(last)})`,
+    },
+  );
+}
+
+/**
+ * Poll `TunnelService.getById` until the tunnel reaches `status`, returning the
+ * tunnel. Throws on timeout. Used to wait for the health-check loop
+ * (`health_check_interval_secs`, 10 s by default) to observe the first
+ * handshake and flip a freshly-routed tunnel `connecting` → `up`.
+ */
+export async function waitForTunnelStatus(
+  tunnels: TunnelService,
+  id: string,
+  status: TunnelStatus,
+  timeoutMs = 45_000,
+): Promise<Tunnel> {
+  const { tunnel } = await pollUntil(
+    () => tunnels.getById(id),
+    (res) => res.tunnel.status === status,
+    {
+      timeoutMs,
+      describe: (last) =>
+        `tunnel ${id} did not reach status=${status} (last status=${last?.tunnel.status})`,
+    },
+  );
+  return tunnel;
+}
+
+/**
+ * Route a device through a tunnel and wait until the daemon has applied it: the
+ * WireGuard interface is up and the per-device `ip rule` is installed. The
+ * tunnel-lifecycle specs share this so the "assign + wait for kernel state"
+ * step reads the same in each.
+ */
+export async function routeThroughTunnel(
+  devices: DeviceService,
+  deviceId: string,
+  tunnelId: string,
+  daemonAgent: string,
+  interfaceName: string,
+): Promise<void> {
+  await devices.update(deviceId, {
+    routing_target: { type: "tunnel", tunnel_id: tunnelId },
+  });
+  await waitForWgInterface(daemonAgent, interfaceName, true);
+  await waitForTunnelRule(daemonAgent, true);
+}
+
+/**
+ * Best-effort teardown for the tunnel-lifecycle specs' `afterAll`: return the
+ * device to direct routing and delete the tunnel, ignoring "already gone"
+ * errors so re-runs against the persistent state volume start clean.
+ */
+export async function cleanupTunnelRouting(
+  devices: DeviceService,
+  tunnels: TunnelService,
+  deviceId: string | null | undefined,
+  tunnelId: string | null | undefined,
+): Promise<void> {
+  if (deviceId) {
+    try {
+      await devices.update(deviceId, { routing_target: { type: "direct" } });
+    } catch {
+      // already direct, or device gone
+    }
+  }
+  if (tunnelId) {
+    try {
+      await tunnels.delete(tunnelId);
+    } catch {
+      // already deleted
+    }
+  }
 }

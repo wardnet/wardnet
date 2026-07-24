@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { PageHeader } from "@/components/compound/PageHeader";
@@ -129,9 +129,8 @@ export default function DnsLogs() {
     });
   }, [domain, clientIp, deviceId, result, setStoreFilter]);
 
-  // Auto-pause the store on filter change so a sudden flood of new
+  // Auto-pause the store when live tail is off so a sudden flood of new
   // events doesn't interrupt scrolling.
-  const userScrolledRef = useRef(false);
   useEffect(() => {
     setStorePaused(!liveTail);
   }, [liveTail, setStorePaused]);
@@ -349,7 +348,6 @@ export default function DnsLogs() {
         onSearchChange={(v) => {
           setDomain(v);
           setPage(0);
-          userScrolledRef.current = false;
         }}
         searchPlaceholder="Search domain…"
         filters={filters}

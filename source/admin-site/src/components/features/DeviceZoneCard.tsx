@@ -76,7 +76,11 @@ export function DeviceZoneCard({ device }: DeviceZoneCardProps) {
           <>
             <Field label="Network zone" htmlFor="device-zone">
               <Select value={zoneId} onValueChange={setZoneId}>
-                <SelectTrigger id="device-zone" className="w-full sm:w-72">
+                <SelectTrigger
+                  id="device-zone"
+                  data-testid="device-zone-select"
+                  className="w-full sm:w-72"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

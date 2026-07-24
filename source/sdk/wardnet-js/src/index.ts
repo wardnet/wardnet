@@ -1,6 +1,6 @@
 // Logging
-export { createLogger, setLevel } from "./logger.js";
-export type { Logger, LogLevel } from "./logger.js";
+export { createLogger, setLevel, setAdapter, consoleAdapter } from "./logger.js";
+export type { Logger, LogLevel, EmittedLevel, LogAdapter } from "./logger.js";
 
 // Client
 export { WardnetClient, WardnetApiError } from "./client.js";
@@ -21,6 +21,7 @@ export { DhcpService } from "./services/dhcp.js";
 export { JobsService } from "./services/jobs.js";
 export { RuleRequestService } from "./services/rule-requests.js";
 export { InboundWgService } from "./services/inbound-wg.js";
+export { PrivateDnsService } from "./services/private-dns.js";
 export { PushService } from "./services/push.js";
 export { LogService } from "./services/logs.js";
 export type { LogEntry, LogFilter, LogStreamCallbacks } from "./services/logs.js";
@@ -92,6 +93,8 @@ export type { LoginRequest, LoginResponse, MeResponse } from "./types/auth.js";
 export type {
   LastShutdownState,
   LastShutdownStatus,
+  SystemDiagnostic,
+  RecentErrorsResponse,
   SetDefaultPolicyRequest,
   SetDefaultPolicyResponse,
   SystemStatusResponse,
@@ -167,6 +170,8 @@ export type {
   TunnelTestResponse,
   TunnelSpeedTestResult,
   TunnelSpeedTestHistoryResponse,
+  UpdateTunnelDnsOverrideRequest,
+  UpdateTunnelDnsOverrideResponse,
   ListProvidersResponse,
   ValidateCredentialsRequest,
   ValidateCredentialsResponse,
@@ -176,6 +181,7 @@ export type {
   SetupProviderRequest,
   SetupProviderResponse,
   TunnelSummary,
+  RoutingProfileSummary,
   DnsCaptureSettingsRequest,
   DnsCaptureSettingsResponse,
   DnsEventItem,
@@ -203,6 +209,7 @@ export type {
 export { DnsService } from "./services/dns.js";
 export { DnsFilterService } from "./services/dns-filter.js";
 export { DnsLocalService } from "./services/dns-local.js";
+export { RoutingProfilesService } from "./services/routing-profiles.js";
 export { DnsLogStreamService } from "./services/dnsLogStream.js";
 export type { DnsLogStreamFilter, DnsLogStreamCallbacks } from "./services/dnsLogStream.js";
 
@@ -243,6 +250,17 @@ export type {
   ListInboundWgPeersResponse,
   SetInboundWgPeerEnabledRequest,
 } from "./types/inbound-wg.js";
+
+// Types — Private DNS (encrypted DNS at home + roaming)
+export type {
+  PrivateDnsPrerequisites,
+  PrivateDnsGrantSummary,
+  PrivateDnsStatusResponse,
+  SetPrivateDnsEnabledRequest,
+  CreatePrivateDnsGrantRequest,
+  PrivateDnsMeResponse,
+  SendPrivateDnsNotificationResponse,
+} from "./types/private-dns.js";
 
 // Types — backup
 export type {
@@ -379,6 +397,30 @@ export type {
   UpdateForwardingRuleResponse,
   DeleteForwardingRuleResponse,
 } from "./types/dns-local.js";
+
+// Types — Routing profiles (per-domain routing rules)
+export type {
+  DomainRoutingTarget,
+  RoutingProfile,
+  DomainRoutingRule,
+  ListRoutingProfilesResponse,
+  GetRoutingProfileResponse,
+  CreateRoutingProfileRequest,
+  CreateRoutingProfileResponse,
+  UpdateRoutingProfileRequest,
+  UpdateRoutingProfileResponse,
+  DeleteRoutingProfileResponse,
+  ListDomainRoutingRulesResponse,
+  CreateDomainRoutingRuleRequest,
+  CreateDomainRoutingRuleResponse,
+  UpdateDomainRoutingRuleRequest,
+  UpdateDomainRoutingRuleResponse,
+  DeleteDomainRoutingRuleResponse,
+  GetDeviceRoutingProfilesResponse,
+  SetDeviceRoutingProfilesRequest,
+  SetDeviceRoutingProfilesResponse,
+  ListProfileDevicesResponse,
+} from "./types/routing-profiles.js";
 
 // Utils
 export { isCompleteIpv4, ipv4ToInt } from "./utils/ipv4.js";

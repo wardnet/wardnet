@@ -208,6 +208,39 @@ async fn init_db_pools_with_file_path_creates_migrates_and_runs_the_restore_guar
 }
 
 #[tokio::test]
+async fn file_pools_cap_the_wal_journal_size_limit() {
+    // Regression for the 530 MiB WAL bloat: every file-backed connection
+    // must open with `journal_size_limit` set so a passive auto-checkpoint
+    // truncates the sidecar back down instead of letting it grow unbounded.
+    // SQLite's default is -1 (no limit) — the bug — so an unset connection
+    // lets the WAL grow without bound; here we assert the explicit cap.
+    let dir = std::env::temp_dir();
+    let db = dir.join(format!("wardnet-wal-limit-{}.db", Uuid::new_v4()));
+
+    let pools = init_db_pools_from_connection_string(db.to_str().unwrap())
+        .await
+        .expect("file-based pool creation should succeed");
+
+    for pool in [&pools.write, &pools.read] {
+        let limit: i64 = sqlx::query_scalar("PRAGMA journal_size_limit")
+            .fetch_one(pool)
+            .await
+            .expect("journal_size_limit query should succeed");
+        assert_eq!(
+            limit,
+            64 * 1024 * 1024,
+            "every file connection must cap the WAL at 64 MiB, got {limit}"
+        );
+    }
+
+    pools.write.close().await;
+    pools.read.close().await;
+    for s in ["", "-wal", "-shm"] {
+        let _ = tokio::fs::remove_file(sidecar(&db, s)).await;
+    }
+}
+
+#[tokio::test]
 async fn discard_stale_wal_tolerates_unremovable_sidecar_and_marker() {
     // The guard must never panic on filesystem errors. Make both the
     // `-wal` sidecar and the marker directories so `remove_file` fails
@@ -248,6 +281,56 @@ async fn discard_stale_wal_is_a_noop_without_the_marker() {
 
     let _ = tokio::fs::remove_file(&db).await;
     let _ = tokio::fs::remove_file(sidecar(&db, "-wal")).await;
+}
+
+#[tokio::test]
+async fn startup_vacuum_skip_line_names_the_freelist_and_threshold() {
+    // A legacy `auto_vacuum=NONE` file with a small freelist takes the
+    // skip-VACUUM debug branch. The message must spell out the observed
+    // freelist and the threshold it fell under, not just attach them as
+    // fields — on a plain-text backend "skipping VACUUM" alone says nothing
+    // about why.
+    let dir = std::env::temp_dir();
+    let db = dir.join(format!("wardnet-vacuum-skip-{}.db", Uuid::new_v4()));
+
+    // Pre-create the file with a table under the SQLite default
+    // (`auto_vacuum=NONE`); the existing table locks the mode so the
+    // INCREMENTAL connect pragma init applies afterwards is a no-op and the
+    // startup check sees a genuine legacy database.
+    {
+        let mut conn = SqliteConnectOptions::new()
+            .filename(&db)
+            .create_if_missing(true)
+            .connect()
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE __legacy_probe (x INTEGER)")
+            .execute(&mut conn)
+            .await
+            .unwrap();
+        conn.close().await.unwrap();
+    }
+
+    let capture = wardnet_test_support::capture_logs(tracing::Level::DEBUG);
+    let pools = init_db_pools_from_connection_string(db.to_str().unwrap())
+        .await
+        .expect("file-based pool creation should succeed");
+
+    let logs = capture.contents();
+    assert!(
+        logs.contains("under threshold (25000); skipping VACUUM"),
+        "skip line must name the freelist threshold, got: {logs}"
+    );
+    assert!(
+        logs.contains("freelist (0)"),
+        "skip line must name the observed freelist, got: {logs}"
+    );
+
+    pools.write.close().await;
+    pools.read.close().await;
+    for s in ["", "-wal", "-shm"] {
+        let _ = tokio::fs::remove_file(sidecar(&db, s)).await;
+    }
 }
 
 #[tokio::test]

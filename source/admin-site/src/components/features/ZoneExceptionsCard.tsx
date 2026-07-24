@@ -465,7 +465,7 @@ function EndpointField({
   return (
     <Field label={label} htmlFor={id} className={className}>
       <Select value={value} onValueChange={onChange}>
-        <SelectTrigger id={id} className="w-full">
+        <SelectTrigger id={id} data-testid={id} className="w-full">
           <SelectValue placeholder="Select a zone or device" />
         </SelectTrigger>
         <SelectContent>

@@ -89,6 +89,17 @@ and the chattiest devices for the same window, a quick way to find
 which device to investigate or which domain is worth adding a custom
 rule for.
 
+Underneath, a second row goes deeper. A **compared to previous period**
+panel puts this window's query and blocked totals next to the window
+before it, so a week-over-week jump in either is obvious at a glance.
+**Top trackers blocked** takes the domains that got blocked and groups
+them by the company behind them, matched against a curated tracker
+list, so instead of a wall of opaque hostnames you see which
+organisations your network is turning away most. And a **per-device
+queries** chart plots one device's query volume over time, pick a
+device from the dropdown to see when it's busy and whether that lines
+up with when someone's actually using it.
+
 ## Per-device profiles
 
 Assign a profile to a specific device from its

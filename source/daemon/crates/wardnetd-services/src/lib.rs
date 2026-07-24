@@ -17,6 +17,7 @@ pub mod cloud;
 pub mod ddns;
 pub mod device;
 pub mod dhcp;
+pub mod diagnostics;
 pub mod dns;
 pub mod dns_filter;
 pub mod dns_local;
@@ -27,8 +28,10 @@ pub mod inbound_wg;
 pub mod logging;
 pub mod maintenance;
 pub mod network_zone;
+pub mod private_dns;
 pub mod push;
 pub mod routing;
+pub mod routing_profile;
 pub mod rule_request;
 pub mod system;
 pub mod tls;
@@ -69,7 +72,9 @@ use crate::event::{BroadcastEventBus, EventPublisher};
 use crate::inbound_wg::InboundWgServiceImpl;
 use crate::jobs::JobServiceImpl;
 use crate::network_zone::NetworkZoneServiceImpl;
+use crate::private_dns::PrivateDnsServiceImpl;
 use crate::routing::RoutingServiceImpl;
+use crate::routing_profile::{DomainRouteRequest, RoutingProfileServiceImpl};
 use crate::rule_request::RuleRequestServiceImpl;
 use crate::system::SystemServiceImpl;
 use crate::tls::TlsServiceImpl;
@@ -98,8 +103,10 @@ pub use crate::jobs::{JobService, JobServiceExt, ProgressReporter};
 pub use crate::logging::LogService;
 pub use crate::maintenance::{MaintenanceService, MaintenanceServiceImpl};
 pub use crate::network_zone::NetworkZoneService;
+pub use crate::private_dns::{PrivateDnsGrant, PrivateDnsService, PrivateDnsStatus};
 pub use crate::push::PushService;
 pub use crate::routing::RoutingService;
+pub use crate::routing_profile::RoutingProfileService;
 pub use crate::rule_request::RuleRequestService;
 pub use crate::stats::{
     DEFAULT_FLUSH_INTERVAL, DEFAULT_MAINTENANCE_INTERVAL, StatsBuffer, StatsFlushRunner,
@@ -202,6 +209,11 @@ pub struct UpdateBackends {
 }
 
 /// All wired services, ready to use.
+/// Bound on the domain-route enforcement queue. A match that arrives while the
+/// queue is full is dropped (the next resolution of the same name re-queues it),
+/// so a slow enforcer can never back-pressure the DNS hot path.
+const DOMAIN_ROUTE_QUEUE_CAPACITY: usize = 2048;
+
 pub struct Services {
     pub auth: Arc<dyn AuthService>,
     pub backup: Arc<dyn BackupService>,
@@ -224,6 +236,12 @@ pub struct Services {
     pub log: Arc<dyn LogService>,
     pub vpn_provider: Arc<dyn VpnProviderService>,
     pub routing: Arc<dyn RoutingService>,
+    /// Routing profiles: per-domain routing rules assigned to devices (issue
+    /// #241). The DNS server calls `note_resolution` after answering a query.
+    pub routing_profile: Arc<dyn RoutingProfileService>,
+    /// Enforcement queue drained by `DomainRouteRunner`, taken once at startup
+    /// (mirrors `dns_log_persist_rx`).
+    pub domain_route_rx: Mutex<Option<mpsc::Receiver<DomainRouteRequest>>>,
     pub rule_request: Arc<dyn RuleRequestService>,
     /// Push notifications: VAPID keys, subscription CRUD, and event-driven Web
     /// Push delivery. Driven by `PushNotificationListener`.
@@ -241,6 +259,9 @@ pub struct Services {
     /// Inbound (multi-peer) `WireGuard` server (issue #809). Manages the
     /// `wg_wardin0` server interface, its keypair, and the peer data model.
     pub inbound_wg: Arc<dyn InboundWgService>,
+    /// Private DNS (issue #912): per-device grants + enable state for the
+    /// `DoT` `:853` listener. Driven by the `DoT` runner in `wardnetd`.
+    pub private_dns: Arc<dyn PrivateDnsService>,
     /// Reverse-tunnel connector (issue #809): dependencies for the persistent WS
     /// client to wardnet-cloud's Tunneller. Handed to `TunnelerRunner::start` in
     /// `wardnetd`'s `main`; the mock binary leaves it unspawned, exactly as it does
@@ -673,6 +694,23 @@ fn create_services(
         entitlement.clone(),
     ));
 
+    // Private DNS (#912): per-device DoT grants + enable state. Shares the
+    // entitlement handle with the other Premium features and the local-DNS
+    // service for the split-horizon wildcard record.
+    let private_dns_service: Arc<dyn PrivateDnsService> = Arc::new(PrivateDnsServiceImpl::new(
+        repo_factory.private_dns_grants(),
+        repo_factory.system_config(),
+        device_service.clone(),
+        ddns.clone(),
+        tls.clone(),
+        dns_local_service.clone(),
+        entitlement.clone(),
+        event_publisher.clone(),
+        backends.secret_store.clone(),
+        push_service.clone(),
+        lan_ip,
+    ));
+
     let discovery_service = build_discovery_service(
         device_repo.clone(),
         network_zone_repo.clone(),
@@ -694,6 +732,17 @@ fn create_services(
         initial_default_policy,
         config,
     );
+
+    // Routing profiles (#241). The DNS server queues matched resolutions on this
+    // channel; `DomainRouteRunner` (spawned in `wardnetd`) drains it and installs
+    // the per-destination `ip rule`s via the routing service.
+    let (domain_route_tx, domain_route_rx) = mpsc::channel(DOMAIN_ROUTE_QUEUE_CAPACITY);
+    let routing_profile_service: Arc<dyn RoutingProfileService> =
+        Arc::new(RoutingProfileServiceImpl::new(
+            repo_factory.routing_profile(),
+            tunnel_service.clone(),
+            domain_route_tx,
+        ));
 
     // The Network-Zone enforcer (#736) shares the same firewall + policy-router
     // backends as the routing service (they cooperate on the `wardnet` nftables
@@ -746,6 +795,8 @@ fn create_services(
         device_ip_snapshot,
         vpn_provider: vpn_provider_service,
         routing: routing_service,
+        routing_profile: routing_profile_service,
+        domain_route_rx: Mutex::new(Some(domain_route_rx)),
         network_zone: network_zone_service,
         zone_enforcement: zone_enforcement_service,
         zone_exception: zone_exception_service,
@@ -754,6 +805,7 @@ fn create_services(
         system: system_service,
         tunnel: tunnel_service,
         inbound_wg: inbound_wg_service,
+        private_dns: private_dns_service,
         tunneler,
         update: update_service,
         event_publisher,

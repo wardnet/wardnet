@@ -201,6 +201,28 @@ impl RoutingService for MockRoutingService {
         Ok(())
     }
 
+    async fn set_switchback_targets(
+        &self,
+        _device_id: Uuid,
+        _device_ip: String,
+        _target_cidrs: Vec<String>,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn route_resolved_domain(
+        &self,
+        _device_ip: &str,
+        _resolved_ips: &[std::net::IpAddr],
+        _target: &wardnet_common::routing_profile::DomainRoutingTarget,
+        _ttl_secs: u32,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn gc_domain_routes(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+
     async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {
         Ok(())
     }
@@ -317,6 +339,28 @@ impl RoutingService for FailingRoutingService {
         Err(AppError::Internal(anyhow::anyhow!(
             "apply_rule_for_discovered_device failed"
         )))
+    }
+
+    async fn set_switchback_targets(
+        &self,
+        _device_id: Uuid,
+        _device_ip: String,
+        _target_cidrs: Vec<String>,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+
+    async fn route_resolved_domain(
+        &self,
+        _device_ip: &str,
+        _resolved_ips: &[std::net::IpAddr],
+        _target: &wardnet_common::routing_profile::DomainRoutingTarget,
+        _ttl_secs: u32,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn gc_domain_routes(&self) -> Result<(), AppError> {
+        Ok(())
     }
 
     async fn set_default_policy(&self, _policy: &str) -> Result<(), AppError> {

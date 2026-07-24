@@ -155,3 +155,37 @@ fn synthetic_rtt_is_in_expected_range() {
 fn synthetic_rtt_is_deterministic() {
     assert_eq!(synthetic_rtt("wg_ward0"), synthetic_rtt("wg_ward0"));
 }
+
+// ── noop web push logging ───────────────────────────────────────────────
+
+use wardnetd_services::push::sender::{PushTarget, VapidKey, WebPushSender};
+
+use crate::backends::noop_web_push::NoopWebPushSender;
+
+#[tokio::test]
+async fn noop_web_push_log_names_the_endpoint_and_payload() {
+    // The mock's delivery line stands in for real push logs during dev runs,
+    // so it must name the endpoint and payload it "sent", not just carry them
+    // as structured fields.
+    let capture = wardnet_test_support::capture_logs(tracing::Level::INFO);
+
+    let vapid = VapidKey::generate();
+    let target = PushTarget {
+        endpoint: "https://push.example.com/mock",
+        p256dh: "p256dh",
+        auth: "auth",
+    };
+    NoopWebPushSender
+        .send(&vapid, target, b"hello-mock".to_vec())
+        .await;
+
+    let logs = capture.contents();
+    assert!(
+        logs.contains("endpoint=https://push.example.com/mock"),
+        "mock log must interpolate the endpoint, got: {logs}"
+    );
+    assert!(
+        logs.contains("payload=hello-mock"),
+        "mock log must interpolate the payload, got: {logs}"
+    );
+}

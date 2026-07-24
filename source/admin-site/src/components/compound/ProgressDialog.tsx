@@ -112,17 +112,17 @@ export function ProgressDialog({
               {phase === "success" ? successTitle : title}
             </AlertModalTitle>
             {phase === "success" && successDescription && (
-              <AlertModalDescription className="text-sm leading-relaxed text-ink-3">
+              <AlertModalDescription className="leading-relaxed text-ink-3">
                 {successDescription}
               </AlertModalDescription>
             )}
             {phase === "in-progress" && description && (
-              <AlertModalDescription className="text-sm leading-relaxed text-ink-3">
+              <AlertModalDescription className="leading-relaxed text-ink-3">
                 {description}
               </AlertModalDescription>
             )}
             {phase === "failed" && description && (
-              <AlertModalDescription className="text-sm leading-relaxed text-ink-3">
+              <AlertModalDescription className="leading-relaxed text-ink-3">
                 {description}
               </AlertModalDescription>
             )}

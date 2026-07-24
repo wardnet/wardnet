@@ -1,0 +1,88 @@
+name: Cubit
+
+# Reusable leaf for performance-regression tracking via cubit
+# (github.com/wardnet/cubit). Called from pr.yml (compare + sticky PR comment)
+# and ci.yml (record the baseline on main). Mirrors how the `bulwark` coverage
+# leaf is wired.
+#
+# Advisory ONLY: cubit never fails the build, and this leaf is deliberately left
+# out of pr.yml's `all-checks-passed` aggregator so it can't gate a merge. The
+# PR comment and trend dashboard inform a human go/no-go.
+#
+# PAIRED same-runner comparison: cubit runs the daemon micro-benchmarks on BOTH
+# the PR head and the base commit on this same runner and compares the two
+# directly (paired: true), cancelling the machine-to-machine variance a stored
+# baseline can't. This roughly doubles the bench time per PR — the accepted
+# trade for trustworthy deltas. `fetch-depth: 0` is required so the base commit
+# is available to check out and bench. The bench-command trails `|| true` so a
+# bench that fails to build leaves cubit to post its "no data" fallback rather
+# than failing this advisory job. On push to main (record) only the head is
+# benched.
+
+on:
+  workflow_call:
+    secrets:
+      PERF_REPORTS_TOKEN:
+        description: >-
+          Fine-grained token with contents write on wardnet/perf-reports, the
+          central Pages hub PR dashboards are published to. Optional: the
+          record path (ci.yml) never publishes, and a compare run without it
+          falls back to linking the report artifact from the PR comment.
+        required: false
+
+# Workflow-level stays read-only; the job below elevates to the writes it needs,
+# which the caller (pr.yml / ci.yml cubit job) must grant to the same ceiling.
+permissions:
+  contents: read
+
+jobs:
+  cubit:
+    name: cubit
+    runs-on: ubuntu-latest
+    # Paired benches two commits (head + base) on one runner, so allow for two
+    # cold-cache compiles.
+    timeout-minutes: 45
+    permissions:
+      contents: write # push the cubit-state baseline branch (record, on main)
+      pull-requests: write # post/update the sticky performance comment (compare, on PRs)
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0 # paired needs the base commit available to bench it
+
+      - uses: ./.github/actions/setup-rust
+
+      # Moving major tag: cubit advances `v0` on each 0.x release, so fixes flow
+      # here without a wardnet bump (same pattern as bulwark's @v1). Pin to an
+      # exact version once cubit reaches 1.0. cubit runs bench-command itself
+      # (once for record, twice for a paired compare).
+      - uses: wardnet/cubit@v0
+        with:
+          criterion-dir: source/daemon/target/criterion
+          # Two bench targets, both writing to source/daemon/target/criterion
+          # (which cubit ingests): the wardnetd-services micro benches, and the
+          # wardnetd macro resolution bench (needs the bench-internals feature —
+          # a dev-only seam, never compiled into a production build). Each trails
+          # `|| true` so a bench build failure leaves cubit to post its "no data"
+          # fallback rather than failing this advisory job.
+          bench-command: >-
+            cargo bench --manifest-path source/daemon/Cargo.toml
+            -p wardnetd-services --bench dns_components
+            -- --warm-up-time 3 --measurement-time 5 || true ;
+            cargo bench --manifest-path source/daemon/Cargo.toml
+            -p wardnetd --bench dns_resolution --features bench-internals
+            -- --warm-up-time 3 --measurement-time 5 || true
+          paired: "true"
+          # Publish each PR's dashboard to the org's central Pages hub so the
+          # sticky comment links a clickable page
+          # (https://wardnet.github.io/perf-reports/wardnet/pr-<n>/) instead of
+          # an artifact zip. Best-effort inside the action: a missing token
+          # (fork PRs get no secrets) or a failed push falls back to linking
+          # the artifact download.
+          pages-repo: wardnet/perf-reports
+          pages-token: ${{ secrets.PERF_REPORTS_TOKEN }}

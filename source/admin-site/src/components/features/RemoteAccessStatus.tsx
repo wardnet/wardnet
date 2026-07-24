@@ -99,7 +99,11 @@ export function RemoteAccessStatus({
         </div>
         <div>
           <dt className="text-ink-3">Public DNS</dt>
-          <dd className={verdict?.tone ?? "font-medium"}>
+          <Text
+            as="dd"
+            weight={verdict?.tone ? undefined : "medium"}
+            className={verdict?.tone}
+          >
             {verdict ? verdict.label : "-"}
             {resolution && resolution.resolved_ips.length > 0 && (
               <Text as="span" size="xs" className="block font-mono text-ink-3">
@@ -116,7 +120,7 @@ export function RemoteAccessStatus({
                 Checked {timeAgo(new Date(lastCheckedAt).toISOString())}
               </Text>
             ) : null}
-          </dd>
+          </Text>
         </div>
       </Text>
     </div>

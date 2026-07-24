@@ -16,6 +16,7 @@ fn sample_row(domain: &str) -> QueryLogRow {
         upstream: None,
         latency_ms: 1.0,
         device_id: None,
+        protocol: "udp".to_owned(),
     }
 }
 
@@ -194,6 +195,126 @@ fn blocked_outcome_records_by_domain_stat() {
 
     // The only assertion needed for coverage is that we don't panic;
     // the by_domain counter is an internal implementation detail.
+}
+
+/// A malicious DNS name containing JSON-significant bytes (double-quote,
+/// backslash, control char) must be escaped so the `dns.queries.by_domain`
+/// label is still valid JSON whose parsed `domain` field round-trips exactly
+/// to the raw name — proving the label can't be used to inject JSON structure
+/// (F4, CWE-116). An ordinary domain still serializes to the canonical shape.
+#[test]
+fn by_domain_label_escapes_malicious_domain_and_round_trips() {
+    // hickory renders a raw 0x22 byte in a label as `\"`; include that plus a
+    // literal backslash and a control byte to exercise every escape path.
+    let malicious = "evil\\\".com\u{0007}\"}injected";
+
+    let buf = StatsBuffer::new();
+    let meter = Meter::new(buf.clone());
+    let (sink, _channels) = DnsLogSink::new_with_stats(&meter);
+
+    let mut row = sample_row(malicious);
+    row.result = "blocked".to_owned();
+    sink.record(row);
+
+    let rows = buf.drain();
+    let domain_row = rows
+        .iter()
+        .find(|r| r.metric == "dns.queries.by_domain")
+        .expect("by_domain must be recorded for a blocked query");
+
+    // The label must parse as valid JSON (a partial `.replace` would have
+    // produced a malformed / structure-injected string here).
+    let parsed: serde_json::Value =
+        serde_json::from_str(&domain_row.labels).expect("label must be valid JSON");
+
+    assert_eq!(
+        parsed["domain"], malicious,
+        "parsed domain must round-trip exactly to the raw name, got {}",
+        domain_row.labels
+    );
+
+    // Ordinary domains keep the exact canonical shape existing dashboards read.
+    let (sink, _channels) = DnsLogSink::new_with_stats(&meter);
+    let mut plain = sample_row("example.com");
+    plain.result = "blocked".to_owned();
+    sink.record(plain);
+
+    let plain_row = buf
+        .drain()
+        .into_iter()
+        .find(|r| r.metric == "dns.queries.by_domain")
+        .expect("by_domain must be recorded for a blocked query");
+    assert_eq!(plain_row.labels, r#"{"domain":"example.com"}"#);
+}
+
+/// A query attributed to a device records `dns.queries.by_device` keyed on
+/// the device id; an unattributed query does not.
+#[tokio::test]
+async fn records_by_device_only_when_device_attributed() {
+    let buf = StatsBuffer::new();
+    let meter = Meter::new(buf.clone());
+    let (sink, _channels) = DnsLogSink::new_with_stats(&meter);
+
+    sink.record(make_row("example.com", Some("dev-42")));
+    sink.record(make_row("example.org", None));
+
+    let rows = buf.drain();
+    let device_rows: Vec<_> = rows
+        .iter()
+        .filter(|r| r.metric == "dns.queries.by_device")
+        .collect();
+    assert_eq!(
+        device_rows.len(),
+        1,
+        "exactly one by_device row (the attributed query)"
+    );
+    assert!(
+        device_rows[0].labels.contains("dev-42"),
+        "by_device label must carry the device id, got {}",
+        device_rows[0].labels
+    );
+}
+
+/// A blocked query whose domain is a recognised tracker records
+/// `dns.blocked.by_tracker` labelled with the operating company. A blocked
+/// query for an unrecognised domain records no tracker row, and a
+/// non-blocked query for a tracker domain records none either.
+#[tokio::test]
+async fn records_by_tracker_for_blocked_known_trackers_only() {
+    let buf = StatsBuffer::new();
+    let meter = Meter::new(buf.clone());
+    let (sink, _channels) = DnsLogSink::new_with_stats(&meter);
+
+    // Blocked, recognised tracker → recorded, attributed to the company.
+    let mut blocked_tracker = sample_row("pagead2.googlesyndication.com");
+    blocked_tracker.result = "blocked".to_owned();
+    sink.record(blocked_tracker);
+
+    // Blocked, but not in the tracker catalogue → no tracker row.
+    let mut blocked_other = sample_row("some-random-blocklist-domain.example");
+    blocked_other.result = "blocked".to_owned();
+    sink.record(blocked_other);
+
+    // A tracker domain that was NOT blocked (allowlisted/forwarded) → none.
+    let mut forwarded_tracker = sample_row("doubleclick.net");
+    forwarded_tracker.result = "forwarded".to_owned();
+    sink.record(forwarded_tracker);
+
+    let rows = buf.drain();
+    let tracker_rows: Vec<_> = rows
+        .iter()
+        .filter(|r| r.metric == "dns.blocked.by_tracker")
+        .collect();
+    assert_eq!(
+        tracker_rows.len(),
+        1,
+        "only the blocked recognised tracker should be counted"
+    );
+    assert!(
+        tracker_rows[0].labels.contains("Google"),
+        "tracker row must be attributed to the operating company, got {}",
+        tracker_rows[0].labels
+    );
 }
 
 /// When the persist channel is full, `dropped_entries` is incremented.

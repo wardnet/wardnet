@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use sqlx::ConnectOptions;
 use sqlx::SqlitePool;
 use sqlx::sqlite::{
     SqliteAutoVacuum, SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous,
@@ -9,6 +10,11 @@ use uuid::Uuid;
 
 /// Reader pool size — bounded so a runaway read can't exhaust file descriptors.
 const READ_MAX_CONNECTIONS: u32 = 5;
+/// Bulk-read pool size. This pool serves only the known-bulk blocklist
+/// domain load, which the rebuild path runs one blocklist at a time, so a
+/// tiny pool suffices. It is kept separate from `read` so its disabled
+/// slow-statement logging can never mask a genuinely slow normal `SELECT`.
+const BULK_READ_MAX_CONNECTIONS: u32 = 2;
 /// Writer pool is always a single connection — `SQLite` only allows one writer
 /// at a time, and serialising at the pool level produces async-aware
 /// backpressure instead of busy-spin waits inside `SQLite`.
@@ -22,6 +28,19 @@ const BUSY_TIMEOUT: Duration = Duration::from_secs(30);
 /// VACUUM kicks in for a legacy `auto_vacuum=NONE` database. ~25k pages
 /// at the default 4 KiB page size is ~100 MiB of reclaimable space.
 const VACUUM_FREELIST_THRESHOLD_PAGES: i64 = 25_000;
+/// Cap the on-disk `-wal` sidecar so a burst of writes (e.g. the daily
+/// DNS query-log retention `DELETE`) can't leave the WAL parked at a
+/// multi-hundred-MiB high-water mark forever. `SQLite`'s automatic
+/// checkpoints are always `PASSIVE` — they let WAL space be *reused* but
+/// never *shrink the file*; without this limit the WAL only grows to its
+/// historical peak and stays there, slowing every subsequent operation.
+/// With the limit set, the checkpointer truncates the file back down to
+/// this size once its frames have been folded into the main database.
+/// 64 MiB is comfortably above the largest single transaction yet small
+/// enough for the Raspberry-Pi-class targets this runs on. The daily
+/// [`MaintenanceRepository::wal_checkpoint_truncate`] resets it the rest
+/// of the way to ~0.
+const WAL_JOURNAL_SIZE_LIMIT_BYTES: i64 = 64 * 1024 * 1024;
 const MEMORY_CONNECTION_STRING: &str = ":memory:";
 /// File-name suffix for the sentinel a backup restore drops next to the
 /// database. Its presence on startup means the `<db>` file was just
@@ -108,16 +127,24 @@ pub struct DbPools {
     /// Single-connection pool for `INSERT`/`UPDATE`/`DELETE` and
     /// transactions. Also the pool that owns migrations.
     pub write: SqlitePool,
+    /// Dedicated pool for *known-bulk* reads whose row count is inherently
+    /// huge — currently just the blocklist-domain stream (a threat-intel
+    /// feed is ~2.2M domains). Its connections have statement logging
+    /// disabled so the load's multi-second runtime doesn't trip the 1 s
+    /// `slow_statements` alert that guards the `read` pool. Points at the
+    /// same database as `read`; it differs only in log settings and size.
+    pub bulk_read: SqlitePool,
 }
 
 impl DbPools {
-    /// Wrap a single pool as both reader and writer. Used by tests and
-    /// the in-memory shared-cache path where splitting would create two
+    /// Wrap a single pool as reader, writer and bulk-reader. Used by tests
+    /// and the in-memory shared-cache path where splitting would create two
     /// unrelated in-memory databases.
     #[must_use]
     pub fn single(pool: SqlitePool) -> Self {
         Self {
             read: pool.clone(),
+            bulk_read: pool.clone(),
             write: pool,
         }
     }
@@ -187,6 +214,14 @@ pub async fn init_db_pools_from_connection_string(conn: &str) -> anyhow::Result<
                 .auto_vacuum(SqliteAutoVacuum::Incremental)
                 .busy_timeout(BUSY_TIMEOUT)
                 .foreign_keys(true)
+                // Bound the on-disk WAL so a passive auto-checkpoint truncates
+                // the sidecar back down instead of letting it grow unbounded.
+                // Set on every connection because `journal_size_limit` is a
+                // per-connection setting in SQLite.
+                .pragma(
+                    "journal_size_limit",
+                    WAL_JOURNAL_SIZE_LIMIT_BYTES.to_string(),
+                )
         };
 
         // Writer first — migrations run on it and they must complete
@@ -204,7 +239,22 @@ pub async fn init_db_pools_from_connection_string(conn: &str) -> anyhow::Result<
             .connect_with(make_options())
             .await?;
 
-        DbPools { read, write }
+        // Bulk-read pool: same database, but with statement logging turned
+        // off. The blocklist-domain load streams millions of rows and
+        // routinely exceeds the 1 s slow-statement threshold on Pi-class
+        // hardware — expected, not a regression. Isolating it here keeps the
+        // 1 s alert honest for every normal `SELECT` on `read` while
+        // silencing the predictable boot/import noise.
+        let bulk_read = SqlitePoolOptions::new()
+            .max_connections(BULK_READ_MAX_CONNECTIONS)
+            .connect_with(make_options().disable_statement_logging())
+            .await?;
+
+        DbPools {
+            read,
+            write,
+            bulk_read,
+        }
     };
 
     sqlx::migrate!("./migrations").run(&pools.write).await?;
@@ -289,7 +339,7 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
         tracing::debug!(
             freelist,
             threshold = VACUUM_FREELIST_THRESHOLD_PAGES,
-            "legacy auto_vacuum=NONE but freelist under threshold; skipping VACUUM"
+            "legacy auto_vacuum=NONE but freelist ({freelist}) under threshold ({VACUUM_FREELIST_THRESHOLD_PAGES}); skipping VACUUM"
         );
         return;
     }
@@ -301,17 +351,18 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
             tracing::warn!(
                 db_size,
                 free,
-                "legacy auto_vacuum=NONE database is large and reclaimable, but free disk \
-                 space is < 1.2x DB size; skipping startup VACUUM. Run `sqlite3 {} 'VACUUM;'` \
-                 manually after freeing space.",
+                "legacy auto_vacuum=NONE database is large ({db_size} bytes) and reclaimable, \
+                 but free disk space ({free} bytes) is < 1.2x DB size; skipping startup VACUUM. \
+                 Run `sqlite3 {} 'VACUUM;'` manually after freeing space.",
                 db_path.display(),
             );
             return;
         }
         None => {
             tracing::warn!(
-                "could not determine free disk space on {}; skipping startup VACUUM",
-                parent.display()
+                dir = %parent.display(),
+                "could not determine free disk space on {dir}; skipping startup VACUUM",
+                dir = parent.display()
             );
             return;
         }
@@ -321,7 +372,7 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
     tracing::info!(
         db_size,
         freelist,
-        "running one-shot VACUUM to migrate database to auto_vacuum=INCREMENTAL"
+        "running one-shot VACUUM to migrate database to auto_vacuum=INCREMENTAL: db_size={db_size}, freelist={freelist}"
     );
     if let Err(e) = sqlx::query("PRAGMA auto_vacuum = INCREMENTAL")
         .execute(write)
@@ -334,11 +385,12 @@ async fn startup_vacuum_if_needed(write: &SqlitePool, db_path: &Path) {
     match sqlx::query("VACUUM").execute(write).await {
         Ok(_) => {
             let new_size = std::fs::metadata(db_path).map_or(db_size, |m| m.len());
+            let elapsed_secs = started.elapsed().as_secs_f64();
             tracing::info!(
-                elapsed_secs = started.elapsed().as_secs_f64(),
+                elapsed_secs,
                 old_size = db_size,
                 new_size,
-                "startup VACUUM complete"
+                "startup VACUUM complete: {db_size} -> {new_size} bytes in {elapsed_secs}s"
             );
         }
         Err(e) => {

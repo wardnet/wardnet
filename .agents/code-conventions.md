@@ -29,6 +29,13 @@
   - `compound/` — compositions of core components, data via props only, no API calls
   - `features/` — use-case views, data via props + callbacks, no direct API/service calls
   - `layouts/` — page shells, navigation/routing, no business logic
+    - **Carve-out — shell-wide status/auth.** The `AppLayout` shells may call
+      `useDaemonStatus()` (admin-app, user-app) and `useAuth()` (admin-site)
+      directly. These two hooks feed the shell chrome itself — the header
+      version/connection pill and the admin-gated navigation — which live above
+      every route and have no owning `page` to hoist them into. The carve-out is
+      limited to these two read hooks; layouts still perform no mutations and
+      wire no other queries.
   - `pages/` — route-level, wire TanStack Query hooks → feature/compound components
 - **All business logic in `@wardnet/js`** — components are pure presentation.
 - **Hooks** bridge SDK and React: wrap SDK service calls in TanStack Query for caching/loading/error.
@@ -36,6 +43,8 @@
 - **Typography** — render text through the `<Text>` / `<Heading level>` primitive (from `@wardnet/ui`, re-exported by `@wardnet/web`); see `docs/adr/0012-typography-scale-and-roles.md`.
   - Pick a **`variant`** (`label`, `body`, `body-strong`, `caption`, `micro`, `metric`, `metric-unit`, `mono`, `h1`/`h2`/`h3`) — it bakes a size + weight + colour + element bundle. Override individual axes with `size` / `weight` / `color` / `as`. The prop is `variant`, NOT `role`: `role` passes straight through as the native ARIA attribute.
   - Do NOT write raw `text-*` / `font-*` size or weight utilities for new markup — they are tokenized into the variant/`t-size-*`/`t-weight-*` classes. Colour utilities (`text-ink-3`, `text-danger`, …) are still allowed and intentionally override the variant colour.
+  - **Exception — display/hero numerals.** A one-off decorative glyph that needs a size above the `size` scale's `4xl` (32px) cap — e.g. the oversized `404` on the not-found page — has no scale token to reach for. Keep it a raw `text-*` size and mark the line with a `ds-typography-allow: <reason>` comment so the intent is legible and the guard (below) skips it. Do not reach for this to dodge a size that *does* exist on the scale.
+  - **Enforced in admin-site.** `source/admin-site/tests/typography-conventions.test.ts` scans `src/**/*.tsx` and fails CI if a raw `text-*`/`font-*` size or weight utility reappears. Vendored shadcn primitives under `components/core/ui` are exempt; a justified one-off opts out with a `ds-typography-allow:` comment on or just above the line.
   - **marketing-site** has no `@wardnet/ui` dependency: apply the `@wardnet/styles` helper classes directly (`t-body`, `t-h2`, `t-size-sm`, …) instead of the primitive.
 - **Detail views are routed pages, not sheets.**
   - One detail concept per resource: `/<resource>/:id` (e.g. `/tunnels/:id`,

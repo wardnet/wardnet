@@ -15,6 +15,9 @@ import {
   useDnsStatsDashboard,
   useDashboardDnsStats,
   useDnsTopBlockedDomains,
+  useDnsTopTrackers,
+  useDnsPeriodComparison,
+  useDnsPerDeviceStats,
 } from "../../src/hooks/useStats";
 
 const wrapper = createQueryWrapper;
@@ -147,5 +150,109 @@ describe("useDnsTopBlockedDomains", () => {
       label_key: "domain",
       limit: 5,
     });
+  });
+});
+
+describe("useDnsTopTrackers", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("ranks the tracker metric by company over the range's tier", async () => {
+    statsService.top.mockResolvedValue({ metric: "m", entries: [] });
+    const { result } = renderHook(() => useDnsTopTrackers("7d"), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    // 7d resolves to the hourly tier, so top-N must rank over "hour", not
+    // the default intraday tier.
+    expect(statsService.top.mock.calls[0][0]).toMatchObject({
+      metric: "dns.blocked.by_tracker",
+      label_key: "company",
+      bucket: "hour",
+    });
+  });
+});
+
+describe("useDnsPeriodComparison", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("computes signed change vs the previous period", async () => {
+    // First call = current window (100 total / 40 blocked), second call =
+    // previous window (50 total / 10 blocked).
+    statsService.query
+      .mockResolvedValueOnce({
+        series: [
+          seriesPoint("2026-07-10T00:00:00Z", 60),
+          seriesPoint("2026-07-10T00:00:00Z", 40, "blocked"),
+        ],
+      })
+      .mockResolvedValueOnce({
+        series: [
+          seriesPoint("2026-07-03T00:00:00Z", 40),
+          seriesPoint("2026-07-03T00:00:00Z", 10, "blocked"),
+        ],
+      });
+    const { result } = renderHook(() => useDnsPeriodComparison("7d"), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const data = result.current.data!;
+    expect(data.current.total).toBe(100);
+    expect(data.previous.total).toBe(50);
+    expect(data.totalChangePercent).toBe(100); // (100-50)/50
+    expect(data.blockedChangePercent).toBe(300); // (40-10)/10
+    // 7d looks back 14d, past the 8d hourly retention, so the tier must step
+    // up to "day" for both windows or the previous week reads empty.
+    expect(statsService.query.mock.calls[0][0].bucket).toBe("day");
+    expect(statsService.query.mock.calls[1][0].bucket).toBe("day");
+  });
+
+  it("reports a null change when the previous period had no queries", async () => {
+    // Current window has traffic, previous window is empty (e.g. a brand-new
+    // tracker): the change is undefined, not a misleading +100%.
+    statsService.query
+      .mockResolvedValueOnce({
+        series: [seriesPoint("2026-07-10T00:00:00Z", 5000)],
+      })
+      .mockResolvedValueOnce({ series: [] });
+    const { result } = renderHook(() => useDnsPeriodComparison("24h"), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    const data = result.current.data!;
+    expect(data.previous.total).toBe(0);
+    expect(data.totalChangePercent).toBeNull();
+  });
+});
+
+describe("useDnsPerDeviceStats", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("is disabled until a device id is supplied", async () => {
+    statsService.query.mockResolvedValue({ series: [] });
+    renderHook(() => useDnsPerDeviceStats(null, "24h"), { wrapper: wrapper() });
+    // No query fires while the device id is null.
+    expect(statsService.query).not.toHaveBeenCalled();
+  });
+
+  it("queries the by-device metric filtered to the selected device", async () => {
+    statsService.query.mockResolvedValue({
+      series: [
+        seriesPoint("2026-07-02T01:00:00Z", 7),
+        seriesPoint("2026-07-02T00:00:00Z", 3),
+      ],
+    });
+    const { result } = renderHook(() => useDnsPerDeviceStats("dev-1", "24h"), {
+      wrapper: wrapper(),
+    });
+    await waitFor(() => expect(result.current.data).toBeDefined());
+    expect(statsService.query.mock.calls[0][0]).toMatchObject({
+      metric: "dns.queries.by_device",
+      label_filter: JSON.stringify({ device_id: "dev-1" }),
+    });
+    // Points are returned oldest-first.
+    expect(result.current.data).toEqual([
+      { ts: "2026-07-02T00:00:00Z", total: 3 },
+      { ts: "2026-07-02T01:00:00Z", total: 7 },
+    ]);
   });
 });

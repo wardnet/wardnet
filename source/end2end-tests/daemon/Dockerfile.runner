@@ -47,6 +47,12 @@ COPY source/end2end-tests/daemon/package.json \
 
 RUN yarn install --immutable
 
+# WireGuard .conf fixtures the tunnel-lifecycle specs import via
+# TunnelService.create (issue #247). Copied in — not read from the /repo
+# bind mount — so the specs resolve them relative to their own location
+# (`../fixtures/tunnels`), the same way they run on a workstation.
+COPY source/end2end-tests/daemon/fixtures/tunnels ./fixtures/tunnels
+
 # Tests + configs come last so iterating on specs doesn't bust the
 # yarn-install cache layer.
 COPY source/end2end-tests/daemon/tsconfig.json \

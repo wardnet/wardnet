@@ -76,7 +76,7 @@ export function ZonesCard() {
         header: "Zone",
         cell: ({ row }) => (
           <span className="flex flex-wrap items-center gap-2">
-            <Text as="span" size="sm" className="font-medium">
+            <Text as="span" size="sm" weight="medium">
               {row.original.name}
             </Text>
             {row.original.is_default && (
@@ -344,7 +344,11 @@ function ZoneForm({
               value={stance}
               onValueChange={(v) => setStance(v as ZoneStance)}
             >
-              <SelectTrigger id="zone-stance" className="w-full">
+              <SelectTrigger
+                id="zone-stance"
+                data-testid="zone-stance"
+                className="w-full"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

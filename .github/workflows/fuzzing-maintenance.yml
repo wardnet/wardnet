@@ -15,15 +15,19 @@ on:
     - cron: "0 3 * * 0"
   workflow_dispatch:
 
+# Top-level read-only; `issues: write` is granted per-job to the CFLite
+# runs that can file a crash issue, keeping the token least-privilege.
 permissions:
   contents: read
-  issues: write
 
 jobs:
   coverage:
     name: Coverage report
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: write  # CFLite run_fuzzers files a GitHub Issue on a new crash
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -54,6 +58,9 @@ jobs:
     name: Prune corpus
     needs: coverage
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write  # CFLite run_fuzzers files a GitHub Issue on a new crash
     # fuzz-seconds (20) + CFLite build + setup.
     timeout-minutes: 40
     steps:

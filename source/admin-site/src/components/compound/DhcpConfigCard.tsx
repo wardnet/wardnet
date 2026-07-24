@@ -166,9 +166,7 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-medium text-ink-3">
-          Configuration
-        </CardTitle>
+        <CardTitle className="text-ink-3">Configuration</CardTitle>
         {!editing && (
           <CardAction>
             <Button
@@ -323,7 +321,11 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
         </>
       ) : (
         <CardContent>
-          <dl className="grid grid-cols-1 gap-x-8 gap-y-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <Text
+            as="dl"
+            size="sm"
+            className="grid grid-cols-1 gap-x-8 gap-y-3 sm:grid-cols-2 lg:grid-cols-3"
+          >
             <div>
               <dt className="text-ink-3">Gateway IP</dt>
               <Text as="dd" size="xs" className="font-mono">
@@ -361,8 +363,15 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
             </div>
             <div>
               <dt className="text-ink-3">Upstream DNS</dt>
-              <dd
-                className={`flex items-center gap-1.5 ${dnsEnabled ? "font-medium" : "font-mono text-xs"}`}
+              <Text
+                as="dd"
+                size={dnsEnabled ? "sm" : "xs"}
+                weight={dnsEnabled ? "medium" : "normal"}
+                className={
+                  dnsEnabled
+                    ? "flex items-center gap-1.5"
+                    : "flex items-center gap-1.5 font-mono"
+                }
               >
                 {dnsEnabled === undefined
                   ? "…"
@@ -392,9 +401,9 @@ export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
                     <Info size={14} aria-hidden className="shrink-0" />
                   </span>
                 )}
-              </dd>
+              </Text>
             </div>
-          </dl>
+          </Text>
         </CardContent>
       )}
     </Card>

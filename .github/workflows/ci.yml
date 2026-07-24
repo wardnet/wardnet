@@ -176,3 +176,19 @@ jobs:
       packages: read
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
+
+  cubit:
+    name: Cubit
+    needs: preflight
+    # Record the performance baseline on main so the next PR has something to
+    # compare against. Advisory; never blocks. No bot-skip (a push to main is a
+    # trusted event with a full token, like the coverage leaf). pull-requests
+    # is granted only to match the shared reusable workflow's ceiling — the
+    # record path posts no comment.
+    if: >
+      needs.preflight.outputs.daemon == 'true' ||
+      needs.preflight.outputs.ci == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+    uses: ./.github/workflows/cubit.yml

@@ -335,6 +335,37 @@ impl DeviceDiscoveryServiceImpl {
             .clone()
     }
 
+    /// Clear a departed device's stored `last_ip` so its row can no longer be
+    /// resolved by a live device's source IP in `find_by_ip` (the IP-keyed
+    /// self-service auth path) once DHCP recycles the departed address.
+    ///
+    /// Taken under the per-mac lock and gated on the device still being `gone`:
+    /// a device that reappears in the same instant as the departure sweep has
+    /// already had the live IP written to its row by its own observation, so we
+    /// must not clobber that back to empty. Holding the same lock the
+    /// observation path holds serialises the two; the re-check closes the window
+    /// between the sweep flipping `gone` and this acquiring the lock.
+    async fn clear_departed_ip(&self, device_id: Uuid, mac: &str) {
+        let mac_lock = self.lock_for_mac(mac).await;
+        let _guard = mac_lock.lock_owned().await;
+
+        // Skip the clear if the device reappeared between the sweep flipping
+        // `gone` and this acquiring the lock — its observation has already
+        // written the live IP under this same lock, which we must not clobber.
+        let still_gone = {
+            let state = self.state.read().await;
+            state.get(mac).is_none_or(|entry| entry.gone)
+        };
+        if still_gone && let Err(e) = self.devices.clear_last_ip(&device_id.to_string()).await {
+            tracing::warn!(
+                error = %e,
+                device_id = %device_id,
+                mac = %mac,
+                "device discovery: failed to clear departed device's last_ip"
+            );
+        }
+    }
+
     /// Handle a device not found in the in-memory map.
     ///
     /// Checks the database for a previous record, and either reappears the device
@@ -589,6 +620,8 @@ enum ObsAction {
 #[async_trait]
 impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     async fn restore_devices(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
         // Fold the configured zone subnets into the trusted set before we start
         // processing observations, so a device inside a zone subnet isn't dropped
         // in the window between startup and the first zone-change event.
@@ -681,6 +714,8 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         &self,
         obs: &ObservedDevice,
     ) -> Result<ObservationResult, AppError> {
+        auth_context::require_admin()?;
+
         // Filter out observations from IPs outside every trusted subnet (the LAN
         // `/24` plus any configured Network-Zone subnet). When the Pi is the
         // gateway, return traffic from the internet arrives with the router's MAC
@@ -793,6 +828,8 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     }
 
     async fn flush_last_seen(&self) -> Result<u64, AppError> {
+        auth_context::require_admin()?;
+
         let updates: Vec<(String, String)> = {
             let state = self.state.read().await;
             let now = chrono::Utc::now().to_rfc3339();
@@ -815,6 +852,8 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     }
 
     async fn scan_departures(&self, timeout_secs: u64) -> Result<Vec<Uuid>, AppError> {
+        auth_context::require_admin()?;
+
         let timeout = std::time::Duration::from_secs(timeout_secs);
 
         let departed: Vec<(Uuid, String, String)> = {
@@ -832,6 +871,7 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         let ids: Vec<Uuid> = departed.iter().map(|(id, _, _)| *id).collect();
 
         for (device_id, mac, last_ip) in departed {
+            self.clear_departed_ip(device_id, &mac).await;
             self.publish_device_gone(device_id, mac, last_ip);
         }
 
@@ -839,6 +879,8 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
     }
 
     async fn resolve_hostname(&self, mac: &str, ip: &str) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
         // The MAC may belong to a device the registry hasn't seen yet (e.g.
         // a lease event arriving before packet capture observes the device).
         // Treat that as a no-op rather than an error; the next observation
@@ -1125,6 +1167,7 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
 
         match gone {
             Some((id, mac, last_ip)) => {
+                self.clear_departed_ip(id, &mac).await;
                 self.publish_device_gone(id, mac, last_ip);
                 Ok(Some(id))
             }

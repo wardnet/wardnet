@@ -26,6 +26,7 @@ use super::dns::{self, DnsResolveArgs};
 use super::interfaces::{self, InterfacesArgs};
 use super::models::ClientError;
 use super::ping::{self, PingArgs};
+use super::proxy::{self, ProxyRequest};
 use super::routes::{self, RoutesArgs};
 
 /// Arguments for the `client serve` subcommand.
@@ -50,6 +51,7 @@ pub async fn run(args: ServeArgs) {
         .route("/dns/resolve", get(get_dns_resolve))
         .route("/ping", post(post_ping))
         .route("/dhcp/renew", post(post_dhcp_renew))
+        .route("/proxy", post(post_proxy))
         .route("/arp/send", post(arp::post_arp_send))
         .route("/arp/capture", post(arp::post_arp_capture));
 
@@ -148,6 +150,10 @@ async fn post_dhcp_renew(Json(req): Json<DhcpRenewRequest>) -> impl IntoResponse
         client: req.client.map_or(DhcpClient::Dhclient, Into::into),
     };
     into_response(dhcp::run(args).await)
+}
+
+async fn post_proxy(Json(req): Json<ProxyRequest>) -> impl IntoResponse {
+    into_response(proxy::run(req.into()).await)
 }
 
 /// Maps a probe `Result` to an axum response. Errors surface as 500

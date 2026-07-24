@@ -104,6 +104,34 @@ nordvpn = false
 }
 
 #[test]
+fn stub_tunnel_backends_defaults_off() {
+    // A production config never carries a `[test]` section; the seam must stay
+    // disabled by default so the real WireGuard / HTTP / ICMP backends are used.
+    let config = ApplicationConfiguration::default();
+    assert!(!config.test.stub_tunnel_backends);
+}
+
+#[test]
+fn load_test_stub_tunnel_backends_override() {
+    let dir = std::env::temp_dir().join("wardnet-config-test-section");
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("wardnet-test-section.toml");
+    std::fs::write(
+        &path,
+        r"
+[test]
+stub_tunnel_backends = true
+",
+    )
+    .unwrap();
+
+    let config = ApplicationConfiguration::load(&path).unwrap();
+    assert!(config.test.stub_tunnel_backends);
+
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
 fn load_secret_store_file_system_section() {
     let dir = std::env::temp_dir().join("wardnet-config-secret-store-test");
     let _ = std::fs::create_dir_all(&dir);

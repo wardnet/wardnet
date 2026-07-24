@@ -14,6 +14,7 @@ use uuid::Uuid;
 use wardnet_common::api::{
     DeviceMeResponse, DnsCaptureSettingsResponse, DnsEventItem, SetMyRuleResponse,
 };
+use wardnet_common::auth::AuthContext;
 use wardnet_common::device::{Device, DeviceType};
 use wardnet_common::routing::RoutingTarget;
 
@@ -136,6 +137,10 @@ struct MockDnsEventsDeviceService {
     pending: Vec<DnsEventItem>,
     /// When `true`, `fetch_pending_dns_events` returns an error.
     fetch_error: bool,
+    /// Records the `AuthContext` observed inside `fetch_pending_dns_events`, so
+    /// a test can assert the SSE handler propagated the request's identity into
+    /// the detached flush task.
+    observed_ctx: Arc<std::sync::Mutex<Option<AuthContext>>>,
 }
 
 impl MockDnsEventsDeviceService {
@@ -144,6 +149,7 @@ impl MockDnsEventsDeviceService {
             device: Some(sample_device()),
             pending,
             fetch_error: false,
+            observed_ctx: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -152,6 +158,7 @@ impl MockDnsEventsDeviceService {
             device: None,
             pending: vec![],
             fetch_error: false,
+            observed_ctx: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -160,7 +167,13 @@ impl MockDnsEventsDeviceService {
             device: Some(sample_device()),
             pending: vec![],
             fetch_error: true,
+            observed_ctx: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    /// Handle to the slot recording the context seen by the flush task.
+    fn ctx_recorder(&self) -> Arc<std::sync::Mutex<Option<AuthContext>>> {
+        self.observed_ctx.clone()
     }
 }
 
@@ -183,6 +196,7 @@ impl DeviceService for MockDnsEventsDeviceService {
                 admin_locked: false,
                 available_tunnels: vec![],
                 zone: None,
+                routing_profiles: vec![],
             }),
             None => Err(AppError::NotFound("device not found".to_owned())),
         }
@@ -200,6 +214,12 @@ impl DeviceService for MockDnsEventsDeviceService {
     async fn current_rules(
         &self,
     ) -> Result<std::collections::HashMap<Uuid, RoutingTarget>, AppError> {
+        unimplemented!()
+    }
+    async fn get_rule_for_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<RoutingTarget>, AppError> {
         unimplemented!()
     }
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
@@ -233,17 +253,11 @@ impl DeviceService for MockDnsEventsDeviceService {
         _after_id: i64,
         _limit: i64,
     ) -> Result<Vec<DnsEventItem>, AppError> {
+        *self.observed_ctx.lock().unwrap() = wardnetd_services::auth_context::try_current();
         if self.fetch_error {
             return Err(AppError::Internal(anyhow::anyhow!("db error")));
         }
         Ok(self.pending.clone())
-    }
-    async fn mark_dns_events_synced(
-        &self,
-        _device_id: &str,
-        _up_to_id: i64,
-    ) -> Result<(), AppError> {
-        Ok(())
     }
     async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
         Ok(())
@@ -463,6 +477,53 @@ async fn stream_emits_flush_event_from_mock() {
 }
 
 #[tokio::test]
+async fn stream_propagates_request_auth_context_to_flush_task() {
+    let pending = vec![DnsEventItem {
+        id: 9,
+        domain: "captured.example".to_owned(),
+        status: "allowed".to_owned(),
+        captured_at: "2026-06-12T00:00:00Z".to_owned(),
+    }];
+    let svc = MockDnsEventsDeviceService::with_device(pending);
+    let recorder = svc.ctx_recorder();
+    let app = dns_events_router(build_state(svc));
+
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap(),
+    };
+
+    // Drive the request inside an admin context. The flush task is spawned
+    // detached, so it does NOT inherit this task-local — the only way the mock
+    // observes the admin context is if the handler captured it and re-wrapped
+    // the task in `with_context`. Dropping that wrap would leave the flush task
+    // context-less and fail this assertion.
+    let resp = wardnetd_services::auth_context::with_context(
+        admin_ctx,
+        app.oneshot(
+            Request::builder()
+                .uri("/api/devices/me/dns-events/stream")
+                .extension(client_connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        ),
+    )
+    .await
+    .unwrap();
+
+    // Reading the body drives the flush phase to completion, so the mock's
+    // fetch call (and its context capture) has run by the time we assert.
+    let _ = axum::body::to_bytes(resp.into_body(), 4096)
+        .await
+        .unwrap_or_default();
+
+    let observed = recorder.lock().unwrap().clone();
+    assert!(
+        matches!(observed, Some(AuthContext::Admin { .. })),
+        "flush task must run under the request's admin context, got: {observed:?}"
+    );
+}
+
+#[tokio::test]
 async fn stream_returns_404_for_unknown_ip() {
     let state = build_state(MockDnsEventsDeviceService::not_found());
     let app = dns_events_router(state);
@@ -566,6 +627,155 @@ async fn stream_delivers_live_event_from_bus() {
 }
 
 #[tokio::test]
+async fn stream_closes_on_client_disconnect_without_matching_event() {
+    // Idle device: no pending rows to flush and no DnsEventInserted for this
+    // device is ever published, so the live loop can only end when the client
+    // hangs up. Drive `pump_dns_events` directly rather than through the HTTP
+    // handler (which spawns the task detached) so the test owns the JoinHandle
+    // and can await termination deterministically instead of polling.
+    let (publisher, event_tx) = LiveEventPublisher::new();
+    let subscribed = publisher.subscribed_notify();
+    let state =
+        build_state_with_publisher(MockDnsEventsDeviceService::with_device(vec![]), publisher);
+
+    // Keep the broadcast sender alive for the whole test so the only way the loop
+    // can exit is `tx.closed()` — dropping it would let the task leave via
+    // `RecvError::Closed` instead, defeating the point of the test.
+    let _event_tx = event_tx;
+
+    let device_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel::<
+        Result<axum::response::sse::Event, std::convert::Infallible>,
+    >(64);
+
+    let handle = tokio::spawn(crate::api::dns_events::pump_dns_events(
+        state,
+        device_uuid,
+        device_uuid.to_string(),
+        0,
+        tx,
+    ));
+
+    // Wait until the task subscribes; with no pending rows it then falls straight
+    // into the live loop with no matching event to forward.
+    subscribed.notified().await;
+
+    // Simulate closing the tab: dropping the mpsc receiver closes the channel,
+    // which resolves `tx.closed()` inside the live loop's `select!`.
+    drop(rx);
+
+    // The task must observe the disconnect and return promptly, even though no
+    // matching event was ever published. A `recv()`-only loop would park here
+    // forever; the timeout turns that regression into a failure instead of a hang.
+    let joined = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    assert!(
+        matches!(joined, Ok(Ok(()))),
+        "SSE pump task did not terminate after client disconnect: {joined:?}"
+    );
+}
+
+#[tokio::test]
+async fn stream_stops_when_flush_send_fails() {
+    // Two pending rows but a 1-slot mpsc channel: the first flush send fills the
+    // buffer, the second blocks (the receiver is never drained), and dropping the
+    // receiver fails that send so the flush phase returns before the live loop.
+    let pending = vec![
+        DnsEventItem {
+            id: 1,
+            domain: "a.example".to_owned(),
+            status: "allowed".to_owned(),
+            captured_at: "2026-06-12T00:00:00Z".to_owned(),
+        },
+        DnsEventItem {
+            id: 2,
+            domain: "b.example".to_owned(),
+            status: "blocked".to_owned(),
+            captured_at: "2026-06-12T00:00:01Z".to_owned(),
+        },
+    ];
+    let state = build_state(MockDnsEventsDeviceService::with_device(pending));
+
+    let device_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel::<
+        Result<axum::response::sse::Event, std::convert::Infallible>,
+    >(1);
+
+    let handle = tokio::spawn(crate::api::dns_events::pump_dns_events(
+        state,
+        device_uuid,
+        device_uuid.to_string(),
+        0,
+        tx,
+    ));
+
+    // Let the flush send the first row and park on the blocked second send.
+    tokio::task::yield_now().await;
+
+    // Client hangs up mid-flush: the in-flight send fails and the pump returns.
+    drop(rx);
+
+    let joined = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    assert!(
+        matches!(joined, Ok(Ok(()))),
+        "pump did not stop after flush send failure: {joined:?}"
+    );
+}
+
+#[tokio::test]
+async fn stream_stops_when_live_event_send_fails() {
+    // A matching live event is forwarded, but the client hangs up mid-delivery so
+    // the `tx.send(...)` in the live loop fails and the pump returns. A 1-slot mpsc
+    // channel makes this deterministic: the first event fills the buffer, the
+    // second event's send blocks (the receiver is never drained), and dropping the
+    // receiver then fails that in-flight send.
+    let (publisher, event_tx) = LiveEventPublisher::new();
+    let subscribed = publisher.subscribed_notify();
+    let state =
+        build_state_with_publisher(MockDnsEventsDeviceService::with_device(vec![]), publisher);
+
+    let device_uuid = Uuid::parse_str("00000000-0000-0000-0000-000000000001").unwrap();
+    let (tx, rx) = tokio::sync::mpsc::channel::<
+        Result<axum::response::sse::Event, std::convert::Infallible>,
+    >(1);
+
+    let handle = tokio::spawn(crate::api::dns_events::pump_dns_events(
+        state,
+        device_uuid,
+        device_uuid.to_string(),
+        0,
+        tx,
+    ));
+
+    subscribed.notified().await;
+
+    let make_event = |row_id: i64| WardnetEvent::DnsEventInserted {
+        device_id: device_uuid,
+        row_id,
+        domain: "live.example.com".to_owned(),
+        status: "allowed".to_owned(),
+        captured_at: "2026-06-12T00:00:00Z".to_owned(),
+        timestamp: chrono::Utc::now(),
+    };
+    // First event fills the single buffer slot; the second event's send then
+    // blocks because the receiver is never drained.
+    let _ = event_tx.send(make_event(1));
+    let _ = event_tx.send(make_event(2));
+
+    // Let the pump forward the first event and park on the blocked second send.
+    tokio::task::yield_now().await;
+
+    // Client hangs up: dropping the receiver fails the in-flight send, so the loop
+    // returns via the `tx.send(...).is_err()` path rather than `tx.closed()`.
+    drop(rx);
+
+    let joined = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    assert!(
+        matches!(joined, Ok(Ok(()))),
+        "pump did not stop after live-event send failure: {joined:?}"
+    );
+}
+
+#[tokio::test]
 async fn stream_closes_on_bus_lag() {
     // Use a channel with capacity 1 so we can force a lag condition by
     // publishing 2 messages before the subscriber drains any.
@@ -605,10 +815,22 @@ async fn stream_closes_on_bus_lag() {
     };
     let _ = tx.send(fake_event.clone());
     let _ = tx.send(fake_event);
-    drop(tx);
 
-    // The stream body should close (possibly empty) — the lag arm breaks the loop.
-    let _ = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
+    // Keep `tx` ALIVE through the drain. A live sender makes `RecvError::Closed`
+    // impossible, so the stream can only close if the `RecvError::Lagged => break`
+    // arm actually fires. If that arm regresses to `continue`, the live loop
+    // blocks forever on an open-but-empty bus and the timeout below (not a false
+    // pass) is what fails the test.
+    let drained = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        axum::body::to_bytes(resp.into_body(), 4096),
+    )
+    .await
+    .expect("stream did not close on lag — the RecvError::Lagged arm no longer breaks the loop");
+    drained.unwrap();
+
+    // Sender is still open here; dropping it now is only cleanup.
+    drop(tx);
 }
 
 #[tokio::test]

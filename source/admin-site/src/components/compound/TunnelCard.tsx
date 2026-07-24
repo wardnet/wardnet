@@ -6,7 +6,6 @@ import {
   RotateCcw,
   SlidersHorizontal,
 } from "lucide-react";
-import { useState } from "react";
 import { Link } from "react-router";
 import { Button } from "@wardnet/web";
 import { Text } from "@wardnet/web";
@@ -18,12 +17,6 @@ import {
   formatMs,
   retentionPct,
   timeAgo,
-} from "@wardnet/web";
-import {
-  useTestTunnel,
-  useRebuildTunnel,
-  useSpeedTestResults,
-  useStartSpeedTest,
 } from "@wardnet/web";
 import type {
   Tunnel,
@@ -47,9 +40,11 @@ function SpeedTestComparison({ result }: { result: TunnelSpeedTestResult }) {
   const jitterOverhead = result.tunnel_jitter_ms - result.direct_jitter_ms;
 
   return (
-    <div
+    <Text
+      as="div"
+      size="xs"
       data-testid="tunnel-speed-test-result"
-      className="col gap-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg-sunken)] px-3 py-2 text-xs"
+      className="col gap-4 rounded-[var(--radius-md)] border border-[var(--line)] bg-[var(--bg-sunken)] px-3 py-2"
     >
       <div className="row text-ink-3">
         <Text as="span" size="2xs" weight="medium">
@@ -103,7 +98,7 @@ function SpeedTestComparison({ result }: { result: TunnelSpeedTestResult }) {
           {formatMs(jitterOverhead)}
         </span>
       </div>
-    </div>
+    </Text>
   );
 }
 
@@ -151,63 +146,75 @@ function statusTooltip(tunnel: Tunnel): string | undefined {
   }
 }
 
+/** A completed (or failed) connectivity test for one tunnel, held by the
+ *  owning page so the mutation is hoisted out of the card per the "Mutation
+ *  hoisting" convention. */
+export interface TunnelTestOutcome {
+  result: TunnelTestResult | null;
+  error: string | null;
+  /** ISO 8601 timestamp of when the test finished. */
+  testedAt: string;
+}
+
 interface TunnelCardProps {
   tunnel: Tunnel;
   providers: ProviderInfo[];
   onDelete: (id: string) => void;
+  onTest: (id: string) => void;
+  onRebuild: (id: string) => void;
+  onSpeedTest: (id: string) => void;
+  /** This card's connectivity-test outcome, or `null` if it hasn't run one. */
+  testOutcome: TunnelTestOutcome | null;
+  /** Whether this card's connectivity test is in flight. */
+  testing: boolean;
+  /** Whether this card's rebuild is in flight. */
+  rebuilding: boolean;
+  /** Whether this card's speed test is running. */
+  speedTestRunning: boolean;
+  /** Progress of the running speed test (0 when not running). */
+  speedTestPercentage: number;
+  /** Latest speed-test result for this card, or `null`. */
+  speedTestResult: TunnelSpeedTestResult | null;
 }
 
 /** Card displaying a single WireGuard tunnel with status and stats.
  *  Consumes the Forge `.tcard` family (`.tcard__head` / `.tcard__flag` /
  *  `.tcard__title` / `.tcard__sub` / `.tcard__grid` / `.tcard__throughput`)
- *  per the studio mock in `forge/docs/screens.jsx`. */
-export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
+ *  per the studio mock in `forge/docs/screens.jsx`. Pure presentation: the
+ *  owning page wires the query/mutation hooks and passes data + callbacks in. */
+export function TunnelCard({
+  tunnel,
+  providers,
+  onDelete,
+  onTest,
+  onRebuild,
+  onSpeedTest,
+  testOutcome,
+  testing,
+  rebuilding,
+  speedTestRunning,
+  speedTestPercentage,
+  speedTestResult,
+}: TunnelCardProps) {
   const provider = providers.find((p) => p.id === tunnel.provider);
   const flag = tunnel.country_code ? countryFlag(tunnel.country_code) : "";
 
-  const testTunnel = useTestTunnel();
-  const rebuildTunnel = useRebuildTunnel();
-  const startSpeedTest = useStartSpeedTest();
-  // Only fetch this tunnel's speed-test history once the user has run a test
-  // on this card (avoids one request per card across the whole tunnels grid on
-  // load — persisted history lives on the tunnel detail page). A run in flight
-  // also enables it so the prior result shows while the new test runs.
-  const [speedTestRequested, setSpeedTestRequested] = useState(false);
-  const speedTestRunning =
-    startSpeedTest.isRunning && startSpeedTest.activeTunnelId === tunnel.id;
-  const speedTestResults = useSpeedTestResults(
-    tunnel.id,
-    speedTestRequested || speedTestRunning,
-  );
-  const latestSpeedTest = speedTestResults.data?.results[0] ?? null;
-  const [testResult, setTestResult] = useState<TunnelTestResult | null>(null);
-  const [testError, setTestError] = useState<string | null>(null);
-  const [testedAt, setTestedAt] = useState<string | null>(null);
+  const testResult = testOutcome?.result ?? null;
+  const testError = testOutcome?.error ?? null;
+  const testedAt = testOutcome?.testedAt ?? null;
 
   const onSpeedTestClick = (e: React.MouseEvent) => {
     // Card is wrapped in <Link>; don't navigate when clicking Speed test.
     e.preventDefault();
     e.stopPropagation();
-    setSpeedTestRequested(true);
-    startSpeedTest.start(tunnel.id);
+    onSpeedTest(tunnel.id);
   };
 
   const onTestClick = (e: React.MouseEvent) => {
     // Card is wrapped in <Link>; don't navigate when clicking Test.
     e.preventDefault();
     e.stopPropagation();
-    testTunnel.mutate(tunnel.id, {
-      onSuccess: (data) => {
-        setTestResult(data.result);
-        setTestError(null);
-        setTestedAt(new Date().toISOString());
-      },
-      onError: (err) => {
-        setTestResult(null);
-        setTestError(err instanceof Error ? err.message : "Tunnel test failed");
-        setTestedAt(new Date().toISOString());
-      },
-    });
+    onTest(tunnel.id);
   };
 
   const subParts: string[] = [];
@@ -316,15 +323,17 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
         </Text>
       )}
       {testError && !testResult && (
-        <div
+        <Text
+          as="div"
           role="alert"
-          className="rounded-[var(--radius-md)] border border-[var(--danger-soft)] bg-[var(--danger-soft)] px-3 py-2 text-xs text-[var(--danger-soft-ink)]"
+          size="xs"
+          className="rounded-[var(--radius-md)] border border-[var(--danger-soft)] bg-[var(--danger-soft)] px-3 py-2 text-[var(--danger-soft-ink)]"
         >
           {testError}
-        </div>
+        </Text>
       )}
 
-      {latestSpeedTest && <SpeedTestComparison result={latestSpeedTest} />}
+      {speedTestResult && <SpeedTestComparison result={speedTestResult} />}
 
       <div className="row gap-8" style={{ justifyContent: "flex-end" }}>
         <Button
@@ -337,7 +346,7 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
           {speedTestRunning ? (
             <>
               <Loader2 className="mr-1 size-3 animate-spin" aria-hidden />
-              Testing {startSpeedTest.percentage}%
+              Testing {speedTestPercentage}%
             </>
           ) : (
             <>
@@ -349,10 +358,10 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
         <Button
           size="sm"
           variant="outline"
-          disabled={testTunnel.isPending}
+          disabled={testing}
           onClick={onTestClick}
         >
-          {testTunnel.isPending ? (
+          {testing ? (
             <>
               <Loader2 className="mr-1 size-3 animate-spin" aria-hidden />
               Testing
@@ -364,12 +373,15 @@ export function TunnelCard({ tunnel, providers, onDelete }: TunnelCardProps) {
         <Button
           size="sm"
           variant="outline"
-          disabled={
-            rebuildTunnel.isPending && rebuildTunnel.variables === tunnel.id
-          }
-          onClick={() => rebuildTunnel.mutate(tunnel.id)}
+          disabled={rebuilding}
+          onClick={(e) => {
+            // Card is wrapped in <Link>; don't navigate when clicking Rebuild.
+            e.preventDefault();
+            e.stopPropagation();
+            onRebuild(tunnel.id);
+          }}
         >
-          {rebuildTunnel.isPending && rebuildTunnel.variables === tunnel.id ? (
+          {rebuilding ? (
             <>
               <Loader2 className="mr-1 size-3 animate-spin" aria-hidden />
               Rebuilding

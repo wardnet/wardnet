@@ -18,8 +18,9 @@ use wardnetd_data::secret_store::SecretStore;
 use crate::Backends;
 use crate::device::hostname_resolver::HostnameResolver;
 use crate::device::packet_capture::{ObservedDevice, PacketCapture};
+use crate::diagnostics::DiagnosticStore;
 use crate::error::AppError;
-use crate::logging::{ErrorNotifierService, LogService, LogServiceImpl, LogStreamService};
+use crate::logging::{LogService, LogServiceImpl, LogStreamService};
 use crate::routing::firewall::FirewallManager;
 use crate::routing::policy_router::PolicyRouter;
 use crate::system::SystemPowerOps;
@@ -148,6 +149,49 @@ impl PolicyRouter for StubPolicyRouter {
     async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
         unimplemented!()
     }
+    async fn add_switchback_rule(
+        &self,
+        _src_ip: &str,
+        _dst_cidr: &str,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn remove_switchback_rule(
+        &self,
+        _src_ip: &str,
+        _dst_cidr: &str,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn list_switchback_rules(&self) -> anyhow::Result<Vec<(String, String, u32)>> {
+        unimplemented!()
+    }
+    async fn add_domain_route_rule(
+        &self,
+        _src_ip: &str,
+        _dst_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn remove_domain_route_rule(
+        &self,
+        _src_ip: &str,
+        _dst_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn list_domain_route_rules(
+        &self,
+        _priority: u32,
+    ) -> anyhow::Result<Vec<(String, String, u32)>> {
+        unimplemented!()
+    }
     async fn flush_conntrack(&self, _src_ip: &str) -> anyhow::Result<()> {
         unimplemented!()
     }
@@ -181,6 +225,9 @@ struct StubFirewall;
 #[async_trait]
 impl FirewallManager for StubFirewall {
     async fn init_wardnet_table(&self) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
         unimplemented!()
     }
     async fn flush_wardnet_table(&self) -> anyhow::Result<()> {
@@ -452,10 +499,10 @@ impl crate::dns_filter::blocklist_downloader::BlocklistFetcher for StubBlocklist
 
 fn stub_log_service() -> Arc<dyn LogService> {
     let stream = Arc::new(LogStreamService::new(16));
-    let errors = Arc::new(ErrorNotifierService::new(15));
+    let diagnostics = Arc::new(DiagnosticStore::new(15));
     Arc::new(LogServiceImpl::new(
         stream,
-        errors,
+        diagnostics,
         std::path::PathBuf::from("/tmp/wardnet-init-test.log"),
     ))
 }

@@ -170,7 +170,7 @@ cargo build \
     --config 'profile.release.debug="line-tables-only"' \
     --bins
 
-FUZZ_TARGETS=(archiver_unpack sqlite_restore bundle_manifest)
+FUZZ_TARGETS=(archiver_unpack sqlite_restore bundle_manifest dns_response)
 for target in "${FUZZ_TARGETS[@]}"; do
     cp "target/${FUZZ_TRIPLE}/release/${target}" "$OUT/"
 done

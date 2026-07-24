@@ -36,9 +36,13 @@ use wardnet_common::dns::{
 use wardnet_common::net::is_private_ip;
 use wardnetd_data::repository::{QueryLogRow, TunnelRepository};
 use wardnetd_services::DnsFilterService;
+use wardnetd_services::RoutingProfileService;
 use wardnetd_services::dns::DnsLogSink;
-use wardnetd_services::dns::authoritative::{AuthoritativeView, parse_conditional_upstream};
+use wardnetd_services::dns::authoritative::{
+    AuthoritativeView, build_soa, parse_conditional_upstream, parse_ptr_ipv4, private_reverse_zone,
+};
 use wardnetd_services::dns::cache::DnsCache;
+use wardnetd_services::dns::classify_response;
 use wardnetd_services::dns::server::DnsSocket;
 
 use crate::dns::rate_limit::RateLimiter;
@@ -48,6 +52,11 @@ pub(crate) type TokioRecursor = Recursor<TokioRuntimeProvider>;
 
 /// Maximum number of pre-bound UDP sockets kept in the conditional-forwarding pool.
 const CONDITIONAL_SOCKET_POOL_SIZE: usize = 8;
+
+/// How long a conditional-forward query waits for its upstream response before
+/// giving up. Bounds the whole receive phase, not a single `recv` — so a socket
+/// that keeps delivering stale datagrams still can't stall the query past this.
+const CONDITIONAL_RECV_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The daemon-owned local DNS zone. Single-label queries that miss the
 /// authoritative view are retried under this suffix (the local search-domain
@@ -105,6 +114,36 @@ impl std::fmt::Debug for ClientIdentity {
     }
 }
 
+/// Which transport delivered a query. Stamped on every log row (the
+/// `protocol` column, issue #912) so `DoT`-served queries stay attributable
+/// after the fact.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransportProtocol {
+    /// Classic cleartext UDP on `:53`.
+    Udp,
+    /// DNS-over-TLS on `:853` (RFC 7858).
+    Dot,
+}
+
+impl TransportProtocol {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Udp => "udp",
+            Self::Dot => "dot",
+        }
+    }
+}
+
+/// Write-time attribution stamped on every log row for one query: the
+/// resolved device (if any) plus the transport it arrived over. `Copy`, so
+/// the forwarding helpers can pass it along without threading two
+/// parameters.
+#[derive(Clone, Copy)]
+pub(crate) struct QueryAttribution {
+    pub(crate) device_id: Option<Uuid>,
+    pub(crate) protocol: TransportProtocol,
+}
+
 /// Cached metadata required to forward a query to a specific tunnel's
 /// DNS server with `SO_BINDTODEVICE` set so the upstream packet egresses
 /// via the tunnel interface (see issue #342 — without this, the packet
@@ -142,6 +181,11 @@ pub struct QueryPipeline {
     pub(crate) rate_limiter: Arc<RateLimiter>,
     pub(crate) cache: Arc<RwLock<DnsCache>>,
     pub(crate) dns_filter: Arc<dyn DnsFilterService>,
+    /// Routing profiles (issue #241). After answering an upstream query, the
+    /// pipeline calls `note_resolution` so a domain matched by the querying
+    /// device's routing profile has its resolved IPs pinned to the chosen
+    /// tunnel. `None` in the mock/bench pipelines, which do no enforcement.
+    pub(crate) routing_profile: Option<Arc<dyn RoutingProfileService>>,
     pub(crate) log_sink: Option<Arc<DnsLogSink>>,
     /// Lock-free per-query upstream-selection snapshot, populated by the
     /// routing service. Maps a tunneled-device IP to `Tunnel(_)` only
@@ -175,6 +219,10 @@ pub struct QueryPipeline {
     /// spoofing window). The pool is capped at [`CONDITIONAL_SOCKET_POOL_SIZE`];
     /// under-capacity sockets are created on demand.
     pub(crate) conditional_socket_pool: Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
+    /// Deadline for the conditional-forward receive phase. Defaults to
+    /// [`CONDITIONAL_RECV_TIMEOUT`]; tests shorten it to drive the timeout
+    /// path deterministically without a multi-second wait.
+    pub(crate) conditional_recv_timeout: std::time::Duration,
 }
 
 impl QueryPipeline {
@@ -190,6 +238,7 @@ impl QueryPipeline {
         rate_limiter: Arc<RateLimiter>,
         cache: Arc<RwLock<DnsCache>>,
         dns_filter: Arc<dyn DnsFilterService>,
+        routing_profile: Option<Arc<dyn RoutingProfileService>>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
         device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
@@ -201,6 +250,7 @@ impl QueryPipeline {
             rate_limiter,
             cache,
             dns_filter,
+            routing_profile,
             log_sink: None,
             routing_snapshot,
             device_snapshot,
@@ -208,6 +258,7 @@ impl QueryPipeline {
             tunnel_forwarders: Arc::new(RwLock::new(HashMap::new())),
             authoritative_view: Arc::new(ArcSwap::from_pointee(AuthoritativeView::empty())),
             conditional_socket_pool: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            conditional_recv_timeout: CONDITIONAL_RECV_TIMEOUT,
         }
     }
 
@@ -220,10 +271,12 @@ impl QueryPipeline {
     /// always arriving.
     ///
     /// `src` is the transport-level peer address — it keys the rate
-    /// limiter, the per-client upstream selection, and the filter-policy
-    /// lookup, and is stamped on log rows. `client` carries the
-    /// attribution identity (see [`ClientIdentity`]); the UDP listener
-    /// passes `Ip(src.ip())`.
+    /// limiter and the per-client upstream selection, and is stamped on
+    /// log rows. `client` carries the attribution identity (see
+    /// [`ClientIdentity`]); the UDP listener passes `Ip(src.ip())`, and a
+    /// device-authenticated client's filter policy resolves through its
+    /// device context rather than the per-IP map. `protocol` names the
+    /// transport for the log row's `protocol` column.
     #[allow(clippy::too_many_lines)]
     pub async fn handle(
         &self,
@@ -231,6 +284,7 @@ impl QueryPipeline {
         src: SocketAddr,
         reply: &Arc<dyn DnsSocket>,
         client: ClientIdentity,
+        protocol: TransportProtocol,
     ) -> anyhow::Result<()> {
         use hickory_proto::rr::{Name, Record};
 
@@ -255,26 +309,21 @@ impl QueryPipeline {
             ClientIdentity::Ip(ip) => self.device_snapshot.load().get(ip).copied(),
             ClientIdentity::Device { device_id, .. } => Some(*device_id),
         };
+        let attribution = QueryAttribution {
+            device_id,
+            protocol,
+        };
         let log_sink = self.log_sink.as_deref();
 
-        // 1. Rate limit (per-client token bucket). 0 disables; shed flooding
-        // clients before any resolution work, returning REFUSED. The rate is
-        // read lock-free from the limiter (no config lock on the hot path).
-        if !self.rate_limiter.check(src.ip()) {
-            send_refused(reply, src, id, &request).await?;
-            record_query(
-                log_sink,
-                &domain,
-                rtype,
-                src,
-                device_id,
-                DnsQueryResult::RateLimited.as_str(),
-                None,
-                start.elapsed(),
-            );
-            tracing::debug!(%domain, %src, "rate-limited DNS query");
-            return Ok(());
-        }
+        // NOTE: the per-client rate limiter is applied later, right before a
+        // query is forwarded upstream (see stage 3) — not here. Its purpose is
+        // to protect upstreams, so locally-answerable queries (authoritative
+        // records, reverse PTR for private ranges, cache hits, filter
+        // block/rewrite) must never be shed by it. Gating only the
+        // upstream-bound path is what breaks the RFC1918 PTR flood: a mesh node
+        // hammering private reverse lookups is answered locally every time and
+        // so never trips the limiter into REFUSED — the response that was
+        // driving its retry loop.
 
         // 0. Resolve upstream pool for this client.
         let upstream_id = self
@@ -286,6 +335,103 @@ impl QueryPipeline {
 
         let domain_lower = domain.trim_end_matches('.').to_ascii_lowercase();
         let view = self.authoritative_view.load();
+
+        // 0.4. Reverse PTR for private ranges (RFC 6303). A PTR (or ANY) query
+        //      for a private/internal IPv4 (RFC 1918, link-local, or RFC 6598
+        //      CGN) is answered locally — the hostname when a forward record
+        //      names the address, otherwise an authoritative NXDOMAIN with a
+        //      synthetic SOA so the negative is cacheable (RFC 2308). Either way
+        //      it never leaks upstream and, being local, is exempt from the rate
+        //      limiter — which is what stops the mesh nodes' RFC1918 PTR storm
+        //      from self-amplifying into a REFUSED-driven retry loop. A
+        //      conditional-forwarding rule covering the reverse name still wins
+        //      (checked last so the cheap parse/zone gates reject non-reverse
+        //      names before the O(rules) scan runs), matching the zone-authority
+        //      precedence below.
+        if matches!(
+            rtype,
+            hickory_proto::rr::RecordType::PTR | hickory_proto::rr::RecordType::ANY
+        ) && let Some(ptr_ip) = parse_ptr_ipv4(&domain_lower)
+            && let Some(zone) = private_reverse_zone(ptr_ip)
+            && view.match_forwarding_rule(&domain_lower).is_none()
+        {
+            let ptr_records: Vec<(String, u32)> = view
+                .reverse_lookup(ptr_ip)
+                .map(|recs| recs.iter().map(|r| (r.domain.clone(), r.ttl)).collect())
+                .unwrap_or_default();
+            // The address "exists" in the zone iff some forward record names it;
+            // that decides NODATA vs NXDOMAIN below even if every target then
+            // fails to render.
+            let name_exists = !ptr_records.is_empty();
+            drop(view);
+
+            let name = Name::from_str_relaxed(&domain)?;
+            let mut response = Message::response(id, OpCode::Query);
+            response.metadata.recursion_desired = true;
+            response.metadata.recursion_available = true;
+            response.metadata.authoritative = true;
+            response.add_queries(request.queries.clone());
+
+            for (target, ttl) in &ptr_records {
+                match Name::from_str_relaxed(target) {
+                    Ok(tname) => {
+                        response.add_answer(Record::from_rdata(
+                            name.clone(),
+                            *ttl,
+                            hickory_proto::rr::RData::PTR(hickory_proto::rr::rdata::PTR(tname)),
+                        ));
+                    }
+                    Err(e) => tracing::warn!(
+                        %target,
+                        error = %e,
+                        "skipping malformed reverse-PTR target name"
+                    ),
+                }
+            }
+
+            let result = if response.answers.is_empty() {
+                // No servable answer. Attach the reverse zone's synthetic SOA so
+                // the negative is cacheable (RFC 2308). If no record names the
+                // address it truly does not exist (NXDOMAIN); if one does but we
+                // couldn't render it, the name exists with no data (NODATA) —
+                // NXDOMAIN there would wrongly poison the negative cache.
+                if !name_exists {
+                    response.metadata.response_code = ResponseCode::NXDomain;
+                }
+                match build_soa(&zone, 1) {
+                    Ok(soa) => {
+                        response.add_authority(soa);
+                    }
+                    Err(e) => tracing::warn!(
+                        %zone,
+                        error = %e,
+                        "failed to build synthetic SOA for reverse zone; omitting it"
+                    ),
+                }
+                if name_exists {
+                    DnsQueryResult::AuthoritativeNodata.as_str()
+                } else {
+                    DnsQueryResult::AuthoritativeNxdomain.as_str()
+                }
+            } else {
+                DnsQueryResult::Authoritative.as_str()
+            };
+
+            let bytes = response.to_bytes()?;
+            reply.send_to(&bytes, src).await?;
+            tracing::trace!(%domain, %ptr_ip, result, "authoritative reverse PTR answer");
+            record_query(
+                log_sink,
+                &domain,
+                rtype,
+                src,
+                attribution,
+                result,
+                None,
+                start.elapsed(),
+            );
+            return Ok(());
+        }
 
         // 0.5. Authoritative answer — BEFORE cache, bypasses filter.
         let is_any = rtype == hickory_proto::rr::RecordType::ANY;
@@ -403,7 +549,7 @@ impl QueryPipeline {
                 &domain,
                 rtype,
                 src,
-                device_id,
+                attribution,
                 DnsQueryResult::Authoritative.as_str(),
                 None,
                 start.elapsed(),
@@ -481,7 +627,7 @@ impl QueryPipeline {
                 &domain,
                 rtype,
                 src,
-                device_id,
+                attribution,
                 result,
                 None,
                 start.elapsed(),
@@ -494,11 +640,11 @@ impl QueryPipeline {
         //    versa).
         let cached = {
             let cache_guard = self.cache.read().await;
-            cache_guard.get(upstream_id, &domain, rtype)
+            cache_guard.get(upstream_id, &domain, rtype, id)
         };
-        if let Some(mut response) = cached {
-            response.metadata.id = id;
-            let bytes = response.to_bytes()?;
+        if let Some(bytes) = cached {
+            // The cache already stamped our transaction id and aged the TTLs;
+            // the buffer is send-ready with no per-hit clone or re-encode.
             reply.send_to(&bytes, src).await?;
             tracing::trace!(%domain, ?rtype, ?upstream_id, "cache hit");
             record_query(
@@ -506,7 +652,7 @@ impl QueryPipeline {
                 &domain,
                 rtype,
                 src,
-                device_id,
+                attribution,
                 DnsQueryResult::CacheHit.as_str(),
                 None,
                 start.elapsed(),
@@ -514,8 +660,18 @@ impl QueryPipeline {
             return Ok(());
         }
 
-        // 2. Filter.
-        let outcome = self.dns_filter.check(&domain_lower, rtype, src.ip()).await;
+        // 2. Filter. An IP-attributed client resolves its policy through the
+        //    per-IP map; a device-authenticated client (DoT SNI token) gets
+        //    its own device-keyed context, so its profiles apply even when
+        //    `src` is an address the per-IP map doesn't cover.
+        let outcome = match &client {
+            ClientIdentity::Ip(_) => self.dns_filter.check(&domain_lower, rtype, src.ip()).await,
+            ClientIdentity::Device { device_id, .. } => {
+                self.dns_filter
+                    .check_for_device(&domain_lower, rtype, *device_id, src.ip())
+                    .await
+            }
+        };
 
         match outcome.action {
             FilterAction::Block => {
@@ -532,7 +688,7 @@ impl QueryPipeline {
                     &domain,
                     rtype,
                     src,
-                    device_id,
+                    attribution,
                     DnsQueryResult::Blocked.as_str(),
                     None,
                     start.elapsed(),
@@ -569,7 +725,7 @@ impl QueryPipeline {
                     &domain,
                     rtype,
                     src,
-                    device_id,
+                    attribution,
                     DnsQueryResult::Rewritten.as_str(),
                     None,
                     start.elapsed(),
@@ -579,11 +735,56 @@ impl QueryPipeline {
             FilterAction::Pass => {}
         }
 
+        // 2.5. Rate limit — the last gate before the query leaves for an
+        //      upstream. Only queries that reach here consume a token: every
+        //      locally-answered path (authoritative record, reverse PTR, cache
+        //      hit, filter block/rewrite) has already returned, so a flood of
+        //      those is never REFUSED. The limiter's job is to protect
+        //      upstreams from a client amplifying its query rate, so gating it
+        //      to the upstream-bound path is both its true purpose and the fix
+        //      for the RFC1918 PTR storm.
+        //
+        //      Only IP-attributed clients are limited here. A device-
+        //      authenticated transport (DoT) already rate-limits per grant
+        //      token at its listener — its `src` is the TCP peer, which for a
+        //      relayed roaming device is a shared loopback/relay address, so
+        //      limiting by `src.ip()` here would pool every device into one
+        //      bucket (and double-charge LAN clients).
+        if matches!(client, ClientIdentity::Ip(_)) && !self.rate_limiter.check(src.ip()) {
+            send_refused(reply, src, id, &request).await?;
+            record_query(
+                log_sink,
+                &domain,
+                rtype,
+                src,
+                attribution,
+                DnsQueryResult::RateLimited.as_str(),
+                None,
+                start.elapsed(),
+            );
+            tracing::debug!(%domain, %src, "rate-limited DNS query");
+            return Ok(());
+        }
+
         // 3. Forward to upstream — conditional forwarding overrides upstream_id.
         let pass_result = if outcome.would_have_blocked {
             DnsQueryResult::BlockedSkipped.as_str()
         } else {
             DnsQueryResult::Forwarded.as_str()
+        };
+
+        // Domain routing (#241) enforcement installs an `ip rule` keyed on the
+        // querying device's forwarding source IP. Only an IP-attributed client
+        // guarantees `src.ip()` IS that address; a device-authenticated (DoT)
+        // client's `src` may be a shared relay/loopback peer (see the
+        // rate-limiter note above), so keying a rule on it would install one
+        // that never matches the device's traffic — or, worse, matches the
+        // relay's. Enforce domain routes only for IP-attributed clients; the
+        // hook is a no-op for the rest.
+        let routing_profile = if matches!(client, ClientIdentity::Ip(_)) {
+            self.routing_profile.as_ref()
+        } else {
+            None
         };
 
         if let Some(cond_upstream) = conditional_upstream {
@@ -597,13 +798,14 @@ impl QueryPipeline {
                 &request,
                 id,
                 src,
-                device_id,
+                attribution,
                 &domain,
                 rtype,
                 start,
                 pass_result,
                 upstream_id,
                 &self.conditional_socket_pool,
+                self.conditional_recv_timeout,
             )
             .await
             {
@@ -619,7 +821,7 @@ impl QueryPipeline {
                     &domain,
                     rtype,
                     src,
-                    device_id,
+                    attribution,
                     DnsQueryResult::UpstreamError.as_str(),
                     Some(cond_upstream.ip().to_string()),
                     start.elapsed(),
@@ -643,12 +845,13 @@ impl QueryPipeline {
                         request,
                         id,
                         src,
-                        device_id,
+                        attribution,
                         &domain,
                         rtype,
                         start,
                         pass_result,
                         upstream_id,
+                        routing_profile,
                     )
                     .await?;
                 } else {
@@ -661,12 +864,13 @@ impl QueryPipeline {
                         request,
                         id,
                         src,
-                        device_id,
+                        attribution,
                         &domain,
                         rtype,
                         start,
                         pass_result,
                         upstream_id,
+                        routing_profile,
                     )
                     .await?;
                 }
@@ -690,12 +894,13 @@ impl QueryPipeline {
                             &request,
                             id,
                             src,
-                            device_id,
+                            attribution,
                             &domain,
                             rtype,
                             start,
                             pass_result,
                             upstream_id,
+                            routing_profile,
                         )
                         .await
                         {
@@ -711,7 +916,7 @@ impl QueryPipeline {
                                 &domain,
                                 rtype,
                                 src,
-                                device_id,
+                                attribution,
                                 DnsQueryResult::UpstreamError.as_str(),
                                 Some(forwarder.upstream.ip().to_string()),
                                 start.elapsed(),
@@ -730,7 +935,7 @@ impl QueryPipeline {
                             &domain,
                             rtype,
                             src,
-                            device_id,
+                            attribution,
                             DnsQueryResult::UpstreamError.as_str(),
                             None,
                             start.elapsed(),
@@ -754,18 +959,35 @@ async fn forward_via_default_resolver(
     request: Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
     pass_result: &str,
     upstream_id: UpstreamId,
+    routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
-    let resolver_guard = resolver.read().await;
-    let lookup: Result<Lookup, _> = resolver_guard.lookup(domain, rtype).await;
+    // Clone the Arc-backed resolver out and drop the read guard before the
+    // upstream round-trip. tokio's RwLock is write-preferring, so holding the
+    // guard across `.lookup().await` lets an `update_config` resolver rebuild
+    // (the queued writer) block every new query until the slowest in-flight
+    // lookup returns — a single config edit could otherwise stall DNS for all
+    // clients for as long as the upstream timeout.
+    let resolver = resolver.read().await.clone();
+    let lookup: Result<Lookup, _> = resolver.lookup(domain, rtype).await;
 
-    let cfg = config.read().await;
-    let upstream = upstream_label(&cfg.upstream_servers);
+    // Snapshot the config fields we need, then drop the guard, so the response
+    // and cache work below doesn't hold the config lock across its awaits
+    // either.
+    let (upstream, rebinding_protection, ttl_min, ttl_max) = {
+        let cfg = config.read().await;
+        (
+            upstream_label(&cfg.upstream_servers),
+            cfg.rebinding_protection,
+            cfg.cache_ttl_min_secs,
+            cfg.cache_ttl_max_secs,
+        )
+    };
 
     match lookup {
         Ok(lookup) => {
@@ -776,17 +998,18 @@ async fn forward_via_default_resolver(
                 &request,
                 id,
                 src,
-                device_id,
+                attribution,
                 domain,
                 rtype,
                 start,
                 pass_result,
                 upstream_id,
                 upstream,
-                cfg.rebinding_protection,
-                cfg.cache_ttl_min_secs,
-                cfg.cache_ttl_max_secs,
+                rebinding_protection,
+                ttl_min,
+                ttl_max,
                 lookup.answers(),
+                routing_profile,
             )
             .await?;
         }
@@ -802,7 +1025,7 @@ async fn forward_via_default_resolver(
                 &request,
                 id,
                 src,
-                device_id,
+                attribution,
                 domain,
                 rtype,
                 start,
@@ -811,8 +1034,8 @@ async fn forward_via_default_resolver(
                 upstream,
                 nx_domain,
                 e.into_soa(),
-                cfg.cache_ttl_min_secs,
-                cfg.cache_ttl_max_secs,
+                ttl_min,
+                ttl_max,
             )
             .await?;
         }
@@ -825,7 +1048,7 @@ async fn forward_via_default_resolver(
                 domain,
                 rtype,
                 src,
-                device_id,
+                attribution,
                 DnsQueryResult::UpstreamError.as_str(),
                 upstream,
                 elapsed,
@@ -847,7 +1070,7 @@ async fn send_resolved(
     request: &Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -858,6 +1081,7 @@ async fn send_resolved(
     cache_ttl_min_secs: u32,
     cache_ttl_max_secs: u32,
     answers: &[hickory_proto::rr::Record],
+    routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
     use hickory_proto::rr::RData;
 
@@ -880,7 +1104,7 @@ async fn send_resolved(
             domain,
             rtype,
             src,
-            device_id,
+            attribution,
             DnsQueryResult::RebindingBlocked.as_str(),
             upstream_label,
             start.elapsed(),
@@ -904,16 +1128,35 @@ async fn send_resolved(
     socket.send_to(&bytes, src).await?;
 
     if min_ttl < u32::MAX && min_ttl > 0 {
+        // Cache the exact bytes we just sent — no separate encode.
         let mut cache_guard = cache.write().await;
         cache_guard.insert(
             upstream_id,
             domain,
             rtype,
-            response,
+            bytes,
             min_ttl,
             cache_ttl_min_secs,
             cache_ttl_max_secs,
         );
+    }
+
+    // Domain routing (issue #241): if the querying device has a routing profile
+    // matching this name, pin the resolved destinations to the chosen tunnel.
+    // Cheap and non-blocking — an in-memory lookup plus a channel `try_send`.
+    if let (Some(routing_profile), Some(device_id)) = (routing_profile, attribution.device_id) {
+        let resolved_ips: Vec<IpAddr> = answers
+            .iter()
+            .filter_map(|record| match &record.data {
+                RData::A(a) => Some(IpAddr::V4(a.0)),
+                RData::AAAA(a) => Some(IpAddr::V6(a.0)),
+                _ => None,
+            })
+            .collect();
+        if !resolved_ips.is_empty() {
+            let ttl = if min_ttl == u32::MAX { 0 } else { min_ttl };
+            routing_profile.note_resolution(device_id, src.ip(), domain, &resolved_ips, ttl);
+        }
     }
 
     let elapsed = start.elapsed();
@@ -923,7 +1166,7 @@ async fn send_resolved(
         domain,
         rtype,
         src,
-        device_id,
+        attribution,
         pass_result,
         upstream_label,
         elapsed,
@@ -947,12 +1190,13 @@ pub(crate) async fn resolve_via_recursor(
     request: Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
     pass_result: &str,
     upstream_id: UpstreamId,
+    routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
     let Some(query) = request.queries.first().cloned() else {
         send_servfail(socket, src, id, &request).await?;
@@ -982,12 +1226,13 @@ pub(crate) async fn resolve_via_recursor(
         request,
         id,
         src,
-        device_id,
+        attribution,
         domain,
         rtype,
         start,
         pass_result,
         upstream_id,
+        routing_profile,
     )
     .await
 }
@@ -1007,12 +1252,13 @@ pub(crate) async fn handle_recursor_outcome(
     request: Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
     pass_result: &str,
     upstream_id: UpstreamId,
+    routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
     let (has_upstreams, rebinding, ttl_min, ttl_max) = {
         let cfg = config.read().await;
@@ -1033,7 +1279,7 @@ pub(crate) async fn handle_recursor_outcome(
                 &request,
                 id,
                 src,
-                device_id,
+                attribution,
                 domain,
                 rtype,
                 start,
@@ -1044,6 +1290,7 @@ pub(crate) async fn handle_recursor_outcome(
                 ttl_min,
                 ttl_max,
                 &msg.answers,
+                routing_profile,
             )
             .await?;
         }
@@ -1060,7 +1307,7 @@ pub(crate) async fn handle_recursor_outcome(
                 &request,
                 id,
                 src,
-                device_id,
+                attribution,
                 domain,
                 rtype,
                 start,
@@ -1090,12 +1337,13 @@ pub(crate) async fn handle_recursor_outcome(
                     request,
                     id,
                     src,
-                    device_id,
+                    attribution,
                     domain,
                     rtype,
                     start,
                     pass_result,
                     upstream_id,
+                    routing_profile,
                 )
                 .await?;
             } else {
@@ -1105,7 +1353,7 @@ pub(crate) async fn handle_recursor_outcome(
                     domain,
                     rtype,
                     src,
-                    device_id,
+                    attribution,
                     DnsQueryResult::RecursorFailed.as_str(),
                     None,
                     start.elapsed(),
@@ -1127,12 +1375,13 @@ async fn forward_via_tunnel(
     _request: &Message,
     _id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
     pass_result: &str,
     upstream_id: UpstreamId,
+    routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
     // Build a fresh ephemeral UDP socket bound to the tunnel interface
     // (`SO_BINDTODEVICE`). One per query keeps response demultiplexing
@@ -1172,15 +1421,41 @@ async fn forward_via_tunnel(
         if raw_ttl > 0 {
             let cfg = config.read().await;
             let mut cache_guard = cache.write().await;
+            // Cache the raw upstream datagram we relayed, not a re-encode of
+            // the parsed message.
             cache_guard.insert(
                 upstream_id,
                 domain,
                 rtype,
-                parsed,
+                buf.clone(),
                 raw_ttl,
                 cfg.cache_ttl_min_secs,
                 cfg.cache_ttl_max_secs,
             );
+        }
+
+        // Domain routing (issue #241) — same post-resolution hook as the default
+        // upstream path, for devices whose tunnel overrides their DNS upstream.
+        if let (Some(routing_profile), Some(device_id)) = (routing_profile, attribution.device_id) {
+            use hickory_proto::rr::RData;
+            let resolved_ips: Vec<IpAddr> = parsed
+                .answers
+                .iter()
+                .filter_map(|record| match &record.data {
+                    RData::A(a) => Some(IpAddr::V4(a.0)),
+                    RData::AAAA(a) => Some(IpAddr::V6(a.0)),
+                    _ => None,
+                })
+                .collect();
+            if !resolved_ips.is_empty() {
+                routing_profile.note_resolution(
+                    device_id,
+                    src.ip(),
+                    domain,
+                    &resolved_ips,
+                    raw_ttl,
+                );
+            }
         }
     }
 
@@ -1199,37 +1474,12 @@ async fn forward_via_tunnel(
         domain,
         rtype,
         src,
-        device_id,
+        attribution,
         result,
         Some(forwarder.upstream.ip().to_string()),
         elapsed,
     );
     Ok(())
-}
-
-/// Classify a parsed upstream response for caching: positive answers use the
-/// answers' minimum TTL; negative answers (NXDOMAIN, or NOERROR with zero
-/// answers) use the RFC 2308 negative TTL — min(SOA record TTL, SOA MINIMUM)
-/// from the authority section, or 0 (uncacheable) when the zone forbids
-/// negative caching or carries no SOA. Returns `(is_negative, raw_ttl)`.
-fn classify_response(parsed: &Message) -> (bool, u32) {
-    use hickory_proto::rr::RData;
-
-    let negative = parsed.metadata.response_code == ResponseCode::NXDomain
-        || (parsed.metadata.response_code == ResponseCode::NoError && parsed.answers.is_empty());
-    if negative {
-        let ttl = parsed
-            .authorities
-            .iter()
-            .find_map(|r| match &r.data {
-                RData::SOA(soa) => Some(r.ttl.min(soa.minimum)),
-                _ => None,
-            })
-            .unwrap_or(0);
-        return (true, ttl);
-    }
-    let min_ttl = parsed.answers.iter().map(|r| r.ttl).min().unwrap_or(0);
-    (false, min_ttl)
 }
 
 /// The query-log result for a relayed upstream response: negative answers
@@ -1255,7 +1505,7 @@ async fn send_negative(
     request: &Message,
     nx_domain: bool,
     authority: Option<hickory_proto::rr::Record>,
-) -> anyhow::Result<Message> {
+) -> anyhow::Result<Vec<u8>> {
     let mut response = Message::response(id, OpCode::Query);
     response.metadata.recursion_desired = true;
     response.metadata.recursion_available = true;
@@ -1270,7 +1520,9 @@ async fn send_negative(
     }
     let bytes = response.to_bytes()?;
     socket.send_to(&bytes, src).await?;
-    Ok(response)
+    // Returns the wire bytes (not the `Message`) so the negative-cache path can
+    // store exactly what was sent without re-encoding.
+    Ok(bytes)
 }
 
 /// Shared negative-answer responder for the recursive and forwarding paths:
@@ -1287,7 +1539,7 @@ async fn relay_negative(
     request: &Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
@@ -1327,7 +1579,7 @@ async fn relay_negative(
         (None, 0)
     };
 
-    let response = send_negative(socket, src, id, request, nx_domain, authority).await?;
+    let bytes = send_negative(socket, src, id, request, nx_domain, authority).await?;
 
     if negative_ttl > 0 {
         let mut cache_guard = cache.write().await;
@@ -1335,7 +1587,7 @@ async fn relay_negative(
             upstream_id,
             domain,
             rtype,
-            response,
+            bytes,
             negative_ttl,
             cache_ttl_min_secs,
             cache_ttl_max_secs,
@@ -1348,7 +1600,7 @@ async fn relay_negative(
         domain,
         rtype,
         src,
-        device_id,
+        attribution,
         result,
         upstream_label,
         start.elapsed(),
@@ -1461,7 +1713,7 @@ pub(crate) fn record_query(
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     result: &str,
     upstream: Option<String>,
     latency: std::time::Duration,
@@ -1476,7 +1728,8 @@ pub(crate) fn record_query(
         result: result.to_owned(),
         upstream,
         latency_ms: duration_to_ms(latency),
-        device_id: device_id.map(|id| id.to_string()),
+        device_id: attribution.device_id.map(|id| id.to_string()),
+        protocol: attribution.protocol.as_str().to_owned(),
     };
     sink.record(row);
 }
@@ -1576,10 +1829,17 @@ fn make_rdata(
 ///
 /// Borrows a socket from `pool` (or creates a new one if the pool is empty),
 /// `connect`s it to `upstream` (so the kernel only delivers responses from that
-/// peer), sends the query, then validates the response transaction ID and question
-/// before forwarding to the client. Without txid validation, a pooled socket that
-/// already has a late/duplicate response buffered from a previous query could
-/// deliver it to the wrong client.
+/// peer), sends the query, then reads until the response to *this* query arrives
+/// or `recv_timeout` elapses.
+///
+/// A pooled socket can carry a datagram left over from a previous query — a
+/// duplicate, or a response that arrived after that query had already timed out.
+/// `connect()` does not flush it (Linux keeps `sk_receive_queue` across a
+/// re-connect), so the receive loop skips any datagram whose txid or question
+/// doesn't match and keeps reading, rather than failing the query on the first
+/// stale datagram. On timeout or a receive error the socket is dropped instead of
+/// pooled, so a late response can't queue on it and poison the next borrower; only
+/// a socket that delivered a clean, validated answer goes back to the pool.
 #[allow(clippy::too_many_arguments)]
 async fn forward_via_conditional(
     upstream: SocketAddr,
@@ -1591,13 +1851,14 @@ async fn forward_via_conditional(
     request: &Message,
     id: u16,
     src: SocketAddr,
-    device_id: Option<Uuid>,
+    attribution: QueryAttribution,
     domain: &str,
     rtype: hickory_proto::rr::RecordType,
     start: std::time::Instant,
     pass_result: &str,
     upstream_id: UpstreamId,
     pool: &Arc<tokio::sync::Mutex<Vec<UdpSocket>>>,
+    recv_timeout: std::time::Duration,
 ) -> anyhow::Result<()> {
     // Check out a socket from the pool, or create a new one.
     let bound = {
@@ -1616,46 +1877,71 @@ async fn forward_via_conditional(
     bound.connect(upstream).await?;
     bound.send(packet).await?;
 
+    // Read until this query's own answer arrives or the deadline passes. The
+    // deadline bounds the whole phase, so a socket that only ever yields stale
+    // datagrams still can't stall the query past `recv_timeout`. On error or
+    // timeout the function returns early, dropping `bound` instead of pooling it
+    // — a late response can then never queue on a reused socket.
+    let deadline = tokio::time::Instant::now() + recv_timeout;
     let mut buf = vec![0u8; 4096];
-    let recv = tokio::time::timeout(std::time::Duration::from_secs(5), bound.recv(&mut buf)).await;
+    let mut first_recv = true;
+    // The loop settles on either this query's validated response — which we relay
+    // and cache — or `None`: an unparseable first datagram we relay raw without
+    // caching, matching the pre-pool behaviour. Either way `buf` holds the bytes
+    // to relay, truncated to that datagram's length.
+    let parsed: Option<Message> = loop {
+        let n = match tokio::time::timeout_at(deadline, bound.recv(&mut buf)).await {
+            Ok(Ok(n)) => n,
+            Ok(Err(e)) => return Err(anyhow::anyhow!("conditional upstream recv error: {e}")),
+            Err(_) => return Err(anyhow::anyhow!("conditional upstream timeout")),
+        };
+        let was_first = first_recv;
+        first_recv = false;
 
-    let n = match recv {
-        Ok(Ok(n)) => n,
-        Ok(Err(e)) => {
-            return_socket_to_pool(pool, bound).await;
-            return Err(anyhow::anyhow!("conditional upstream recv error: {e}"));
-        }
-        Err(_) => {
-            return_socket_to_pool(pool, bound).await;
-            return Err(anyhow::anyhow!("conditional upstream timeout"));
+        // Bind the parse before matching so the `&buf[..n]` borrow ends here and
+        // the arms can re-borrow `buf` mutably to truncate it.
+        let decoded = Message::from_bytes(&buf[..n]);
+        match decoded {
+            Ok(msg) => {
+                // Only a datagram whose txid and question match the outbound
+                // query is this query's own response. Anything else is a stale
+                // datagram left on a pooled socket (or an off-path forgery the
+                // kernel shouldn't have delivered) — skip it and keep reading,
+                // so it is never served, cached, or turned into a SERVFAIL.
+                if msg.metadata.id == id
+                    && msg.queries.first().map(hickory_proto::op::Query::name)
+                        == request.queries.first().map(hickory_proto::op::Query::name)
+                {
+                    buf.truncate(n);
+                    break Some(msg);
+                }
+            }
+            Err(_) => {
+                // Treat only the first datagram as this query's own response: on
+                // a fresh socket nothing else can be queued, and on a reused one
+                // any stale *parseable* datagram was already skipped above.
+                // hickory can't decode this one, but the client's own resolver
+                // still might, so relay the raw bytes without caching — as the
+                // pre-pool code did. (A stale *undecodable* leftover on a reused
+                // socket is the one case this can misattribute, but that needs an
+                // upstream to have sent undecodable trailing bytes — the same
+                // edge the pre-pool single-recv had.) Once we've skipped a stale
+                // datagram, a later undecodable one can't be trusted: skip it.
+                if was_first {
+                    buf.truncate(n);
+                    break None;
+                }
+            }
         }
     };
-    buf.truncate(n);
 
-    // Validate the response before forwarding: txid and question must match the
-    // outbound query. A pooled socket could in theory receive a late response to a
-    // prior query; txid validation ensures stale datagrams are never served or cached.
+    // Relay the settled datagram (still in `buf`) and return the socket — clean,
+    // since it just delivered this query's response — to the pool.
+    socket.send_to(&buf, src).await?;
+    return_socket_to_pool(pool, bound).await;
+
     let mut result = pass_result;
-    if let Ok(parsed) = Message::from_bytes(&buf) {
-        if parsed.metadata.id != id {
-            return_socket_to_pool(pool, bound).await;
-            return Err(anyhow::anyhow!(
-                "conditional upstream response txid mismatch (got {}, expected {id})",
-                parsed.metadata.id
-            ));
-        }
-        if parsed.queries.first().map(hickory_proto::op::Query::name)
-            != request.queries.first().map(hickory_proto::op::Query::name)
-        {
-            return_socket_to_pool(pool, bound).await;
-            return Err(anyhow::anyhow!(
-                "conditional upstream response question mismatch"
-            ));
-        }
-
-        socket.send_to(&buf, src).await?;
-        return_socket_to_pool(pool, bound).await;
-
+    if let Some(parsed) = parsed {
         let (is_negative, raw_ttl) = classify_response(&parsed);
         result = relayed_result(is_negative, pass_result);
         if raw_ttl > 0 {
@@ -1665,16 +1951,12 @@ async fn forward_via_conditional(
                 upstream_id,
                 domain,
                 rtype,
-                parsed,
+                buf.clone(),
                 raw_ttl,
                 cfg.cache_ttl_min_secs,
                 cfg.cache_ttl_max_secs,
             );
         }
-    } else {
-        // Parse failed — send raw bytes and don't cache.
-        socket.send_to(&buf, src).await?;
-        return_socket_to_pool(pool, bound).await;
     }
 
     let elapsed = start.elapsed();
@@ -1684,7 +1966,7 @@ async fn forward_via_conditional(
         domain,
         rtype,
         src,
-        device_id,
+        attribution,
         result,
         Some(upstream.ip().to_string()),
         elapsed,

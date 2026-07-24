@@ -103,6 +103,12 @@ impl DeviceService for MockDeviceService {
     ) -> Result<HashMap<Uuid, wardnet_common::routing::RoutingTarget>, AppError> {
         unimplemented!("not exercised by inbound-wg tests")
     }
+    async fn get_rule_for_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<wardnet_common::routing::RoutingTarget>, AppError> {
+        unimplemented!("not exercised by inbound-wg tests")
+    }
     async fn update_admin_locked(&self, _device_id: &str, _locked: bool) -> Result<(), AppError> {
         unimplemented!("not exercised by inbound-wg tests")
     }
@@ -134,13 +140,6 @@ impl DeviceService for MockDeviceService {
         _after_id: i64,
         _limit: i64,
     ) -> Result<Vec<wardnet_common::api::DnsEventItem>, AppError> {
-        unimplemented!("not exercised by inbound-wg tests")
-    }
-    async fn mark_dns_events_synced(
-        &self,
-        _device_id: &str,
-        _up_to_id: i64,
-    ) -> Result<(), AppError> {
         unimplemented!("not exercised by inbound-wg tests")
     }
     async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
@@ -340,6 +339,9 @@ struct MockFirewall {
 #[async_trait]
 impl FirewallManager for MockFirewall {
     async fn init_wardnet_table(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn ensure_isolation_jumps(&self) -> anyhow::Result<()> {
         Ok(())
     }
     async fn flush_wardnet_table(&self) -> anyhow::Result<()> {

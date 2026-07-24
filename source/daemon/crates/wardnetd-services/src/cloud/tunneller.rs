@@ -24,12 +24,21 @@
 //! ## Frame protocol
 //!
 //! Byte-identical to `wardnet-cloud`'s `crates/tunneller/src/tunnel/handler.rs`.
-//! For the UDP relay path only these matter (`FRAME_READY` 0x02 is the TCP/SNI
-//! path's "local connect succeeded" signal and is **never used** for UDP —
-//! datagrams flow immediately after `FRAME_CONNECT`):
+//! Two relay paths share the same framing:
+//!
+//! * **UDP / `WireGuard`** (`dest_port` advisory): datagrams flow immediately
+//!   after `FRAME_CONNECT` — the daemon opens a loopback UDP socket to its own
+//!   inbound-WG port and relays. `FRAME_READY` is not part of this path.
+//! * **TCP / Private DNS** (`dest_port == 853`): the cloud edge terminates the
+//!   `:853` SNI passthrough and asks the daemon to reach its local `DoT`
+//!   listener. Here `FRAME_READY` is load-bearing — the daemon TCP-connects
+//!   `127.0.0.1:853` and only after the connect succeeds emits `FRAME_READY`,
+//!   the "local end is up, start streaming" signal the cloud waits for before
+//!   forwarding the client's bytes.
 //!
 //! ```text
 //! FRAME_CONNECT 0x01  node→daemon  [type, conn_id:u32be, dest_port:u16be]
+//! FRAME_READY   0x02  daemon→node  [type, conn_id:u32be]   (TCP path: local connect ok)
 //! FRAME_DATA    0x03  both         [type, conn_id:u32be, payload...]
 //! FRAME_CLOSE   0x04  both         [type, conn_id:u32be]
 //! FRAME_PING    0x05  node→daemon  [type, 0u32]   (application-level, not WS ping)
@@ -54,9 +63,12 @@ pub(crate) const TUNNEL_PATH: &str = "/tunneller/v1/tunnel";
 
 // ── Frame protocol constants (mirror wardnet-cloud `handler.rs`) ────────────────
 
-/// `node→daemon`: a new inbound UDP flow — open a local relay socket for `conn_id`.
+/// `node→daemon`: a new inbound flow — open a local relay for `conn_id`.
 pub(crate) const FRAME_CONNECT: u8 = 0x01;
-/// Both directions: one relayed datagram for `conn_id`.
+/// `daemon→node`: the TCP path's local connect succeeded for `conn_id`; the node
+/// may now stream client bytes. Never emitted for the UDP path.
+pub(crate) const FRAME_READY: u8 = 0x02;
+/// Both directions: one relayed datagram/segment for `conn_id`.
 pub(crate) const FRAME_DATA: u8 = 0x03;
 /// Both directions: tear down `conn_id`.
 pub(crate) const FRAME_CLOSE: u8 = 0x04;
@@ -67,7 +79,8 @@ pub(crate) const FRAME_PING: u8 = 0x05;
 pub(crate) const FRAME_PONG: u8 = 0x06;
 
 /// A decoded inbound frame (node→daemon). Anything malformed or unrecognised
-/// (including the unused `FRAME_READY`) decodes to [`None`] and is ignored.
+/// decodes to [`None`] and is ignored. `FRAME_READY` is daemon→node only, so it
+/// is never a valid inbound frame and likewise decodes to [`None`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Frame {
     /// A new inbound flow. `dest_port` is **advisory only** — the runner relays to
@@ -84,7 +97,8 @@ pub(crate) enum Frame {
 
 /// Decode an inbound binary frame, or [`None`] if it is too short, carries an
 /// unrecognised type, or is a well-formed frame the daemon does not act on
-/// (`FRAME_READY`, or a `FRAME_PING` with a non-zero `conn_id`).
+/// inbound (`FRAME_READY`, which only flows daemon→node, or a `FRAME_PING` with a
+/// non-zero `conn_id`).
 pub(crate) fn decode(data: &[u8]) -> Option<Frame> {
     // Every frame is at least `[type, conn_id:u32be]` = 5 bytes.
     if data.len() < 5 {
@@ -113,6 +127,15 @@ pub(crate) fn encode_data(conn_id: u32, payload: &[u8]) -> Vec<u8> {
     f.push(FRAME_DATA);
     f.extend_from_slice(&conn_id.to_be_bytes());
     f.extend_from_slice(payload);
+    f
+}
+
+/// Encode a `FRAME_READY` for `conn_id` (daemon→node) — the TCP path's signal
+/// that the local connect landed and the node may start streaming client bytes.
+pub(crate) fn encode_ready(conn_id: u32) -> Vec<u8> {
+    let mut f = Vec::with_capacity(5);
+    f.push(FRAME_READY);
+    f.extend_from_slice(&conn_id.to_be_bytes());
     f
 }
 

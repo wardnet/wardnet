@@ -224,7 +224,7 @@ impl WebPushSender for ReqwestWebPushSender {
             Err(error) => {
                 // A malformed stored subscription can never succeed; treat it as
                 // Gone so the caller prunes it rather than retrying forever.
-                tracing::warn!(%error, endpoint = %endpoint, "push: dropping unbuildable subscription");
+                tracing::warn!(%error, endpoint = %endpoint, "push: dropping unbuildable subscription: endpoint={endpoint}");
                 return SendOutcome::Gone;
             }
         };
@@ -243,15 +243,15 @@ impl WebPushSender for ReqwestWebPushSender {
                 } else if status == reqwest::StatusCode::NOT_FOUND
                     || status == reqwest::StatusCode::GONE
                 {
-                    tracing::debug!(endpoint = %endpoint, %status, "push: subscription gone, pruning");
+                    tracing::debug!(endpoint = %endpoint, %status, "push: subscription gone, pruning: endpoint={endpoint}, status={status}");
                     SendOutcome::Gone
                 } else {
-                    tracing::warn!(endpoint = %endpoint, %status, "push: delivery rejected");
+                    tracing::warn!(endpoint = %endpoint, %status, "push: delivery rejected: endpoint={endpoint}, status={status}");
                     SendOutcome::TransientFailure
                 }
             }
             Err(error) => {
-                tracing::warn!(%error, endpoint = %endpoint, "push: delivery network error");
+                tracing::warn!(%error, endpoint = %endpoint, "push: delivery network error: endpoint={endpoint}");
                 SendOutcome::TransientFailure
             }
         }

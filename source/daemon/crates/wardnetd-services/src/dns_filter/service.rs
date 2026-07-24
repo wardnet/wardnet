@@ -19,6 +19,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use chrono::Utc;
+use futures::TryStreamExt;
 use hickory_proto::rr::RecordType;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -50,7 +51,7 @@ use wardnetd_data::repository::{
 use crate::auth_context;
 use crate::dns_filter::blocklist_downloader::{self, BlocklistFetcher};
 use crate::dns_filter::device_context::DeviceFilterContext;
-use crate::dns_filter::filter::{DnsFilter, DnsFilterInputs};
+use crate::dns_filter::filter::{BlocklistFilterBuilder, DnsFilter, DnsFilterInputs};
 use crate::dns_filter::filter_profile::RuntimeDnsFilterProfile;
 use crate::error::AppError;
 use crate::event::EventPublisher;
@@ -80,6 +81,25 @@ pub trait DnsFilterService: Send + Sync {
     /// Evaluate one query. Called from the DNS server hot path on every
     /// request — must not allocate or take heavy locks.
     async fn check(&self, domain: &str, qtype: RecordType, client: IpAddr) -> CheckOutcome;
+
+    /// Evaluate one query for a device the transport authenticated out of
+    /// band (the `DoT` listener's SNI token, issue #912). Prefers the
+    /// device-keyed context so the granted device's own profiles apply even
+    /// when `client` is not a LAN address the per-IP map covers (e.g. a
+    /// relayed roaming connection); falls back to the per-IP path, so a LAN
+    /// `DoT` client with a real source IP behaves exactly like its UDP self.
+    ///
+    /// The default delegates to [`Self::check`] — only implementations that
+    /// maintain a device-keyed cache need to override it.
+    async fn check_for_device(
+        &self,
+        domain: &str,
+        qtype: RecordType,
+        _device_id: Uuid,
+        client: IpAddr,
+    ) -> CheckOutcome {
+        self.check(domain, qtype, client).await
+    }
 
     /// Bootstrap the in-memory cache from persisted state. Called once on
     /// daemon startup, from the DNS filter runner's own task — the DNS server
@@ -236,6 +256,11 @@ pub struct DnsFilterServiceImpl {
     profiles: Arc<RwLock<HashMap<Uuid, Arc<ArcSwap<RuntimeDnsFilterProfile>>>>>,
     /// Per-IP device contexts for fast hot-path lookup.
     contexts: Arc<RwLock<HashMap<IpAddr, Arc<DeviceFilterContext>>>>,
+    /// The same contexts keyed by device id, for transports that
+    /// authenticate the device out of band (`DoT` SNI, issue #912) and whose
+    /// peer address the per-IP map may not cover. Rebuilt alongside
+    /// `contexts` on every device/profile change.
+    device_contexts: Arc<RwLock<HashMap<Uuid, Arc<DeviceFilterContext>>>>,
     /// Default context for unassigned devices and unknown IPs.
     default_context: Arc<ArcSwap<DeviceFilterContext>>,
     /// Global emergency stop + default-profile pointer.
@@ -262,6 +287,7 @@ impl DnsFilterServiceImpl {
             profile_aux_filters: Arc::new(RwLock::new(HashMap::new())),
             profiles: Arc::new(RwLock::new(HashMap::new())),
             contexts: Arc::new(RwLock::new(HashMap::new())),
+            device_contexts: Arc::new(RwLock::new(HashMap::new())),
             default_context: Arc::new(ArcSwap::from_pointee(DeviceFilterContext::unfiltered())),
             config: Arc::new(ArcSwap::from_pointee(DnsFilterConfig::default())),
         }
@@ -430,22 +456,22 @@ impl DnsFilterServiceImpl {
             return Ok(());
         };
 
-        let inputs = if bl.enabled {
-            let domains = self
-                .repo
-                .load_blocklist_domains(blocklist_id)
-                .await
-                .map_err(AppError::Internal)?;
-            DnsFilterInputs {
-                blocked_domains: domains,
-                allowlist: Vec::new(),
-                custom_rules: Vec::new(),
+        let new_filter = if bl.enabled {
+            // Stream the domains straight into the filter set. A threat-intel
+            // feed is ~2.2M rows; collecting them into a `Vec` first and then
+            // folding that into the set would hold two full copies at once.
+            // A blocklist compiles to a pure blocked-domain filter (no
+            // allowlist, no custom rules), so `BlocklistFilterBuilder` is all
+            // we need here.
+            let mut builder = BlocklistFilterBuilder::new();
+            let mut domains = self.repo.stream_blocklist_domains(blocklist_id);
+            while let Some(domain) = domains.try_next().await.map_err(AppError::Internal)? {
+                builder.insert(&domain);
             }
+            builder.finish()
         } else {
-            DnsFilterInputs::default()
+            DnsFilter::empty()
         };
-
-        let new_filter = DnsFilter::build(inputs);
         let mut filters = self.blocklist_filters.write().await;
         if let Some(slot) = filters.get(&blocklist_id) {
             slot.store(Arc::new(new_filter));
@@ -568,9 +594,13 @@ impl DnsFilterServiceImpl {
             .and_then(|d| d.last_ip.parse::<IpAddr>().ok());
 
         if let Some(ip) = new_ip {
-            by_ip.insert(ip, context);
+            by_ip.insert(ip, Arc::clone(&context));
         }
         drop(by_ip);
+        self.device_contexts
+            .write()
+            .await
+            .insert(device_id, context);
         self.publish_rebuilt();
         Ok(())
     }
@@ -648,18 +678,18 @@ impl DnsFilterServiceImpl {
         self.config.store(Arc::new(cfg));
         Ok(())
     }
-}
 
-#[async_trait]
-impl DnsFilterService for DnsFilterServiceImpl {
-    async fn check(&self, domain: &str, qtype: RecordType, client: IpAddr) -> CheckOutcome {
+    /// Shared tail of the hot-path checks: apply the resolved context (or
+    /// the default one) and fold in the global / per-device kill switches.
+    /// Computes would-have-blocked once — the kill-switch path is rare.
+    fn outcome_with_context(
+        &self,
+        context: Option<Arc<DeviceFilterContext>>,
+        domain: &str,
+        qtype: RecordType,
+        client: IpAddr,
+    ) -> CheckOutcome {
         let cfg = self.config.load_full();
-        // Compute would-have-blocked once — the kill-switch path is rare.
-        let context = {
-            let map = self.contexts.read().await;
-            map.get(&client).cloned()
-        };
-
         let device_enabled = context.as_deref().is_none_or(|c| c.enabled);
         let global_enabled = cfg.enabled;
 
@@ -672,17 +702,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
             ctx_for_check.check(domain, qtype, client)
         };
 
-        if !global_enabled {
-            return CheckOutcome {
-                action: FilterAction::Pass,
-                would_have_blocked: matches!(
-                    effective_action,
-                    FilterAction::Block | FilterAction::Rewrite { .. }
-                ),
-            };
-        }
-
-        if !device_enabled {
+        if !global_enabled || !device_enabled {
             return CheckOutcome {
                 action: FilterAction::Pass,
                 would_have_blocked: matches!(
@@ -697,8 +717,50 @@ impl DnsFilterService for DnsFilterServiceImpl {
             would_have_blocked: false,
         }
     }
+}
+
+#[async_trait]
+impl DnsFilterService for DnsFilterServiceImpl {
+    // NOTE (auth): `check` / `check_for_device` deliberately carry no
+    // `require_admin`/`require_authenticated` guard. They are the DNS resolve
+    // hot path, called per query from the DNS server (UDP `:53` and the DoT
+    // `:853` listener) — not from an authenticated HTTP handler — and must
+    // not allocate or take heavy locks. They expose no admin data and mutate
+    // nothing; the filter *management* methods below are all guarded. This is
+    // the same unguarded shape the pre-existing `check` has always had; the
+    // guard-or-documented-exception rule in `.agents/auth.md` is satisfied by
+    // this note rather than by fitting one of the three named categories.
+    async fn check(&self, domain: &str, qtype: RecordType, client: IpAddr) -> CheckOutcome {
+        let context = {
+            let map = self.contexts.read().await;
+            map.get(&client).cloned()
+        };
+        self.outcome_with_context(context, domain, qtype, client)
+    }
+
+    async fn check_for_device(
+        &self,
+        domain: &str,
+        qtype: RecordType,
+        device_id: Uuid,
+        client: IpAddr,
+    ) -> CheckOutcome {
+        // Device-keyed context first; a device the map doesn't cover yet
+        // falls back to the per-IP path (and from there to the default),
+        // matching what the same query over UDP would resolve through.
+        let context = {
+            let by_device = self.device_contexts.read().await;
+            by_device.get(&device_id).cloned()
+        };
+        let context = match context {
+            Some(ctx) => Some(ctx),
+            None => self.contexts.read().await.get(&client).cloned(),
+        };
+        self.outcome_with_context(context, domain, qtype, client)
+    }
 
     async fn rebuild_all(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         self.refresh_config().await?;
 
         // Wipe everything; rebuild from scratch.
@@ -706,6 +768,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
         self.profile_aux_filters.write().await.clear();
         self.profiles.write().await.clear();
         self.contexts.write().await.clear();
+        self.device_contexts.write().await.clear();
 
         let profiles = self
             .repo
@@ -733,10 +796,14 @@ impl DnsFilterService for DnsFilterServiceImpl {
             .await
             .map_err(AppError::Internal)?;
         for entry in device_settings {
-            let ctx = self.materialise_context(&entry.settings).await;
+            let ctx = Arc::new(self.materialise_context(&entry.settings).await);
             if let Some(ip) = entry.ip.and_then(|s| s.parse::<IpAddr>().ok()) {
-                self.contexts.write().await.insert(ip, Arc::new(ctx));
+                self.contexts.write().await.insert(ip, Arc::clone(&ctx));
             }
+            self.device_contexts
+                .write()
+                .await
+                .insert(entry.settings.device_id, ctx);
         }
 
         self.rebuild_default_context_inner().await?;
@@ -1308,6 +1375,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
     }
 
     async fn rebuild_blocklist_filter(&self, blocklist_id: Uuid) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         self.rebuild_blocklist_inner(blocklist_id).await?;
         // After a blocklist swap, the profile's filter list still references
         // the same Arc, so no profile rebuild needed; but the source filter
@@ -1325,6 +1393,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
     }
 
     async fn rebuild_profile(&self, profile_id: Uuid) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         // Re-fetch this profile's blocklists to make sure all per-source
         // filters exist before we re-stitch.
         let blocklists = self
@@ -1358,10 +1427,12 @@ impl DnsFilterService for DnsFilterServiceImpl {
     }
 
     async fn rebuild_device(&self, device_id: Uuid) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         self.rebuild_device_inner(device_id).await
     }
 
     async fn rebuild_default_context(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         self.refresh_config().await?;
         self.rebuild_default_context_inner().await
     }
@@ -1372,6 +1443,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
         old_ip: &str,
         new_ip: &str,
     ) -> Result<(), AppError> {
+        auth_context::require_admin()?;
         let mut by_ip = self.contexts.write().await;
         let entry = old_ip
             .parse::<IpAddr>()
