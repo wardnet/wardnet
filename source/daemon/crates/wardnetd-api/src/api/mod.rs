@@ -46,7 +46,6 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use tower_http::catch_panic::CatchPanicLayer;
-use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -150,8 +149,22 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
 /// attribute — and contains route-registration alongside the handlers instead
 /// of concentrating it here.
 ///
-/// Assembles all API routes under `/api/`, applies middleware (CORS, tracing),
-/// and falls back to the embedded static file handler for the web UI.
+/// Assembles all API routes under `/api/`, applies middleware (tracing,
+/// request/auth context), and falls back to the embedded static file handler
+/// for the web UI.
+///
+/// Note the deliberate absence of a CORS layer: every web surface the daemon
+/// serves (the user PWA at `/app/`, the admin mobile PWA at `/admin-app/`, and
+/// the desktop admin site at `/admin/`) is embedded and served from this same
+/// origin, so no legitimate caller is cross-origin. Emitting any
+/// `Access-Control-Allow-Origin` here would be actively harmful: the
+/// self-service endpoints authenticate the caller by TCP peer IP
+/// ([`AuthContext::Device`](wardnet_common::auth::AuthContext), ambient
+/// authority that `SameSite` cookies cannot protect), so a permissive CORS policy
+/// let any web page a LAN user visited drive authenticated state changes and
+/// read responses cross-origin (CWE-352). With no CORS layer the browser's
+/// same-origin policy blocks cross-origin reads and fails the preflight for the
+/// non-simple `PUT`/`PATCH`/`DELETE`/JSON-`POST` requests those endpoints use.
 pub fn router(state: AppState) -> Router {
     // `split_for_parts` merges every handler path into the seeded `ApiDoc`
     // and returns the fully populated OpenAPI document.
@@ -273,6 +286,10 @@ pub fn router(state: AppState) -> Router {
                     },
                 ),
         )
-        .layer(CorsLayer::permissive())
+        // No CORS layer, intentionally — see this function's doc comment. Every
+        // served web surface is same-origin, and the IP-authenticated
+        // self-service endpoints must never answer a cross-origin preflight or
+        // emit `Access-Control-Allow-Origin`, or a hostile web page could forge
+        // authenticated requests / read responses cross-origin (CWE-352).
         .with_state(state)
 }
