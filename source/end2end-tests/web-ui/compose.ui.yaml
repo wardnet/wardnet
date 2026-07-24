@@ -110,6 +110,16 @@ services:
           printf '\n[update]\nmanifest_base_url = "http://10.92.0.53:8080/releases"\nhttp_timeout_secs = 5\n' >> /etc/wardnet/wardnet.toml
           echo "wardnetd-ui e2e fixture: pinned update manifest to the cloud mock" >&2
         fi
+        # Swap the tunnel network backends (WireGuard interface, throughput
+        # tester, latency prober, exit probe) for deterministic stubs. The
+        # compose stack has no live tunnel and no guaranteed internet egress,
+        # so the real speed-test / tunnel-test path has nothing to measure;
+        # the stubs return fixed numbers so the tunnel speed-test spec is
+        # deterministic (see issue #691). Idempotent on the [test] key.
+        if ! grep -q '^\[test\]' /etc/wardnet/wardnet.toml; then
+          printf '\n[test]\nstub_tunnel_backends = true\n' >> /etc/wardnet/wardnet.toml
+          echo "wardnetd-ui e2e fixture: enabled stub tunnel backends" >&2
+        fi
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     networks:
       wardnet_mgmt:
