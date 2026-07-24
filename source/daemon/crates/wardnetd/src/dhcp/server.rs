@@ -1,5 +1,5 @@
 use std::collections::HashSet;
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -315,14 +315,7 @@ pub(crate) async fn server_loop(
                 }
             },
             MessageType::Release => {
-                let admin_ctx = AuthContext::Admin {
-                    admin_id: Uuid::nil(),
-                };
-                if let Err(e) =
-                    auth_context::with_context(admin_ctx, service.release_lease(&mac)).await
-                {
-                    tracing::error!(%mac, error = %e, "failed to handle DHCPRELEASE for {mac}: {e}");
-                }
+                handle_release(&service, &msg, &mac, src_addr).await;
             }
             other => {
                 tracing::debug!(%mac, ?other, "ignoring unsupported DHCP message type: mac={mac}, type={other:?}");
@@ -420,6 +413,99 @@ pub(crate) async fn handle_request(
     );
 
     Ok(build_response(msg, MessageType::Ack, &lease, &scope))
+}
+
+/// Handle a DHCPRELEASE message.
+///
+/// A DHCPRELEASE elicits no server response; it just frees the client's lease.
+/// The wire `chaddr` is attacker-controllable, so it is **never** treated as
+/// proof of lease ownership: any unauthenticated LAN device could otherwise
+/// forge a victim's MAC and free the victim's lease, enabling denial of
+/// service and IP takeover (CWE-639, finding F3).
+///
+/// Per RFC 2131 a legitimate DHCPRELEASE is unicast by the client from its own
+/// leased address, so we authorize the release on the **network-layer UDP
+/// source address** (`src_addr`) — the one field an on-LAN attacker cannot set
+/// without genuinely spoofing their IP at the network layer. We require it to
+/// match the IP currently recorded for that MAC's active lease, reject an
+/// unspecified/broadcast source (which cannot be a legitimate unicast release),
+/// and drop the packet without releasing on any mismatch. Only an exact match
+/// with the lease's recorded IP runs `release_lease`.
+///
+/// The wire `ciaddr` is deliberately **not** trusted as the ownership claim:
+/// it is attacker-controlled packet payload, decoded straight from the message
+/// body exactly as forgeable as `chaddr`. Trusting it would let anyone who
+/// knows the victim's IP (trivially, via ARP) forge a release with a plain UDP
+/// socket and no spoofing at all, reopening CWE-639. It is only logged, as an
+/// informational hint.
+pub(crate) async fn handle_release(
+    service: &Arc<dyn DhcpService>,
+    msg: &Message,
+    mac: &str,
+    src_addr: SocketAddr,
+) {
+    let admin_ctx = AuthContext::Admin {
+        admin_id: Uuid::nil(),
+    };
+
+    // Authorize on the real UDP source address only. `ciaddr` is an untrusted
+    // wire field (see this function's doc comment) — kept solely for logging.
+    let ciaddr = msg.ciaddr();
+    let claimed_ip = match src_addr.ip() {
+        IpAddr::V4(v4) => v4,
+        // A DHCPv4 client is always reached over IPv4; an IPv6 source cannot
+        // own an IPv4 lease, so treat it as unauthenticated.
+        IpAddr::V6(_) => Ipv4Addr::UNSPECIFIED,
+    };
+
+    // A legitimate unicast release never originates from 0.0.0.0 or the limited
+    // broadcast address; such a packet carries no verifiable ownership claim.
+    if claimed_ip.is_unspecified() || claimed_ip.is_broadcast() {
+        tracing::warn!(
+            %mac,
+            %src_addr,
+            %ciaddr,
+            "dropping DHCPRELEASE from unspecified/broadcast source: mac={mac}, src={src_addr}"
+        );
+        return;
+    }
+
+    // Look up the lease currently recorded for this MAC. Only a release whose
+    // source matches that lease's own IP is authorised to free it.
+    let active = match auth_context::with_context(admin_ctx.clone(), service.active_lease(mac))
+        .await
+    {
+        Ok(a) => a,
+        Err(e) => {
+            tracing::error!(%mac, error = %e, "failed to look up active lease for DHCPRELEASE: {e}");
+            return;
+        }
+    };
+
+    let Some(lease) = active else {
+        tracing::debug!(
+            %mac,
+            %claimed_ip,
+            "dropping DHCPRELEASE: no active lease recorded for mac={mac}"
+        );
+        return;
+    };
+
+    if lease.ip_address != claimed_ip {
+        tracing::warn!(
+            %mac,
+            %claimed_ip,
+            %ciaddr,
+            lease_ip = %lease.ip_address,
+            "dropping forged DHCPRELEASE: UDP source does not match the lease's recorded IP (mac={mac}, src={claimed_ip}, lease_ip={lease_ip})",
+            lease_ip = lease.ip_address,
+        );
+        return;
+    }
+
+    if let Err(e) = auth_context::with_context(admin_ctx, service.release_lease(mac)).await {
+        tracing::error!(%mac, error = %e, "failed to handle DHCPRELEASE for {mac}: {e}");
+    }
 }
 
 /// Extract the IP address a DHCPREQUEST client wants to keep. In RENEWING /

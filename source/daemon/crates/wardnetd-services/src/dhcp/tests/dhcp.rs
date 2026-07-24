@@ -1522,6 +1522,33 @@ async fn release_lease_noop_when_no_active_lease() {
 }
 
 #[tokio::test]
+async fn active_lease_returns_recorded_lease() {
+    let (svc, dhcp, _cfg) = build_service_with_deps();
+
+    seed_active_lease(&dhcp, "aa:bb:cc:dd:ee:40", "192.168.1.130");
+
+    // The DHCP runtime uses this to authorise a DHCPRELEASE against the lease's
+    // recorded IP; a query by MAC returns the active lease (casing canonicalised
+    // at the repository boundary).
+    let lease = auth_context::with_context(admin_ctx(), svc.active_lease("AA:BB:CC:DD:EE:40"))
+        .await
+        .unwrap()
+        .expect("an active lease should be found for the seeded MAC");
+    assert_eq!(lease.ip_address, Ipv4Addr::new(192, 168, 1, 130));
+}
+
+#[tokio::test]
+async fn active_lease_none_when_no_active_lease() {
+    let (svc, _dhcp, _cfg) = build_service_with_deps();
+
+    // No active lease recorded for this MAC -> no ownership record to release against.
+    let result = auth_context::with_context(admin_ctx(), svc.active_lease("AA:BB:CC:DD:EE:41"))
+        .await
+        .unwrap();
+    assert!(result.is_none());
+}
+
+#[tokio::test]
 async fn release_lease_frees_ip_for_reassignment() {
     let (svc, _dhcp, system_config) = build_service_with_deps();
 

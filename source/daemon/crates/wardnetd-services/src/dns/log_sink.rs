@@ -234,10 +234,15 @@ fn record_dns_stats(inst: &DnsStatInstruments, row: &QueryLogRow) {
     inst.latency.set(&outcome_labels, row.latency_ms);
 
     if outcome == "blocked" {
-        // Escape any double-quotes in the domain (extremely rare but safe).
-        let domain = row.domain.replace('"', r#"\""#);
-        inst.by_domain
-            .add(&format!(r#"{{"domain":"{domain}"}}"#), 1.0);
+        // Serialize the label via serde_json so every JSON-significant byte in
+        // the attacker-controlled DNS name (double-quote, backslash, control
+        // chars) is escaped correctly. Hand-building the string with a partial
+        // `.replace('"', ...)` mis-escaped hickory's `\"` rendering of a raw
+        // 0x22 byte and let a crafted query inject arbitrary JSON structure
+        // into the persisted `dns.queries.by_domain` label. `json!` emits the
+        // compact `{"domain":"<name>"}` shape the stats schema expects.
+        let domain_label = serde_json::json!({ "domain": row.domain }).to_string();
+        inst.by_domain.add(&domain_label, 1.0);
 
         // Attribute the block to its operating company when the domain is a
         // recognised tracker. The catalogue is small and lookups are cheap;
