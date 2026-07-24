@@ -138,6 +138,7 @@ export {
   useRebuildTunnel,
   useSetTunnelDnsOverride,
   useSpeedTestResults,
+  useSpeedTestResultsList,
   useStartSpeedTest,
 } from "./hooks/useTunnels";
 

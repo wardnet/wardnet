@@ -2,8 +2,9 @@ import { useMemo } from "react";
 import { Card, CardContent } from "@wardnet/web";
 import { sortByLabel } from "@wardnet/web";
 import { TunnelCard } from "./TunnelCard";
+import type { TunnelTestOutcome } from "./TunnelCard";
 import { EmptyStatePlaceholder } from "./EmptyStatePlaceholder";
-import type { Tunnel, ProviderInfo } from "@wardnet/js";
+import type { Tunnel, ProviderInfo, TunnelSpeedTestResult } from "@wardnet/js";
 
 interface TunnelGridProps {
   /** Rendered alphabetically by label regardless of the order passed in. */
@@ -12,6 +13,21 @@ interface TunnelGridProps {
   isLoading: boolean;
   isError: boolean;
   onDelete: (id: string) => void;
+  onTest: (id: string) => void;
+  onRebuild: (id: string) => void;
+  onSpeedTest: (id: string) => void;
+  /** Connectivity-test outcomes keyed by tunnel id. */
+  testOutcomes: Record<string, TunnelTestOutcome>;
+  /** Latest speed-test result keyed by tunnel id. */
+  speedTestResults: Record<string, TunnelSpeedTestResult | null>;
+  /** Tunnel whose connectivity test is in flight, if any. */
+  testingId: string | null;
+  /** Tunnel whose rebuild is in flight, if any. */
+  rebuildingId: string | null;
+  /** Tunnel whose speed test is running, if any. */
+  speedTestRunningId: string | null;
+  /** Progress of the running speed test (0 when none is running). */
+  speedTestPercentage: number;
   /** Called when the user clicks the "Add tunnel" button in the empty state. */
   onAdd?: () => void;
 }
@@ -23,6 +39,15 @@ export function TunnelGrid({
   isLoading,
   isError,
   onDelete,
+  onTest,
+  onRebuild,
+  onSpeedTest,
+  testOutcomes,
+  speedTestResults,
+  testingId,
+  rebuildingId,
+  speedTestRunningId,
+  speedTestPercentage,
   onAdd,
 }: TunnelGridProps) {
   // Before the loading/empty early-returns: hook order must not depend on state.
@@ -54,14 +79,31 @@ export function TunnelGrid({
 
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-      {sorted.map((tunnel) => (
-        <TunnelCard
-          key={tunnel.id}
-          tunnel={tunnel}
-          providers={providers}
-          onDelete={onDelete}
-        />
-      ))}
+      {sorted.map((tunnel) => {
+        // eslint-disable-next-line security/detect-object-injection -- tunnel.id is the card's own key; read-only lookups into the page-owned maps
+        const testOutcome = testOutcomes[tunnel.id] ?? null;
+        // eslint-disable-next-line security/detect-object-injection -- tunnel.id is the card's own key; read-only lookups into the page-owned maps
+        const speedTestResult = speedTestResults[tunnel.id] ?? null;
+        return (
+          <TunnelCard
+            key={tunnel.id}
+            tunnel={tunnel}
+            providers={providers}
+            onDelete={onDelete}
+            onTest={onTest}
+            onRebuild={onRebuild}
+            onSpeedTest={onSpeedTest}
+            testOutcome={testOutcome}
+            speedTestResult={speedTestResult}
+            testing={testingId === tunnel.id}
+            rebuilding={rebuildingId === tunnel.id}
+            speedTestRunning={speedTestRunningId === tunnel.id}
+            speedTestPercentage={
+              speedTestRunningId === tunnel.id ? speedTestPercentage : 0
+            }
+          />
+        );
+      })}
     </div>
   );
 }
