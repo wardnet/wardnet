@@ -33,6 +33,9 @@ use wardnetd::inbound_wg_interface_wireguard::WireGuardInboundInterface;
 use wardnetd::inbound_wg_peer_monitor::InboundWgPeerMonitor;
 use wardnetd::mdns_advertiser::MdnsAdvertiser;
 use wardnetd::metrics_collector::MetricsCollector;
+use wardnetd::noop_tunnel_backends::{
+    NoopExitProbe, NoopLatencyProber, NoopThroughputTester, NoopTunnelInterface,
+};
 use wardnetd::packet_capture_pnet::PnetCapture;
 use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
 use wardnetd::profiling::ProfilingAgent;
@@ -79,6 +82,16 @@ use wardnetd_services::update::{
     EMBEDDED_PUBLIC_KEY, FsBinaryApplier, HttpsManifestSource, Sha256MinisignVerifier, UpdateRunner,
 };
 use wardnetd_services::{Backends, UpdateBackends, auth_context, init_services_with_factory};
+
+/// The four tunnel network backends the `[test]` config seam selects together:
+/// the real `WireGuard` / HTTP / ICMP implementations in production, or
+/// deterministic stubs when `stub_tunnel_backends` is set.
+type TunnelBackends = (
+    Arc<dyn wardnetd_services::tunnel::TunnelInterface>,
+    Arc<dyn wardnetd_services::tunnel::exit_probe::TunnelExitProbe>,
+    Arc<dyn wardnetd_services::tunnel::latency_prober::TunnelLatencyProber>,
+    Arc<dyn wardnetd_services::tunnel::throughput_tester::ThroughputTester>,
+);
 
 /// Wardnet daemon — self-hosted network privacy gateway.
 #[derive(Parser)]
@@ -341,25 +354,51 @@ async fn run(
     let inbound_wg_interface: Arc<dyn wardnetd_services::InboundWgInterface> =
         Arc::new(WireGuardInboundInterface);
 
+    // Tunnel network backends. In production these are the real WireGuard /
+    // HTTP / ICMP implementations; the `[test]` config seam swaps them for
+    // deterministic stubs so the end-to-end suite can exercise the speed-test
+    // path against a compose stack with no live tunnel or internet egress.
+    let (tunnel_interface, tunnel_exit_probe, tunnel_latency_prober, tunnel_throughput_tester): TunnelBackends =
+        if config.test.stub_tunnel_backends {
+            tracing::warn!(
+                "TEST MODE: [test] stub_tunnel_backends is enabled — tunnel interface, throughput \
+                 tester, latency prober and exit probe are deterministic stubs returning \
+                 fabricated results. This must never be set in production."
+            );
+            (
+                Arc::new(NoopTunnelInterface),
+                Arc::new(NoopExitProbe::new(repo_factory.tunnel())),
+                Arc::new(NoopLatencyProber),
+                Arc::new(NoopThroughputTester),
+            )
+        } else {
+            (
+                Arc::new(WireGuardTunnelInterface),
+                Arc::new(ReqwestTunnelExitProbe::new(
+                    config.tunnel.test_probe_url.clone(),
+                )),
+                Arc::new(SurgePingTunnelLatencyProber::new(
+                    config
+                        .tunnel
+                        .latency_probe_target
+                        .parse()
+                        .expect("tunnel.latency_probe_target must be a valid IP address"),
+                )),
+                Arc::new(HttpThroughputTester::new(
+                    config.tunnel.speed_test_url.clone(),
+                    config.tunnel.speed_test_parallel_streams,
+                    std::time::Duration::from_millis(config.tunnel.speed_test_warmup_ms),
+                    std::time::Duration::from_millis(config.tunnel.speed_test_measure_ms),
+                )),
+            )
+        };
+
     let backends = Backends {
-        tunnel_interface: Arc::new(WireGuardTunnelInterface),
+        tunnel_interface,
         inbound_wg_interface: inbound_wg_interface.clone(),
-        tunnel_exit_probe: Arc::new(ReqwestTunnelExitProbe::new(
-            config.tunnel.test_probe_url.clone(),
-        )),
-        tunnel_latency_prober: Arc::new(SurgePingTunnelLatencyProber::new(
-            config
-                .tunnel
-                .latency_probe_target
-                .parse()
-                .expect("tunnel.latency_probe_target must be a valid IP address"),
-        )),
-        tunnel_throughput_tester: Arc::new(HttpThroughputTester::new(
-            config.tunnel.speed_test_url.clone(),
-            config.tunnel.speed_test_parallel_streams,
-            std::time::Duration::from_millis(config.tunnel.speed_test_warmup_ms),
-            std::time::Duration::from_millis(config.tunnel.speed_test_measure_ms),
-        )),
+        tunnel_exit_probe,
+        tunnel_latency_prober,
+        tunnel_throughput_tester,
         policy_router: Arc::new(
             NetlinkPolicyRouter::new(executor.clone())
                 .expect("failed to initialise netlink policy router"),

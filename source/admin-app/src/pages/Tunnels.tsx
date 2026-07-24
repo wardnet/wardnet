@@ -118,7 +118,10 @@ const SpeedTestPanel = memo(function SpeedTestPanel({
           </button>
 
           {expanded && results.length > 1 && (
-            <div className="flex flex-col gap-1 border-t border-line px-3 py-2">
+            <div
+              data-testid="tunnel-speed-test-history"
+              className="flex flex-col gap-1 border-t border-line px-3 py-2"
+            >
               {results.slice(1).map((r) => (
                 <div key={r.id} className="flex items-center justify-between">
                   <Text as="span" size="xs" className="font-mono text-ink-2">
