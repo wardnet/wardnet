@@ -49,18 +49,6 @@ Re-evaluate when dhcproto upgrades.
 """
 
 [[IgnoredVulns]]
-id = "RUSTSEC-2026-0173"
-reason = """
-proc-macro-error2 unmaintained. Compile-time proc-macro pulled in via
-i18n-embed-fl (through age). Not a CVE — the author stopped publishing
-updates. Zero runtime footprint. Blocked on age → i18n-embed-fl
-migrating off proc-macro-error2 (even latest i18n-embed-fl 0.10 still
-depends on it). Tracked in wardnet/wardnet#758; remove this entry (and
-the copy in fuzz/osv-scanner.toml) when `cargo tree -i
-proc-macro-error2` returns nothing.
-"""
-
-[[IgnoredVulns]]
 id = "RUSTSEC-2026-0186"
 reason = """
 memmap2 unchecked pointer offset. Transitive via pyroscope
