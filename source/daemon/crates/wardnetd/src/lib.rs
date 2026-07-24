@@ -10,6 +10,8 @@ pub mod inbound_wg_interface_wireguard;
 pub mod packet_capture_pnet;
 pub mod policy_router_netlink;
 mod reqwest_client;
+// Deterministic no-op tunnel backends, wired only under `[test]` config.
+pub mod noop_tunnel_backends;
 pub mod tunnel_exit_probe;
 pub mod tunnel_interface_wireguard;
 pub mod tunnel_latency_prober;

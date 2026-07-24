@@ -32,6 +32,13 @@ pub struct ApplicationConfiguration {
     /// Watchdog settings: the hardware `/dev/watchdog` device and pet cadence
     /// plus the health-gated soft (`sd_notify`) restart toggle. See issue #214.
     pub watchdog: WatchdogConfig,
+    /// Test-only backend overrides. **Never set in production.**
+    ///
+    /// Off by default and not written by `install.sh`; the end-to-end
+    /// compose stack sets `[test] stub_tunnel_backends = true` so the tunnel
+    /// speed-test / tunnel-test path returns deterministic numbers with no
+    /// real `WireGuard` interface or internet egress. See [`TestConfig`].
+    pub test: TestConfig,
     /// Secret-store configuration. **Optional.**
     ///
     /// When absent, no local secret storage is available: tunnels that
@@ -76,6 +83,7 @@ impl Default for ApplicationConfiguration {
             mdns: MdnsConfig::default(),
             health: HealthConfig::default(),
             watchdog: WatchdogConfig::default(),
+            test: TestConfig::default(),
             secret_store: None,
             pidfile_path: default_pidfile_path(),
         }
@@ -786,6 +794,27 @@ impl Default for WatchdogConfig {
             soft_enabled: true,
         }
     }
+}
+
+/// Test-only backend overrides.
+///
+/// The daemon that the end-to-end suite runs is the real production binary,
+/// but the compose stack has no live `WireGuard` tunnel and no guaranteed
+/// internet egress, so the tunnel speed-test / tunnel-test measurement path
+/// has nothing real to measure. Enabling this swaps the `WireGuard` interface,
+/// throughput tester, latency prober and exit probe for deterministic stubs
+/// that return fixed numbers with no kernel or network I/O.
+///
+/// **Never enable in production** — `install.sh` never writes this section,
+/// and every field defaults to off, so a normal deployment behaves exactly
+/// as before.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct TestConfig {
+    /// When `true`, wire deterministic stub tunnel backends instead of the
+    /// real `WireGuard` / HTTP / ICMP implementations. The speed test and
+    /// tunnel test then report fabricated results. Defaults to `false`.
+    pub stub_tunnel_backends: bool,
 }
 
 /// Pyroscope continuous profiling agent configuration.
