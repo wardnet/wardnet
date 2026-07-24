@@ -3,15 +3,36 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useTunnels, useProviders, useDeleteTunnel } = vi.hoisted(() => ({
+const {
+  useTunnels,
+  useProviders,
+  useDeleteTunnel,
+  useTestTunnel,
+  useRebuildTunnel,
+  useStartSpeedTest,
+  useSpeedTestResultsList,
+} = vi.hoisted(() => ({
   useTunnels: vi.fn(),
   useProviders: vi.fn(),
   useDeleteTunnel: vi.fn(),
+  useTestTunnel: vi.fn(),
+  useRebuildTunnel: vi.fn(),
+  useStartSpeedTest: vi.fn(),
+  useSpeedTestResultsList: vi.fn(),
 }));
 
 vi.mock("@wardnet/web", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, useTunnels, useProviders, useDeleteTunnel };
+  return {
+    ...actual,
+    useTunnels,
+    useProviders,
+    useDeleteTunnel,
+    useTestTunnel,
+    useRebuildTunnel,
+    useStartSpeedTest,
+    useSpeedTestResultsList,
+  };
 });
 
 vi.mock("@/components/compound/PageHeader", () => ({
@@ -28,6 +49,10 @@ vi.mock("@/components/compound/PageHeader", () => ({
     </div>
   ),
 }));
+
+// The grid is mocked to a thin harness that surfaces the page's wiring: it
+// exposes the per-tunnel callbacks and the derived in-flight ids so the tests
+// assert what the page hoisted, not the grid's own rendering.
 vi.mock("@/components/compound/TunnelGrid", () => ({
   TunnelGrid: ({
     tunnels,
@@ -35,16 +60,36 @@ vi.mock("@/components/compound/TunnelGrid", () => ({
     isError,
     onDelete,
     onAdd,
+    onTest,
+    onRebuild,
+    onSpeedTest,
+    testingId,
+    rebuildingId,
+    speedTestRunningId,
+    testOutcomes,
   }: {
     tunnels: Array<{ id: string }>;
     isLoading?: boolean;
     isError?: boolean;
     onDelete: (id: string) => void;
     onAdd?: () => void;
+    onTest: (id: string) => void;
+    onRebuild: (id: string) => void;
+    onSpeedTest: (id: string) => void;
+    testingId: string | null;
+    rebuildingId: string | null;
+    speedTestRunningId: string | null;
+    testOutcomes: Record<string, { result: unknown; error: string | null }>;
   }) => (
     <div data-testid="grid">
       <span data-testid="grid-state">
         {isLoading ? "loading" : isError ? "error" : `count:${tunnels.length}`}
+      </span>
+      <span data-testid="testing-id">{testingId ?? "-"}</span>
+      <span data-testid="rebuilding-id">{rebuildingId ?? "-"}</span>
+      <span data-testid="speedtest-id">{speedTestRunningId ?? "-"}</span>
+      <span data-testid="outcome-keys">
+        {Object.keys(testOutcomes).join(",")}
       </span>
       {onAdd && (
         <button onClick={() => onAdd()} data-testid="grid-add">
@@ -52,13 +97,17 @@ vi.mock("@/components/compound/TunnelGrid", () => ({
         </button>
       )}
       {tunnels.map((t) => (
-        <button key={t.id} onClick={() => onDelete(t.id)}>
-          {`delete-${t.id}`}
-        </button>
+        <div key={t.id}>
+          <button onClick={() => onDelete(t.id)}>{`delete-${t.id}`}</button>
+          <button onClick={() => onTest(t.id)}>{`test-${t.id}`}</button>
+          <button onClick={() => onRebuild(t.id)}>{`rebuild-${t.id}`}</button>
+          <button onClick={() => onSpeedTest(t.id)}>{`speed-${t.id}`}</button>
+        </div>
       ))}
     </div>
   ),
 }));
+
 vi.mock("@/components/compound/ConfirmDialog", () => ({
   ConfirmDialog: ({
     open,
@@ -90,17 +139,44 @@ vi.mock("@/components/features/CreateTunnelInline", () => ({
 import Tunnels from "@/pages/Tunnels";
 import { renderWithProviders } from "../test-utils";
 
-const mutate = vi.fn();
+const deleteMutate = vi.fn();
+const testMutate = vi.fn();
+const rebuildMutate = vi.fn();
+const startSpeed = vi.fn();
+
 beforeEach(() => {
   vi.clearAllMocks();
   useProviders.mockReturnValue({ data: { providers: [] } });
-  useDeleteTunnel.mockReturnValue({ mutate });
+  useDeleteTunnel.mockReturnValue({ mutate: deleteMutate });
+  useTestTunnel.mockReturnValue({
+    mutate: testMutate,
+    isPending: false,
+    variables: undefined,
+  });
+  useRebuildTunnel.mockReturnValue({
+    mutate: rebuildMutate,
+    isPending: false,
+    variables: undefined,
+  });
+  useStartSpeedTest.mockReturnValue({
+    start: startSpeed,
+    activeTunnelId: null,
+    percentage: 0,
+    isRunning: false,
+  });
+  useSpeedTestResultsList.mockReturnValue({});
   useTunnels.mockReturnValue({
     data: { tunnels: [] },
     isLoading: false,
     isError: false,
   });
 });
+
+const oneTunnel = {
+  data: { tunnels: [{ id: "t1", label: "VPN", status: "up" }] },
+  isLoading: false,
+  isError: false,
+};
 
 describe("Tunnels", () => {
   it("renders empty grid with no Add button in header", () => {
@@ -131,11 +207,7 @@ describe("Tunnels", () => {
   });
 
   it("opens the inline create form via the header Add button", async () => {
-    useTunnels.mockReturnValue({
-      data: { tunnels: [{ id: "t1", label: "VPN", status: "up" }] },
-      isLoading: false,
-      isError: false,
-    });
+    useTunnels.mockReturnValue(oneTunnel);
     const user = userEvent.setup();
     renderWithProviders(<Tunnels />);
     await user.click(screen.getByRole("button", { name: "Add tunnel" }));
@@ -159,31 +231,123 @@ describe("Tunnels", () => {
   });
 
   it("confirms and deletes a tunnel", async () => {
-    useTunnels.mockReturnValue({
-      data: { tunnels: [{ id: "t1", label: "VPN", status: "up" }] },
-      isLoading: false,
-      isError: false,
-    });
+    useTunnels.mockReturnValue(oneTunnel);
     const user = userEvent.setup();
     renderWithProviders(<Tunnels />);
     await user.click(screen.getByText("delete-t1"));
     expect(screen.getByTestId("confirm-desc")).toHaveTextContent("VPN");
     await user.click(screen.getByText("confirm"));
-    expect(mutate).toHaveBeenCalledWith("t1");
+    expect(deleteMutate).toHaveBeenCalledWith("t1");
     expect(screen.queryByTestId("confirm")).not.toBeInTheDocument();
   });
 
   it("cancels the delete dialog without mutating", async () => {
-    useTunnels.mockReturnValue({
-      data: { tunnels: [{ id: "t1", label: "VPN", status: "up" }] },
-      isLoading: false,
-      isError: false,
-    });
+    useTunnels.mockReturnValue(oneTunnel);
     const user = userEvent.setup();
     renderWithProviders(<Tunnels />);
     await user.click(screen.getByText("delete-t1"));
     await user.click(screen.getByText("cancel"));
-    expect(mutate).not.toHaveBeenCalled();
+    expect(deleteMutate).not.toHaveBeenCalled();
     expect(screen.queryByTestId("confirm")).not.toBeInTheDocument();
+  });
+
+  it("hoists the connectivity test and records its outcome", async () => {
+    useTunnels.mockReturnValue(oneTunnel);
+    testMutate.mockImplementation((_id, opts) =>
+      opts.onSuccess({
+        result: {
+          tunnel_id: "t1",
+          exit_ip: "9.9.9.9",
+          country_code: "us",
+          latency_ms: 42,
+        },
+      }),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<Tunnels />);
+    await user.click(screen.getByText("test-t1"));
+    expect(testMutate).toHaveBeenCalledWith("t1", expect.any(Object));
+    // The page stored the outcome and passed it back down keyed by tunnel id.
+    expect(screen.getByTestId("outcome-keys")).toHaveTextContent("t1");
+  });
+
+  it("records a failed connectivity test as an error outcome", async () => {
+    useTunnels.mockReturnValue(oneTunnel);
+    testMutate.mockImplementation((_id, opts) =>
+      opts.onError(new Error("unreachable")),
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<Tunnels />);
+    await user.click(screen.getByText("test-t1"));
+    expect(screen.getByTestId("outcome-keys")).toHaveTextContent("t1");
+  });
+
+  it("derives the in-flight testing id from the shared mutation", () => {
+    useTunnels.mockReturnValue(oneTunnel);
+    useTestTunnel.mockReturnValue({
+      mutate: testMutate,
+      isPending: true,
+      variables: "t1",
+    });
+    renderWithProviders(<Tunnels />);
+    expect(screen.getByTestId("testing-id")).toHaveTextContent("t1");
+  });
+
+  it("hoists the rebuild mutation to the grid callback", async () => {
+    useTunnels.mockReturnValue(oneTunnel);
+    const user = userEvent.setup();
+    renderWithProviders(<Tunnels />);
+    await user.click(screen.getByText("rebuild-t1"));
+    expect(rebuildMutate).toHaveBeenCalledWith("t1");
+  });
+
+  it("derives the rebuilding id from the shared mutation", () => {
+    useTunnels.mockReturnValue(oneTunnel);
+    useRebuildTunnel.mockReturnValue({
+      mutate: rebuildMutate,
+      isPending: true,
+      variables: "t1",
+    });
+    renderWithProviders(<Tunnels />);
+    expect(screen.getByTestId("rebuilding-id")).toHaveTextContent("t1");
+  });
+
+  it("starts a speed test and fetches results for the tested tunnel", async () => {
+    useTunnels.mockReturnValue(oneTunnel);
+    const user = userEvent.setup();
+    renderWithProviders(<Tunnels />);
+    await user.click(screen.getByText("speed-t1"));
+    expect(startSpeed).toHaveBeenCalledWith("t1");
+    // The tunnel joins the set the page fetches speed-test results for.
+    expect(useSpeedTestResultsList).toHaveBeenLastCalledWith(["t1"]);
+  });
+
+  it("stops fetching speed-test results for a tunnel that no longer exists", async () => {
+    useTunnels.mockReturnValue(oneTunnel);
+    const user = userEvent.setup();
+    const { rerender } = renderWithProviders(<Tunnels />);
+    await user.click(screen.getByText("speed-t1"));
+    expect(useSpeedTestResultsList).toHaveBeenLastCalledWith(["t1"]);
+    // The tunnel is deleted; its speed-test query must drop out rather than
+    // keep refetching against a tunnel that is gone.
+    useTunnels.mockReturnValue({
+      data: { tunnels: [] },
+      isLoading: false,
+      isError: false,
+    });
+    rerender(<Tunnels />);
+    expect(useSpeedTestResultsList).toHaveBeenLastCalledWith([]);
+  });
+
+  it("derives the running speed-test id from the shared hook", () => {
+    useTunnels.mockReturnValue(oneTunnel);
+    useStartSpeedTest.mockReturnValue({
+      start: startSpeed,
+      activeTunnelId: "t1",
+      percentage: 30,
+      isRunning: true,
+    });
+    renderWithProviders(<Tunnels />);
+    expect(screen.getByTestId("speedtest-id")).toHaveTextContent("t1");
   });
 });
