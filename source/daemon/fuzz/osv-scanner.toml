@@ -9,14 +9,5 @@
 # ../osv-scanner.toml.
 #
 # Format: https://google.github.io/osv-scanner/configuration/
-
-[[IgnoredVulns]]
-id = "RUSTSEC-2026-0173"
-reason = """
-proc-macro-error2 unmaintained. Compile-time proc-macro pulled in via
-i18n-embed-fl (through wardnetd-services' age dependency). Not a CVE —
-the author stopped publishing updates. Zero runtime footprint. Blocked
-on age → i18n-embed-fl migrating off proc-macro-error2. Tracked in
-wardnet/wardnet#758; remove this entry when `cargo tree -i
-proc-macro-error2` returns nothing.
-"""
+#
+# No suppressions currently needed for the fuzz workspace.

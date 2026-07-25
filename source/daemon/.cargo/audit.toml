@@ -33,14 +33,6 @@
 # at most a single FQDN (option 81), so the quadratic blow-up isn't
 # reachable. No 0.25.x backport. Re-evaluate when dhcproto upgrades.
 #
-# RUSTSEC-2026-0173: proc-macro-error2 unmaintained.
-# Compile-time proc-macro pulled in via i18n-embed-fl (through age).
-# Not a CVE — the author stopped publishing updates. Zero runtime
-# footprint. Blocked on age → i18n-embed-fl migrating off
-# proc-macro-error2 (even latest i18n-embed-fl 0.10 still depends on
-# it). Tracked in wardnet/wardnet#758; remove this entry when
-# `cargo tree -i proc-macro-error2` returns nothing.
-#
 # RUSTSEC-2026-0186: memmap2 unchecked pointer offset.
 # Transitive via pyroscope (continuous-profiling client) and
 # symbolic-common (its demangler). The unsoundness is in memmap2's
@@ -52,6 +44,5 @@ ignore = [
     "RUSTSEC-2026-0097",
     "RUSTSEC-2026-0118",
     "RUSTSEC-2026-0119",
-    "RUSTSEC-2026-0173",
     "RUSTSEC-2026-0186",
 ]
