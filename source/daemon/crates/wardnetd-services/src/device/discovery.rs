@@ -996,25 +996,44 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             }
         }
 
-        // If a device_type was provided, serialize it; otherwise fetch the current one.
-        let type_str = if let Some(dt) = device_type {
-            serde_json::to_string(&dt)
-                .map(|s| s.trim_matches('"').to_owned())
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize device type: {e}")))?
+        // Partial update: preserve any field the caller omitted. Fetch the
+        // current row once when either `name` or `device_type` is absent, so
+        // an omitted name is kept rather than nulled (the persistence layer
+        // writes `name = ?` unconditionally, so passing `None` through would
+        // clear it — the data-loss bug this guards against).
+        let current = if name.is_none() || device_type.is_none() {
+            Some(
+                self.devices
+                    .find_by_id(&id.to_string())
+                    .await
+                    .map_err(AppError::Internal)?
+                    .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))?,
+            )
         } else {
-            let current = self
-                .devices
-                .find_by_id(&id.to_string())
-                .await
-                .map_err(AppError::Internal)?
-                .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))?;
-            serde_json::to_string(&current.device_type)
-                .map(|s| s.trim_matches('"').to_owned())
-                .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize device type: {e}")))?
+            None
+        };
+
+        let device_type = device_type.unwrap_or_else(|| {
+            current
+                .as_ref()
+                .expect("current device fetched when type is omitted")
+                .device_type
+        });
+        let type_str = serde_json::to_string(&device_type)
+            .map(|s| s.trim_matches('"').to_owned())
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize device type: {e}")))?;
+
+        let name_to_write = match name {
+            Some(n) => Some(n),
+            None => current
+                .as_ref()
+                .expect("current device fetched when name is omitted")
+                .name
+                .as_deref(),
         };
 
         self.devices
-            .update_name_and_type(&id.to_string(), name, &type_str)
+            .update_name_and_type(&id.to_string(), name_to_write, &type_str)
             .await
             .map_err(AppError::Internal)?;
 
