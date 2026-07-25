@@ -21,6 +21,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 }
 
 #[utoipa::path(
+    operation_id = "network_status",
     get,
     path = "/api/network/status",
     tag = "network",

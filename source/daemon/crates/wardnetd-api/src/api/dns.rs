@@ -27,6 +27,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 }
 
 #[utoipa::path(
+    operation_id = "dns_get_config",
     get,
     path = "/api/dns/config",
     tag = "dns",
@@ -45,6 +46,7 @@ pub async fn get_config(
 }
 
 #[utoipa::path(
+    operation_id = "dns_update_config",
     put,
     path = "/api/dns/config",
     tag = "dns",
@@ -66,6 +68,7 @@ pub async fn update_config(
 }
 
 #[utoipa::path(
+    operation_id = "dns_toggle",
     post,
     path = "/api/dns/config/toggle",
     tag = "dns",
@@ -105,6 +108,7 @@ pub async fn toggle(
 }
 
 #[utoipa::path(
+    operation_id = "dns_status",
     get,
     path = "/api/dns/status",
     tag = "dns",
