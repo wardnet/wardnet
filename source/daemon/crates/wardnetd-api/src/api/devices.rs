@@ -35,6 +35,7 @@ const PATH_LIST: &str = "/api/devices";
 const PATH_ITEM: &str = "/api/devices/{id}";
 
 #[utoipa::path(
+    operation_id = "devices_get_me",
     get,
     path = PATH_ME,
     tag = TAG,

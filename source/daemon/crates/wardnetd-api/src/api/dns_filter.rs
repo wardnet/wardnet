@@ -44,6 +44,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 // ── Profiles ────────────────────────────────────────────────────────────
 
 #[utoipa::path(
+    operation_id = "dns_filter_list_profiles",
     get,
     path = "/api/dns/filter/profiles",
     tag = "dns",
@@ -61,6 +62,7 @@ pub async fn list_profiles(
 }
 
 #[utoipa::path(
+    operation_id = "dns_filter_create_profile",
     post,
     path = "/api/dns/filter/profiles",
     tag = "dns",
@@ -82,6 +84,7 @@ pub async fn create_profile(
 }
 
 #[utoipa::path(
+    operation_id = "dns_filter_get_profile",
     get,
     path = "/api/dns/filter/profiles/{profile_id}",
     tag = "dns",
@@ -104,6 +107,7 @@ pub async fn get_profile(
 }
 
 #[utoipa::path(
+    operation_id = "dns_filter_update_profile",
     put,
     path = "/api/dns/filter/profiles/{profile_id}",
     tag = "dns",
@@ -132,6 +136,7 @@ pub async fn update_profile(
 }
 
 #[utoipa::path(
+    operation_id = "dns_filter_delete_profile",
     delete,
     path = "/api/dns/filter/profiles/{profile_id}",
     tag = "dns",
