@@ -1888,6 +1888,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@fontsource-variable/jetbrains-mono@npm:^5.3.0":
+  version: 5.3.0
+  resolution: "@fontsource-variable/jetbrains-mono@npm:5.3.0"
+  checksum: 10c0/ba983321b530a56696b12390a377c79a962376a33359eeda37c9a2141450802e0b630e6c232d90aab0281179e623d01c77d1bc8059ce595fe865fbc6d6022ffb
+  languageName: node
+  linkType: hard
+
 "@gerrit0/mini-shiki@npm:^3.23.0":
   version: 3.23.0
   resolution: "@gerrit0/mini-shiki@npm:3.23.0"
@@ -5471,7 +5478,7 @@ __metadata:
   resolution: "@wardnet/admin-app@workspace:admin-app"
   dependencies:
     "@fontsource-variable/inter-tight": "npm:^5.2.7"
-    "@fontsource-variable/jetbrains-mono": "npm:^5.2.8"
+    "@fontsource-variable/jetbrains-mono": "npm:^5.3.0"
     "@tailwindcss/vite": "npm:4.3.2"
     "@tanstack/react-query": "npm:5.101.2"
     "@testing-library/dom": "npm:10.4.1"
@@ -5510,7 +5517,7 @@ __metadata:
   dependencies:
     "@eslint/js": "npm:10.0.1"
     "@fontsource-variable/inter-tight": "npm:^5.2.7"
-    "@fontsource-variable/jetbrains-mono": "npm:^5.2.8"
+    "@fontsource-variable/jetbrains-mono": "npm:^5.3.0"
     "@tailwindcss/vite": "npm:4.3.2"
     "@tanstack/react-query": "npm:5.101.2"
     "@tanstack/react-table": "npm:8.21.3"
@@ -5602,7 +5609,7 @@ __metadata:
   dependencies:
     "@eslint/js": "npm:10.0.1"
     "@fontsource-variable/inter-tight": "npm:^5.2.7"
-    "@fontsource-variable/jetbrains-mono": "npm:^5.2.8"
+    "@fontsource-variable/jetbrains-mono": "npm:^5.3.0"
     "@modyfi/vite-plugin-yaml": "npm:1.1.1"
     "@octokit/rest": "npm:22.0.1"
     "@tailwindcss/vite": "npm:4.3.2"
@@ -5678,7 +5685,7 @@ __metadata:
   resolution: "@wardnet/user-app@workspace:user-app"
   dependencies:
     "@fontsource-variable/inter-tight": "npm:^5.2.7"
-    "@fontsource-variable/jetbrains-mono": "npm:^5.2.8"
+    "@fontsource-variable/jetbrains-mono": "npm:^5.3.0"
     "@tailwindcss/vite": "npm:4.3.2"
     "@tanstack/react-query": "npm:5.101.2"
     "@testing-library/dom": "npm:10.4.1"
