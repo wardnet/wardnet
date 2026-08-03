@@ -1890,6 +1890,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@fontsource-variable/inter-tight@npm:^5.3.0":
+  version: 5.3.0
+  resolution: "@fontsource-variable/inter-tight@npm:5.3.0"
+  checksum: 10c0/36eb21a67e3ca6a4f8eb1afc0298cbe3066048542951b2455a387912aff445fb473e525626d0c3c14ba8869627b5ae28efe6c24bacb4799dc800c9b0ce6e03e8
+  languageName: node
+  linkType: hard
+
 "@fontsource-variable/jetbrains-mono@npm:^5.2.8":
   version: 5.2.8
   resolution: "@fontsource-variable/jetbrains-mono@npm:5.2.8"
@@ -5466,7 +5473,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@wardnet/admin-app@workspace:admin-app"
   dependencies:
-    "@fontsource-variable/inter-tight": "npm:^5.2.7"
+    "@fontsource-variable/inter-tight": "npm:^5.3.0"
     "@fontsource-variable/jetbrains-mono": "npm:^5.3.0"
     "@tailwindcss/vite": "npm:4.3.3"
     "@tanstack/react-query": "npm:5.101.4"
@@ -5505,7 +5512,7 @@ __metadata:
   resolution: "@wardnet/admin-site@workspace:admin-site"
   dependencies:
     "@eslint/js": "npm:10.0.1"
-    "@fontsource-variable/inter-tight": "npm:^5.2.7"
+    "@fontsource-variable/inter-tight": "npm:^5.3.0"
     "@fontsource-variable/jetbrains-mono": "npm:^5.3.0"
     "@tailwindcss/vite": "npm:4.3.3"
     "@tanstack/react-query": "npm:5.101.4"
@@ -5597,7 +5604,7 @@ __metadata:
   resolution: "@wardnet/site@workspace:marketing-site"
   dependencies:
     "@eslint/js": "npm:10.0.1"
-    "@fontsource-variable/inter-tight": "npm:^5.2.7"
+    "@fontsource-variable/inter-tight": "npm:^5.3.0"
     "@fontsource-variable/jetbrains-mono": "npm:^5.3.0"
     "@modyfi/vite-plugin-yaml": "npm:1.1.1"
     "@octokit/rest": "npm:22.0.1"
@@ -5673,7 +5680,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@wardnet/user-app@workspace:user-app"
   dependencies:
-    "@fontsource-variable/inter-tight": "npm:^5.2.7"
+    "@fontsource-variable/inter-tight": "npm:^5.3.0"
     "@fontsource-variable/jetbrains-mono": "npm:^5.3.0"
     "@tailwindcss/vite": "npm:4.3.3"
     "@tanstack/react-query": "npm:5.101.4"

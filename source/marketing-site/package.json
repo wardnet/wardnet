@@ -21,7 +21,7 @@
     "copy:scalar": "mkdir -p public/api-docs && cp ../daemon/crates/wardnetd-api/assets/vendor/scalar-api-reference.js public/api-docs/scalar.js"
   },
   "dependencies": {
-    "@fontsource-variable/inter-tight": "^5.2.7",
+    "@fontsource-variable/inter-tight": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@wardnet/brand": "^0.1.0",
     "@wardnet/styles": "^0.1.0",
