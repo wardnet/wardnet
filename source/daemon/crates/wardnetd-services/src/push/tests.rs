@@ -317,7 +317,7 @@ async fn private_dns_notify_resolves_uuid_to_mac_and_reports_delivered() {
     assert_eq!(sent.len(), 1);
     assert_eq!(sent[0].endpoint, "https://push/device");
     assert!(sent[0].payload.contains("private_dns_granted"));
-    assert!(sent[0].payload.contains("/private-dns"));
+    assert!(sent[0].payload.contains("/settings#private-dns"));
     assert!(sent[0].payload.contains("Private DNS is ready"));
     assert!(sent[0].payload.contains(&device_id.to_string()));
 }

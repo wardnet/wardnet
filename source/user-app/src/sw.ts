@@ -13,8 +13,10 @@ cleanupOutdatedCaches();
 precacheAndRoute(self.__WB_MANIFEST);
 
 // Web Push (issue #594): show device-keyed daemon notifications ("Routing
-// locked"/"Routing changed") and focus-or-open the app on tap. Device
-// notifications carry no deep link, so clicks land on the app root.
+// locked"/"Routing changed") and focus-or-open the app on tap. Notifications
+// may carry a `url` deep link — `private_dns_granted` points at `/settings`
+// (#916) — which `registerPushHandlers` resolves against this SW's scope;
+// those without one land on the app root.
 registerPushHandlers(self, {
   icon: "icons/user-192.png",
   badge: "icons/badge-96.png",

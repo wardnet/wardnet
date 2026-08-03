@@ -237,7 +237,9 @@ pub async fn delete_grant(
     tag = TAG,
     description = "Send a device-keyed push nudging the granted device's household member to \
                    set up Private DNS. The notification deep-links the user PWA to \
-                   `/private-dns`. Returns `delivered: true` when at least one push \
+                   `/settings#private-dns`, where the Private DNS card carries the setup \
+                   steps. Returns \
+                   `delivered: true` when at least one push \
                    subscription for the device was targeted, and `delivered: false` (a 200, not \
                    an error) when the device holds a grant but has no subscription — the member \
                    simply hasn't enabled notifications yet. Returns 404 when the device has no \

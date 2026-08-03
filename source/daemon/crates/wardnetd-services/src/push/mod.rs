@@ -161,7 +161,9 @@ pub trait PushService: Send + Sync {
     async fn clear_notifications(&self) -> Result<(), AppError>;
 
     /// Send the device-keyed "Private DNS is ready" nudge to a granted device,
-    /// deep-linking the user PWA to `/private-dns`. Resolves the device UUID to
+    /// deep-linking the user PWA to `/settings#private-dns`, where the Private
+    /// DNS card carries the per-platform setup steps (#916). Resolves the
+    /// device UUID to
     /// its MAC (the subscription owner key) internally. Returns whether any
     /// subscription for the device was targeted, so the admin API can report
     /// `delivered`. Admin only. A default `Ok(false)` keeps test doubles that
@@ -648,7 +650,7 @@ impl PushService for PushServiceImpl {
             body: "Tap to set up encrypted DNS on this device.".to_owned(),
             data: NotificationData {
                 kind: NotificationKind::PrivateDnsGranted,
-                url: Some("/private-dns"),
+                url: Some("/settings#private-dns"),
                 subject_id: Some(device_id.to_string()),
             },
         };

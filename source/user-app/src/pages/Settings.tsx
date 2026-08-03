@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+import { useLocation } from "react-router";
 import { WifiOffIcon } from "lucide-react";
 import {
   ApiErrorAlert,
@@ -5,12 +7,15 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
+  PrivateDnsInstructions,
   RuleRequestStatusPill,
   Text,
   Toggle,
   isIosBrowserTab,
+  privateDnsService,
   useMyDevice,
   useMyRuleRequests,
+  usePrivateDnsMe,
   usePushNotifications,
   useSetMyCaptureEnabled,
 } from "@wardnet/web";
@@ -94,6 +99,114 @@ function MyRequests() {
             </li>
           ))}
         </ul>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Fragment the `private_dns_granted` push appends to `/settings`. */
+const PRIVATE_DNS_HASH = "#private-dns";
+
+/**
+ * Private DNS card (issues #910/#916): encrypted DNS setup for *this* device.
+ *
+ * Device-keyed like the rest of the PWA — the daemon resolves the caller by the
+ * source IP of the TCP connection, so this only ever describes the phone that
+ * is reading it. That is also why there is no QR: on the admin site the reader
+ * is on a different screen and needs one, here the phone would be scanning
+ * itself. Hence `variant="on-device"`.
+ *
+ * Grants are admin-only in v1, so the ungranted states are informational — a
+ * household member can't fix the prerequisite themselves, only ask.
+ */
+function PrivateDns() {
+  const { data: me, isLoading } = usePrivateDnsMe();
+  const { hash: routerHash } = useLocation();
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // The push deep-links to `/settings#private-dns`, but this card is the last
+  // of four — without this the member taps "Private DNS is ready" and lands on
+  // the DNS-capture toggle with the setup steps off-screen.
+  //
+  // `useLocation().hash` alone is not enough. When the app is already open on
+  // /settings the service worker calls `existing.navigate(…#private-dns)`,
+  // which is a fragment-only, same-document navigation: it fires `hashchange`,
+  // never `popstate`, and `BrowserRouter` only listens to the latter — so the
+  // router's hash would stay stale in exactly the case this exists for. Listen
+  // for `hashchange` too and read `window.location` there. The card shell
+  // renders in every state, so the ref is always attached.
+  useEffect(() => {
+    // Named `fragment` rather than `hash`: the `security` ESLint plugin's
+    // timing-attack heuristic keys off the identifier, and a URL fragment is
+    // not a secret.
+    const scrollIfTargeted = (fragment: string) => {
+      if (fragment !== PRIVATE_DNS_HASH) return;
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    scrollIfTargeted(routerHash || window.location.hash);
+    const onHashChange = () => scrollIfTargeted(window.location.hash);
+    window.addEventListener("hashchange", onHashChange);
+    return () => window.removeEventListener("hashchange", onHashChange);
+  }, [routerHash]);
+
+  // Each branch names a distinct server state. In particular a granted device
+  // can still come back with no hostname: `/private-dns/me` resolves the domain
+  // lazily and degrades to `hostname: null` on a DDNS hiccup rather than
+  // failing the call, so "granted" and "has a hostname" are not the same
+  // question. Collapsing them would tell a granted member to go ask for a grant
+  // they already hold — advice their admin can't act on.
+  // Deliberately keyed on `!me` rather than `isError`: React Query keeps the
+  // last successful data when a *refetch* fails, and `usePrivateDnsMe` now
+  // refetches on window focus. Off-LAN the daemon is unreachable, so every
+  // foreground would otherwise replace working setup steps with an error —
+  // for a feature whose whole point is roaming. A stale hostname is still the
+  // right hostname, so show it and only surface the error when we have nothing.
+  const message = isLoading
+    ? "Loading…"
+    : !me
+      ? "Couldn't check this device's Private DNS status. Pull to refresh, or try again in a moment."
+      : !me.enabled
+        ? "Private DNS isn't enabled on your network yet. Ask your administrator to turn it on."
+        : !me.granted
+          ? "This device hasn't been granted Private DNS yet. Ask your administrator to grant it, then reopen this page."
+          : !me.hostname
+            ? // Granted, but the domain lookup didn't resolve — transient and
+              // self-healing, so don't send the member to their admin over it.
+              "This device is set up for Private DNS, but its hostname isn't available right now. Check back in a moment."
+            : null;
+
+  // Non-null exactly when every check above passed, so the setup view can rely
+  // on it without an assertion.
+  const hostname = message === null ? (me?.hostname ?? null) : null;
+
+  return (
+    <Card
+      id="private-dns"
+      ref={cardRef}
+      className="scroll-mt-4"
+      data-testid="private-dns-card"
+    >
+      <CardHeader>
+        <CardTitle>Private DNS</CardTitle>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {hostname === null ? (
+          <Text as="p" size="sm" className="text-ink-3">
+            {message}
+          </Text>
+        ) : (
+          <>
+            <Text as="p" size="sm" className="text-ink-3">
+              Route this device's DNS through Wardnet everywhere — at home and
+              roaming. Follow the steps for your phone.
+            </Text>
+            <PrivateDnsInstructions
+              hostname={hostname}
+              profileUrl={privateDnsService.profileUrl()}
+              variant="on-device"
+            />
+          </>
+        )}
       </CardContent>
     </Card>
   );
@@ -193,6 +306,8 @@ export default function Settings() {
       <MyRequests />
 
       <Notifications />
+
+      <PrivateDns />
     </div>
   );
 }
