@@ -16,11 +16,15 @@ use tokio::net::TcpListener;
 use tracing::Instrument;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Layer;
+use tracing_subscriber::filter::FilterFn;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 
 use wardnet_common::auth::AuthContext;
-use wardnet_common::config::{ApplicationConfiguration, LogFormat, LogRotation, OtelConfig};
+use wardnet_common::config::{
+    ApplicationConfiguration, LogFormat, LogRotation, LoggingConfig, OtelConfig,
+};
 use wardnetd::device_detector::DeviceDetector;
 use wardnetd::device_snapshot_listener::DeviceSnapshotListener;
 use wardnetd::entitlement_listener::EntitlementListener;
@@ -1348,7 +1352,10 @@ fn init_otel_meter(config: &OtelConfig) -> Option<SdkMeterProvider> {
 /// console output, and optional OpenTelemetry OTLP export.
 ///
 /// Logs are always written to the configured file path using a rolling
-/// appender. Console output is only enabled when `verbose` is true.
+/// appender. `--verbose` additionally mirrors the *whole* stream to stderr in
+/// the configured format; without it, stderr still receives a WARN-and-above
+/// slice so operational problems surface via `journalctl -u wardnetd` instead
+/// of only in the rotating file.
 /// When the `[otel]` config section is enabled, traces and logs are
 /// additionally exported via OTLP gRPC.
 ///
@@ -1465,7 +1472,32 @@ fn init_tracing(
             }
         }
     } else {
-        registry.with(file_layer).init();
+        // Not verbose: the file appender carries the full INFO+ record, and a
+        // curated WARN-and-above slice also goes to stderr so it reaches
+        // journald.
+        //
+        // Without this the unit's `StandardOutput=journal` receives nothing at
+        // all — `systemctl status wardnetd` and `journalctl -u wardnetd` show
+        // only systemd's own start/stop lines, and every daemon-side problem is
+        // invisible unless someone knows to read the rotating file.
+        //
+        // Level alone is not the filter. WARN is not a reliable "an operator
+        // should look at this" signal here: on a live gateway 97% of WARN+
+        // events are one-per-failed-lookup noise from the DNS recursor, so a
+        // plain `LevelFilter::WARN` would push ~30k lines/day into the journal
+        // and bury the ~30 that matter. `journal_suppressed_targets` carries
+        // the exclusions; see its doc comment for the measurements.
+        //
+        // ANSI off: journald stores the bytes verbatim, and escape codes make
+        // `journalctl` output and log greps unreadable.
+        let journal_suppressed = config.logging.journal_suppressed_targets.clone();
+        let stderr_layer = tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_ansi(false)
+            .with_filter(FilterFn::new(move |meta| {
+                LoggingConfig::journal_allows(*meta.level(), meta.target(), &journal_suppressed)
+            }));
+        registry.with(file_layer).with(stderr_layer).init();
     }
 
     log_service.start_all();

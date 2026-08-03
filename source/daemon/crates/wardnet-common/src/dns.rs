@@ -286,6 +286,11 @@ pub struct Blocklist {
     pub last_error: Option<String>,
     /// Timestamp of the most recent failed download/parse.
     pub last_error_at: Option<DateTime<Utc>>,
+    /// Failed refresh attempts since the last success, zeroed by any
+    /// successful refresh. Drives the cron runner's exponential backoff:
+    /// a failure leaves `last_updated` untouched, so without this the
+    /// every-minute tick would keep re-downloading a broken feed forever.
+    pub consecutive_failures: u32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

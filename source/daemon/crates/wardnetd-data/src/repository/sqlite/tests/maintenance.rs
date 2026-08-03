@@ -90,6 +90,171 @@ async fn incremental_vacuum_reduces_freelist() {
     let _ = std::fs::remove_file(path.with_extension("db-shm"));
 }
 
+/// A freelist far larger than one `PRAGMA incremental_vacuum` chunk must be
+/// drained in a *single* call, and the database file must actually shrink.
+///
+/// Regression test for the field bug behind a 2 GiB database that would not
+/// come back down: one 2,000-page chunk per daily run against a blocklist
+/// refresh that frees ~110k pages per import meant the file could only ever
+/// ratchet up to its high-water mark. Under `auto_vacuum=INCREMENTAL` nothing
+/// else returns pages to the filesystem, so the assertion that matters is that
+/// `page_count` drops — not merely that some pages were reclaimed.
+#[tokio::test]
+async fn incremental_vacuum_drains_freelist_larger_than_one_chunk() {
+    let (pool, path) = make_incremental_pool().await;
+
+    // ~4,000 rows × ~4 KiB ≈ 16 MiB, comfortably past the 2,000-page
+    // (~8 MiB) chunk the old fixed budget was capped at.
+    sqlx::query("CREATE TABLE _vac_big (data TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let payload = "z".repeat(4_000);
+    for _ in 0..4_000 {
+        sqlx::query("INSERT INTO _vac_big (data) VALUES (?)")
+            .bind(&payload)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    sqlx::query("DELETE FROM _vac_big")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("PRAGMA wal_checkpoint(FULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let freelist_before: i64 = sqlx::query_scalar("PRAGMA freelist_count")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let pages_before: i64 = sqlx::query_scalar("PRAGMA page_count")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        freelist_before > 2_000,
+        "test needs a freelist past one chunk to be meaningful, got {freelist_before}"
+    );
+
+    let repo = SqliteMaintenanceRepository::new(pool.clone());
+    let reclaimed = repo.incremental_vacuum().await.unwrap();
+
+    // The old fixed budget capped this at exactly 2,000.
+    assert!(
+        reclaimed > 2_000,
+        "one call should drain past a single chunk, got {reclaimed}"
+    );
+
+    let freelist_after: i64 = sqlx::query_scalar("PRAGMA freelist_count")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let pages_after: i64 = sqlx::query_scalar("PRAGMA page_count")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(
+        freelist_after <= 256,
+        "freelist should drain to the floor, got {freelist_after}"
+    );
+    assert!(
+        pages_after < pages_before,
+        "the file itself must shrink: before={pages_before} pages, after={pages_after}"
+    );
+
+    pool.close().await;
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
+
+/// The drain must not be derailed by the freelist *growing* while it runs.
+///
+/// This vacuum runs against a live database where query-log retention and
+/// stats cleanup are deleting rows concurrently, so the freelist can be larger
+/// after a chunk than before it even though the chunk reclaimed its full
+/// 2,000 pages. Terminating on "the freelist didn't shrink" would abort after
+/// one chunk exactly when the database is busiest — reinstating the
+/// single-chunk-per-day behaviour the chunked loop exists to remove, and
+/// reporting 0 reclaimed while doing it. Progress is therefore measured by
+/// `page_count`, which only moves when pages are genuinely handed back.
+#[tokio::test]
+async fn incremental_vacuum_makes_progress_while_the_freelist_grows() {
+    let (pool, path) = make_incremental_pool().await;
+
+    sqlx::query("CREATE TABLE _vac_a (data TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("CREATE TABLE _vac_b (data TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let payload = "q".repeat(4_000);
+    for _ in 0..3_000 {
+        sqlx::query("INSERT INTO _vac_a (data) VALUES (?)")
+            .bind(&payload)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO _vac_b (data) VALUES (?)")
+            .bind(&payload)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    // Free a large batch up front, leaving `_vac_b` to be freed *during* the
+    // vacuum by the concurrent task below.
+    sqlx::query("DELETE FROM _vac_a")
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query("PRAGMA wal_checkpoint(FULL)")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let pages_before: i64 = sqlx::query_scalar("PRAGMA page_count")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    // Concurrently push more pages onto the freelist while the vacuum runs.
+    let churn_pool = pool.clone();
+    let churn = tokio::spawn(async move {
+        let _ = sqlx::query("DELETE FROM _vac_b").execute(&churn_pool).await;
+    });
+
+    let repo = SqliteMaintenanceRepository::new(pool.clone());
+    let reclaimed = repo.incremental_vacuum().await.unwrap();
+    let _ = churn.await;
+
+    let pages_after: i64 = sqlx::query_scalar("PRAGMA page_count")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+    assert!(
+        reclaimed > 2_000,
+        "concurrent freeing must not cap the drain at one chunk, got {reclaimed}"
+    );
+    // The reported figure is the real one, not a freelist-delta artefact that
+    // concurrent deletes can drive to zero or negative.
+    assert_eq!(
+        i64::try_from(reclaimed).unwrap(),
+        pages_before - pages_after,
+        "reclaimed must equal the actual reduction in page_count"
+    );
+
+    pool.close().await;
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
+
 /// After writes have grown the `-wal` sidecar, `wal_checkpoint_truncate`
 /// truncates it back toward zero.
 ///

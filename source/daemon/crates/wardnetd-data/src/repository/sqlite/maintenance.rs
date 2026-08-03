@@ -9,10 +9,19 @@ use crate::repository::maintenance::{MaintenanceRepository, WalCheckpointOutcome
 /// How many pages a single `PRAGMA incremental_vacuum(N)` call is
 /// allowed to reclaim. Tuned for a Raspberry Pi: ~8 MiB at the `SQLite`
 /// default 4 KiB page size — small enough to release the writer lock
-/// promptly so concurrent flushes don't queue against
-/// `busy_timeout`. The cleanup tick fires daily; unreclaimed pages
-/// stay on the freelist and get picked up by the next call.
-const INCREMENTAL_VACUUM_PAGES: u32 = 2_000;
+/// promptly so concurrent flushes don't queue against `busy_timeout`.
+const INCREMENTAL_VACUUM_CHUNK_PAGES: u32 = 2_000;
+
+/// Upper bound on chunks per daily run — ~1.6 GiB at the 4 KiB page size.
+///
+/// One chunk per daily tick used to be the whole budget, which is what let a
+/// 2 GiB field database sit at 788 MiB of freelist that could never come back:
+/// a blocklist refresh frees ~110k pages when it reclaims a superseded
+/// generation, against 2k reclaimed per day. Under `auto_vacuum=INCREMENTAL`
+/// the file only ever shrinks here, so the budget has to track the freelist
+/// rather than a constant — otherwise the file ratchets to its high-water mark
+/// and stays there. The ceiling still bounds a single run.
+const INCREMENTAL_VACUUM_MAX_CHUNKS: u32 = 200;
 
 /// Upper bound on how many rows-per-index `PRAGMA optimize` samples
 /// before it stops, per `SQLite`'s own recommendation for keeping the
@@ -49,25 +58,64 @@ impl SqliteMaintenanceRepository {
 #[async_trait]
 impl MaintenanceRepository for SqliteMaintenanceRepository {
     async fn incremental_vacuum(&self) -> anyhow::Result<u64> {
-        // `PRAGMA incremental_vacuum(N)` is a no-op on databases
-        // created with `auto_vacuum=NONE`, so it's safe to call
-        // unconditionally. The `before`/`after` freelist samples are
-        // taken outside any transaction; concurrent writers can grow
-        // the freelist between samples, so the returned page count is
-        // best-effort telemetry rather than a precise total.
-        let before: i64 = sqlx::query_scalar("PRAGMA freelist_count")
-            .fetch_one(&self.pools.write)
-            .await
-            .unwrap_or(0);
-        let stmt = format!("PRAGMA incremental_vacuum({INCREMENTAL_VACUUM_PAGES})");
-        sqlx::query(sqlx::AssertSqlSafe(stmt))
-            .execute(&self.pools.write)
-            .await?;
-        let after: i64 = sqlx::query_scalar("PRAGMA freelist_count")
-            .fetch_one(&self.pools.write)
-            .await
-            .unwrap_or(before);
-        Ok(u64::try_from((before - after).max(0)).unwrap_or(0))
+        // `PRAGMA incremental_vacuum(N)` is a no-op on databases created with
+        // `auto_vacuum=NONE`, so it is safe to call unconditionally.
+        //
+        // Progress is measured by `page_count`, not `freelist_count`. The
+        // freelist is the wrong yardstick here: this runs against a live
+        // database where query-log retention and stats cleanup are freeing
+        // pages concurrently, so the freelist can grow across a chunk even
+        // though the chunk reclaimed its full 2,000 pages. Terminating on
+        // "freelist didn't shrink" would abort after one chunk exactly when
+        // the database is busiest — reinstating the single-chunk-per-day
+        // behaviour this loop exists to remove, and reporting 0 reclaimed
+        // while doing it. `page_count` only moves when pages are actually
+        // returned to the filesystem, which is the thing being asked for.
+        let stmt = format!("PRAGMA incremental_vacuum({INCREMENTAL_VACUUM_CHUNK_PAGES})");
+        let mut reclaimed: i64 = 0;
+
+        // Chunked rather than one big call: each `PRAGMA` takes and releases
+        // the writer, so the DNS query log and stats flushes interleave instead
+        // of queueing behind a multi-hundred-megabyte reclaim.
+        // Drains to empty rather than stopping at a floor: a small deployment
+        // whose freelist never reaches one chunk still has to get its pages
+        // back, and `PRAGMA incremental_vacuum(N)` already reclaims only
+        // `min(N, freelist)` so a partial final chunk costs nothing.
+        for _ in 0..INCREMENTAL_VACUUM_MAX_CHUNKS {
+            // Errors propagate rather than defaulting: a read that fails
+            // because the writer is busy must not be mistaken for "freelist is
+            // empty, nothing to do", which would silently skip the whole daily
+            // reclaim. The caller logs it and the next tick retries.
+            let free: i64 = sqlx::query_scalar("PRAGMA freelist_count")
+                .fetch_one(&self.pools.write)
+                .await?;
+            if free <= 0 {
+                break;
+            }
+            let pages_before: i64 = sqlx::query_scalar("PRAGMA page_count")
+                .fetch_one(&self.pools.write)
+                .await?;
+
+            sqlx::query(sqlx::AssertSqlSafe(stmt.clone()))
+                .execute(&self.pools.write)
+                .await?;
+
+            let pages_after: i64 = sqlx::query_scalar("PRAGMA page_count")
+                .fetch_one(&self.pools.write)
+                .await?;
+            let freed = pages_before - pages_after;
+            if freed <= 0 {
+                // Nothing came back this pass: `auto_vacuum=NONE`, or every
+                // remaining free page sits below a pointer-map page that
+                // cannot be relocated yet. Stop rather than spinning the
+                // writer for the rest of the budget.
+                break;
+            }
+            reclaimed += freed;
+            tokio::task::yield_now().await;
+        }
+
+        Ok(u64::try_from(reclaimed).unwrap_or(0))
     }
 
     async fn wal_checkpoint_truncate(&self) -> anyhow::Result<WalCheckpointOutcome> {

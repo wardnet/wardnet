@@ -250,6 +250,23 @@ pub struct LoggingConfig {
     /// disk for debugging; this only keeps the admin log view free of events an
     /// admin cannot act on.
     pub ui_suppressed_targets: Vec<String>,
+    /// Tracing targets kept out of the WARN-and-above slice mirrored to stderr
+    /// (and therefore out of journald / `systemctl status`).
+    ///
+    /// Matched as a prefix, exactly like [`Self::ui_suppressed_targets`], and
+    /// likewise **not** filtered from the log file or the `OTel` exporters —
+    /// the full detail stays on disk.
+    ///
+    /// This list exists because WARN is not a reliable "an operator should look
+    /// at this" signal in practice. Measured over one day on a live gateway:
+    /// 31,860 WARN+ events, of which 31,040 (97%) were
+    /// `hickory_resolver::recursor` logging one warning per failed recursive
+    /// lookup — an ordinary negative DNS answer — and a further 579 were the
+    /// same event surfacing through our own resolution pipeline. Mirroring
+    /// those verbatim would push ~30k lines/day into the journal, evicting
+    /// other units' logs and burying the ~30 genuinely actionable events
+    /// (routing/route-monitor/sqlx) they are supposed to make visible.
+    pub journal_suppressed_targets: Vec<String>,
 }
 
 impl Default for LoggingConfig {
@@ -271,11 +288,57 @@ impl Default for LoggingConfig {
             // query that failed, so it is genuinely useful when debugging
             // resolution.
             ui_suppressed_targets: vec!["hickory_resolver::recursor".to_owned()],
+            // `hickory_resolver` covers the recursor's per-lookup warnings
+            // (97% of all WARN+ traffic on a live gateway).
+            // `wardnetd::dns::pipeline` is the same failure re-reported by our
+            // own resolver — a per-query event, not an operator signal. Both
+            // stay in the log file; `sqlx` is deliberately *not* suppressed,
+            // since slow-statement and slow-acquire warnings are exactly the
+            // kind of thing worth seeing in `systemctl status`.
+            journal_suppressed_targets: vec![
+                "hickory_resolver".to_owned(),
+                "wardnetd::dns::pipeline".to_owned(),
+            ],
         }
     }
 }
 
 impl LoggingConfig {
+    /// Whether an event at `level` from `target` belongs in the slice mirrored
+    /// to stderr, and so into journald.
+    ///
+    /// `suppressed` holds target **prefixes** (normally
+    /// [`Self::journal_suppressed_targets`]), so `hickory_resolver` also covers
+    /// `hickory_resolver::recursor::handle`. Suppression applies at WARN only —
+    /// ERROR always passes, whatever the target.
+    ///
+    /// Level alone is not the filter, because WARN is not a dependable "an
+    /// operator should look at this" signal here — see
+    /// [`Self::journal_suppressed_targets`] for the measured breakdown.
+    ///
+    /// Lives here rather than next to the subscriber setup in `wardnetd`: that
+    /// crate is Linux-only (it links netlink), so a predicate defined there
+    /// cannot be unit-tested on a developer machine.
+    #[must_use]
+    pub fn journal_allows(level: tracing::Level, target: &str, suppressed: &[String]) -> bool {
+        // `tracing`'s `Level` ordering runs ERROR < WARN < INFO < DEBUG <
+        // TRACE, so `<=` reads as "at least this severe".
+        if level > tracing::Level::WARN {
+            return false;
+        }
+        // Suppression applies to WARN only. The list targets crates that log
+        // one WARN per failed DNS lookup; an ERROR from those same crates is a
+        // different animal and rare enough to be worth seeing — across seven
+        // days of production logs the daemon emitted no ERROR events at all,
+        // so nothing here can become a flood.
+        if level <= tracing::Level::ERROR {
+            return true;
+        }
+        !suppressed
+            .iter()
+            .any(|prefix| target.starts_with(prefix.as_str()))
+    }
+
     /// Build an `EnvFilter`-compatible directive string from this config.
     #[must_use]
     pub fn to_filter_string(&self) -> String {

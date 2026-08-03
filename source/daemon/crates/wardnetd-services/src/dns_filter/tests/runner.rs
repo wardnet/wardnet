@@ -467,6 +467,7 @@ async fn cron_tick_refreshes_due_blocklists() {
             cron_schedule: "* * * * *".into(),
             last_error: None,
             last_error_at: None,
+            consecutive_failures: 0,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }],
@@ -526,4 +527,92 @@ async fn unrelated_events_are_ignored() {
         after.handle_ip_changed.len()
     );
     runner.shutdown().await;
+}
+
+// ── refresh backoff after failures ──────────────────────────────────────────
+
+/// Build a blocklist with `failures` consecutive failures, the most recent
+/// one `mins_ago` minutes in the past.
+fn failing_blocklist(failures: u32, mins_ago: i64) -> Blocklist {
+    Blocklist {
+        id: Uuid::new_v4(),
+        profile_id: Uuid::new_v4(),
+        name: "failing".into(),
+        url: "http://example.test/f.txt".into(),
+        enabled: true,
+        entry_count: 0,
+        last_updated: None,
+        cron_schedule: "* * * * *".into(),
+        last_error: Some("download failed".into()),
+        last_error_at: Some(Utc::now() - chrono::Duration::minutes(mins_ago)),
+        consecutive_failures: failures,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+/// A healthy blocklist has nothing to back off from.
+#[test]
+fn retry_not_before_is_none_without_failures() {
+    let mut bl = failing_blocklist(0, 0);
+    bl.last_error = None;
+    bl.last_error_at = None;
+    assert!(crate::dns_filter::runner::retry_not_before(&bl).is_none());
+}
+
+/// A failure count with no recorded timestamp has no anchor to back off from,
+/// so it must not block the retry indefinitely.
+#[test]
+fn retry_not_before_is_none_without_a_timestamp() {
+    let mut bl = failing_blocklist(3, 0);
+    bl.last_error_at = None;
+    assert!(crate::dns_filter::runner::retry_not_before(&bl).is_none());
+}
+
+/// The interval doubles per consecutive failure and then holds at the cap.
+#[test]
+fn retry_backoff_doubles_then_caps() {
+    // (failures, expected minutes after last_error_at)
+    for (failures, expect_mins) in [
+        (1_u32, 5_i64),
+        (2, 10),
+        (3, 20),
+        (4, 40),
+        (5, 80),
+        (6, 160),
+        (7, 320),
+        (8, 360),  // capped
+        (50, 360), // far past the cap, still capped
+        (u32::MAX, 360),
+    ] {
+        let bl = failing_blocklist(failures, 0);
+        let anchor = bl.last_error_at.unwrap();
+        let got = crate::dns_filter::runner::retry_not_before(&bl).expect("should back off");
+        assert_eq!(
+            (got - anchor).num_minutes(),
+            expect_mins,
+            "failures={failures} should wait {expect_mins}m"
+        );
+    }
+}
+
+/// Backoff is measured from `last_error_at`, so a long-past failure is
+/// retryable again immediately — the wait does not restart on daemon restart.
+#[test]
+fn retry_allowed_once_the_backoff_window_has_passed() {
+    // 3 failures ⇒ 20m window, last failure 60m ago.
+    let bl = failing_blocklist(3, 60);
+    let retry_at = crate::dns_filter::runner::retry_not_before(&bl).expect("should back off");
+    assert!(
+        retry_at < Utc::now(),
+        "a failure 60m ago with a 20m window should be retryable now"
+    );
+
+    // Same failure count, but it just happened — still held off.
+    let fresh = failing_blocklist(3, 0);
+    let retry_at = crate::dns_filter::runner::retry_not_before(&fresh).expect("should back off");
+    assert!(
+        retry_at > Utc::now(),
+        "a failure just now with a 20m window must not retry yet"
+    );
 }

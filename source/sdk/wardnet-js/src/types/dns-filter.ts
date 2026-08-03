@@ -53,6 +53,12 @@ export interface Blocklist {
   cron_schedule: string;
   last_error: string | null;
   last_error_at: string | null;
+  /**
+   * Failed refresh attempts since the last success, zeroed by any successful
+   * refresh. The daemon backs off exponentially from `last_error_at` on this
+   * count (5m doubling to a 6h cap) rather than retrying every minute.
+   */
+  consecutive_failures: number;
   created_at: string;
   updated_at: string;
 }

@@ -252,6 +252,14 @@ impl BlocklistFetcher for StubBlocklistFetcher {
 #[derive(Default)]
 struct StubJobService {
     dispatched: StdMutex<Vec<Uuid>>,
+    /// Dispatched tasks, retained but never polled — the stand-in for a job
+    /// that has started and not yet finished.
+    ///
+    /// Holding them matters now that a task owns its blocklist's in-flight
+    /// reservation: dropping the task here would release the reservation and
+    /// make every refresh look idle, which is the opposite of what the
+    /// dedup tests need to observe.
+    in_flight: StdMutex<Vec<BoxedJobTask>>,
 }
 
 impl StubJobService {
@@ -265,10 +273,11 @@ impl JobService for StubJobService {
     async fn dispatch_boxed(
         &self,
         _kind: wardnet_common::jobs::JobKind,
-        _task: BoxedJobTask,
+        task: BoxedJobTask,
     ) -> Uuid {
         let id = Uuid::new_v4();
         self.dispatched.lock().unwrap().push(id);
+        self.in_flight.lock().unwrap().push(task);
         id
     }
     async fn get(&self, _id: Uuid) -> Option<wardnet_common::jobs::Job> {
@@ -285,6 +294,7 @@ struct Harness {
     repo: Arc<dyn DnsFilterRepository>,
     devices: Arc<MemoryDeviceRepository>,
     pool: SqlitePool,
+    jobs: Arc<StubJobService>,
 }
 
 impl Harness {
@@ -335,13 +345,13 @@ async fn build() -> Harness {
     let repo: Arc<dyn DnsFilterRepository> = Arc::new(SqliteDnsFilterRepository::new(pool.clone()));
     let devices = MemoryDeviceRepository::arc();
     let events: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(64));
-    let jobs: Arc<dyn JobService> = StubJobService::arc();
+    let jobs = StubJobService::arc();
     let fetcher: Arc<dyn BlocklistFetcher> = StubBlocklistFetcher::arc();
     let service = Arc::new(DnsFilterServiceImpl::new(
         repo.clone(),
         devices.clone(),
         events,
-        jobs,
+        jobs.clone(),
         fetcher,
     ));
     Harness {
@@ -349,6 +359,7 @@ async fn build() -> Harness {
         repo,
         devices,
         pool,
+        jobs,
     }
 }
 
@@ -1513,6 +1524,281 @@ async fn refresh_blocklist_dispatches_a_job() {
             .unwrap();
         // StubJobService returns a fresh UUID per dispatch.
         assert_ne!(resp.job_id, Uuid::nil());
+    })
+    .await;
+}
+
+/// Pointing a blocklist at a new URL clears the failure state left by the old
+/// one.
+///
+/// Fixing a typo'd or dead feed URL is the most likely reason a blocklist has
+/// been failing, and the refresh backoff is anchored on `last_error_at`. Carry
+/// the old URL's failures forward and the corrected URL sits out the backoff
+/// (up to the 6-hour cap) before it is ever tried, with the previous URL's
+/// error still displayed.
+#[tokio::test]
+async fn changing_a_blocklist_url_clears_its_failure_state() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let created = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "typo".into(),
+                    url: "http://example.test/typo.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+        let bl_id = created.blocklist.id;
+
+        // Three failed refreshes against the bad URL.
+        for _ in 0..3 {
+            h.repo
+                .set_blocklist_error(bl_id, Some("download failed"))
+                .await
+                .unwrap();
+        }
+        let before = h.service.list_blocklists(pid).await.unwrap().blocklists;
+        let before = before.iter().find(|b| b.id == bl_id).unwrap();
+        assert_eq!(before.consecutive_failures, 3);
+        assert!(before.last_error.is_some());
+
+        h.service
+            .update_blocklist(
+                pid,
+                bl_id,
+                UpdateBlocklistRequest {
+                    name: None,
+                    url: Some("http://example.test/fixed.txt".into()),
+                    cron_schedule: None,
+                    enabled: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        let after = h.service.list_blocklists(pid).await.unwrap().blocklists;
+        let after = after.iter().find(|b| b.id == bl_id).unwrap();
+        assert_eq!(
+            after.consecutive_failures, 0,
+            "a new URL must not inherit the old one's failure count"
+        );
+        assert!(
+            after.last_error.is_none() && after.last_error_at.is_none(),
+            "a new URL must not keep showing the old one's error"
+        );
+    })
+    .await;
+}
+
+/// Renaming a blocklist leaves its failure state alone — only a URL change
+/// means "different source".
+#[tokio::test]
+async fn renaming_a_blocklist_preserves_its_failure_state() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let created = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "before".into(),
+                    url: "http://example.test/keep.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+        let bl_id = created.blocklist.id;
+        h.repo
+            .set_blocklist_error(bl_id, Some("download failed"))
+            .await
+            .unwrap();
+
+        h.service
+            .update_blocklist(
+                pid,
+                bl_id,
+                UpdateBlocklistRequest {
+                    name: Some("after".into()),
+                    url: None,
+                    cron_schedule: None,
+                    enabled: None,
+                },
+            )
+            .await
+            .unwrap();
+
+        let after = h.service.list_blocklists(pid).await.unwrap().blocklists;
+        let after = after.iter().find(|b| b.id == bl_id).unwrap();
+        assert_eq!(
+            after.consecutive_failures, 1,
+            "a rename must not reset the backoff for the same URL"
+        );
+    })
+    .await;
+}
+
+/// A second refresh for a blocklist whose import is still running must be
+/// handed the in-flight job instead of queueing another import.
+///
+/// Regression test for the field bug behind an unshrinkable 2 GiB database.
+/// The cron tick fires every minute and reads due-ness from `last_updated`,
+/// which is only written once the import commits — so for the ~2.5 hours a
+/// multi-million domain feed takes, every tick re-dispatched the same
+/// blocklist: 158 dispatches in one day for 5 daily-scheduled lists. Each
+/// duplicate re-imported and re-deleted the whole feed, freeing pages far
+/// faster than the daily incremental vacuum could return them.
+///
+/// `StubJobService` never polls the task, which is exactly the "still running"
+/// state this needs — and it mints a fresh id per dispatch, so an equal
+/// `job_id` proves the second call did not dispatch.
+#[tokio::test]
+async fn concurrent_refresh_of_same_blocklist_reuses_the_in_flight_job() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let bl = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "dedup".into(),
+                    url: "http://example.test/d.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        let first = h
+            .service
+            .refresh_blocklist(pid, bl.blocklist.id)
+            .await
+            .unwrap();
+
+        assert_ne!(
+            first.job_id,
+            Uuid::nil(),
+            "the dispatching caller must get a real job id"
+        );
+
+        // Simulates the next cron tick landing mid-import.
+        for _ in 0..5 {
+            let again = h
+                .service
+                .refresh_blocklist(pid, bl.blocklist.id)
+                .await
+                .unwrap();
+            assert_eq!(
+                again.job_id, first.job_id,
+                "a refresh dispatched while one is in flight must reuse it"
+            );
+            // A reservation is recorded before its job id is known, so a
+            // caller that collapses onto it could be handed the placeholder.
+            // That id resolves to no job at all — the UI would poll it and get
+            // 404 forever, showing a refresh that never finishes.
+            assert_ne!(
+                again.job_id,
+                Uuid::nil(),
+                "a deduped caller must never be handed a nil job id"
+            );
+        }
+    })
+    .await;
+}
+
+/// Once the job's task is gone, the blocklist must be refreshable again.
+///
+/// The reservation is owned by the task rather than released at the end of the
+/// job body, so that an early `?` or a panic mid-import cannot strand it.
+/// Dropping the retained tasks here is the stub's stand-in for "the job
+/// finished, however it finished" — if the entry survived that, the blocklist
+/// would be wedged out of every future refresh, turning a bloat bug into a
+/// silently-stale-blocklist bug.
+#[tokio::test]
+async fn refresh_is_dispatchable_again_once_the_job_task_is_dropped() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let bl = h
+            .service
+            .create_blocklist(
+                pid,
+                CreateBlocklistRequest {
+                    name: "released".into(),
+                    url: "http://example.test/rel.txt".into(),
+                    cron_schedule: "0 3 * * *".into(),
+                    enabled: true,
+                },
+            )
+            .await
+            .unwrap();
+
+        let first = h
+            .service
+            .refresh_blocklist(pid, bl.blocklist.id)
+            .await
+            .unwrap();
+
+        // Drop the retained task — the job is over.
+        h.jobs.in_flight.lock().unwrap().clear();
+
+        let second = h
+            .service
+            .refresh_blocklist(pid, bl.blocklist.id)
+            .await
+            .unwrap();
+        assert_ne!(
+            second.job_id, first.job_id,
+            "a finished refresh must release its reservation"
+        );
+    })
+    .await;
+}
+
+/// The in-flight guard is keyed per blocklist: one list importing must not
+/// block a different list from refreshing.
+#[tokio::test]
+async fn refresh_of_a_different_blocklist_dispatches_independently() {
+    let h = build().await;
+    as_admin(async {
+        let pid = Uuid::parse_str(AD_BLOCKING).unwrap();
+        let mut jobs = Vec::new();
+        for n in 0..2 {
+            let bl = h
+                .service
+                .create_blocklist(
+                    pid,
+                    CreateBlocklistRequest {
+                        name: format!("indep-{n}"),
+                        url: format!("http://example.test/i{n}.txt"),
+                        cron_schedule: "0 3 * * *".into(),
+                        enabled: true,
+                    },
+                )
+                .await
+                .unwrap();
+            jobs.push(
+                h.service
+                    .refresh_blocklist(pid, bl.blocklist.id)
+                    .await
+                    .unwrap()
+                    .job_id,
+            );
+        }
+        assert_ne!(
+            jobs[0], jobs[1],
+            "distinct blocklists must each get their own refresh job"
+        );
     })
     .await;
 }

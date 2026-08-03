@@ -15,6 +15,7 @@
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
@@ -23,7 +24,7 @@ use futures::TryStreamExt;
 use hickory_proto::rr::RecordType;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use tokio::sync::{RwLock, Semaphore};
+use tokio::sync::{Mutex as TokioMutex, RwLock, Semaphore};
 use uuid::Uuid;
 
 use wardnet_common::api::{
@@ -238,6 +239,30 @@ pub struct DnsFilterServiceImpl {
     /// no gain, since `SQLite` admits one writer anyway.
     refresh_lock: Arc<Semaphore>,
 
+    /// Blocklists with a refresh job already dispatched and not yet finished,
+    /// mapped to that job's id so a duplicate request can be handed the
+    /// in-flight job instead of queueing a second import.
+    ///
+    /// The cron tick fires every minute and decides due-ness from
+    /// `last_updated`, which [`SqliteDnsFilterRepository::replace_blocklist_domains`]
+    /// only writes *after* the import commits its generation swap. A
+    /// multi-million domain feed imports for hours, so without this guard every
+    /// tick in that window re-dispatches the same blocklist: observed at 158
+    /// dispatches in one day for 5 daily-scheduled lists. `refresh_lock`
+    /// serialises them but does not collapse them, so each duplicate re-imports
+    /// and re-deletes the whole feed — churning the freelist far faster than
+    /// the daily incremental vacuum can return pages to the filesystem.
+    in_flight_refreshes: Arc<StdMutex<HashMap<Uuid, RefreshReservation>>>,
+
+    /// Serialises "check the map, dispatch, record the job id" so that whole
+    /// sequence is atomic against another caller.
+    ///
+    /// Without it the job id is only knowable *after* `dispatch` awaits, so a
+    /// second caller arriving mid-dispatch would read a reservation that has no
+    /// id yet and be handed a placeholder — a job id that resolves to nothing,
+    /// leaving the UI polling a 404 forever.
+    refresh_dispatch_gate: Arc<TokioMutex<()>>,
+
     /// Set once `rebuild_all` has compiled the filter cache. The DNS server
     /// binds and answers queries before this happens (the runner bootstraps in
     /// its own task), so until it flips, queries resolve through an empty
@@ -267,6 +292,60 @@ pub struct DnsFilterServiceImpl {
     config: Arc<ArcSwap<DnsFilterConfig>>,
 }
 
+/// One blocklist's in-flight refresh reservation.
+///
+/// `token` identifies *which* dispatch owns the slot. Reservations are
+/// otherwise indistinguishable, and a job can finish before the call that
+/// dispatched it resumes — so without a token that call could clobber a later
+/// dispatch's reservation with its own already-finished job id, leaving
+/// callers pointed at a dead job while a different import is the live one.
+#[derive(Clone, Copy)]
+struct RefreshReservation {
+    token: Uuid,
+    job_id: Uuid,
+}
+
+/// Clears a blocklist's [`DnsFilterServiceImpl::in_flight_refreshes`] entry
+/// when the refresh job's future finishes — whichever way it finishes.
+///
+/// Drop rather than an explicit call at the end of the job body: the body
+/// exits early via `?` when the semaphore closes, and a panic inside the
+/// download would otherwise strand the entry and wedge that blocklist out of
+/// every future refresh.
+struct InFlightRefreshGuard {
+    map: Arc<StdMutex<HashMap<Uuid, RefreshReservation>>>,
+    blocklist_id: Uuid,
+    token: Uuid,
+    /// Set on drop so the dispatching call knows this job is already over and
+    /// must not record a reservation for it. A job can finish before
+    /// `dispatch` returns; recording one then would leave an entry no guard
+    /// will ever clear, wedging this blocklist out of every later refresh.
+    /// Read and written under `map`'s lock, so `Relaxed` is sufficient.
+    released: Arc<AtomicBool>,
+}
+
+impl Drop for InFlightRefreshGuard {
+    fn drop(&mut self) {
+        // A poisoned lock means some other refresh panicked mid-update. The
+        // map is a plain reservation set — there is no torn invariant to
+        // protect — so recover the guard rather than cascading the panic.
+        let mut map = self
+            .map
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        self.released.store(true, Ordering::Relaxed);
+        // Only clear our own reservation. A later dispatch may already own the
+        // slot, and removing that would let a third caller queue a duplicate
+        // import alongside the one actually running.
+        if map
+            .get(&self.blocklist_id)
+            .is_some_and(|r| r.token == self.token)
+        {
+            map.remove(&self.blocklist_id);
+        }
+    }
+}
+
 impl DnsFilterServiceImpl {
     pub fn new(
         repo: Arc<dyn DnsFilterRepository>,
@@ -282,6 +361,8 @@ impl DnsFilterServiceImpl {
             jobs,
             fetcher,
             refresh_lock: Arc::new(Semaphore::new(1)),
+            in_flight_refreshes: Arc::new(StdMutex::new(HashMap::new())),
+            refresh_dispatch_gate: Arc::new(TokioMutex::new(())),
             bootstrapped: Arc::new(AtomicBool::new(false)),
             blocklist_filters: Arc::new(RwLock::new(HashMap::new())),
             profile_aux_filters: Arc::new(RwLock::new(HashMap::new())),
@@ -1040,14 +1121,53 @@ impl DnsFilterService for DnsFilterServiceImpl {
         auth_context::require_admin()?;
         let bl = self.ensure_blocklist_in_profile(profile_id, id).await?;
 
+        // Collapse onto the in-flight job if this blocklist is already
+        // importing. Reserved before the dispatch and under a sync lock, so two
+        // cron ticks racing here cannot both get past the check.
+        //
+        // Held across the dispatch so "check, dispatch, record the id" is
+        // atomic: a concurrent caller waits here rather than observing a
+        // reservation whose job id does not exist yet.
+        let _dispatch_gate = self.refresh_dispatch_gate.lock().await;
+
+        {
+            let in_flight = self
+                .in_flight_refreshes
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if let Some(reservation) = in_flight.get(&id) {
+                let job_id = reservation.job_id;
+                tracing::debug!(
+                    blocklist_id = %id,
+                    %job_id,
+                    "blocklist refresh already in flight; returning the running job"
+                );
+                return Ok(JobDispatchedResponse { job_id });
+            }
+        }
+
+        let token = Uuid::new_v4();
         let repo = self.repo.clone();
         let fetcher = self.fetcher.clone();
         let events = self.events.clone();
         let refresh_lock = self.refresh_lock.clone();
+        // Built here, not inside the async block: the guard has to be owned by
+        // the future from the moment it exists, so a task dropped before it is
+        // ever polled still releases the reservation. Constructing it on first
+        // poll would strand the entry and wedge this blocklist out of every
+        // later refresh.
+        let guard_released = Arc::new(AtomicBool::new(false));
+        let in_flight_guard = InFlightRefreshGuard {
+            map: self.in_flight_refreshes.clone(),
+            blocklist_id: id,
+            token,
+            released: guard_released.clone(),
+        };
 
         let job_id = self
             .jobs
             .dispatch(JobKind::BlocklistRefresh, move |reporter| async move {
+                let _in_flight_guard = in_flight_guard;
                 // Enabling a profile dispatches one job per blocklist, so all
                 // but the first wait here — for minutes, if a multi-million
                 // domain feed is ahead of them. Publish progress *before*
@@ -1067,6 +1187,21 @@ impl DnsFilterService for DnsFilterServiceImpl {
                 .map(|_| ())
             })
             .await;
+
+        // Record the reservation now that the id exists. Skipped when the job
+        // already ran to completion and its guard cleared the slot — there is
+        // nothing in flight left to point at, and re-inserting would wedge this
+        // blocklist out of every later refresh.
+        {
+            let mut in_flight = self
+                .in_flight_refreshes
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if !guard_released.load(Ordering::Relaxed) {
+                in_flight.insert(id, RefreshReservation { token, job_id });
+            }
+        }
+
         Ok(JobDispatchedResponse { job_id })
     }
 
