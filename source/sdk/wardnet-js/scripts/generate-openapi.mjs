@@ -21,19 +21,22 @@ const SPEC_PATH = resolve(here, "../../../../docs/openapi.json");
 const OUT_PATH = resolve(here, "../src/internal/openapi-schema.ts");
 
 // Schemas the daemon references from `$ref`s but does not register under
-// `components.schemas`. This happens for enums that appear only as path/query
-// parameters: utoipa's `IntoParams` emits the `$ref` without pulling the enum
-// into the components section. Regenerating the spec from the daemon won't add
-// them, so we can't fix it by editing `docs/openapi.json` (that would fail the
-// daemon's own drift gate). Instead we splice in the definition the daemon
-// omitted, matching its serde serialization exactly.
+// `components.schemas`. utoipa's `IntoParams` can emit a `$ref` for an enum
+// used only as a path/query parameter without pulling the enum into the
+// components section, and we can't paper over that by editing
+// `docs/openapi.json` (that would fail the daemon's own drift gate). Each
+// entry here is the definition the daemon omitted, matching its serde
+// serialization exactly.
 //
-// Each entry is applied only if the name is genuinely absent, so the shim
-// disappears automatically if the daemon ever starts registering the schema.
-const MISSING_SCHEMA_SHIMS = {
-  // `StatsBucket` — #[serde(rename_all = "snake_case")] over Minute/Hour/Day.
-  StatsBucket: { type: "string", enum: ["minute", "hour", "day"] },
-};
+// Currently empty: the daemon registers every schema it references (the one
+// case that needed a shim, `StatsBucket`, was fixed upstream in #1047). The
+// mechanism stays because the failure is silent from the daemon's side —
+// `collectMissingRefs` below is what turns a recurrence into a loud error
+// pointing back here.
+//
+// A shim applies only when the name is genuinely absent, so it retires itself
+// if the daemon later starts registering the schema.
+const MISSING_SCHEMA_SHIMS = {};
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"];
 
@@ -47,9 +50,11 @@ function operationsOf(item) {
   );
 }
 
-// The daemon reuses `operationId`s across handlers (six endpoints answer to
-// `status`, `get_config` appears three times, …). openapi-typescript keys its
-// `operations` interface by `operationId`, so those collisions would collapse
+// The daemon still reuses `operationId`s across handlers — #1047 deduped the
+// worst of it, but `get_me`, `list_profiles`, `create_profile`, `get_profile`,
+// `update_profile` and `delete_profile` each remain claimed by two endpoints.
+// openapi-typescript keys its `operations` interface by `operationId`, so those
+// collisions would collapse
 // distinct endpoints onto one shared type — silently mistyping every request
 // and response involved. Since we consume the `paths` map (not `operations`)
 // and the ids are an internal implementation detail, rewrite each one to a
@@ -64,13 +69,16 @@ function normalizeOperationIds(spec) {
 }
 
 // utoipa's `IntoParams` defaults a handler's params to `in: path` unless the
-// handler annotates otherwise. A couple of GET endpoints (notably `/stats`)
-// carry query-string params that were left at that default, so the spec marks
-// them `in: path` even though the path template has no matching `{placeholder}`
-// — which is invalid OpenAPI, and openapi-typescript would then type them as
-// required path segments the client can never fill. The daemon actually reads
-// them from the query string (via `serde_html_form`), so reclassify any such
-// orphaned path param as a query param before codegen.
+// handler annotates otherwise, so a handler that forgets the annotation ends up
+// with query-string params marked `in: path` and no matching `{placeholder}` in
+// the template — invalid OpenAPI, which openapi-typescript would then type as
+// required path segments the client can never fill. The daemon reads those from
+// the query string (via `serde_html_form`), so reclassify any such orphaned
+// path param before codegen.
+//
+// No endpoint currently trips this — `/stats` and `/stats/top`, which did, were
+// fixed upstream in #1047. It stays as a guard because the next handler to omit
+// the annotation would otherwise generate an unusable client silently.
 function fixOrphanPathParams(spec) {
   const fixed = [];
   for (const [path, item] of Object.entries(spec.paths ?? {})) {

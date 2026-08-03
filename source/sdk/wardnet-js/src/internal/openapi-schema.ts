@@ -4097,7 +4097,10 @@ export interface components {
          * @enum {string}
          */
         SnapshotKind: "database" | "config" | "keys";
-        /** @enum {string} */
+        /**
+         * @description Time-series bucket granularity for stats queries.
+         * @enum {string}
+         */
         StatsBucket: "minute" | "hour" | "day";
         /** @description Response for a time-series stats query.
          *
@@ -15121,17 +15124,17 @@ export interface operations {
     };
     get_api_stats: {
         parameters: {
-            query?: {
-                bucket?: components["schemas"]["StatsBucket"];
-                from?: string;
+            query: {
+                bucket: components["schemas"]["StatsBucket"];
+                from: string;
                 /** @description Exact labels JSON string to filter by. `None` returns all label combinations. */
-                label_filter?: string | null;
+                label_filter?: string;
                 /** @description Single metric name. Mutually exclusive with `metrics`. */
-                metric?: string | null;
+                metric?: string;
                 /** @description Multiple metric names to fan out over in a single call. Mutually
                  *     exclusive with `metric`. */
-                metrics?: string[] | null;
-                to?: string;
+                metrics?: string[];
+                to: string;
             };
             header?: never;
             path?: never;
@@ -15199,11 +15202,11 @@ export interface operations {
                  *     omitted, preserving the original short-window behaviour; pass `Hour`
                  *     or `Day` to rank over the longer hourly/daily tiers so top-N covers
                  *     the same window as a matching time-series query. */
-                bucket?: null | components["schemas"]["StatsBucket"];
+                bucket?: components["schemas"]["StatsBucket"];
                 /** @description Optional label dimension to group by when `label_key` is absent
                  *     from an entry's labels (e.g. rank by `"device_id"` falling back to
                  *     `"client"` for queries from sources with no known device). */
-                fallback_label_key?: string | null;
+                fallback_label_key?: string;
                 from: string;
                 /** @description Label dimension to rank by (e.g. `"domain"`, `"client"`). */
                 label_key: string;

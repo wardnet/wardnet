@@ -26,7 +26,14 @@ export class StatsService {
    * `Vec<String>`, so comma-joining would not work.
    */
   async query(q: StatsQuery): Promise<StatsQueryResponse> {
-    return this.api.get("/stats", { query: q });
+    // `label_filter: null` is the public API's spelling of "all label
+    // combinations"; on the wire that is simply the absent param, which is
+    // what the daemon's `Option<String>` reads. Normalising here keeps `null`
+    // accepted at the public boundary without pushing it onto the query type.
+    const { label_filter, ...rest } = q;
+    return this.api.get("/stats", {
+      query: { ...rest, label_filter: label_filter ?? undefined },
+    });
   }
 
   /**
