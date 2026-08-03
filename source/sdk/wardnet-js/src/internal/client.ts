@@ -101,8 +101,12 @@ type RequestOptions<Op> = {
 /** Substitute `{name}` path segments with URL-encoded parameter values. */
 function fillPath(path: string, params: Record<string, unknown> | undefined): string {
   if (!params) return path;
-  return path.replace(/\{([^}]+)\}/g, (_, key) => {
-    const value = params[key];
+  // A Map, not the record itself: lookups are keyed by a placeholder name taken
+  // from the path template, and going through `get` keeps that to the object's
+  // own entries rather than anything reachable up the prototype chain.
+  const lookup = new Map(Object.entries(params));
+  return path.replace(/\{([^}]+)\}/g, (_, key: string) => {
+    const value = lookup.get(key);
     if (value == null) {
       throw new Error(`Missing path parameter "${key}" for ${path}`);
     }

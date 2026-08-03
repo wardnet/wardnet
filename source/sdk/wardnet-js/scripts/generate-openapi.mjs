@@ -37,6 +37,16 @@ const MISSING_SCHEMA_SHIMS = {
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"];
 
+// Yield the `[method, operation]` pairs of one path item, skipping the
+// non-operation keys OpenAPI allows there (`parameters`, `summary`, `$ref`, …).
+// Iterating the item's own entries — rather than indexing it by method name —
+// keeps the traversal free of computed member access.
+function operationsOf(item) {
+  return Object.entries(item ?? {}).filter(
+    ([method, op]) => HTTP_METHODS.includes(method) && op !== null && typeof op === "object",
+  );
+}
+
 // The daemon reuses `operationId`s across handlers (six endpoints answer to
 // `status`, `get_config` appears three times, …). openapi-typescript keys its
 // `operations` interface by `operationId`, so those collisions would collapse
@@ -47,12 +57,8 @@ const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch"
 // regenerations, and independent of the order the daemon emits handlers in.
 function normalizeOperationIds(spec) {
   for (const [path, item] of Object.entries(spec.paths ?? {})) {
-    for (const method of HTTP_METHODS) {
-      const op = item[method];
-      if (op && typeof op === "object") {
-        const slug = `${method}_${path}`.replace(/[^a-zA-Z0-9]+/g, "_").replace(/_+$/g, "");
-        op.operationId = slug;
-      }
+    for (const [method, op] of operationsOf(item)) {
+      op.operationId = `${method}_${path}`.replace(/[^a-zA-Z0-9]+/g, "_").replace(/_+$/g, "");
     }
   }
 }
@@ -68,9 +74,8 @@ function normalizeOperationIds(spec) {
 function fixOrphanPathParams(spec) {
   const fixed = [];
   for (const [path, item] of Object.entries(spec.paths ?? {})) {
-    for (const method of HTTP_METHODS) {
-      const op = item[method];
-      for (const param of op?.parameters ?? []) {
+    for (const [method, op] of operationsOf(item)) {
+      for (const param of op.parameters ?? []) {
         if (param.in === "path" && !path.includes(`{${param.name}}`)) {
           param.in = "query";
           param.required = false;
@@ -98,12 +103,9 @@ async function main() {
   const spec = JSON.parse(await readFile(SPEC_PATH, "utf8"));
 
   spec.components ??= {};
-  spec.components.schemas ??= {};
-  for (const [name, schema] of Object.entries(MISSING_SCHEMA_SHIMS)) {
-    if (!(name in spec.components.schemas)) {
-      spec.components.schemas[name] = schema;
-    }
-  }
+  // Spec-defined schemas come last, so a name the daemon does register always
+  // wins over its shim — the shim applies only when genuinely absent.
+  spec.components.schemas = { ...MISSING_SCHEMA_SHIMS, ...(spec.components.schemas ?? {}) };
 
   normalizeOperationIds(spec);
   fixOrphanPathParams(spec);
