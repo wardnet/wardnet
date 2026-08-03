@@ -63,7 +63,7 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.64.0",
     "vite": "8.1.5",
-    "vitest": "4.1.9",
+    "vitest": "4.1.10",
     "yaml": "2.9.0"
   },
   "packageManager": "yarn@4.17.0"
