@@ -1019,9 +1019,13 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
                 .expect("current device fetched when type is omitted")
                 .device_type
         });
+        // `DeviceType` is a fieldless enum, so serialisation is infallible —
+        // serde_json only fails on things this type cannot contain (non-string
+        // map keys, non-finite floats, a custom `Serialize` that errors).
         let type_str = serde_json::to_string(&device_type)
-            .map(|s| s.trim_matches('"').to_owned())
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("serialize device type: {e}")))?;
+            .expect("DeviceType serialises to a JSON string")
+            .trim_matches('"')
+            .to_owned();
 
         let name_to_write = match name {
             Some(n) => Some(n),
