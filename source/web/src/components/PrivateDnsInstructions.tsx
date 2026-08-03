@@ -2,6 +2,16 @@ import { Text } from "@wardnet/ui";
 import { CopyButton } from "./CopyButton";
 import { InboundWgQrCode } from "./InboundWgQrCode";
 
+/**
+ * Who is reading the instructions, relative to the phone being set up.
+ *
+ * - `"remote"` — a different screen than the target device (the admin site's
+ *   granted modal, on a desktop). The QR is the bridge to the phone.
+ * - `"on-device"` — the target phone itself (the user PWA). A QR would ask the
+ *   phone to scan its own screen, so the profile link is the only path.
+ */
+export type PrivateDnsInstructionsVariant = "remote" | "on-device";
+
 interface PrivateDnsInstructionsProps {
   /** The device's full secret hostname (`<token>.<domain>`). */
   hostname: string;
@@ -11,6 +21,8 @@ interface PrivateDnsInstructionsProps {
    * QR is scannable and the link works from the phone.
    */
   profileUrl: string;
+  /** Defaults to `"remote"` — see {@link PrivateDnsInstructionsVariant}. */
+  variant?: PrivateDnsInstructionsVariant;
   className?: string;
 }
 
@@ -19,17 +31,20 @@ interface PrivateDnsInstructionsProps {
  * modal and the user PWA (issues #915/#916) so both render identically.
  *
  * Android can't be configured programmatically — the hostname is pasted by hand
- * into Settings, hence the copy button. iOS installs a downloadable
- * configuration profile, so it gets a link + a QR the phone can scan. The
- * profile endpoint is keyed by the requesting device's source IP, so the QR
- * only yields the correct profile when the granted phone scans it on-LAN.
+ * into Settings, hence the copy button, in both variants. iOS installs a
+ * downloadable configuration profile, so it gets a link, plus a QR when the
+ * reader is on a different screen than the phone. The profile endpoint is keyed
+ * by the requesting device's source IP, so the QR only yields the correct
+ * profile when the granted phone scans it on-LAN.
  */
 export function PrivateDnsInstructions({
   hostname,
   profileUrl,
+  variant = "remote",
   className,
 }: PrivateDnsInstructionsProps) {
   const profileHref = absoluteUrl(profileUrl);
+  const showQr = variant === "remote";
 
   return (
     <div
@@ -72,13 +87,22 @@ export function PrivateDnsInstructions({
           iPhone &amp; iPad
         </Text>
         <div className="flex flex-col items-center gap-3">
-          <InboundWgQrCode
-            value={profileHref}
-            size={180}
-            alt="Private DNS configuration profile QR code"
-          />
+          {showQr && (
+            <InboundWgQrCode
+              value={profileHref}
+              size={180}
+              alt="Private DNS configuration profile QR code"
+            />
+          )}
+          {/* Opens out of the app on purpose. In `on-device` this link is the
+              only iOS path, and an installed standalone PWA navigating its own
+              webview to a `.mobileconfig` tends to show a blank view or drop
+              the tap entirely — breaking out to Safari is where the "Profile
+              Downloaded" banner reliably appears. */}
           <a
             href={profileHref}
+            target="_blank"
+            rel="noreferrer"
             className="text-sm text-accent hover:underline"
             data-testid="private-dns-profile-link"
           >
@@ -87,8 +111,9 @@ export function PrivateDnsInstructions({
         </div>
         <div className="mt-1 flex flex-col gap-1">
           <Text as="p" size="sm" className="text-ink-3">
-            1. Scan the QR with the iPhone camera, or tap the link on the device
-            itself.
+            {showQr
+              ? "1. Scan the QR with the iPhone camera, or tap the link on the device itself."
+              : "1. Tap the link above to download the profile."}
           </Text>
           <Text as="p" size="sm" className="text-ink-3">
             2. Open Settings — a “Profile Downloaded” banner appears near the

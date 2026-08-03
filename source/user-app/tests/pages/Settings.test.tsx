@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Mock } from "vitest";
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { DeviceRuleRequest } from "@wardnet/js";
@@ -11,11 +12,13 @@ const {
   useMyRuleRequests,
   useSetMyCaptureEnabled,
   usePushNotifications,
+  usePrivateDnsMe,
 } = vi.hoisted(() => ({
   useMyDevice: vi.fn(),
   useMyRuleRequests: vi.fn(),
   useSetMyCaptureEnabled: vi.fn(),
   usePushNotifications: vi.fn(),
+  usePrivateDnsMe: vi.fn(),
 }));
 
 vi.mock("@wardnet/web", async (importOriginal) => {
@@ -26,6 +29,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useMyRuleRequests,
     useSetMyCaptureEnabled,
     usePushNotifications,
+    usePrivateDnsMe,
   };
 });
 
@@ -60,6 +64,12 @@ beforeEach(() => {
     isBusy: false,
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
+  });
+  // Default: feature off, so the Private DNS card sits in its quiet state and
+  // doesn't add a second "Loading…" to the other cards' assertions.
+  usePrivateDnsMe.mockReturnValue({
+    data: { enabled: false, granted: false, hostname: null },
+    isLoading: false,
   });
 });
 
@@ -259,6 +269,201 @@ describe("Settings page", () => {
       });
       renderWithProviders(<Settings />);
       expect(screen.getByTestId("notifications-toggle")).toBeDisabled();
+    });
+  });
+
+  // Private DNS card (#916). Grants are admin-only in v1, so the two ungranted
+  // states are informational — the member is told who to ask, not shown a
+  // broken control.
+  describe("private dns card", () => {
+    beforeEach(() => {
+      useMyDevice.mockReturnValue({
+        data: { device: makeDevice() },
+        isLoading: false,
+      });
+    });
+
+    it("shows a loading state while this device's grant is fetched", () => {
+      usePrivateDnsMe.mockReturnValue({ data: undefined, isLoading: true });
+      renderWithProviders(<Settings />);
+      const card = screen.getByTestId("private-dns-card");
+      expect(card).toHaveTextContent("Loading…");
+    });
+
+    it("reports a fetch failure without asserting anything about the network", () => {
+      usePrivateDnsMe.mockReturnValue({
+        data: undefined,
+        isLoading: false,
+        isError: true,
+      });
+      renderWithProviders(<Settings />);
+      // A local fetch failure says nothing about whether the admin enabled the
+      // feature — claiming otherwise would send the member to their admin over
+      // a transient error.
+      expect(
+        screen.getByText(/Couldn't check this device's Private DNS status/),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(/isn't enabled on your network/),
+      ).not.toBeInTheDocument();
+    });
+
+    it("keeps showing cached instructions when a refetch fails", () => {
+      // React Query retains the last good data across a failed refetch, and
+      // this hook refetches on focus — off-LAN (the roaming case the feature
+      // exists for) that would otherwise wipe working setup steps every time
+      // the member foregrounds the app.
+      usePrivateDnsMe.mockReturnValue({
+        data: {
+          enabled: true,
+          granted: true,
+          hostname: "tok.abc.my.wardnet.services",
+        },
+        isLoading: false,
+        isError: true,
+      });
+      renderWithProviders(<Settings />);
+      expect(screen.getByTestId("private-dns-hostname")).toHaveTextContent(
+        "tok.abc.my.wardnet.services",
+      );
+      expect(
+        screen.queryByText(/Couldn't check this device's Private DNS status/),
+      ).not.toBeInTheDocument();
+    });
+
+    it("treats a granted device with no hostname as transient, not ungranted", () => {
+      // `/private-dns/me` resolves the domain lazily and degrades to a null
+      // hostname on a DDNS hiccup, so granted-without-hostname is reachable.
+      usePrivateDnsMe.mockReturnValue({
+        data: { enabled: true, granted: true, hostname: null },
+        isLoading: false,
+      });
+      renderWithProviders(<Settings />);
+      expect(
+        screen.getByText(/hostname isn't available right now/),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByText(/hasn't been granted Private DNS yet/),
+      ).not.toBeInTheDocument();
+      expect(
+        screen.queryByTestId("private-dns-instructions"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("tells the member to ask an admin when the feature is off", () => {
+      usePrivateDnsMe.mockReturnValue({
+        data: { enabled: false, granted: false, hostname: null },
+        isLoading: false,
+      });
+      renderWithProviders(<Settings />);
+      expect(
+        screen.getByText(/Private DNS isn't enabled on your network yet/),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("private-dns-instructions"),
+      ).not.toBeInTheDocument();
+    });
+
+    it("tells the member to ask for a grant when enabled but not granted", () => {
+      usePrivateDnsMe.mockReturnValue({
+        data: { enabled: true, granted: false, hostname: null },
+        isLoading: false,
+      });
+      renderWithProviders(<Settings />);
+      expect(
+        screen.getByText(/hasn't been granted Private DNS yet/),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("private-dns-instructions"),
+      ).not.toBeInTheDocument();
+    });
+
+    describe("push deep-link scrolling", () => {
+      let scrollIntoView: Mock<(arg?: boolean | ScrollIntoViewOptions) => void>;
+      let original: typeof Element.prototype.scrollIntoView;
+
+      beforeEach(() => {
+        original = Element.prototype.scrollIntoView;
+        // jsdom doesn't implement scrollIntoView, so assign rather than spyOn.
+        scrollIntoView = vi.fn();
+        Element.prototype.scrollIntoView = scrollIntoView;
+      });
+
+      afterEach(() => {
+        // A raw prototype assignment isn't undone by restoreAllMocks, and a
+        // pushed fragment would otherwise leak into every later test — the
+        // component reads `window.location.hash` as well as the router's.
+        Element.prototype.scrollIntoView = original;
+        const url = new URL(window.location.href);
+        url.hash = "";
+        window.history.pushState(null, "", url);
+      });
+
+      it("scrolls itself into view when the push deep link targets it", () => {
+        // The card is last of four, so the `private_dns_granted` push appends
+        // `#private-dns`; react-router does no hash scrolling of its own.
+        renderWithProviders(<Settings />, { route: "/settings#private-dns" });
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+
+      it("does not scroll when Settings is opened without the fragment", () => {
+        renderWithProviders(<Settings />, { route: "/settings" });
+        expect(scrollIntoView).not.toHaveBeenCalled();
+      });
+
+      it("scrolls on a fragment-only navigation that only fires hashchange", () => {
+        // The SW's `existing.navigate(…#private-dns)` on an already-open app is
+        // a same-document navigation: `hashchange` fires, `popstate` does not,
+        // so BrowserRouter's hash never updates. Without the listener the card
+        // would sit off-screen in exactly the flow the push exists for.
+        renderWithProviders(<Settings />, { route: "/settings" });
+        expect(scrollIntoView).not.toHaveBeenCalled();
+
+        const url = new URL(window.location.href);
+        url.hash = "#private-dns";
+        window.history.pushState(null, "", url);
+        window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+        expect(scrollIntoView).toHaveBeenCalledWith({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    });
+
+    it("shows setup instructions without a QR once granted", async () => {
+      usePrivateDnsMe.mockReturnValue({
+        data: {
+          enabled: true,
+          granted: true,
+          hostname: "tok.abc.my.wardnet.services",
+        },
+        isLoading: false,
+      });
+      renderWithProviders(<Settings />);
+
+      expect(screen.getByTestId("private-dns-hostname")).toHaveTextContent(
+        "tok.abc.my.wardnet.services",
+      );
+      expect(
+        screen.getByTestId("private-dns-copy-hostname"),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId("private-dns-profile-link"),
+      ).toBeInTheDocument();
+
+      // The phone reading this *is* the target device, so a QR would ask it to
+      // scan its own screen (#916). Wait for the iOS copy that replaces it, so
+      // a late-resolving QR image can't slip past the negative assertion.
+      expect(
+        await screen.findByText(/Tap the link above to download the profile/),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByAltText("Private DNS configuration profile QR code"),
+      ).not.toBeInTheDocument();
     });
   });
 });

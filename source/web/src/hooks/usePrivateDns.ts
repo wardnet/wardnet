@@ -101,12 +101,23 @@ export function useSendPrivateDnsToDevice() {
 }
 
 /**
- * This device's own Private DNS state, identified by source IP. Backs the user
- * PWA setup page.
+ * This device's own Private DNS state, identified by source IP. Backs the
+ * Private DNS card in the user PWA's Settings.
+ *
+ * `refetchOnWindowFocus` deliberately overrides the user PWA's global `false`
+ * (see its `QueryClient` defaults). The grant is minted in the *admin's*
+ * browser, so this cache has no way to learn about it; the household member
+ * finds out via the `private_dns_granted` push, and tapping that notification
+ * brings the app to the foreground. Refetching on focus therefore fires at
+ * exactly the moment the answer can have changed — including when the app was
+ * already parked on Settings, where the tap re-navigates to the current URL and
+ * remounts nothing. A `refetchInterval` would poll a phone forever for a
+ * once-per-device event.
  */
 export function usePrivateDnsMe() {
   return useQuery({
     queryKey: ME_KEY,
     queryFn: () => privateDnsService.me(),
+    refetchOnWindowFocus: true,
   });
 }

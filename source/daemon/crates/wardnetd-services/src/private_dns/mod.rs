@@ -189,7 +189,8 @@ pub trait PrivateDnsService: Send + Sync {
     }
 
     /// Nudge a granted device's household member to set up Private DNS via a
-    /// device-keyed push deep-linking the user PWA to `/private-dns`. Returns
+    /// device-keyed push deep-linking the user PWA to `/settings#private-dns`,
+    /// where the Private DNS card carries the setup steps (#916). Returns
     /// whether any push subscription was targeted (`delivered`); a granted
     /// device with no subscription yields `Ok(false)`, not an error. A device
     /// with no grant is a 404 ([`AppError::NotFound`]), mirroring

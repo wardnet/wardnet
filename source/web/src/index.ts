@@ -375,6 +375,7 @@ export {
   usePrivateDnsMe,
 } from "./hooks/usePrivateDns";
 export { PrivateDnsInstructions } from "./components/PrivateDnsInstructions";
+export type { PrivateDnsInstructionsVariant } from "./components/PrivateDnsInstructions";
 export { CopyButton } from "./components/CopyButton";
 
 // Custom icons (composed marks not in lucide). Exported individually so
