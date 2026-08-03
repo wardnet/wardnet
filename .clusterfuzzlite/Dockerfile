@@ -8,7 +8,7 @@
 # a regular cadence when upstream ships a Rust toolchain bump worth
 # picking up. Resolve a fresh digest with:
 #   docker buildx imagetools inspect gcr.io/oss-fuzz-base/base-builder-rust
-FROM gcr.io/oss-fuzz-base/base-builder-rust@sha256:832ab4da13b86f85a765241c93337a6f2f65196349b26acec9234a4eb8a26e26
+FROM gcr.io/oss-fuzz-base/base-builder-rust@sha256:433319ea1a6bbea6c1db1915a5d385021908cc62026d9f0efda2270ef6060de3
 
 COPY . $SRC/wardnet
 COPY .clusterfuzzlite/build.sh $SRC/
