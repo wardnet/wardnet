@@ -17,6 +17,7 @@ function makeBlocklist(overrides: Partial<Blocklist> = {}): Blocklist {
     cron_schedule: "0 3 * * *",
     last_error: null,
     last_error_at: null,
+    consecutive_failures: 0,
     created_at: "2026-01-01T00:00:00Z",
     updated_at: "2026-01-01T00:00:00Z",
     ...overrides,

@@ -189,6 +189,7 @@ struct DbBlocklistRow {
     cron_schedule: String,
     last_error: Option<String>,
     last_error_at: Option<String>,
+    consecutive_failures: i64,
     created_at: String,
     updated_at: String,
 }
@@ -206,6 +207,7 @@ impl DbBlocklistRow {
             cron_schedule: self.cron_schedule,
             last_error: self.last_error,
             last_error_at: parse_ts_opt(self.last_error_at.as_ref())?,
+            consecutive_failures: u32::try_from(self.consecutive_failures).unwrap_or(u32::MAX),
             created_at: parse_ts(&self.created_at)?,
             updated_at: parse_ts(&self.updated_at)?,
         })
@@ -410,7 +412,8 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         let pid = profile_id.to_string();
         let rows = sqlx::query_as::<_, DbBlocklistRow>(
             "SELECT id, profile_id, name, url, enabled, entry_count, last_updated, \
-                    cron_schedule, last_error, last_error_at, created_at, updated_at \
+                    cron_schedule, last_error, last_error_at, consecutive_failures, \
+                    created_at, updated_at \
              FROM dns_filter_blocklists WHERE profile_id = ? \
              ORDER BY created_at ASC",
         )
@@ -426,7 +429,8 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         let id_str = id.to_string();
         let row = sqlx::query_as::<_, DbBlocklistRow>(
             "SELECT id, profile_id, name, url, enabled, entry_count, last_updated, \
-                    cron_schedule, last_error, last_error_at, created_at, updated_at \
+                    cron_schedule, last_error, last_error_at, consecutive_failures, \
+                    created_at, updated_at \
              FROM dns_filter_blocklists WHERE id = ?",
         )
         .bind(&id_str)
@@ -466,6 +470,15 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         if let Some(ref url) = row.url {
             sets.push("url = ?");
             binds.push(url.clone());
+            // A new URL is a new source: whatever was failing before says
+            // nothing about it. Clearing the counter also releases the refresh
+            // backoff, which is otherwise anchored on the *old* URL's last
+            // failure — fixing a typo'd feed would sit out the full 6-hour cap
+            // before the corrected URL was ever tried, with the stale error
+            // still showing in the UI.
+            sets.push("consecutive_failures = 0");
+            sets.push("last_error = NULL");
+            sets.push("last_error_at = NULL");
         }
         if let Some(enabled) = row.enabled {
             sets.push("enabled = ?");
@@ -575,7 +588,8 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         // generation to the new one atomically.
         sqlx::query(
             "UPDATE dns_filter_blocklists SET active_generation = ?, entry_count = ?, \
-             last_updated = ?, last_error = NULL, last_error_at = NULL, updated_at = ? \
+             last_updated = ?, last_error = NULL, last_error_at = NULL, \
+             consecutive_failures = 0, updated_at = ? \
              WHERE id = ?",
         )
         .bind(next)
@@ -626,6 +640,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
             Some(msg) => {
                 sqlx::query(
                     "UPDATE dns_filter_blocklists SET last_error = ?, last_error_at = ?, \
+                     consecutive_failures = consecutive_failures + 1, \
                      updated_at = ? WHERE id = ?",
                 )
                 .bind(msg)
@@ -638,7 +653,7 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
             None => {
                 sqlx::query(
                     "UPDATE dns_filter_blocklists SET last_error = NULL, last_error_at = NULL, \
-                     updated_at = ? WHERE id = ?",
+                     consecutive_failures = 0, updated_at = ? WHERE id = ?",
                 )
                 .bind(&now)
                 .bind(&id_str)

@@ -24426,10 +24426,17 @@
           "enabled",
           "entry_count",
           "cron_schedule",
+          "consecutive_failures",
           "created_at",
           "updated_at"
         ],
         "properties": {
+          "consecutive_failures": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Failed refresh attempts since the last success, zeroed by any\nsuccessful refresh. Drives the cron runner's exponential backoff:\na failure leaves `last_updated` untouched, so without this the\nevery-minute tick would keep re-downloading a broken feed forever.",
+            "minimum": 0
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"

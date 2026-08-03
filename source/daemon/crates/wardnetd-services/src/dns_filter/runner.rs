@@ -12,7 +12,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
@@ -139,6 +139,40 @@ async fn handle_filter_change(
     }
 }
 
+/// First backoff step after a single failed refresh. Doubles per consecutive
+/// failure. Five minutes rides out a brief upstream blip without making a
+/// transient failure cost a whole day of staleness.
+const REFRESH_BACKOFF_BASE_MINS: i64 = 5;
+
+/// Ceiling on the backoff. A feed that has been broken for a while is retried
+/// every 6 hours — often enough that a fixed upstream recovers without
+/// operator involvement, rare enough to stop hammering it.
+const REFRESH_BACKOFF_MAX_MINS: i64 = 6 * 60;
+
+/// Earliest a blocklist with failures behind it should be retried, or `None`
+/// when it has no failures to back off from.
+///
+/// `5m → 10m → 20m → 40m → 80m → 160m → 320m → 6h (capped)`. Anchored on
+/// `last_error_at` rather than "now" so the wait survives a daemon restart —
+/// otherwise a restart loop would reset the backoff and restore the every-tick
+/// hammering this exists to stop.
+pub(crate) fn retry_not_before(bl: &wardnet_common::dns::Blocklist) -> Option<DateTime<Utc>> {
+    let failures = bl.consecutive_failures;
+    if failures == 0 {
+        return None;
+    }
+    let last_error_at = bl.last_error_at?;
+    // Cap the exponent before shifting. `checked_shl` only rejects an
+    // out-of-range shift *amount*, not a shift that overflows into the sign
+    // bit — `5 << 62` is negative, and clamping a negative would silently
+    // produce the 5-minute floor instead of the 6-hour ceiling. 16 doublings
+    // is already far past the cap.
+    let steps = failures.saturating_sub(1).min(16);
+    let mins = (REFRESH_BACKOFF_BASE_MINS << steps)
+        .clamp(REFRESH_BACKOFF_BASE_MINS, REFRESH_BACKOFF_MAX_MINS);
+    Some(last_error_at + chrono::Duration::minutes(mins))
+}
+
 async fn check_blocklist_cron(service: &dyn DnsFilterService, admin_ctx: &AuthContext) {
     let profiles =
         match auth_context::with_context(admin_ctx.clone(), service.list_profiles()).await {
@@ -185,6 +219,22 @@ async fn check_blocklist_cron(service: &dyn DnsFilterService, admin_ctx: &AuthCo
                     .is_some(),
             };
             if !is_due {
+                continue;
+            }
+            // A failed refresh leaves `last_updated` untouched, so a broken
+            // feed stays due on every tick from here on. Hold it off for a
+            // stretch that grows with the failure count instead of
+            // re-downloading it once a minute forever.
+            if let Some(retry_at) = retry_not_before(bl)
+                && now < retry_at
+            {
+                tracing::debug!(
+                    blocklist_id = %bl.id,
+                    name = %bl.name,
+                    consecutive_failures = bl.consecutive_failures,
+                    %retry_at,
+                    "blocklist refresh backing off after failure"
+                );
                 continue;
             }
             tracing::info!(blocklist_id = %bl.id, name = %bl.name, "dispatching blocklist refresh");

@@ -2324,6 +2324,14 @@ export interface components {
         };
         /** @description A URL-sourced domain blocklist scoped to a DNS filter profile. */
         Blocklist: {
+            /**
+             * Format: int32
+             * @description Failed refresh attempts since the last success, zeroed by any
+             *     successful refresh. Drives the cron runner's exponential backoff:
+             *     a failure leaves `last_updated` untouched, so without this the
+             *     every-minute tick would keep re-downloading a broken feed forever.
+             */
+            consecutive_failures: number;
             /** Format: date-time */
             created_at: string;
             /** @description Cron expression for update schedule (e.g. "0 3 * * *"). */

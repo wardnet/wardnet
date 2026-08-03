@@ -135,6 +135,7 @@ fn sample_blocklist() -> Blocklist {
         cron_schedule: "0 3 * * *".into(),
         last_error: None,
         last_error_at: None,
+        consecutive_failures: 0,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }
