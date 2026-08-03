@@ -1,7 +1,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::{
-    AdminConfig, ApplicationConfiguration, LogFormat, LogRotation, SecretStoreConfig, TunnelConfig,
+    AdminConfig, ApplicationConfiguration, LogFormat, LogRotation, LoggingConfig,
+    SecretStoreConfig, TunnelConfig,
 };
 
 #[test]
@@ -333,4 +334,109 @@ fn admin_config_debug_redacts_password() {
     assert!(rendered.contains("bootstrap-admin"));
     assert!(rendered.contains("[REDACTED]"));
     assert!(!rendered.contains("bootstrap-hunter2"));
+}
+
+// ── journal slice predicate ─────────────────────────────────────────────────
+
+use tracing::Level;
+
+fn journal_defaults() -> Vec<String> {
+    LoggingConfig::default().journal_suppressed_targets
+}
+
+/// INFO and below never reach the journal — that is what the log file is for.
+#[test]
+fn journal_excludes_below_warn() {
+    for level in [Level::INFO, Level::DEBUG, Level::TRACE] {
+        assert!(
+            !LoggingConfig::journal_allows(
+                level,
+                "wardnetd_services::routing::service",
+                &journal_defaults()
+            ),
+            "{level} should not reach the journal"
+        );
+    }
+}
+
+/// The events an operator acts on do reach the journal.
+#[test]
+fn journal_includes_actionable_warnings_and_errors() {
+    for (level, target) in [
+        (Level::WARN, "wardnetd_services::routing::service"),
+        (Level::WARN, "wardnetd::route_monitor"),
+        // sqlx slow-statement / slow-acquire warnings are deliberately kept:
+        // they are the first visible symptom of the database degrading, which
+        // is exactly the class of problem the journal slice exists to surface.
+        (Level::WARN, "sqlx::query"),
+        (Level::WARN, "sqlx::pool::acquire"),
+        (Level::ERROR, "wardnetd_services::dns_filter::runner"),
+        // Suppression is scoped to WARN-level noise; a genuine ERROR from a
+        // suppressed target still gets through.
+        (Level::ERROR, "hickory_resolver::recursor::handle"),
+    ] {
+        assert!(
+            LoggingConfig::journal_allows(level, target, &journal_defaults()),
+            "{level} {target} should reach the journal"
+        );
+    }
+}
+
+/// The per-lookup DNS noise does not.
+///
+/// This was 97% of all WARN+ traffic measured on a live gateway — one warning
+/// per failed recursive lookup, i.e. an ordinary negative DNS answer. Letting
+/// it through would put ~30k lines/day into the journal and bury everything
+/// above.
+#[test]
+fn journal_suppresses_per_query_dns_noise_at_warn() {
+    for target in [
+        "hickory_resolver::recursor::handle",
+        "hickory_resolver::recursor::error",
+        "hickory_resolver",
+        "wardnetd::dns::pipeline",
+    ] {
+        assert!(
+            !LoggingConfig::journal_allows(Level::WARN, target, &journal_defaults()),
+            "{target} WARN should be suppressed"
+        );
+    }
+}
+
+/// Suppression is prefix-based, so one entry covers a module subtree — but must
+/// not swallow an unrelated target that merely shares a leading substring.
+#[test]
+fn journal_suppression_matches_on_prefix_only() {
+    let suppressed = vec!["hickory_resolver".to_owned()];
+    assert!(!LoggingConfig::journal_allows(
+        Level::WARN,
+        "hickory_resolver::recursor::handle",
+        &suppressed
+    ));
+    assert!(LoggingConfig::journal_allows(
+        Level::WARN,
+        "wardnetd::dns::pipeline",
+        &suppressed
+    ));
+    assert!(LoggingConfig::journal_allows(
+        Level::WARN,
+        "hickory_proto::op",
+        &suppressed
+    ));
+}
+
+/// An empty list degrades to a plain level filter, so an operator can opt back
+/// into the full firehose.
+#[test]
+fn journal_empty_suppression_list_admits_all_warnings() {
+    assert!(LoggingConfig::journal_allows(
+        Level::WARN,
+        "hickory_resolver::recursor::handle",
+        &[]
+    ));
+    assert!(!LoggingConfig::journal_allows(
+        Level::INFO,
+        "wardnetd::route_monitor",
+        &[]
+    ));
 }
