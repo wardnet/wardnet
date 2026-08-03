@@ -48,6 +48,23 @@ updates:
       prefix: "chore(ci):"
     cooldown:
       default-days: 3
+    # codeql-action/init and codeql-action/analyze MUST move in lockstep:
+    # init writes a config file stamped with its own version and analyze
+    # refuses to read one written by a different version, failing with
+    # "Loaded a configuration file for version X, but running version Y".
+    #
+    # Dependabot treats each action path as its own dependency, so without
+    # this group it opens a separate PR per path. The daily auto-merge batch
+    # then lands one of them alone and main goes red — and because the
+    # sibling PR now fails that same broken CodeQL job, auto-merge won't
+    # merge it either, so main stays red until a human intervenes. That
+    # deadlock cost us #991, #1059 and #1069.
+    #
+    # Grouping makes every codeql-action bump a single atomic PR.
+    groups:
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
 
   # source/daemon/ Dockerfiles — all FROM lines are pinned by digest
   # for Scorecard / supply-chain integrity, so Dependabot is the
