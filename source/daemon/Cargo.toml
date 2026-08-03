@@ -129,7 +129,7 @@ x25519-dalek = { version = "3", default-features = false }
 # (RUSTSEC-2023-0071, Marvin timing sidechannel) just to mint a two-claim ES256
 # token, so push/sender.rs signs the VAPID JWT directly with the re-exported
 # `p256` instead.
-web-push-native = { version = "0.4", default-features = false }
+web-push-native = { version = "0.5", default-features = false }
 # https://crates.io/crates/http — name the `http::Request` web-push-native emits
 # so we can marshal it onto the reqwest client. Same version reqwest 0.12 uses.
 http = "1"
