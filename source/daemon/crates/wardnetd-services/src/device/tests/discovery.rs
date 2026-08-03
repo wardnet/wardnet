@@ -1257,6 +1257,33 @@ async fn update_device_sets_name_and_type_as_admin() {
 }
 
 #[tokio::test]
+async fn update_device_preserves_name_when_omitted() {
+    // A partial update that changes only the device type (e.g. what a
+    // set-rule or admin-lock call sends) must not null out the display name.
+    let mut device = sample_device(
+        "00000000-0000-0000-0000-000000000001",
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.10",
+    );
+    device.name = Some("Alice's phone".to_owned());
+    let id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    auth_context::with_context(
+        admin_ctx(),
+        h.svc.update_device(id, None, Some(DeviceType::Laptop)),
+    )
+    .await
+    .unwrap();
+
+    // The persisted write carries the existing name, not None (which the
+    // repository would translate to SQL NULL, clearing the name).
+    let recorded = h.repo.name_type_updates.lock().unwrap();
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].1, Some("Alice's phone".to_owned()));
+}
+
+#[tokio::test]
 async fn update_device_anonymous_forbidden() {
     let device = sample_device(
         "00000000-0000-0000-0000-000000000001",

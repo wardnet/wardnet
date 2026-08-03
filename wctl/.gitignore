@@ -1,0 +1,2 @@
+# Compiled wctl binary (built via `go build ./cmd/wctl`)
+/wctl

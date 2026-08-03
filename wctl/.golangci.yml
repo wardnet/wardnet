@@ -1,0 +1,18 @@
+# golangci-lint configuration (v2 schema), mirroring the wardnet org standard.
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+  settings:
+    errcheck:
+      # Writes to a tabwriter/stderr can't be meaningfully handled inline —
+      # tabwriter surfaces write errors on Flush (which is checked), and a
+      # failed prompt write is non-fatal.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln

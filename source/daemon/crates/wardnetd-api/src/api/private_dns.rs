@@ -259,6 +259,7 @@ pub async fn notify_device(
 }
 
 #[utoipa::path(
+    operation_id = "private_dns_get_me",
     get,
     path = "/api/private-dns/me",
     tag = TAG,

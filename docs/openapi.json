@@ -2095,7 +2095,7 @@
           "devices"
         ],
         "description": "Identify the caller by source IP and return their device info, current routing rule, and the list of available tunnels they can route through. Used by the self-service \"My Device\" page, so no authentication is required — the daemon trusts the source IP of the incoming TCP connection.",
-        "operationId": "get_me",
+        "operationId": "devices_get_me",
         "responses": {
           "200": {
             "description": "Caller device info and available tunnels",
@@ -5938,7 +5938,7 @@
           "dns"
         ],
         "description": "List every DNS filter profile. Admin only.",
-        "operationId": "list_profiles",
+        "operationId": "dns_filter_list_profiles",
         "responses": {
           "200": {
             "description": "Profiles list",
@@ -6053,7 +6053,7 @@
           "dns"
         ],
         "description": "Create a new DNS filter profile. Admin only.",
-        "operationId": "create_profile",
+        "operationId": "dns_filter_create_profile",
         "requestBody": {
           "content": {
             "application/json": {
@@ -6212,7 +6212,7 @@
           "dns"
         ],
         "description": "Fetch a single DNS filter profile. Admin only.",
-        "operationId": "get_profile",
+        "operationId": "dns_filter_get_profile",
         "parameters": [
           {
             "name": "profile_id",
@@ -6371,7 +6371,7 @@
           "dns"
         ],
         "description": "Rename a DNS filter profile. Admin only.",
-        "operationId": "update_profile",
+        "operationId": "dns_filter_update_profile",
         "parameters": [
           {
             "name": "profile_id",
@@ -6572,7 +6572,7 @@
           "dns"
         ],
         "description": "Delete a non-builtin DNS filter profile. Returns 409 for builtin profiles (Ad Blocking, Parental Controls, Malware & Phishing). Admin only.",
-        "operationId": "delete_profile",
+        "operationId": "dns_filter_delete_profile",
         "parameters": [
           {
             "name": "profile_id",
@@ -15856,7 +15856,7 @@
           "private-dns"
         ],
         "description": "The caller device's own Private DNS state, identified by source IP (like `GET /api/devices/me`): whether the feature is enabled, whether this device is granted, and its full hostname when granted. Backs the user PWA. No authentication required — the daemon trusts the source IP of the incoming TCP connection.",
-        "operationId": "get_me",
+        "operationId": "private_dns_get_me",
         "responses": {
           "200": {
             "description": "This device's Private DNS state",
@@ -17595,7 +17595,7 @@
           "routing"
         ],
         "description": "List every routing profile. Admin only.",
-        "operationId": "list_profiles",
+        "operationId": "routing_list_profiles",
         "responses": {
           "200": {
             "description": "Routing profiles",
@@ -17710,7 +17710,7 @@
           "routing"
         ],
         "description": "Create a routing profile. Admin only.",
-        "operationId": "create_profile",
+        "operationId": "routing_create_profile",
         "requestBody": {
           "content": {
             "application/json": {
@@ -17901,7 +17901,7 @@
           "routing"
         ],
         "description": "Get a single routing profile. Admin only.",
-        "operationId": "get_profile",
+        "operationId": "routing_get_profile",
         "parameters": [
           {
             "name": "id",
@@ -18060,7 +18060,7 @@
           "routing"
         ],
         "description": "Rename a routing profile. Admin only.",
-        "operationId": "update_profile",
+        "operationId": "routing_update_profile",
         "parameters": [
           {
             "name": "id",
@@ -18293,7 +18293,7 @@
           "routing"
         ],
         "description": "Delete a routing profile and its rules and assignments. Admin only.",
-        "operationId": "delete_profile",
+        "operationId": "routing_delete_profile",
         "parameters": [
           {
             "name": "id",

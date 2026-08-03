@@ -38,6 +38,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 // ── Profiles ────────────────────────────────────────────────────────────────
 
 #[utoipa::path(
+    operation_id = "routing_list_profiles",
     get,
     path = "/api/routing/profiles",
     tag = "routing",
@@ -56,6 +57,7 @@ pub async fn list_profiles(
 }
 
 #[utoipa::path(
+    operation_id = "routing_create_profile",
     post,
     path = "/api/routing/profiles",
     tag = "routing",
@@ -87,6 +89,7 @@ pub async fn create_profile(
 }
 
 #[utoipa::path(
+    operation_id = "routing_get_profile",
     get,
     path = "/api/routing/profiles/{id}",
     tag = "routing",
@@ -108,6 +111,7 @@ pub async fn get_profile(
 }
 
 #[utoipa::path(
+    operation_id = "routing_update_profile",
     put,
     path = "/api/routing/profiles/{id}",
     tag = "routing",
@@ -142,6 +146,7 @@ pub async fn update_profile(
 }
 
 #[utoipa::path(
+    operation_id = "routing_delete_profile",
     delete,
     path = "/api/routing/profiles/{id}",
     tag = "routing",

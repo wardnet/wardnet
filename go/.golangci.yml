@@ -1,0 +1,17 @@
+# golangci-lint configuration (v2 schema), mirroring the wardnet org standard.
+#
+# In golangci-lint v2 the old `gosimple` linter was merged into `staticcheck`,
+# so enabling `staticcheck` covers the gosimple checks too. Generated code
+# (internal/rest) is excluded — it is not hand-maintained.
+version: "2"
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+  exclusions:
+    generated: strict
+    paths:
+      - internal/rest
