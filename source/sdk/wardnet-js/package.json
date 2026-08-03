@@ -24,6 +24,8 @@
   },
   "scripts": {
     "build": "tsup",
+    "generate": "node scripts/generate-openapi.mjs",
+    "generate:check": "node scripts/generate-openapi.mjs && git diff --exit-code -- src/internal/openapi-schema.ts",
     "type-check": "tsc --noEmit && tsc -p tsconfig.test.json",
     "format": "prettier --write src/ tests/",
     "format:check": "prettier --check src/ tests/",
@@ -34,6 +36,7 @@
   "devDependencies": {
     "@vitest/coverage-v8": "4.1.10",
     "consola": "^3.4.2",
+    "openapi-typescript": "7.9.1",
     "prettier": "3.9.6",
     "tsup": "8.5.1",
     "typescript": "6.0.3",

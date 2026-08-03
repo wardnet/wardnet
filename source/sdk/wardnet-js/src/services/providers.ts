@@ -1,4 +1,5 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
   ListCountriesResponse,
   ListProvidersResponse,
@@ -12,16 +13,20 @@ import type {
 
 /** VPN provider management service for the Wardnet daemon. */
 export class ProviderService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** List all registered VPN providers (admin only). */
   async list(): Promise<ListProvidersResponse> {
-    return this.client.request<ListProvidersResponse>("/providers");
+    return this.api.get("/providers");
   }
 
   /** List countries where a provider has servers (admin only). */
   async listCountries(providerId: string): Promise<ListCountriesResponse> {
-    return this.client.request<ListCountriesResponse>(`/providers/${providerId}/countries`);
+    return this.api.get("/providers/{id}/countries", { path: { id: providerId } });
   }
 
   /** Validate credentials against a provider (admin only). */
@@ -29,18 +34,12 @@ export class ProviderService {
     providerId: string,
     body: ValidateCredentialsRequest,
   ): Promise<ValidateCredentialsResponse> {
-    return this.client.request<ValidateCredentialsResponse>(`/providers/${providerId}/validate`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/providers/{id}/validate", { path: { id: providerId }, body });
   }
 
   /** List available servers from a provider (admin only). */
   async listServers(providerId: string, body: ListServersRequest): Promise<ListServersResponse> {
-    return this.client.request<ListServersResponse>(`/providers/${providerId}/servers`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/providers/{id}/servers", { path: { id: providerId }, body });
   }
 
   /** Set up a tunnel through a provider (admin only). */
@@ -48,9 +47,6 @@ export class ProviderService {
     providerId: string,
     body: SetupProviderRequest,
   ): Promise<SetupProviderResponse> {
-    return this.client.request<SetupProviderResponse>(`/providers/${providerId}/setup`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/providers/{id}/setup", { path: { id: providerId }, body });
   }
 }

@@ -1,4 +1,5 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
   CreateTunnelRequest,
   CreateTunnelResponse,
@@ -16,36 +17,39 @@ import type { JobDispatchedResponse } from "../types/jobs.js";
 
 /** Tunnel management service for the Wardnet daemon. */
 export class TunnelService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** List all configured tunnels (admin only). */
   async list(): Promise<ListTunnelsResponse> {
-    return this.client.request<ListTunnelsResponse>("/tunnels");
+    return this.api.get("/tunnels");
   }
 
   /** Get one tunnel by ID (admin only). */
   async getById(id: string): Promise<TunnelDetailResponse> {
-    return this.client.request<TunnelDetailResponse>(`/tunnels/${id}`);
+    return this.api.get("/tunnels/{id}", { path: { id } });
   }
 
   /** List the devices currently routed through a tunnel (admin only). */
   async listDevices(id: string): Promise<TunnelDevicesResponse> {
-    return this.client.request<TunnelDevicesResponse>(`/tunnels/${id}/devices`);
+    const res = await this.api.get("/tunnels/{id}/devices", { path: { id } });
+    // This endpoint returns the bare `Device` projection (no `dhcp_status` /
+    // `current_rule`), while the public type reuses the fuller `Device`.
+    // Preserve the long-standing public shape with a narrow cast.
+    return { devices: res.devices as TunnelDevicesResponse["devices"] };
   }
 
   /** Import a tunnel from a WireGuard .conf file (admin only). */
   async create(body: CreateTunnelRequest): Promise<CreateTunnelResponse> {
-    return this.client.request<CreateTunnelResponse>("/tunnels", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/tunnels", { body });
   }
 
   /** Delete a tunnel and its configuration (admin only). */
   async delete(id: string): Promise<DeleteTunnelResponse> {
-    return this.client.request<DeleteTunnelResponse>(`/tunnels/${id}`, {
-      method: "DELETE",
-    });
+    return this.api.del("/tunnels/{id}", { path: { id } });
   }
 
   /**
@@ -54,9 +58,7 @@ export class TunnelService {
    * through the tunnel, then restores the prior up/down state.
    */
   async test(id: string): Promise<TunnelTestResponse> {
-    return this.client.request<TunnelTestResponse>(`/tunnels/${id}/test`, {
-      method: "POST",
-    });
+    return this.api.post("/tunnels/{id}/test", { path: { id } });
   }
 
   /**
@@ -70,10 +72,7 @@ export class TunnelService {
     id: string,
     body: UpdateTunnelDnsOverrideRequest,
   ): Promise<UpdateTunnelDnsOverrideResponse> {
-    return this.client.request<UpdateTunnelDnsOverrideResponse>(`/tunnels/${id}/dns-override`, {
-      method: "PUT",
-      body: JSON.stringify(body),
-    });
+    return this.api.put("/tunnels/{id}/dns-override", { path: { id }, body });
   }
 
   /**
@@ -82,9 +81,7 @@ export class TunnelService {
    * it.
    */
   async rebuild(id: string): Promise<RebuildTunnelResponse> {
-    return this.client.request<RebuildTunnelResponse>(`/tunnels/${id}/rebuild`, {
-      method: "POST",
-    });
+    return this.api.post("/tunnels/{id}/rebuild", { path: { id } });
   }
 
   /**
@@ -95,9 +92,7 @@ export class TunnelService {
    * the VPN preserves. A concurrent run on the same tunnel returns 409.
    */
   async startSpeedTest(id: string): Promise<JobDispatchedResponse> {
-    return this.client.request<JobDispatchedResponse>(`/tunnels/${id}/speed-test`, {
-      method: "POST",
-    });
+    return this.api.post("/tunnels/{id}/speed-test", { path: { id } });
   }
 
   /**
@@ -105,6 +100,6 @@ export class TunnelService {
    * Each result carries both the direct (WAN) and tunnel measurements.
    */
   async getSpeedTestResults(id: string): Promise<TunnelSpeedTestHistoryResponse> {
-    return this.client.request<TunnelSpeedTestHistoryResponse>(`/tunnels/${id}/speed-test/results`);
+    return this.api.get("/tunnels/{id}/speed-test/results", { path: { id } });
   }
 }

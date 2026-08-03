@@ -19,6 +19,7 @@ export default defineConfig({
       // covered code under a misleadingly low percentage. Extend this list as
       // more of the SDK gains tests.
       include: [
+        "src/internal/client.ts",
         "src/services/reconnect.ts",
         "src/services/logs.ts",
         "src/services/dnsLogStream.ts",

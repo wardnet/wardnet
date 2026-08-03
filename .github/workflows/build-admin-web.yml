@@ -43,14 +43,25 @@ jobs:
       - name: Install deps
         run: cd source && yarn install --immutable
 
+      # @wardnet/js is type-checked here too: its services map between public
+      # types and an internal client generated from docs/openapi.json, and that
+      # mapping is the compile-time tripwire that catches wire drift. It ships
+      # as source with no CI job of its own, so it rides this sdk/wardnet-js/**
+      # trigger.
       - name: Type check
-        run: cd source && yarn turbo run type-check --filter=@wardnet/admin-site --filter=@wardnet/web
+        run: cd source && yarn turbo run type-check --filter=@wardnet/admin-site --filter=@wardnet/web --filter=@wardnet/js
+
+      # Regenerate the SDK's internal OpenAPI client from docs/openapi.json and
+      # fail if the committed copy is stale — the same gate as `make
+      # check-sdk-openapi`, mirroring the daemon's own `check-openapi`.
+      - name: Check SDK OpenAPI client drift
+        run: cd source && yarn workspace @wardnet/js generate:check
 
       - name: Lint
         run: cd source && yarn turbo run lint --filter=@wardnet/admin-site --filter=@wardnet/web
 
       - name: Format check
-        run: cd source && yarn turbo run format:check --filter=@wardnet/admin-site --filter=@wardnet/web
+        run: cd source && yarn turbo run format:check --filter=@wardnet/admin-site --filter=@wardnet/web --filter=@wardnet/js
 
       - name: Test
         run: cd source && yarn turbo run test --filter=@wardnet/admin-site --filter=@wardnet/web --filter=@wardnet/js

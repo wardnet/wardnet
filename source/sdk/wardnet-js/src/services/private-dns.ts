@@ -1,11 +1,10 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
-  CreatePrivateDnsGrantRequest,
   PrivateDnsGrantSummary,
   PrivateDnsMeResponse,
   PrivateDnsStatusResponse,
   SendPrivateDnsNotificationResponse,
-  SetPrivateDnsEnabledRequest,
 } from "../types/private-dns.js";
 
 /**
@@ -16,11 +15,15 @@ import type {
  * and back the user PWA.
  */
 export class PrivateDnsService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(private readonly client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** Read enabled state, enable prerequisites, and every grant. Admin only. */
   async getStatus(): Promise<PrivateDnsStatusResponse> {
-    return this.client.request<PrivateDnsStatusResponse>("/private-dns/status");
+    return this.api.get("/private-dns/status");
   }
 
   /**
@@ -28,11 +31,7 @@ export class PrivateDnsService {
    * 409 when a hard prerequisite is missing. Returns the full status.
    */
   async setEnabled(enabled: boolean): Promise<PrivateDnsStatusResponse> {
-    const body: SetPrivateDnsEnabledRequest = { enabled };
-    return this.client.request<PrivateDnsStatusResponse>("/private-dns", {
-      method: "PUT",
-      body: JSON.stringify(body),
-    });
+    return this.api.put("/private-dns", { body: { enabled } });
   }
 
   /**
@@ -40,18 +39,12 @@ export class PrivateDnsService {
    * minted hostname. Admin only.
    */
   async grantDevice(deviceId: string): Promise<PrivateDnsGrantSummary> {
-    const body: CreatePrivateDnsGrantRequest = { device_id: deviceId };
-    return this.client.request<PrivateDnsGrantSummary>("/private-dns/grants", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/private-dns/grants", { body: { device_id: deviceId } });
   }
 
   /** Revoke a device's grant by device id. Admin only. */
   async revokeDevice(deviceId: string): Promise<void> {
-    await this.client.request<void>(`/private-dns/grants/${deviceId}`, {
-      method: "DELETE",
-    });
+    await this.api.del("/private-dns/grants/{device_id}", { path: { device_id: deviceId } });
   }
 
   /**
@@ -62,15 +55,14 @@ export class PrivateDnsService {
    * notifications yet. Admin only.
    */
   async notifyDevice(deviceId: string): Promise<SendPrivateDnsNotificationResponse> {
-    return this.client.request<SendPrivateDnsNotificationResponse>(
-      `/private-dns/grants/${deviceId}/notify`,
-      { method: "POST" },
-    );
+    return this.api.post("/private-dns/grants/{device_id}/notify", {
+      path: { device_id: deviceId },
+    });
   }
 
   /** This device's own Private DNS state, identified by source IP. */
   async me(): Promise<PrivateDnsMeResponse> {
-    return this.client.request<PrivateDnsMeResponse>("/private-dns/me");
+    return this.api.get("/private-dns/me");
   }
 
   /**

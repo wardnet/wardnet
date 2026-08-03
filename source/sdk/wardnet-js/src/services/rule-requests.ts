@@ -1,4 +1,5 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
   CreateRuleRequestRequest,
   DeviceRuleRequest,
@@ -12,32 +13,29 @@ import type {
  * auth. Admin methods require an admin session / API key.
  */
 export class RuleRequestService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** Submit a request to block or allow a domain (device, by IP). */
   async createMine(body: CreateRuleRequestRequest): Promise<DeviceRuleRequest> {
-    return this.client.request<DeviceRuleRequest>("/devices/me/rule-requests", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/devices/me/rule-requests", { body });
   }
 
   /** List the calling device's own rule requests (device, by IP). */
   async listMine(): Promise<DeviceRuleRequest[]> {
-    return this.client.request<DeviceRuleRequest[]>("/devices/me/rule-requests");
+    return this.api.get("/devices/me/rule-requests");
   }
 
   /** Admin: list all rule requests, optionally filtered by status. */
   async list(status?: RuleRequestStatus): Promise<DeviceRuleRequest[]> {
-    const qs = status ? `?status=${encodeURIComponent(status)}` : "";
-    return this.client.request<DeviceRuleRequest[]>(`/rule-requests${qs}`);
+    return this.api.get("/rule-requests", { query: { status } });
   }
 
   /** Admin: approve or reject a rule request. */
   async decide(id: string, status: RuleRequestStatus): Promise<DeviceRuleRequest> {
-    return this.client.request<DeviceRuleRequest>(`/rule-requests/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status }),
-    });
+    return this.api.patch("/rule-requests/{id}", { path: { id }, body: { status } });
   }
 }

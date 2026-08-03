@@ -1,10 +1,6 @@
 import type { WardnetClient } from "../client.js";
-import type {
-  NotificationItem,
-  NotificationsResponse,
-  VapidPublicKeyResponse,
-  WebPushSubscription,
-} from "../types/push.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
+import type { NotificationItem, WebPushSubscription } from "../types/push.js";
 
 /**
  * Web Push notifications.
@@ -14,23 +10,24 @@ import type {
  * account when a session is present, otherwise to the calling device.
  */
 export class PushService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /**
    * The VAPID application server public key (base64url). Pass it to
    * `PushManager.subscribe({ applicationServerKey })`. Unauthenticated.
    */
   async getVapidPublicKey(): Promise<string> {
-    const res = await this.client.request<VapidPublicKeyResponse>("/push/vapid-public-key");
+    const res = await this.api.get("/push/vapid-public-key");
     return res.key;
   }
 
   /** Register the browser's push subscription for the calling context. */
   async subscribe(subscription: WebPushSubscription): Promise<void> {
-    await this.client.request<unknown>("/push/subscriptions", {
-      method: "POST",
-      body: JSON.stringify(subscription),
-    });
+    await this.api.post("/push/subscriptions", { body: subscription });
   }
 
   /**
@@ -38,10 +35,7 @@ export class PushService {
    * that one; omit it to remove all subscriptions the caller owns.
    */
   async unsubscribe(endpoint?: string): Promise<void> {
-    const qs = endpoint ? `?endpoint=${encodeURIComponent(endpoint)}` : "";
-    await this.client.request<unknown>(`/push/subscriptions${qs}`, {
-      method: "DELETE",
-    });
+    await this.api.del("/push/subscriptions", { query: { endpoint } });
   }
 
   /**
@@ -49,8 +43,7 @@ export class PushService {
    * server-side to 1..=100 (default 50).
    */
   async listNotifications(limit?: number): Promise<NotificationItem[]> {
-    const qs = limit !== undefined ? `?limit=${limit}` : "";
-    const res = await this.client.request<NotificationsResponse>(`/push/notifications${qs}`);
+    const res = await this.api.get("/push/notifications", { query: { limit } });
     return res.notifications;
   }
 
@@ -59,8 +52,6 @@ export class PushService {
    * admin accounts, so this clears it for every admin.
    */
   async clearNotifications(): Promise<void> {
-    await this.client.request<unknown>("/push/notifications", {
-      method: "DELETE",
-    });
+    await this.api.del("/push/notifications");
   }
 }

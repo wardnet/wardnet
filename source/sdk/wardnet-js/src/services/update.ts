@@ -1,4 +1,5 @@
 import type { WardnetClient } from "../client.js";
+import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
   InstallUpdateRequest,
   InstallUpdateResponse,
@@ -19,16 +20,20 @@ import type {
  * for the Settings UI to read state.
  */
 export class UpdateService {
-  constructor(private readonly client: WardnetClient) {}
+  private readonly api: ApiClient;
+
+  constructor(client: WardnetClient) {
+    this.api = apiClient(client);
+  }
 
   /** Current update subsystem snapshot (admin only). */
   async status(): Promise<UpdateStatusResponse> {
-    return this.client.request<UpdateStatusResponse>("/update/status");
+    return this.api.get("/update/status");
   }
 
   /** Force a manifest refresh against the active channel (admin only). */
   async check(): Promise<UpdateCheckResponse> {
-    return this.client.request<UpdateCheckResponse>("/update/check", { method: "POST" });
+    return this.api.post("/update/check");
   }
 
   /**
@@ -37,32 +42,21 @@ export class UpdateService {
    * install is already in flight returns the same handle.
    */
   async install(body: InstallUpdateRequest = {}): Promise<InstallUpdateResponse> {
-    return this.client.request<InstallUpdateResponse>("/update/install", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.api.post("/update/install", { body });
   }
 
   /** Swap back to `<live>.old` (admin only). Fails if no rollback is staged. */
   async rollback(): Promise<RollbackResponse> {
-    return this.client.request<RollbackResponse>("/update/rollback", { method: "POST" });
+    return this.api.post("/update/rollback");
   }
 
   /** Toggle auto-update / switch channel (admin only). */
   async updateConfig(body: UpdateConfigRequest): Promise<UpdateConfigResponse> {
-    return this.client.request<UpdateConfigResponse>("/update/config", {
-      method: "PUT",
-      body: JSON.stringify(body),
-    });
+    return this.api.put("/update/config", { body });
   }
 
   /** Recent install history entries (admin only). */
   async history(limit = 20): Promise<UpdateHistoryResponse> {
-    // The SDK deliberately ships without DOM types, so URLSearchParams
-    // isn't in scope; interpolating the integer limit directly is safe
-    // (it's never user-controlled input).
-    return this.client.request<UpdateHistoryResponse>(
-      `/update/history?limit=${encodeURIComponent(limit)}`,
-    );
+    return this.api.get("/update/history", { query: { limit } });
   }
 }
