@@ -71,7 +71,7 @@ axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
 # https://crates.io/crates/tokio-tungstenite — persistent client WebSocket for the
 # reverse-tunnel client to wardnet-cloud's Tunneller (issue #809). Pinned to the
 # same 0.29 axum's `ws` feature already resolves transitively (one version only).
-tokio-tungstenite = { version = "0.29", features = ["connect", "rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.30", features = ["connect", "rustls-tls-webpki-roots"] }
 # https://crates.io/crates/axum-extra
 axum-extra = { version = "0.12", features = ["typed-header", "cookie", "query"] }
 
