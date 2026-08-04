@@ -52,18 +52,11 @@ source/
 │       ├── wardnetd/          # Daemon binary (Linux-specific backends + startup)
 │       └── wardnetd-mock/     # Local dev binary (full API, no-op network backends, in-memory SQLite)
 ├── sdk/
-│   └── wardnet-js/        # @wardnet/js — TypeScript SDK (browser + Node)
+│   ├── wardnet-js/        # @wardnet/js — TypeScript SDK (browser + Node)
+│   └── wardnet-go/        # wardnet.network/go — Go SDK (hand-crafted public API over an internal generated REST client)
+├── wctl/                  # github.com/wardnet/wardnet/source/wctl — Cobra CLI built on the Go SDK
 ├── web-ui/                # React 19 + TypeScript frontend (embedded into daemon via rust-embed)
 └── site/                  # Public marketing site (wardnet.network) + release manifests
-```
-
-The Go SDK and the `wctl` CLI live at the repo root, outside `source/`, because
-Go module paths are import paths — `wardnet.network/go` and
-`github.com/wardnet/wardnet/wctl` both have to resolve from the repository root:
-
-```
-go/                        # wardnet.network/go — Go SDK (hand-crafted public API over an internal generated REST client)
-wctl/                      # github.com/wardnet/wardnet/wctl — Cobra CLI built on the Go SDK
 ```
 
 ### Daemon (`wardnetd`)
@@ -179,10 +172,16 @@ cd source/site && yarn dev                              # marketing site
 ### `wctl` — CLI
 
 ```sh
-cd wctl && go build ./... && go test ./...   # build + test the CLI
-cd wctl && go run ./cmd/wctl status          # run against the daemon in ~/.config/wardnet/wctl.toml
-cd go && go test ./...                       # Go SDK the CLI is built on
+cd source/wctl && go build ./... && go test ./...   # build + test the CLI
+cd source/wctl && go run ./cmd/wctl status         # run against the daemon in ~/.config/wardnet/wctl.toml
+cd source/sdk/wardnet-go && go test ./...          # Go SDK the CLI is built on
 ```
+
+`source/wctl` consumes the SDK through a `replace wardnet.network/go =>
+../sdk/wardnet-go` directive, so local SDK edits are picked up without a
+publish step. The module path `wardnet.network/go` does not resolve for outside
+consumers yet — that needs a `go-import` meta tag pointing at a repo whose
+*root* holds the SDK, which this monorepo layout cannot satisfy on its own.
 
 ### Version management
 

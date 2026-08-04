@@ -2,7 +2,7 @@
 # install.sh — download and install the wctl CLI from GitHub releases.
 #
 # Usage:
-#   curl -fsSL https://github.com/wardnet/wardnet/releases/latest/download/install.sh | sh
+#   curl -fsSL https://github.com/wardnet/wardnet/releases/latest/download/wctl-install.sh | sh
 #
 # Environment:
 #   WCTL_VERSION      version to install, e.g. 2026.08.00 or v2026.08.00 (default: latest)

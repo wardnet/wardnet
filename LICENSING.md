@@ -40,7 +40,7 @@ The web UI, the admin and user PWAs, and the marketing site
 (`source/web/`, `source/admin-site/`, `source/admin-app/`,
 `source/user-app/`, `source/marketing-site/`) remain **MIT**, as does the
 rest of the repository outside `source/daemon/` — including the Go SDK
-(`go/`) and the `wctl` CLI (`wctl/`).
+(`source/sdk/wardnet-go/`) and the `wctl` CLI (`source/wctl/`).
 
 `wctl` is MIT because it is a Go binary that speaks HTTP to the daemon. It
 does not link `rustables` or any other GPL code, so no copyleft obligation
@@ -59,6 +59,6 @@ terms; only the *combined binary* carries GPL-3.0's terms.
 | --- | --- |
 | `source/daemon/**` | GPL-3.0-or-later |
 | `source/sdk/wardnet-js/**` | MIT |
-| `go/**`, `wctl/**` | MIT |
+| `source/sdk/wardnet-go/**`, `source/wctl/**` | MIT |
 | everything else | MIT |
 | the distributed `wardnetd` binary | GPL-3.0-or-later (combined work) |

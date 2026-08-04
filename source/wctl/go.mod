@@ -1,4 +1,4 @@
-module github.com/wardnet/wardnet/wctl
+module github.com/wardnet/wardnet/source/wctl
 
 go 1.26.0
 
@@ -20,4 +20,4 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 )
 
-replace wardnet.network/go => ../go
+replace wardnet.network/go => ../sdk/wardnet-go
