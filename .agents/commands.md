@@ -54,9 +54,15 @@ All commands run from `source/sdk/wardnet-go/`.
 
 - **Build / test**: `go build ./...`, `go test ./...`
 - **Lint**: `go vet ./...`, `golangci-lint run ./...`
-- **Regenerate the REST client**: `go generate ./internal/rest/` — reads
-  `docs/openapi.json`. The generated types are the drift tripwire: when the
-  spec changes, the hand-written mapping code stops compiling until updated.
+- **Regenerate the REST client**: `go generate ./...` from `internal/rest/` —
+  reads `docs/openapi.json`. Commit the result.
+- **Drift gate**: `make check-go-openapi` regenerates and fails on any diff.
+  Compiling is not enough on its own: the hand-written mapping only breaks when
+  the spec *removes or renames* something it uses, so an added field
+  regenerates to different code that still builds and the drift goes unnoticed.
+- **Versioning**: `VERSION` in this directory drives the published module
+  version, independently of the daemon's CalVer. Bump it to cut an SDK release.
+  Keep it on `0.x` (or `1.x`) — Go demands a `/vN` path suffix at major ≥ 2.
 
 ### CLI (`wctl`)
 

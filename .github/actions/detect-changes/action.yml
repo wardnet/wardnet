@@ -64,8 +64,8 @@ runs:
             - 'source/sdk/wardnet-go/**'
             - 'source/wctl/**'
             # The SDK's internal REST client is generated from this spec, and
-            # the hand-written mapping code stops compiling when it drifts.
-            # That tripwire only fires if a spec change rebuilds the Go module.
+            # build-go.yml regenerates it and fails on any diff. Without this
+            # filter a spec-only change would skip that check entirely.
             - 'docs/openapi.json'
           ci:
             - '.github/workflows/**'

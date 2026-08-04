@@ -55,7 +55,7 @@ COV_RUNNER ?=
 # ---------- Phony targets ----------
 
 .PHONY: all init build build-daemon build-sdk build-web build-site \
-        check check-sdk check-sdk-openapi check-web check-site check-go fmt-daemon check-daemon check-daemon-native check-daemon-container \
+        check check-sdk check-sdk-openapi check-web check-site check-go check-go-openapi fmt-daemon check-daemon check-daemon-native check-daemon-container \
         coverage-daemon coverage-daemon-native coverage-daemon-container \
         coverage-daemon-report-json \
         openapi check-openapi \
@@ -372,11 +372,31 @@ check-openapi: openapi
 # Mirrors .github/workflows/build-go.yml. `wctl` reaches the SDK through a
 # `replace` directive, so the SDK is checked first — a broken SDK surfaces
 # there rather than as a confusing failure inside the CLI.
-check-go:
+check-go: check-go-openapi
 	cd $(GO_SDK_DIR) && go build ./... && go vet ./... && go test -race ./...
 	cd $(GO_SDK_DIR) && golangci-lint run ./...
 	cd $(WCTL_DIR) && go build ./... && go vet ./... && go test -race ./...
 	cd $(WCTL_DIR) && golangci-lint run ./...
+
+# Drift gate for the Go SDK's generated REST client, mirroring
+# `check-sdk-openapi`. Regenerate `internal/rest/rest.gen.go` from
+# docs/openapi.json and fail if the committed copy is stale.
+#
+# Compiling is NOT sufficient on its own, which is why this exists: the
+# hand-written mapping only stops building when the spec REMOVES or RENAMES
+# something it touches. A spec that merely ADDS a field regenerates to
+# different code that still compiles, so the drift is invisible until a
+# consumer notices the field missing from the public API.
+check-go-openapi:
+	cd $(GO_SDK_DIR)/internal/rest && go generate ./...
+	@if ! git diff --exit-code -- $(GO_SDK_DIR)/internal/rest/rest.gen.go > /dev/null; then \
+		echo ""; \
+		echo "Go SDK OpenAPI client drift detected in $(GO_SDK_DIR)/internal/rest/rest.gen.go."; \
+		echo "Run 'go generate ./...' in $(GO_SDK_DIR)/internal/rest and commit the updated file."; \
+		git --no-pager diff --stat -- $(GO_SDK_DIR)/internal/rest/rest.gen.go; \
+		exit 1; \
+	fi
+	@echo "Go SDK OpenAPI client is in sync."
 
 # ---------- Compound targets ----------
 

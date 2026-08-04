@@ -40,7 +40,20 @@ jobs:
         # The Rust extractor uses source-only analysis (`build-mode: none`)
         # — manual/autobuild are not supported. `actions` and
         # `javascript-typescript` are also source-only.
-        language: [actions, javascript-typescript, rust]
+        #
+        # Go is compiled rather than source-extracted: `autobuild` builds the
+        # modules so the extractor sees resolved types. It covers the SDK
+        # (published to outside consumers) and wctl (shipped as a signed
+        # release binary), neither of which was analysed before.
+        include:
+          - language: actions
+            build-mode: none
+          - language: javascript-typescript
+            build-mode: none
+          - language: rust
+            build-mode: none
+          - language: go
+            build-mode: autobuild
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
@@ -53,7 +66,7 @@ jobs:
         uses: github/codeql-action/init@f205ea1c3313d32999d8d6a48b4f6530d4437b38 # v4
         with:
           languages: ${{ matrix.language }}
-          build-mode: none
+          build-mode: ${{ matrix.build-mode }}
           config-file: .github/codeql/codeql-config.yml
 
       - name: Perform CodeQL Analysis

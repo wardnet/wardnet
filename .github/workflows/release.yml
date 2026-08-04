@@ -279,9 +279,6 @@ jobs:
     permissions:
       contents: read
     uses: ./.github/workflows/release-go-sdk.yml
-    with:
-      version: ${{ needs.resolve.outputs.version }}
-      tag: ${{ needs.resolve.outputs.tag }}
     secrets: inherit
 
   release-image:

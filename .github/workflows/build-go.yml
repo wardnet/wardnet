@@ -74,6 +74,21 @@ jobs:
           fi
           rm go.mod.orig go.sum.orig
 
+      # Compiling is not enough to catch spec drift: the hand-written mapping
+      # only breaks when the spec removes or renames something it touches, so
+      # an added field regenerates to different code that still builds. Only a
+      # regenerate-and-diff notices that.
+      - name: Verify the generated REST client is in sync with docs/openapi.json
+        if: matrix.dir == 'source/sdk/wardnet-go'
+        working-directory: ${{ matrix.dir }}/internal/rest
+        run: |
+          set -euo pipefail
+          go generate ./...
+          if ! git diff --exit-code -- rest.gen.go; then
+            echo "::error::rest.gen.go is stale. Run 'go generate ./...' in source/sdk/wardnet-go/internal/rest and commit the result."
+            exit 1
+          fi
+
       - name: Build
         working-directory: ${{ matrix.dir }}
         run: go build ./...

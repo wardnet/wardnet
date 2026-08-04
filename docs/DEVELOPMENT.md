@@ -194,6 +194,17 @@ That mirror is generated and read-only — issues, wiki, projects, discussions,
 and pull requests are all disabled on it, and its `main` is overwritten on
 every release. Never commit to it; edit `source/sdk/wardnet-go` here.
 
+**The SDK carries its own version**, in `source/sdk/wardnet-go/VERSION`, and it
+is *not* the daemon's CalVer. Bump that file to cut an SDK release; a release
+whose VERSION is unchanged republishes `main` but publishes no new module
+version. This is not bookkeeping preference — Go's semantic import versioning
+requires any module at major ≥ 2 to end its path in `/vN`, so a CalVer version
+like `2026.08.00` (major 2026) would demand `module wardnet.network/go/v2026`,
+an import path that changes every January. Staying on `0.x` keeps the path
+stable, which is exactly why `k8s.io/client-go` is versioned `v0.x.y`. The
+publish job refuses to run if VERSION reaches major ≥ 2 without a matching
+suffix in `go.mod`.
+
 Release tags on the mirror are immutable, enforced by a repository ruleset.
 This is not just hygiene: the Go checksum database records a module version's
 hash the first time anyone fetches it, so re-tagging a published version makes
