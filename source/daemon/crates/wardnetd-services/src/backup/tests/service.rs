@@ -125,11 +125,35 @@ struct Harness {
 }
 
 fn build_harness(schema_version: i64) -> Harness {
+    build_harness_at(schema_version, ConfigLocation::BesideDatabase)
+}
+
+/// Where the live config sits relative to the live database.
+///
+/// A real install splits them (`/var/lib/wardnet/wardnet.db` and
+/// `/etc/wardnet/wardnet.toml`); every test here colocated them, which is
+/// precisely why the snapshot walk could miss an entire directory without a
+/// single test noticing. [`ConfigLocation::SeparateDirectory`] reproduces
+/// production's layout.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ConfigLocation {
+    BesideDatabase,
+    SeparateDirectory,
+}
+
+fn build_harness_at(schema_version: i64, config_location: ConfigLocation) -> Harness {
     let tempdir = std::env::temp_dir().join(format!("wardnet-backup-test-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&tempdir).unwrap();
 
     let database_path = tempdir.join("wardnet.db");
-    let config_path = tempdir.join("wardnet.toml");
+    let config_path = match config_location {
+        ConfigLocation::BesideDatabase => tempdir.join("wardnet.toml"),
+        ConfigLocation::SeparateDirectory => {
+            let etc = tempdir.join("etc");
+            std::fs::create_dir_all(&etc).unwrap();
+            etc.join("wardnet.toml")
+        }
+    };
     let secrets_root = tempdir.join("secrets");
 
     // Pre-populate the live files so apply_import has something to
@@ -359,6 +383,92 @@ async fn cleanup_old_snapshots_deletes_expired_files() {
     // dead-code lints.
     let manifest = BundleManifest::new("0.2.0", h.dumper.schema_version, "test-host", 0);
     assert_eq!(manifest.schema_version, 42);
+}
+
+// NB: `apply_import` writing /etc/wardnet also depends on the systemd unit
+// granting `ReadWritePaths=/etc/wardnet` under `ProtectSystem=strict`. That
+// invariant is asserted where the unit is embedded —
+// `wardnet-postupgrade`'s `up::tests::systemd_unit::
+// config_directory_is_writable_for_backup_restore`.
+
+#[tokio::test]
+async fn list_snapshots_finds_config_snapshots_in_their_own_directory() {
+    // Production layout: the config lives in a different directory from the
+    // database, so `apply_import`'s in-place rename leaves the config snapshot
+    // somewhere the database's directory walk will never see.
+    let h = build_harness_at(42, ConfigLocation::SeparateDirectory);
+    assert_ne!(
+        h.config_path.parent(),
+        h.database_path.parent(),
+        "this test is only meaningful when the two directories differ"
+    );
+
+    let db_snapshot = h
+        .database_path
+        .with_file_name("wardnet.db.bak-20990101T000000Z");
+    let config_snapshot = h
+        .config_path
+        .with_file_name("wardnet.toml.bak-20990101T000000Z");
+    tokio::fs::write(&db_snapshot, b"db").await.unwrap();
+    tokio::fs::write(&config_snapshot, b"cfg").await.unwrap();
+
+    let resp = auth_context::with_context(admin_ctx(), h.svc.list_snapshots())
+        .await
+        .unwrap();
+
+    let paths: Vec<&str> = resp.snapshots.iter().map(|s| s.path.as_str()).collect();
+    assert!(
+        paths.contains(&db_snapshot.display().to_string().as_str()),
+        "database snapshot missing from {paths:?}"
+    );
+    assert!(
+        paths.contains(&config_snapshot.display().to_string().as_str()),
+        "config snapshot missing from {paths:?} - the walk skipped its directory"
+    );
+}
+
+#[tokio::test]
+async fn list_snapshots_does_not_double_report_when_paths_share_a_directory() {
+    // The colocated layout must not report each snapshot twice now that the
+    // walk visits two (identical) directories.
+    let h = build_harness(42);
+    let db_snapshot = h
+        .database_path
+        .with_file_name("wardnet.db.bak-20990101T000000Z");
+    tokio::fs::write(&db_snapshot, b"db").await.unwrap();
+
+    let resp = auth_context::with_context(admin_ctx(), h.svc.list_snapshots())
+        .await
+        .unwrap();
+    assert_eq!(resp.snapshots.len(), 1, "got {:?}", resp.snapshots);
+}
+
+#[tokio::test]
+async fn cleanup_old_snapshots_prunes_config_snapshots_too() {
+    // The cleanup runner shares the listing walk, so a directory the walk
+    // skipped was never swept — those snapshots accumulated forever.
+    let h = build_harness_at(42, ConfigLocation::SeparateDirectory);
+    let config_snapshot = h
+        .config_path
+        .with_file_name("wardnet.toml.bak-20000101T000000Z");
+    tokio::fs::write(&config_snapshot, b"old").await.unwrap();
+
+    let ten_days_ago = std::time::SystemTime::now() - Duration::from_hours(24 * 10);
+    let file = std::fs::File::options()
+        .write(true)
+        .open(&config_snapshot)
+        .unwrap();
+    file.set_modified(ten_days_ago).unwrap();
+    drop(file);
+
+    let deleted = auth_context::with_context(
+        admin_ctx(),
+        h.svc.cleanup_old_snapshots(Duration::from_hours(24)),
+    )
+    .await
+    .unwrap();
+    assert_eq!(deleted, 1);
+    assert!(!config_snapshot.exists());
 }
 
 #[tokio::test]

@@ -86,5 +86,25 @@ pub fn migrations() -> &'static [Migration] {
             severity: Severity::Optional,
             up: crate::up::refresh_wardnetd_unit,
         },
+        Migration {
+            // Re-runs the unit refresh for the `ReadWritePaths=/etc/wardnet`
+            // grant. `ProtectSystem=strict` mounts /etc read-only, so
+            // restoring a backup — which renames /etc/wardnet/wardnet.toml
+            // aside and writes the bundle's copy in its place — failed with
+            // EROFS on every install that predates this.
+            //
+            // A new id rather than an edit to 0003: the runner records
+            // migrations applied and skips them forever, so a box that
+            // already ran 0003 would never pick the change up. Fresh
+            // installs run both and the second is a content no-op, because
+            // install.sh has already laid down this same unit.
+            //
+            // Severity::Optional, matching 0003: a failed rewrite leaves the
+            // daemon starting from the on-disk unit. Only backup restore
+            // stays broken, which must not gate startup.
+            id: "0004_wardnetd_unit_config_write",
+            severity: Severity::Optional,
+            up: crate::up::refresh_wardnetd_unit,
+        },
     ]
 }

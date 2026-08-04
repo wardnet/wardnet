@@ -69,8 +69,20 @@ tokio = { version = "1", features = ["full"] }
 # https://crates.io/crates/axum
 axum = { version = "0.8", features = ["macros", "multipart", "ws"] }
 # https://crates.io/crates/tokio-tungstenite — persistent client WebSocket for the
-# reverse-tunnel client to wardnet-cloud's Tunneller (issue #809). Pinned to the
-# same 0.29 axum's `ws` feature already resolves transitively (one version only).
+# reverse-tunnel client to wardnet-cloud's Tunneller (issue #809).
+#
+# This no longer matches the version axum's `ws` feature resolves (0.29), so the
+# build links both. That is safe but not free, and the reason it is safe is
+# narrow: the two never exchange types. We use only the *client* side
+# (`connect_async`, `Message`, `IntoClientRequest` in `cloud/tunneller.rs`);
+# axum owns the *server* side behind its own API and never hands a tungstenite
+# type across the boundary. Introducing a server-side WebSocket that mixes the
+# two would produce mismatched-type errors, not silent breakage.
+#
+# The cost is a second TLS/WebSocket stack in a binary shipped to a Pi and a
+# second CVE surface to track. Collapse this back to one version — and restore
+# this line to a plain `= "0.30"` with no caveat — once axum's `ws` feature
+# resolves 0.30.
 tokio-tungstenite = { version = "0.30", features = ["connect", "rustls-tls-webpki-roots"] }
 # https://crates.io/crates/axum-extra
 axum-extra = { version = "0.12", features = ["typed-header", "cookie", "query"] }
