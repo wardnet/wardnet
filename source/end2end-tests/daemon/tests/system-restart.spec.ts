@@ -14,14 +14,19 @@ import {
 /**
  * `POST /api/system/restart` end-to-end (issue #249, E2E Stage 11).
  *
- * Order-sensitive by construction: it takes the daemon down mid-suite. It
- * lives in its own file so vitest's `fileParallelism: false` ordering keeps it
- * atomic, and the last assertion in the file is the recovery one — the daemon
- * is verified healthy again *before* control returns to the runner, so the
- * next spec file's `waitForReady` has nothing left to wait for. That is
- * deliberately stronger than a global setup hook: a failure to come back
- * surfaces here, attributed to the restart, instead of as a mystery timeout in
- * whatever file happened to run next.
+ * Destructive by construction: it takes the daemon down mid-suite. It lives in
+ * its own file so the take-down and the recovery are one indivisible unit
+ * under `fileParallelism: false` — nothing else runs in between. The last
+ * assertion in the file is the recovery one, so the daemon is verified healthy
+ * again *before* control returns to the runner and the next spec file's
+ * `waitForReady` has nothing left to wait for. That is deliberately stronger
+ * than a global setup hook: a failure to come back surfaces here, attributed
+ * to the restart, instead of as a mystery timeout in whatever file happened to
+ * run next.
+ *
+ * Nothing here depends on *where* this file lands in the run. Vitest orders
+ * files by size on a cold cache and by recorded duration afterwards, so an
+ * assertion that assumed a late slot would be a latent flake.
  *
  * The daemon exits with code 0 after a ~500 ms grace; `Restart=always` +
  * `RestartSec=2s` in `wardnetd.service` bring it back. Two restarts in one
@@ -58,8 +63,7 @@ describe("system restart (issue #249)", () => {
       const before = await daemonPid(DAEMON_AGENT);
       expect(before.running).toBe(true);
 
-      const uptimeBefore = (await new InfoService(client).getInfo())
-        .uptime_seconds;
+      const restartRequestedAt = Date.now();
 
       // Returns 204 as soon as the restart is *scheduled* — the process is
       // still alive at this point, which is why the PID poll below is the
@@ -77,10 +81,14 @@ describe("system restart (issue #249)", () => {
       await waitForReady(client, 90_000);
       const info = await new InfoService(client).getInfo();
 
-      // A fresh process restarts the uptime clock. Guarding on "lower than
-      // before" rather than "near zero" avoids racing a slow poll loop that
-      // only notices the new process seconds later.
-      expect(info.uptime_seconds).toBeLessThan(uptimeBefore);
+      // A fresh process restarts the uptime clock: the new daemon cannot have
+      // been up longer than the wall-clock time since the restart was
+      // requested. Bounding against measured elapsed time rather than the
+      // pre-restart uptime keeps this true no matter where the file lands in
+      // the run — a "lower than before" check would be meaningless if this
+      // file happened to run first, when the previous uptime is itself small.
+      const elapsedSeconds = Math.ceil((Date.now() - restartRequestedAt) / 1_000);
+      expect(info.uptime_seconds).toBeLessThanOrEqual(elapsedSeconds);
     },
     180_000,
   );
