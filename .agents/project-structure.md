@@ -71,7 +71,6 @@ source/
 │       │       ├── backends/        # No-op impls (noop_tunnel, noop_routing, noop_dhcp, noop_dns, noop_device)
 │       │       ├── seed.rs          # Demo data seeder (writes directly via repositories)
 │       │       └── events.rs        # Periodic fake event emitter for UI testing
-│       ├── wctl/                    # CLI tool (clap: status, devices, tunnels, update subcommands — placeholders)
 │       └── wardnet-test-agent/      # Pi-side kernel state inspector for system tests
 │           └── src/
 │               ├── main.rs          # HTTP server (port 3001) exposing ip rule, nft, wg show, ip link
@@ -131,4 +130,16 @@ source/
     ├── content/docs/                # Markdown articles served by DocsArticle.tsx
     ├── content/docs.yml             # Topic catalogue driving /docs
     └── public/docs/                 # Screenshots and other static assets referenced from markdown
+```
+
+The Go SDK and the `wctl` CLI sit at the **repo root**, not under `source/`, because a
+Go module path is its import path — both have to resolve from the repository root:
+
+```
+go/                                  # wardnet.network/go — Go SDK
+├── internal/rest/                   # Generated (oapi-codegen from docs/openapi.json), unexported: the compile-time drift tripwire
+└── *.go                             # Hand-crafted public API: Client + per-area services, domain types, functional options, typed APIError
+wctl/                                # github.com/wardnet/wardnet/wctl — Cobra CLI built on the Go SDK
+└── cmd/wctl/                        # status, devices, tunnels, update, backup, self-update, version
+    └── output.go                    # Shared rendering helpers; tabwriter tables by default, --json on every command
 ```

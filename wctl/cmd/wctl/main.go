@@ -50,7 +50,7 @@ func rootCmd() *cobra.Command {
 		newUpdateCmd(c),
 		newBackupCmd(c),
 		newSelfUpdateCmd(),
-		newVersionCmd(),
+		newVersionCmd(c),
 	)
 	return root
 }

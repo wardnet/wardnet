@@ -130,6 +130,9 @@ func updateRollbackCmd(c *cli) *cobra.Command {
 			if err := client.Update.Rollback(cmd.Context()); err != nil {
 				return err
 			}
+			if c.jsonOut {
+				return printJSON(map[string]any{"rollback": "initiated"})
+			}
 			fmt.Println("rollback initiated")
 			return nil
 		},

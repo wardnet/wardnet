@@ -139,6 +139,9 @@ func tunnelsRemoveCmd(c *cli) *cobra.Command {
 			if err := client.Tunnels.Remove(cmd.Context(), args[0]); err != nil {
 				return err
 			}
+			if c.jsonOut {
+				return printJSON(map[string]any{"id": args[0], "removed": true})
+			}
 			fmt.Printf("tunnel %s removed\n", args[0])
 			return nil
 		},

@@ -23,7 +23,7 @@ Wardnet is in active development. The first stable release, [`2026.07.00`](https
 - Admin site, User PWA, and Admin mobile PWA, with Web Push notifications
 - Stats pipeline with time-series and top-N queries; live DNS query log
 - REST + WebSocket API with session + API-key auth
-- `wctl` CLI (scaffolded)
+- `wctl` CLI and a Go SDK, with tabular and `--json` output on every command
 - OpenTelemetry trace/log/metric export and Pyroscope continuous profiling (opt-in)
 - Signed releases via tag-driven CI, published on GitHub Releases and mirrored at [`wardnet.network/releases/`](https://wardnet.network)
 
@@ -50,12 +50,20 @@ source/
 │       ├── wardnetd-services/ # Business logic layer (auth, device, tunnel, DHCP, DNS, routing, system, logging, VPN)
 │       ├── wardnetd-api/      # HTTP API layer (axum handlers, middleware, state)
 │       ├── wardnetd/          # Daemon binary (Linux-specific backends + startup)
-│       ├── wardnetd-mock/     # Local dev binary (full API, no-op network backends, in-memory SQLite)
-│       └── wctl/              # CLI tool
+│       └── wardnetd-mock/     # Local dev binary (full API, no-op network backends, in-memory SQLite)
 ├── sdk/
 │   └── wardnet-js/        # @wardnet/js — TypeScript SDK (browser + Node)
 ├── web-ui/                # React 19 + TypeScript frontend (embedded into daemon via rust-embed)
 └── site/                  # Public marketing site (wardnet.network) + release manifests
+```
+
+The Go SDK and the `wctl` CLI live at the repo root, outside `source/`, because
+Go module paths are import paths — `wardnet.network/go` and
+`github.com/wardnet/wardnet/wctl` both have to resolve from the repository root:
+
+```
+go/                        # wardnet.network/go — Go SDK (hand-crafted public API over an internal generated REST client)
+wctl/                      # github.com/wardnet/wardnet/wctl — Cobra CLI built on the Go SDK
 ```
 
 ### Daemon (`wardnetd`)
@@ -171,7 +179,9 @@ cd source/site && yarn dev                              # marketing site
 ### `wctl` — CLI
 
 ```sh
-cd source/daemon && cargo run -p wctl -- status
+cd wctl && go build ./... && go test ./...   # build + test the CLI
+cd wctl && go run ./cmd/wctl status          # run against the daemon in ~/.config/wardnet/wctl.toml
+cd go && go test ./...                       # Go SDK the CLI is built on
 ```
 
 ### Version management
