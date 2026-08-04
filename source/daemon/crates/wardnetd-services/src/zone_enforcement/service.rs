@@ -549,13 +549,86 @@ impl ZoneEnforcementServiceImpl {
         }
     }
 
+    /// Bring the LAN interface's IPv4 proxy-neighbour entries to exactly
+    /// `desired` (issue #1107): add the missing entries, prune the rest. The Pi
+    /// owns the LAN interface's IPv4 pneigh entries — a stale one is exactly
+    /// the "answers ARP for an address nobody isolates" failure of #1107, so
+    /// pruning is unconditional. The diff runs against the kernel's own listing
+    /// (never a stored snapshot), so a purged or half-applied state heals on
+    /// the next pass. If the listing fails, `existing` degrades to empty: the
+    /// idempotent adds still run and pruning naturally no-ops until a listing
+    /// succeeds. Errors are warn-logged, never fatal.
+    async fn reconcile_proxy_neigh(&self, desired: BTreeSet<String>) {
+        let existing: BTreeSet<String> = match self
+            .policy_router
+            .list_neigh_proxies(&self.lan_interface)
+            .await
+        {
+            Ok(entries) => entries.into_iter().collect(),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    interface = %self.lan_interface,
+                    "zone enforcer: failed to list proxy-neighbour entries on {interface}: {e}",
+                    interface = self.lan_interface,
+                    e = e,
+                );
+                BTreeSet::new()
+            }
+        };
+        if desired == existing {
+            return;
+        }
+        // The per-entry netlink calls are independent, so run each direction
+        // concurrently instead of serializing the round-trips.
+        futures::future::join_all(desired.difference(&existing).map(|ip| async move {
+            if let Err(e) = self
+                .policy_router
+                .add_neigh_proxy(ip, &self.lan_interface)
+                .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    ip,
+                    "zone enforcer: failed to add proxy-neighbour entry for {ip}: {e}",
+                    ip = ip,
+                    e = e,
+                );
+            }
+        }))
+        .await;
+        futures::future::join_all(existing.difference(&desired).map(|ip| async move {
+            if let Err(e) = self
+                .policy_router
+                .remove_neigh_proxy(ip, &self.lan_interface)
+                .await
+            {
+                tracing::warn!(
+                    error = %e,
+                    ip,
+                    "zone enforcer: failed to remove stale proxy-neighbour entry for {ip}: {e}",
+                    ip = ip,
+                    e = e,
+                );
+            }
+        }))
+        .await;
+        let members = desired.len();
+        tracing::info!(
+            members,
+            "zone enforcer: proxy-neighbour entries reconciled ({members} members)",
+        );
+    }
+
     /// Recompute the FULL desired L3 isolation state and apply it atomically:
     /// the `zone_isolation` chain (allows → cross-subnet denies → member denies),
-    /// the per-zone gateway aliases, and proxy-ARP. See the module design notes.
+    /// the per-zone gateway aliases, and the per-member proxy-neighbour entries
+    /// (issue #1107). See the module design notes.
     ///
     /// When Wardnet does not own DHCP the whole surface degrades gracefully to
-    /// the #736 baseline: an empty isolation chain, no gateway aliases, proxy-ARP
-    /// off. All firewall/policy errors are warn-logged, never fatal.
+    /// the #736 baseline: an empty isolation chain, no gateway aliases, no
+    /// proxy-neighbour entries. All firewall/policy errors are warn-logged,
+    /// never fatal.
     #[allow(clippy::too_many_lines)]
     async fn reconcile_isolation(&self) -> Result<(), AppError> {
         let base_cidr = self.base_cidr().await;
@@ -584,7 +657,11 @@ impl ZoneEnforcementServiceImpl {
         let mut rules;
         let mut desired_alias_map: std::collections::BTreeMap<Ipv4Addr, u8> =
             std::collections::BTreeMap::new();
-        let member_isolation_present;
+        // Per-member proxy-neighbour entries (issue #1107): the IPs the Pi
+        // should answer ARP for on the LAN interface — exactly the members of
+        // isolate-members subnetted zones, nothing else. Empty when Wardnet
+        // does not own DHCP.
+        let mut desired_proxy_neigh: BTreeSet<String> = BTreeSet::new();
 
         if dhcp_enabled {
             let zones = self.zones.find_all().await.map_err(AppError::Internal)?;
@@ -675,7 +752,6 @@ impl ZoneEnforcementServiceImpl {
                 .into_iter()
                 .collect();
 
-            member_isolation_present = !member_isolation_subnets.is_empty();
             rules = ZoneIsolationRules {
                 allows,
                 deny_pairs,
@@ -687,10 +763,42 @@ impl ZoneEnforcementServiceImpl {
             for net in zone_nets.values() {
                 desired_alias_map.insert(crate::subnet::gateway_for(*net), net.prefix());
             }
+
+            // Per-member proxy-neighbour entries: every device in an
+            // isolate-members subnetted zone whose address actually lies inside
+            // that zone's subnet. NEVER the interface-wide `proxy_arp` sysctl —
+            // its FIB-lookup semantics made the Pi answer ARP for any address a
+            // tunnel-bound device probed, while never firing for the
+            // same-interface case it was meant to serve (issue #1107). The
+            // in-subnet check matters: a device freshly moved into the zone can
+            // still hold its old base-subnet address until it re-DHCPs, and a
+            // pneigh entry for that address would answer ARP for a base-subnet
+            // IP the DHCP pool may re-lease — the very duplicate-IP failure
+            // this mechanism replaces. Own addresses are excluded for the same
+            // reason as everywhere else (#886).
+            let member_zone_nets: HashMap<Uuid, Ipv4Network> = zones
+                .iter()
+                .filter(|z| z.member_isolation)
+                .filter_map(|z| zone_nets.get(&z.id).map(|net| (z.id, *net)))
+                .collect();
+            for dev in &all_devices {
+                let Some(net) = member_zone_nets.get(&dev.zone_id) else {
+                    continue;
+                };
+                let Ok(parsed) = dev.last_ip.parse::<Ipv4Addr>() else {
+                    continue;
+                };
+                if !net.contains(parsed) {
+                    continue;
+                }
+                if parsed == self.lan_ip || desired_alias_map.contains_key(&parsed) {
+                    continue;
+                }
+                desired_proxy_neigh.insert(dev.last_ip.clone());
+            }
         } else {
             // Graceful degrade when Wardnet is not the DHCP authority: empty
-            // isolation chain, no gateway aliases, proxy-ARP off.
-            member_isolation_present = false;
+            // isolation chain, no gateway aliases, no proxy-neighbour entries.
             rules = ZoneIsolationRules::default();
         }
 
@@ -736,7 +844,19 @@ impl ZoneEnforcementServiceImpl {
         let iso_changed = self.last_isolation.lock().await.as_ref()
             != Some(&(rules.clone(), desired_alias_strings.clone()));
 
-        // Nothing to do when neither changed (FIX 6, extended to switchback).
+        // Reconcile the per-member proxy-neighbour entries on EVERY pass, before
+        // the change-skip below: unlike nftables rules there is no in-memory
+        // snapshot to debounce against, because the kernel itself forgets pneigh
+        // entries (a link flap purges them via `pneigh_ifdown`) and a netlink
+        // call can fail transiently — a stored "last applied" set would mask
+        // both and never retry. Diffing against the kernel's own listing makes
+        // every reconcile self-healing, and costs one cheap netlink dump when
+        // nothing changed. (Honest limit: a link flap with no subsequent
+        // zone/device event is only repaired by the next event or restart.)
+        self.reconcile_proxy_neigh(desired_proxy_neigh).await;
+
+        // Nothing else to do when nothing changed (FIX 6, extended to
+        // switchback).
         if !iso_changed && !switchback_changed {
             tracing::debug!("zone enforcer: isolation + switchback unchanged, skipping");
             return Ok(());
@@ -761,8 +881,8 @@ impl ZoneEnforcementServiceImpl {
             *self.last_switchback.lock().await = Some(switchback_snapshot);
         }
 
-        // The expensive nftables/alias/proxy-arp kernel work only runs when the
-        // isolation state itself changed.
+        // The expensive nftables/alias kernel work only runs when the isolation
+        // state itself changed.
         if iso_changed {
             let summary = (
                 rules.allows.len(),
@@ -787,15 +907,6 @@ impl ZoneEnforcementServiceImpl {
             }
             self.remove_stale_gateway_aliases(&desired_gateways, &base_cidr)
                 .await;
-
-            // proxy-ARP is only needed when at least one zone isolates members.
-            if let Err(e) = self
-                .policy_router
-                .set_proxy_arp(&self.lan_interface, member_isolation_present)
-                .await
-            {
-                tracing::warn!(error = %e, "zone enforcer: failed to set proxy-arp");
-            }
 
             // Record the applied state so the next identical reconcile is a no-op.
             *self.last_isolation.lock().await = Some((rules, desired_alias_strings));
@@ -871,6 +982,27 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         auth_context::require_admin()?;
         tracing::info!("reconciling network-zone enforcement with kernel");
 
+        // Migration (#1107): older daemons enabled interface-wide `proxy_arp`
+        // for member isolation, which made the Pi answer ARP for any address a
+        // tunnel-bound device probed. Member isolation now uses per-member
+        // proxy-neighbour entries, so force the legacy sysctl off. First thing,
+        // before anything fallible can abort reconcile: nothing else re-touches
+        // the sysctl, and leaving it set is the #1107 bug itself. Best-effort:
+        // a failure must not abort reconcile.
+        if let Err(e) = self
+            .policy_router
+            .set_proxy_arp(&self.lan_interface, false)
+            .await
+        {
+            tracing::warn!(
+                error = %e,
+                interface = %self.lan_interface,
+                "zone enforcer: failed to clear legacy interface-wide proxy-arp on {interface}: {e}",
+                interface = self.lan_interface,
+                e = e,
+            );
+        }
+
         let devices = self.devices.find_all().await.map_err(AppError::Internal)?;
         let all_zones = self.zones.find_all().await.map_err(AppError::Internal)?;
         let zone_by_id: HashMap<Uuid, &NetworkZone> = all_zones.iter().map(|z| (z.id, z)).collect();
@@ -942,7 +1074,8 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         self.clamp_default_bindings(&policy).await?;
 
         // Recompute the whole L3 isolation state (cross-subnet deny + exception
-        // allows + member isolation + gateway aliases + proxy-ARP) from scratch.
+        // allows + member isolation + gateway aliases + proxy-neighbour
+        // entries) from scratch.
         self.reconcile_isolation().await?;
 
         tracing::info!(

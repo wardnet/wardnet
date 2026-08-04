@@ -155,14 +155,38 @@ pub trait PolicyRouter: Send + Sync {
     /// by the gateway-alias reconciler to drop aliases no longer backed by a zone.
     async fn list_interface_aliases(&self, interface: &str) -> anyhow::Result<Vec<(String, u8)>>;
 
-    /// Enable or disable proxy-ARP on `interface`
+    /// Enable or disable interface-wide proxy-ARP on `interface`
     /// (`/proc/sys/net/ipv4/conf/<iface>/proxy_arp`).
     ///
-    /// An isolate-members zone hands each device a `/32`, so the device treats
-    /// every peer as off-link and ARPs the gateway for it; proxy-ARP makes the
-    /// Pi answer, pulling intra-subnet peer traffic through the forward chain
-    /// where it can be filtered. Cooperating devices only (see the ADR).
+    /// Retained only so startup reconcile can clear a `proxy_arp=1` left behind
+    /// by older daemon versions. The interface-wide sysctl must never be
+    /// re-enabled: its FIB-lookup semantics let a tunnel-bound device's policy
+    /// rule make the Pi answer ARP for *any* address that device probes
+    /// (macOS "duplicate IP", LAN-peer hijack — issue #1107). Member isolation
+    /// uses per-member proxy-neighbour entries instead (see
+    /// [`Self::add_neigh_proxy`]).
     async fn set_proxy_arp(&self, interface: &str, enabled: bool) -> anyhow::Result<()>;
+
+    /// Add a proxy-neighbour (pneigh) entry for `ip` on `interface`
+    /// (`ip neigh add proxy <ip> dev <iface>`). Idempotent.
+    ///
+    /// An isolate-members zone hands each device a `/32`, so the device treats
+    /// every peer as off-link and ARPs the gateway for it; a pneigh entry makes
+    /// the Pi answer ARP for exactly that member's address — regardless of the
+    /// route's egress interface — pulling intra-subnet peer traffic through the
+    /// forward chain where it can be filtered. Unlike the interface-wide
+    /// `proxy_arp` sysctl it never answers for arbitrary targets (issue #1107).
+    /// Cooperating devices only (see the ADR).
+    async fn add_neigh_proxy(&self, ip: &str, interface: &str) -> anyhow::Result<()>;
+
+    /// Remove the proxy-neighbour entry for `ip` on `interface`. Idempotent:
+    /// a missing entry is treated as success.
+    async fn remove_neigh_proxy(&self, ip: &str, interface: &str) -> anyhow::Result<()>;
+
+    /// List the IPv4 proxy-neighbour entries currently present on `interface`
+    /// (`ip neigh show proxy`), so reconcile can prune entries no longer backed
+    /// by an isolate-members device.
+    async fn list_neigh_proxies(&self, interface: &str) -> anyhow::Result<Vec<String>>;
 
     /// Add a `/32` host route for `ip` via `interface` so the Pi has an on-link
     /// path to an isolate-members device. Idempotent.
