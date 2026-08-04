@@ -9,6 +9,8 @@ SHELL := /bin/bash
 
 DAEMON_DIR   := source/daemon
 SDK_DIR      := source/sdk/wardnet-js
+GO_SDK_DIR   := source/sdk/wardnet-go
+WCTL_DIR     := source/wctl
 ADMIN_DIR    := source/admin-site
 WEBUI_DIR    := source/admin-site
 USER_APP_DIR := source/user-app
@@ -53,7 +55,7 @@ COV_RUNNER ?=
 # ---------- Phony targets ----------
 
 .PHONY: all init build build-daemon build-sdk build-web build-site \
-        check check-sdk check-sdk-openapi check-web check-site fmt-daemon check-daemon check-daemon-native check-daemon-container \
+        check check-sdk check-sdk-openapi check-web check-site check-go fmt-daemon check-daemon check-daemon-native check-daemon-container \
         coverage-daemon coverage-daemon-native coverage-daemon-container \
         coverage-daemon-report-json \
         openapi check-openapi \
@@ -365,11 +367,22 @@ check-openapi: openapi
 	fi
 	@echo "OpenAPI spec is in sync."
 
+# ---------- Go (SDK + wctl) ----------
+
+# Mirrors .github/workflows/build-go.yml. `wctl` reaches the SDK through a
+# `replace` directive, so the SDK is checked first — a broken SDK surfaces
+# there rather than as a confusing failure inside the CLI.
+check-go:
+	cd $(GO_SDK_DIR) && go build ./... && go vet ./... && go test -race ./...
+	cd $(GO_SDK_DIR) && golangci-lint run ./...
+	cd $(WCTL_DIR) && go build ./... && go vet ./... && go test -race ./...
+	cd $(WCTL_DIR) && golangci-lint run ./...
+
 # ---------- Compound targets ----------
 
 build: build-web build-daemon
 
-check: check-web check-site check-daemon
+check: check-web check-site check-go check-daemon
 
 # ---------- Dev loop ----------
 
