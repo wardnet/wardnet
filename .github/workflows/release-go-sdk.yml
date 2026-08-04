@@ -1,0 +1,137 @@
+name: Release Go SDK
+
+# Publishes the Go SDK by mirroring source/sdk/wardnet-go to
+# github.com/wardnet/wardnet-go, whose root then holds the module.
+#
+# Why a mirror exists at all: Go locates a module by subtracting the
+# `go-import` meta tag's root-path from the module path, so a module named
+# `wardnet.network/go` must sit at the ROOT of whatever repository it is
+# fetched from. There is no way to point Go at a subdirectory. Keeping the
+# source under source/sdk/wardnet-go and mirroring is what buys both the
+# monorepo layout and a clean import path. wardnet.network serves:
+#
+#   <meta name="go-import"
+#         content="wardnet.network/go git https://github.com/wardnet/wardnet-go">
+#
+# The mirror is generated and read-only: issues, wiki, projects, discussions
+# and pull requests are all disabled on it, and `main` is force-pushed here on
+# every release. Never commit to it directly.
+#
+# Stable releases only. Prereleases (beta, edge) are skipped deliberately —
+# publishing them would put versions into the module space that consumers can
+# select, and edge tags are cut from arbitrary branches.
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: Release version without the leading `v` (e.g. `2026.08.00`).
+        type: string
+        required: true
+      tag:
+        description: Git tag (e.g. `v2026.08.00`).
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirror to wardnet/wardnet-go
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      # Full history: `git subtree split` has to walk every commit that
+      # touched the prefix, and a shallow clone silently truncates it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+
+      # GITHUB_TOKEN is scoped to this repository and cannot push to another
+      # one. wardnet-infra-bot is installed org-wide with contents:write.
+      - name: Mint a token for the mirror
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: wardnet-go
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: source/sdk/wardnet-go/go.mod
+          cache-dependency-path: source/sdk/wardnet-go/go.sum
+
+      - name: Verify the SDK builds before publishing it
+        # The mirror is what the outside world consumes. Publishing a module
+        # that does not compile would be visible to every consumer and, because
+        # release tags are immutable (see below), not fixable in place.
+        working-directory: source/sdk/wardnet-go
+        run: go build ./... && go test ./...
+
+      - name: Split, push, and tag
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          VERSION: ${{ inputs.version }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          MIRROR="https://x-access-token:${GH_TOKEN}@github.com/wardnet/wardnet-go.git"
+
+          # Rewrites the subdirectory's history into commits rooted at the SDK.
+          SPLIT=$(git subtree split --prefix=source/sdk/wardnet-go)
+          echo "split commit: ${SPLIT}"
+
+          # Force-push: the split is a deterministic rewrite, so its commit
+          # ids change whenever monorepo history above the prefix changes.
+          # Nobody depends on the mirror's branch history — consumers resolve
+          # tags, which are never rewritten.
+          git push --force "${MIRROR}" "${SPLIT}:refs/heads/main"
+
+          # The tag is the released artifact. It must never move: the Go
+          # checksum database records a module version's hash on first fetch,
+          # so re-tagging a published version makes every consumer fail
+          # verification with a checksum mismatch rather than see an update.
+          # A ruleset on the mirror blocks tag deletion and non-fast-forward
+          # updates; this check just fails earlier, with a clearer message.
+          if git ls-remote --exit-code --tags "${MIRROR}" "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "::error::${TAG} already exists on the mirror. Release tags are immutable — publishing a new build requires a new version."
+            exit 1
+          fi
+
+          git tag -f "${TAG}" "${SPLIT}"
+          git push "${MIRROR}" "refs/tags/${TAG}"
+          echo "published wardnet.network/go@${TAG}"
+
+      - name: Verify the published module resolves
+        env:
+          VERSION: ${{ inputs.version }}
+        # Fetches through the real module proxy, which exercises the whole
+        # chain: the go-import meta tag on wardnet.network, the mirror, and the
+        # tag. Retried because proxy.golang.org populates asynchronously.
+        run: |
+          set -euo pipefail
+          # `go get` needs a module context, so build a throwaway one rather
+          # than running in the checkout (which would edit the SDK's own go.mod).
+          VERIFY="${RUNNER_TEMP}/verify-go-sdk"
+          mkdir -p "${VERIFY}"
+          cd "${VERIFY}"
+          go mod init verify >/dev/null
+
+          for ATTEMPT in 1 2 3 4 5; do
+            if go get "wardnet.network/go@v${VERSION}"; then
+              echo "wardnet.network/go@v${VERSION} resolves"
+              exit 0
+            fi
+            echo "attempt ${ATTEMPT} failed; the proxy may not have indexed the tag yet"
+            sleep 30
+          done
+          echo "::warning::wardnet.network/go@v${VERSION} did not resolve through the proxy. The tag is published; check the go-import meta tag on wardnet.network."

@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>wardnet.network/go — Wardnet Go SDK</title>
+
+    <!--
+      Vanity import path for the Go SDK. `go get wardnet.network/go` fetches
+      this page with ?go-get=1 and reads the tag below to find the repository.
+
+      The repository is github.com/wardnet/wardnet-go, a generated read-only
+      mirror of source/sdk/wardnet-go in the monorepo. It has to be a separate
+      repository: Go derives a module's directory by subtracting this tag's
+      root-path from the module path, so `wardnet.network/go` must live at the
+      ROOT of whatever repository is named here. There is no way to point Go
+      at a subdirectory of the monorepo.
+
+      Changing the repository below re-points every future `go get` without
+      breaking a single consumer's import path — which is the whole reason for
+      owning a vanity path rather than publishing under github.com/....
+    -->
+    <meta
+      name="go-import"
+      content="wardnet.network/go git https://github.com/wardnet/wardnet-go"
+    />
+    <meta
+      name="go-source"
+      content="wardnet.network/go https://github.com/wardnet/wardnet-go https://github.com/wardnet/wardnet-go/tree/main{/dir} https://github.com/wardnet/wardnet-go/blob/main{/dir}/{file}#L{line}"
+    />
+
+    <!--
+      Humans get sent to the docs. The Go toolchain never runs this: it parses
+      the meta tags above and ignores refreshes.
+    -->
+    <meta
+      http-equiv="refresh"
+      content="0; url=https://pkg.go.dev/wardnet.network/go"
+    />
+  </head>
+  <body>
+    <p>
+      The Wardnet Go SDK is documented at
+      <a href="https://pkg.go.dev/wardnet.network/go"
+        >pkg.go.dev/wardnet.network/go</a
+      >.
+    </p>
+    <pre>go get wardnet.network/go</pre>
+  </body>
+</html>

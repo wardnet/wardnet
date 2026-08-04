@@ -179,9 +179,26 @@ cd source/sdk/wardnet-go && go test ./...          # Go SDK the CLI is built on
 
 `source/wctl` consumes the SDK through a `replace wardnet.network/go =>
 ../sdk/wardnet-go` directive, so local SDK edits are picked up without a
-publish step. The module path `wardnet.network/go` does not resolve for outside
-consumers yet — that needs a `go-import` meta tag pointing at a repo whose
-*root* holds the SDK, which this monorepo layout cannot satisfy on its own.
+publish step.
+
+Outside consumers `go get wardnet.network/go`, which resolves through a
+generated mirror. Go finds a module by subtracting the `go-import` meta tag's
+root-path from the module path, so a module named `wardnet.network/go` has to
+sit at the *root* of the repository it is fetched from — a subdirectory of this
+monorepo cannot be named. So `release-go-sdk.yml` force-pushes
+`source/sdk/wardnet-go` to [wardnet/wardnet-go](https://github.com/wardnet/wardnet-go)
+with `git subtree split` on every stable release, and
+`source/marketing-site/public/go/index.html` serves the meta tag pointing there.
+
+That mirror is generated and read-only — issues, wiki, projects, discussions,
+and pull requests are all disabled on it, and its `main` is overwritten on
+every release. Never commit to it; edit `source/sdk/wardnet-go` here.
+
+Release tags on the mirror are immutable, enforced by a repository ruleset.
+This is not just hygiene: the Go checksum database records a module version's
+hash the first time anyone fetches it, so re-tagging a published version makes
+every consumer fail verification with a checksum mismatch instead of picking up
+the change. A bad release is superseded by a new version, never replaced.
 
 ### Version management
 
