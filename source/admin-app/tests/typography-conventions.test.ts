@@ -7,18 +7,14 @@ import { describe, expect, it } from "vitest";
  * `size` / `weight` props, not raw Tailwind `text-*` / `font-*` utilities —
  * the type scale is tokenised so a central change propagates everywhere.
  *
+ * Mirrors `source/admin-site/tests/typography-conventions.test.ts`; the PWAs
+ * ship no vendored shadcn tree, so the only escape hatch here is the
+ * `ds-typography-allow:` marker.
+ *
  * Explicitly still allowed, and therefore not matched here:
  *   - colour utilities (`text-ink-3`, `text-danger`, `text-accent`, …)
  *   - alignment utilities (`text-left`, `text-center`, …)
  *   - the font-family utility (`font-mono`)
- *
- * Exemptions:
- *   - shadcn primitives under `components/core/ui` are vendored and re-pulled
- *     via the CLI, so they are not our markup.
- *   - a genuinely unavoidable site (e.g. a native `<input>`'s `file:`
- *     pseudo-element, an off-scale hero numeral) can opt out with a
- *     `ds-typography-allow:` comment on, or just above, the offending line,
- *     stating why.
  */
 
 const sources = import.meta.glob("../src/**/*.tsx", {
@@ -45,8 +41,6 @@ const isForbidden = (line: string): boolean =>
 
 const ALLOW_MARKER = "ds-typography-allow";
 
-const isVendored = (path: string): boolean => path.includes("/core/ui/");
-
 /**
  * A `ds-typography-allow: <reason>` comment opts a line out. It is honoured on
  * the offending line itself or among the attributes of the same JSX element —
@@ -72,17 +66,15 @@ const isAllowed = (lines: string[], matchIndex: number): boolean => {
   return false;
 };
 
-describe("admin-site typography conventions", () => {
+describe("admin-app typography conventions", () => {
   it("scans the whole source tree", () => {
-    expect(Object.keys(sources).length).toBeGreaterThan(50);
+    expect(Object.keys(sources).length).toBeGreaterThan(15);
   });
 
   it("routes size/weight through <Text>/<Heading>, not raw text-*/font-* utilities", () => {
     const violations: string[] = [];
 
     for (const [path, source] of Object.entries(sources)) {
-      if (isVendored(path)) continue;
-
       const lines = source.split("\n");
       lines.forEach((line, index) => {
         if (!isForbidden(line)) return;

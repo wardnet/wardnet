@@ -1,4 +1,5 @@
 import { NavLink } from "react-router";
+import { Text } from "@wardnet/web";
 import { HomeIcon, ChartColumnIcon, SettingsIcon } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -21,10 +22,12 @@ export function TabBar() {
           key={to}
           to={to}
           end={end}
-          className="flex flex-1 flex-col items-center gap-1 rounded-xl py-1.5 text-[10.5px] font-semibold tracking-wide text-white/50 transition-colors duration-snap aria-[current=page]:text-accent"
+          className="flex flex-1 flex-col items-center gap-1 rounded-xl py-1.5 tracking-wide text-white/50 transition-colors duration-snap aria-[current=page]:text-accent"
         >
           <Icon size={23} strokeWidth={2} />
-          {label}
+          <Text as="span" size="2xs" weight="semibold">
+            {label}
+          </Text>
         </NavLink>
       ))}
     </nav>

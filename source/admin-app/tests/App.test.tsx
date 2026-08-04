@@ -132,7 +132,9 @@ describe("App", () => {
     expect(
       await screen.findByText("Initial setup required"),
     ).toBeInTheDocument();
-    expect(screen.getByText("Go to setup")).toHaveAttribute(
+    // The label is wrapped in a <Text> span, so query the anchor by role
+    // rather than by its text node.
+    expect(screen.getByRole("link", { name: "Go to setup" })).toHaveAttribute(
       "href",
       expect.stringContaining("returnTo=/admin-app/"),
     );

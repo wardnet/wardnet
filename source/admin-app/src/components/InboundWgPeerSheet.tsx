@@ -41,8 +41,10 @@ export function InboundWgPeerSheet({ peer, open, onOpenChange }: Props) {
       <Drawer open={open} onOpenChange={onOpenChange}>
         <DrawerContent side="bottom" aria-describedby={undefined}>
           <div className="mx-auto mt-3 mb-4 h-1 w-10 rounded-full bg-line" />
-          <DrawerTitle className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
-            Remote access - {activePeer.name}
+          <DrawerTitle className="px-4 pb-1 uppercase tracking-wider text-ink-3">
+            <Text as="span" size="2xs" weight="semibold">
+              Remote access - {activePeer.name}
+            </Text>
           </DrawerTitle>
           <div
             className="flex flex-col gap-4 px-4"

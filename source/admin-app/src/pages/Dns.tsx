@@ -205,14 +205,16 @@ export default function Dns() {
                   data-testid="dns-flush-cache"
                   onClick={() => flushCache.mutate()}
                   disabled={flushCache.isPending}
-                  className="flex items-center gap-1.5 text-[13px] font-medium text-ink-3 disabled:opacity-40 active:text-ink"
+                  className="flex items-center gap-1.5 text-ink-3 disabled:opacity-40 active:text-ink"
                 >
                   {flushCache.isPending ? (
                     <Loader2Icon size={13} className="animate-spin" />
                   ) : (
                     <Trash2Icon size={13} />
                   )}
-                  Flush DNS cache
+                  <Text as="span" size="sm" weight="medium">
+                    Flush DNS cache
+                  </Text>
                 </button>
               </div>
             </div>

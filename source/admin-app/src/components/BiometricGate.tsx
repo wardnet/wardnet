@@ -53,18 +53,22 @@ export function BiometricGate({ onSuccess, onUsePassword }: Props) {
           </Text>
           <button
             onClick={attempt}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink"
+            className="rounded-md bg-accent px-4 py-2 text-accent-ink"
           >
-            Retry
+            <Text as="span" size="sm" weight="medium">
+              Retry
+            </Text>
           </button>
         </div>
       )}
 
       <button
         onClick={onUsePassword}
-        className="text-xs text-ink-3 underline underline-offset-2"
+        className="text-ink-3 underline underline-offset-2"
       >
-        Use password instead
+        <Text as="span" size="xs">
+          Use password instead
+        </Text>
       </button>
     </div>
   );

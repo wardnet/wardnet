@@ -45,9 +45,11 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
         </Text>
         <a
           href={adminSiteUrl}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-medium text-accent-ink"
+          className="rounded-md bg-accent px-4 py-2 text-accent-ink"
         >
-          Go to setup
+          <Text as="span" size="sm" weight="medium">
+            Go to setup
+          </Text>
         </a>
       </div>
     );

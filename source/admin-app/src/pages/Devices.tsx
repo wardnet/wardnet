@@ -191,9 +191,11 @@ function NewDevicesSection({ onSelect }: { onSelect: (id: string) => void }) {
                 onClick={() =>
                   approve.mutate({ deviceId: device.id, zoneId: homeZone.id })
                 }
-                className="shrink-0 rounded-full bg-accent px-3.5 py-1.5 text-[13px] font-medium text-accent-ink transition-colors duration-snap active:opacity-80 disabled:pointer-events-none disabled:opacity-40"
+                className="shrink-0 rounded-full bg-accent px-3.5 py-1.5 text-accent-ink transition-colors duration-snap active:opacity-80 disabled:pointer-events-none disabled:opacity-40"
               >
-                Approve
+                <Text as="span" size="sm" weight="medium">
+                  Approve
+                </Text>
               </button>
             )}
           </div>
@@ -369,14 +371,16 @@ export default function Devices() {
               data-testid={`device-filter-${id}`}
               onClick={() => setFilter(id)}
               className={[
-                "shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-colors duration-snap",
+                "shrink-0 rounded-full px-3.5 py-1.5 transition-colors duration-snap",
                 filter === id
                   ? "bg-accent text-accent-ink"
                   : "bg-sunken text-ink-3 active:bg-line",
               ].join(" ")}
             >
-              {/* eslint-disable-next-line security/detect-object-injection -- id from .map() over the hardcoded ["all","online","vpn"] Filter literal array */}
-              {FILTER_LABELS[id]} ({counts[id]})
+              <Text as="span" size="sm" weight="medium">
+                {/* eslint-disable-next-line security/detect-object-injection -- id from .map() over the hardcoded ["all","online","vpn"] Filter literal array */}
+                {FILTER_LABELS[id]} ({counts[id]})
+              </Text>
             </button>
           ))}
         </div>
