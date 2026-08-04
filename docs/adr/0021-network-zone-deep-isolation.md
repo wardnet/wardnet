@@ -21,7 +21,7 @@ device IP, live-reloaded by a dedicated `ZoneEnforcementService` +
 owns DHCP**, so it can put each zone on its **own subnet** and route (and filter)
 the traffic between them. It gives the recorded-only fields teeth — per-zone
 subnets, cross-zone default-deny, opt-in isolate-members (per-device `/32` +
-proxy-ARP), a cross-zone exception engine, and a casting preset.
+per-member proxy-neighbour entries), a cross-zone exception engine, and a casting preset.
 
 Several decisions here are hard to reverse (an addressing convention, a new
 firewall chain, a new event) or surprising (there is deliberately **no** mDNS
@@ -50,7 +50,8 @@ while Guest/IoT opt into carved subnets.
 
 ### 2. DHCP-mode gates everything; storing a subnet while DHCP is off is inert, not rejected
 
-Per-zone subnets, gateway aliasing, cross-subnet deny, and proxy-ARP all require
+Per-zone subnets, gateway aliasing, cross-subnet deny, and proxy-neighbour
+entries all require
 Wardnet to control addressing, i.e. `dhcp_enabled`. When Wardnet is not the DHCP
 server the enforcer applies **none** of it and degrades to `#736` (egress +
 admin-UI gating, which work on any topology). Storing a subnet while DHCP is off
@@ -93,7 +94,8 @@ The issue asks for an Avahi-style mDNS reflector. **We deliberately do not build
 one.** All zones share **one physical LAN interface via IP aliasing** (VLAN is an
 epic non-goal), so they share a single L2 broadcast domain: mDNS/SSDP multicast is
 flooded to every device regardless of IP subnet — even under isolate-members,
-where the per-device `/32` + proxy-ARP affect only *unicast* ARP, not multicast.
+where the per-device `/32` + proxy-neighbour entries affect only *unicast* ARP,
+not multicast.
 Discovery therefore already crosses the subnet split for free. What blocks casting
 by default is the **L3 unicast deny** on the routed connection; what enables it is
 the **exception allow-rule**. A reflector would add a large, CI-only multicast
@@ -120,13 +122,13 @@ segmentation. Both are out of scope here and left as a follow-up.
 ## Consequences
 
 - **Blast radius:** `FirewallManager` gains `apply_zone_isolation` + the
-  `zone_isolation` chain; `PolicyRouter` gains interface aliasing, proxy-ARP, and
-  `/32` host routes; the enforcer gains the exception repository, a DHCP-service
+  `zone_isolation` chain; `PolicyRouter` gains interface aliasing, per-member
+  proxy-neighbour (pneigh) entries, and `/32` host routes; the enforcer gains the exception repository, a DHCP-service
   handle (lease revoke on zone move), and the LAN IP; a new
   `WardnetEvent::ZoneExceptionsChanged` is added to the bus and both exhaustive
   matches.
 - **Verification:** the decision logic (which subnets, deny pairs, exception
-  expansion, alias/proxy-ARP/host-route choices) is unit-tested natively with
+  expansion, alias/pneigh/host-route choices) is unit-tested natively with
   recording firewall + policy-router spies over real in-memory repositories. The
   rustables rendering and the netlink address/route ops compile only on Linux, so
   they are gated behind `make check-daemon` / CI.
@@ -134,3 +136,29 @@ segmentation. Both are out of scope here and left as a follow-up.
   collapses it back onto the base subnet; disabling DHCP degrades cleanly to
   `#736`. The addressing convention (`10.44.0.0/16` suggestions, `.1` gateway) is
   a default, not a stored contract.
+
+## Amendment (issue #1107): per-member proxy-neighbour entries, not `proxy_arp=1`
+
+The original implementation realised the ARP-interception leg of isolate-members
+with the interface-wide `net.ipv4.conf.<lan>.proxy_arp=1` sysctl. That mechanism
+was doubly wrong:
+
+- **It answered for everything a tunnel-bound device probed.** The kernel's
+  proxy-ARP decision is a FIB lookup of the ARP *target* using the ARP *sender*
+  as source. For a tunnel-bound sender that lookup hits its `from <ip> lookup
+  <table>` policy rule, whose only route egresses `wg_ward*` — a different
+  interface than the LAN — so the Pi proxy-replied for **any** target,
+  including the sender's own gratuitous ARP (macOS "duplicate IP", DHCP
+  decline loops) and same-LAN peers (traffic hijacked into a table with no LAN
+  routes).
+- **It never fired for the intended case.** A same-zone, non-tunnel-bound peer's
+  lookup resolves out the same interface the ARP arrived on, and plain
+  `proxy_arp` never answers same-interface lookups.
+
+The enforcer now installs **per-member proxy-neighbour entries**
+(`ip neigh add proxy <member-ip> dev <lan>`) instead: the Pi answers ARP for
+exactly the members of isolate-members zones, regardless of route egress
+interface. The desired set is reconciled (with pruning of stale entries) in
+`reconcile_isolation`, and startup reconcile clears any `proxy_arp=1` left
+behind by a pre-#1107 daemon. The interface-wide sysctl must never be
+re-enabled.

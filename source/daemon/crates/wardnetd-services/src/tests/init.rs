@@ -213,6 +213,15 @@ impl PolicyRouter for StubPolicyRouter {
     async fn set_proxy_arp(&self, _i: &str, _e: bool) -> anyhow::Result<()> {
         unimplemented!()
     }
+    async fn add_neigh_proxy(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn remove_neigh_proxy(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn list_neigh_proxies(&self, _i: &str) -> anyhow::Result<Vec<String>> {
+        unimplemented!()
+    }
     async fn add_host_route(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {
         unimplemented!()
     }
