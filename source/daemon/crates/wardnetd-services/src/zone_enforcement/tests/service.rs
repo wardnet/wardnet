@@ -144,6 +144,12 @@ struct RecordingPolicy {
     existing_aliases: Arc<Mutex<Vec<(String, u8)>>>,
     /// Entries `list_neigh_proxies` should report (existing pneigh on iface).
     existing_neigh_proxies: Arc<Mutex<Vec<String>>>,
+    /// When set, `list_neigh_proxies` fails, to exercise the enforcer's
+    /// degrade-to-adds-only path.
+    fail_list_neigh: Arc<std::sync::atomic::AtomicBool>,
+    /// When set, the pneigh add/remove + proxy-arp mutations fail, to exercise
+    /// the enforcer's warn-and-continue error paths.
+    fail_neigh_mutations: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[async_trait]
@@ -244,6 +250,12 @@ impl PolicyRouter for RecordingPolicy {
     }
     async fn set_proxy_arp(&self, i: &str, e: bool) -> anyhow::Result<()> {
         self.calls.lock().await.push(format!("proxy_arp:{i}:{e}"));
+        if self
+            .fail_neigh_mutations
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("mock proxy_arp failure");
+        }
         Ok(())
     }
     async fn add_neigh_proxy(&self, ip: &str, i: &str) -> anyhow::Result<()> {
@@ -251,6 +263,12 @@ impl PolicyRouter for RecordingPolicy {
             .lock()
             .await
             .push(format!("add_neigh_proxy:{ip}:{i}"));
+        if self
+            .fail_neigh_mutations
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("mock add_neigh_proxy failure");
+        }
         Ok(())
     }
     async fn remove_neigh_proxy(&self, ip: &str, i: &str) -> anyhow::Result<()> {
@@ -258,9 +276,21 @@ impl PolicyRouter for RecordingPolicy {
             .lock()
             .await
             .push(format!("remove_neigh_proxy:{ip}:{i}"));
+        if self
+            .fail_neigh_mutations
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("mock remove_neigh_proxy failure");
+        }
         Ok(())
     }
     async fn list_neigh_proxies(&self, _i: &str) -> anyhow::Result<Vec<String>> {
+        if self
+            .fail_list_neigh
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("mock list_neigh_proxies failure");
+        }
         Ok(self.existing_neigh_proxies.lock().await.clone())
     }
     async fn add_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
@@ -406,6 +436,8 @@ struct Harness {
     policy_calls: Arc<Mutex<Vec<String>>>,
     existing_aliases: Arc<Mutex<Vec<(String, u8)>>>,
     existing_neigh_proxies: Arc<Mutex<Vec<String>>>,
+    fail_list_neigh: Arc<std::sync::atomic::AtomicBool>,
+    fail_neigh_mutations: Arc<std::sync::atomic::AtomicBool>,
     clamps: Arc<Mutex<Vec<String>>>,
     switchback: Arc<Mutex<Vec<String>>>,
 }
@@ -443,10 +475,14 @@ async fn build() -> Harness {
     let policy_calls = Arc::new(Mutex::new(Vec::new()));
     let existing_aliases = Arc::new(Mutex::new(Vec::new()));
     let existing_neigh_proxies = Arc::new(Mutex::new(Vec::new()));
+    let fail_list_neigh = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fail_neigh_mutations = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let policy_router: Arc<dyn PolicyRouter> = Arc::new(RecordingPolicy {
         calls: policy_calls.clone(),
         existing_aliases: existing_aliases.clone(),
         existing_neigh_proxies: existing_neigh_proxies.clone(),
+        fail_list_neigh: fail_list_neigh.clone(),
+        fail_neigh_mutations: fail_neigh_mutations.clone(),
     });
     let clamps = Arc::new(Mutex::new(Vec::new()));
     let switchback = Arc::new(Mutex::new(Vec::new()));
@@ -493,6 +529,8 @@ async fn build() -> Harness {
         policy_calls,
         existing_aliases,
         existing_neigh_proxies,
+        fail_list_neigh,
+        fail_neigh_mutations,
         clamps,
         switchback,
     }
@@ -1071,6 +1109,105 @@ async fn proxy_neigh_entries_self_heal_against_kernel_state() {
         .filter(|c| c == "add_neigh_proxy:10.44.1.10:eth0")
         .count();
     assert_eq!(adds, 2, "each pass re-converges against kernel state");
+}
+
+#[tokio::test]
+async fn unusable_and_own_address_members_get_no_proxy_neigh_entry() {
+    // A member row without a parseable IP (a repaired #886 row) and a member
+    // row claiming the zone's own gateway address are both skipped — only the
+    // real in-subnet member gets a pneigh entry.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    insert_device(&h.devices, "", ZONE_A).await;
+    insert_device(&h.devices, "10.44.1.1", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let adds: Vec<String> = policy_calls(&h)
+        .await
+        .into_iter()
+        .filter(|c| c.starts_with("add_neigh_proxy:"))
+        .collect();
+    assert_eq!(
+        adds,
+        vec!["add_neigh_proxy:10.44.1.10:eth0".to_owned()],
+        "only the real member gets an entry"
+    );
+}
+
+#[tokio::test]
+async fn proxy_neigh_list_failure_degrades_to_adds_only() {
+    // A failed kernel listing must not block the idempotent adds (existing
+    // degrades to empty) and must not prune blind — and with no stored
+    // snapshot, the next pass simply retries the listing.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    *h.existing_neigh_proxies.lock().await = vec!["10.44.1.99".to_owned()];
+    h.fail_list_neigh
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"add_neigh_proxy:10.44.1.10:eth0".to_owned()),
+        "adds still run when the listing fails: {pc:?}"
+    );
+    assert!(
+        !pc.iter().any(|c| c.starts_with("remove_neigh_proxy:")),
+        "no blind pruning without a listing: {pc:?}"
+    );
+}
+
+#[tokio::test]
+async fn proxy_neigh_mutation_failures_are_nonfatal() {
+    // A failed add or remove is warn-logged and never aborts the reconcile —
+    // the remaining enforcement (isolation rules, aliases) must still land.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    *h.existing_neigh_proxies.lock().await = vec!["10.44.1.99".to_owned()];
+    h.fail_neigh_mutations
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"add_neigh_proxy:10.44.1.10:eth0".to_owned())
+            && pc.contains(&"remove_neigh_proxy:10.44.1.99:eth0".to_owned()),
+        "both mutations attempted despite failing: {pc:?}"
+    );
+    assert!(
+        calls(&h).await.iter().any(|c| c.starts_with("isolation:")),
+        "isolation rebuild still ran after pneigh failures"
+    );
+}
+
+#[tokio::test]
+async fn reconcile_survives_legacy_proxy_arp_clear_failure() {
+    // The migration clear is best-effort: a sysctl failure must not abort the
+    // startup reconcile that installs every device's rules.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    h.fail_neigh_mutations
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    as_admin(h.svc.reconcile()).await.unwrap();
+
+    assert!(
+        policy_calls(&h)
+            .await
+            .contains(&"proxy_arp:eth0:false".to_owned()),
+        "legacy clear attempted"
+    );
 }
 
 #[tokio::test]
