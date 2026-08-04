@@ -146,6 +146,8 @@ fn sample_device(id: &str, ip: &str, last_seen: &str) -> Device {
         name: None,
         hostname: None,
         manufacturer: None,
+        manufacturer_source: None,
+        is_randomized: false,
         device_type: DeviceType::Phone,
         first_seen: last_seen.parse().unwrap(),
         last_seen: last_seen.parse().unwrap(),

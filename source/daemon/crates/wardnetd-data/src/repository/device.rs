@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use wardnet_common::device::{Device, DeviceConnectionMode};
+use wardnet_common::device::{Device, DeviceConnectionMode, ManufacturerSource};
 use wardnet_common::routing::RoutingRule;
 
 /// Row data for inserting a new device.
@@ -8,6 +8,11 @@ pub struct DeviceRow {
     pub mac: String,
     pub hostname: Option<String>,
     pub manufacturer: Option<String>,
+    /// Provenance of `manufacturer`; `None` exactly when `manufacturer` is
+    /// `None` (issue #1099).
+    pub manufacturer_source: Option<ManufacturerSource>,
+    /// Whether `mac` is locally administered (a privacy/randomized address).
+    pub is_randomized: bool,
     pub device_type: String,
     pub first_seen: String,
     pub last_seen: String,

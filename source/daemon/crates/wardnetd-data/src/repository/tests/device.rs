@@ -1,7 +1,7 @@
 use super::test_pool;
 use crate::repository::device::DeviceRow;
 use crate::repository::{DeviceRepository, SqliteDeviceRepository};
-use wardnet_common::device::{DeviceConnectionMode, DeviceType};
+use wardnet_common::device::{DeviceConnectionMode, DeviceType, ManufacturerSource};
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
 
 const DEV1: &str = "00000000-0000-0000-0000-000000000001";
@@ -14,6 +14,8 @@ fn sample_device_row(id: &str, mac: &str, ip: &str) -> DeviceRow {
         mac: mac.to_owned(),
         hostname: Some("my-host".to_owned()),
         manufacturer: Some("Apple".to_owned()),
+        manufacturer_source: None,
+        is_randomized: false,
         device_type: "phone".to_owned(),
         first_seen: "2026-03-07T00:00:00Z".to_owned(),
         last_seen: "2026-03-07T00:00:00Z".to_owned(),
@@ -598,4 +600,118 @@ async fn find_all_capture_enabled_ids_returns_enabled_only() {
     expected.sort();
 
     assert_eq!(ids, expected);
+}
+
+#[tokio::test]
+async fn find_devices_for_tunnel_selects_every_mapped_column() {
+    // Regression guard (issue #1099): this query builds its column list inline
+    // rather than from the shared `const … _SQL` strings, so it silently fell
+    // out of sync when `DeviceRow` gained `manufacturer_source`/`is_randomized`
+    // and failed at runtime with ColumnNotFound. Every other caller in the tree
+    // is a mock, so nothing caught it — this exercises the real SQL.
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let tunnel_id = "00000000-0000-0000-0000-0000000003a1";
+    sqlx::query(
+        "INSERT INTO routing_rules (id, device_id, target_json, created_by) \
+         VALUES ('r1', ?, ?, 'user')",
+    )
+    .bind(DEV1)
+    .bind(format!(
+        "{{\"type\":\"tunnel\",\"tunnel_id\":\"{tunnel_id}\"}}"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = SqliteDeviceRepository::new(pool);
+    let devices = repo.find_devices_for_tunnel(tunnel_id).await.unwrap();
+
+    assert_eq!(devices.len(), 1);
+    assert_eq!(devices[0].mac, "aa:bb:cc:dd:ee:01");
+}
+
+#[tokio::test]
+async fn randomized_flag_is_derived_from_the_address_not_the_old_sentinel() {
+    // The migration derives `is_randomized` from the locally-administered bit
+    // rather than from the old 'Randomized MAC' manufacturer string, so a row
+    // that never carried the sentinel is still classified correctly (#1099).
+    let pool = test_pool().await;
+    // 0x02 has the LA bit set; 0xa8 does not.
+    insert_device(&pool, DEV1, "02:1a:2b:3c:4d:5e", "192.168.1.10").await;
+    insert_device(&pool, DEV2, "a8:bb:cc:dd:ee:ff", "192.168.1.11").await;
+
+    // The rows above were inserted *after* migrations ran, so re-run the
+    // backfill's own predicate against them. That is the part that can be
+    // wrong — the set of second hex characters carrying the LA bit.
+    sqlx::query(
+        "UPDATE devices SET is_randomized = 1 \
+         WHERE substr(mac, 2, 1) IN ('2', '3', '6', '7', 'a', 'b', 'e', 'f')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let flags: Vec<(String, i64)> =
+        sqlx::query_as("SELECT mac, is_randomized FROM devices ORDER BY mac")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+
+    assert_eq!(
+        flags,
+        vec![
+            ("02:1a:2b:3c:4d:5e".to_owned(), 1),
+            ("a8:bb:cc:dd:ee:ff".to_owned(), 0),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn insert_round_trips_manufacturer_provenance_and_randomized_flag() {
+    // Covers the write side of the identification columns (issue #1099): the
+    // other device tests all insert with `manufacturer_source: None`, so the
+    // enum-to-string serialisation on insert was never exercised.
+    let pool = test_pool().await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    let mut row = sample_device_row(DEV1, "5c:e7:53:4e:ec:d9", "192.168.1.10");
+    row.manufacturer = Some("Govee".to_owned());
+    row.manufacturer_source = Some(ManufacturerSource::Catalog);
+    row.is_randomized = true;
+    repo.insert(&row).await.unwrap();
+
+    let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer.as_deref(), Some("Govee"));
+    assert_eq!(
+        device.manufacturer_source,
+        Some(ManufacturerSource::Catalog)
+    );
+    assert!(device.is_randomized);
+}
+
+#[tokio::test]
+async fn provenance_without_a_manufacturer_is_dropped_on_read() {
+    // The documented invariant is "`manufacturer_source` is Some exactly when
+    // `manufacturer` is Some" — restated by the SDK, the Go client and the
+    // OpenAPI schema. A row that violates it must not surface a dangling
+    // "likely" with nothing to qualify.
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    sqlx::query(
+        "UPDATE devices SET manufacturer = NULL, manufacturer_source = 'catalog' WHERE id = ?",
+    )
+    .bind(DEV1)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let device = SqliteDeviceRepository::new(pool)
+        .find_by_id(DEV1)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(device.manufacturer, None);
+    assert_eq!(device.manufacturer_source, None);
 }

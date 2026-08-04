@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use sqlx::SqlitePool;
-use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
+use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType, ManufacturerSource};
 use wardnet_common::routing::{RoutingRule, RoutingTarget, RuleCreator};
 
 use super::super::DeviceRepository;
@@ -34,6 +34,8 @@ struct DeviceRow {
     name: Option<String>,
     hostname: Option<String>,
     manufacturer: Option<String>,
+    manufacturer_source: Option<String>,
+    is_randomized: i32,
     device_type: String,
     first_seen: String,
     last_seen: String,
@@ -58,7 +60,16 @@ impl DeviceRow {
             mac: self.mac,
             name: self.name,
             hostname: self.hostname,
-            manufacturer: self.manufacturer,
+            manufacturer: self.manufacturer.clone(),
+            // Provenance is only meaningful alongside a name. A stored source
+            // with no manufacturer would be a contradiction, so drop it rather
+            // than surfacing a dangling "likely" with nothing to qualify.
+            manufacturer_source: self
+                .manufacturer_source
+                .as_deref()
+                .filter(|_| self.manufacturer.is_some())
+                .and_then(manufacturer_source_from_db),
+            is_randomized: self.is_randomized != 0,
             device_type,
             first_seen: self.first_seen.parse()?,
             last_seen: self.last_seen.parse()?,
@@ -71,6 +82,23 @@ impl DeviceRow {
             connection_mode,
         })
     }
+}
+
+/// Parse a stored `manufacturer_source` string back into the enum.
+///
+/// Returns `None` for an unrecognised value rather than defaulting to a
+/// variant: guessing here would silently upgrade a hedged `catalog` guess into
+/// an authoritative `ieee` claim, or vice versa.
+fn manufacturer_source_from_db(raw: &str) -> Option<ManufacturerSource> {
+    serde_json::from_str(&format!("\"{raw}\"")).ok()
+}
+
+/// Serialize a [`ManufacturerSource`] to its stored `snake_case` string form
+/// (mirrors how `device_type` and `connection_mode` are persisted).
+fn manufacturer_source_to_db(source: ManufacturerSource) -> Option<String> {
+    serde_json::to_string(&source)
+        .ok()
+        .map(|s| s.trim_matches('"').to_owned())
 }
 
 /// Serialize a [`DeviceConnectionMode`] to its stored `snake_case` string form
@@ -92,15 +120,15 @@ struct RuleRow {
 // Static SQL strings — every column list is inlined so no runtime format!()
 // allocation is needed for these fixed SELECTs. The genuinely dynamic queries
 // further down (JOIN/LIKE against routing_rules) keep their own literals.
-const FIND_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
      FROM devices WHERE last_ip = ? ORDER BY last_seen DESC LIMIT 1";
-const FIND_BY_ID_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_BY_ID_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
      FROM devices WHERE id = ?";
-const FIND_BY_MAC_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_BY_MAC_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
      FROM devices WHERE mac = ?";
-const FIND_ALL_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_ALL_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
      FROM devices ORDER BY last_seen DESC";
-const FIND_STALE_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_STALE_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
      FROM devices WHERE last_seen < ?";
 
 #[async_trait]
@@ -157,13 +185,15 @@ impl DeviceRepository for SqliteDeviceRepository {
 
     async fn insert(&self, device: &InsertDeviceRow) -> anyhow::Result<()> {
         sqlx::query(
-            "INSERT INTO devices (id, mac, hostname, manufacturer, device_type, first_seen, last_seen, last_ip, zone_id, connection_mode) \
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO devices (id, mac, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, zone_id, connection_mode) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&device.id)
         .bind(device.mac.to_lowercase())
         .bind(&device.hostname)
         .bind(&device.manufacturer)
+        .bind(device.manufacturer_source.and_then(manufacturer_source_to_db))
+        .bind(i32::from(device.is_randomized))
         .bind(&device.device_type)
         .bind(&device.first_seen)
         .bind(&device.last_seen)
@@ -339,7 +369,8 @@ impl DeviceRepository for SqliteDeviceRepository {
         // `d.` alias — `routing_rules` also has its own `id` column,
         // which would otherwise raise SQLite's ambiguous-column error.
         let pattern = format!("%\"tunnel_id\":\"{tunnel_id}\"%");
-        let query = "SELECT d.id, d.mac, d.name, d.hostname, d.manufacturer, d.device_type, \
+        let query = "SELECT d.id, d.mac, d.name, d.hostname, d.manufacturer, \
+             d.manufacturer_source, d.is_randomized, d.device_type, \
              d.first_seen, d.last_seen, d.last_ip, d.admin_locked, d.zone_id, \
              d.dns_capture_enabled, d.dns_capture_cap_count, d.dns_capture_cap_days, \
              d.connection_mode \

@@ -12,6 +12,7 @@
 
 use chrono::{Datelike, Duration, Utc};
 use uuid::Uuid;
+use wardnet_common::device::ManufacturerSource;
 use wardnet_common::routing_profile::DomainRoutingTarget;
 use wardnet_common::zone_exception::{
     ExceptionEndpoint, ExceptionEndpointKind, ServiceSet, ServiceSpec, ZoneException,
@@ -21,6 +22,7 @@ use wardnetd_data::repository::{
     AllowlistRow, CustomRuleRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow, IntradayStatRow,
     NewNotification, QueryLogRow, RoutingProfileRow, RoutingRuleRow, TunnelRow,
 };
+use wardnetd_data::{oui, vendor_catalog};
 
 /// IDs of the entities inserted by [`populate`], so the event emitter can
 /// refer to them.
@@ -58,9 +60,14 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     // Spreading the demo devices across all three system zones (rather than
     // parking everyone in Trusted) gives the Zones page a non-zero member count
     // per zone and sets up a real cross-zone (casting) boundary below.
+    // Demo MACs use the A8:BB:CC prefix rather than the more obvious AA:BB:CC
+    // because 0xAA has the locally-administered bit set (0xAA & 0x02 != 0).
+    // That would flag every seeded device as a randomized/privacy MAC while it
+    // also carried an IEEE manufacturer — a contradiction the real world never
+    // produces, and one that made the dev UI look broken (issue #1099).
     let devices = [
         (
-            "AA:BB:CC:11:22:01",
+            "A8:BB:CC:11:22:01",
             Some("alice-laptop"),
             Some("Apple Inc."),
             "laptop",
@@ -69,7 +76,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             ZONE_TRUSTED,
         ),
         (
-            "AA:BB:CC:11:22:02",
+            "A8:BB:CC:11:22:02",
             Some("alice-phone"),
             Some("Samsung Electronics"),
             "phone",
@@ -78,7 +85,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             ZONE_TRUSTED,
         ),
         (
-            "AA:BB:CC:11:22:03",
+            "A8:BB:CC:11:22:03",
             Some("living-room-tv"),
             Some("LG Electronics"),
             "tv",
@@ -87,7 +94,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             ZONE_IOT,
         ),
         (
-            "AA:BB:CC:11:22:04",
+            "A8:BB:CC:11:22:04",
             Some("kids-tablet"),
             Some("Amazon Technologies"),
             "tablet",
@@ -96,7 +103,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             ZONE_GUEST,
         ),
         (
-            "AA:BB:CC:11:22:05",
+            "A8:BB:CC:11:22:05",
             Some("smart-plug-kitchen"),
             Some("TP-Link"),
             "iot",
@@ -108,7 +115,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
         // story is about. Cameras / doorbell / vacuum sit in IoT; the media
         // boxes are trusted home devices.
         (
-            "AA:BB:CC:11:22:06",
+            "A8:BB:CC:11:22:06",
             Some("hallway-camera"),
             Some("Reolink"),
             "iot",
@@ -117,7 +124,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             ZONE_IOT,
         ),
         (
-            "AA:BB:CC:11:22:07",
+            "A8:BB:CC:11:22:07",
             Some("smart-doorbell"),
             Some("Ring"),
             "iot",
@@ -126,7 +133,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             ZONE_IOT,
         ),
         (
-            "AA:BB:CC:11:22:08",
+            "A8:BB:CC:11:22:08",
             Some("robot-vacuum"),
             Some("iRobot"),
             "iot",
@@ -135,7 +142,7 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             ZONE_IOT,
         ),
         (
-            "AA:BB:CC:11:22:09",
+            "A8:BB:CC:11:22:09",
             Some("games-console"),
             Some("Sony"),
             "game_console",
@@ -144,13 +151,54 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             ZONE_TRUSTED,
         ),
         (
-            "AA:BB:CC:11:22:0A",
+            "A8:BB:CC:11:22:0A",
             Some("set-top-box"),
             Some("Roku"),
             "settop_box",
             "192.168.1.61",
             Duration::hours(1),
             ZONE_TRUSTED,
+        ),
+        // --- Device-identification demo cases (issue #1099) ---------------
+        // The reported device. 5C-E7-53 is listed to `Private` in the IEEE
+        // database, so it has no public manufacturer — only the curated vendor
+        // catalog can name it, and then only as a hedge ("Likely Govee").
+        //
+        // This is seeded with its *Wi-Fi* MAC (…:D9). The Govee app shows the
+        // BLE MAC `5c:e7:53:4e:ec:db`, which is +2 away and matches nothing —
+        // searching for it is what demonstrates the neighbour heuristic.
+        (
+            "5C:E7:53:4E:EC:D9",
+            Some("govee-lamp"),
+            None,
+            "iot",
+            "192.168.1.62",
+            Duration::minutes(5),
+            ZONE_IOT,
+        ),
+        // Locally-administered address: renders "Unknown manufacturer" plus a
+        // "Randomized" badge on the MAC, never a manufacturer called
+        // "Randomized MAC".
+        (
+            "02:1A:2B:3C:4D:5E",
+            None,
+            None,
+            "phone",
+            "192.168.1.63",
+            Duration::minutes(2),
+            ZONE_GUEST,
+        ),
+        // An MA-M/MA-S parent block listed to "IEEE Registration Authority".
+        // A 24-bit lookup genuinely cannot resolve the assignee, so this shows
+        // the other "Unknown manufacturer" explanation.
+        (
+            "B8:4C:87:00:11:22",
+            None,
+            None,
+            "unknown",
+            "192.168.1.64",
+            Duration::minutes(30),
+            ZONE_GUEST,
         ),
     ];
 
@@ -172,7 +220,20 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             id: id.to_string(),
             mac: mac.to_owned(),
             hostname: hostname.map(str::to_owned),
-            manufacturer: manufacturer.map(str::to_owned),
+            // Mirror the precedence `insert_new_device` applies for real
+            // discoveries (issue #1099), so the dev UI shows the same states a
+            // live network produces: an IEEE registrant is stated as fact, a
+            // curated catalog match is a hedge, and a privately-listed or
+            // randomized address has no manufacturer at all.
+            manufacturer: manufacturer
+                .map(str::to_owned)
+                .or_else(|| vendor_catalog::lookup_oui_override(mac).map(str::to_owned)),
+            manufacturer_source: if manufacturer.is_some() {
+                Some(ManufacturerSource::Ieee)
+            } else {
+                vendor_catalog::lookup_oui_override(mac).map(|_| ManufacturerSource::Catalog)
+            },
+            is_randomized: oui::is_randomized_mac(mac),
             device_type: device_type.to_owned(),
             first_seen,
             last_seen,

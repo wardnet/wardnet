@@ -95,6 +95,8 @@ async fn insert_device(devices: &Arc<dyn DeviceRepository>, id: Uuid, zone_id: &
             mac: mac_from(id),
             hostname: None,
             manufacturer: None,
+            manufacturer_source: None,
+            is_randomized: false,
             device_type: "unknown".to_owned(),
             first_seen: now.clone(),
             last_seen: now,

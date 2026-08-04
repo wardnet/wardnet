@@ -1,0 +1,349 @@
+//! Service-layer tests for [`DeviceIdentificationServiceImpl`] (issue #1099).
+//!
+//! Builds the real `SqliteDeviceIdentificationRepository` + `SqliteDeviceRepository`
+//! over an in-memory pool, matching the pattern the Network-Zone service tests
+//! use, so the auth gate, the catalog resolution and the bounding rules are all
+//! exercised against real SQL rather than a mock that could drift from it.
+
+use std::future::Future;
+use std::sync::Arc;
+
+use sqlx::SqlitePool;
+use sqlx::sqlite::SqlitePoolOptions;
+use wardnet_common::auth::AuthContext;
+use wardnet_common::device::{DeviceConnectionMode, DeviceSignalKind, ManufacturerSource};
+use wardnetd_data::repository::device::DeviceRow;
+use wardnetd_data::repository::{
+    DeviceRepository, SqliteDeviceIdentificationRepository, SqliteDeviceRepository,
+};
+
+use crate::auth_context;
+use crate::device::identification::{DeviceIdentificationService, DeviceIdentificationServiceImpl};
+
+const ZONE: &str = "00000000-0000-0000-0000-000000000201";
+
+async fn test_pool() -> SqlitePool {
+    let pool = SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::migrate!("../wardnetd-data/migrations")
+        .run(&pool)
+        .await
+        .unwrap();
+    pool
+}
+
+struct Harness {
+    svc: DeviceIdentificationServiceImpl,
+    devices: Arc<dyn DeviceRepository>,
+}
+
+async fn build() -> Harness {
+    let pool = test_pool().await;
+    let identification = Arc::new(SqliteDeviceIdentificationRepository::new(pool.clone()));
+    let devices: Arc<dyn DeviceRepository> = Arc::new(SqliteDeviceRepository::new(pool));
+    Harness {
+        svc: DeviceIdentificationServiceImpl::new(identification, devices.clone()),
+        devices,
+    }
+}
+
+/// Insert a device with no manufacturer, returning its id.
+async fn insert_device(devices: &Arc<dyn DeviceRepository>, mac: &str) -> String {
+    let id = uuid::Uuid::new_v4().to_string();
+    devices
+        .insert(&DeviceRow {
+            id: id.clone(),
+            mac: mac.to_owned(),
+            hostname: None,
+            manufacturer: None,
+            manufacturer_source: None,
+            is_randomized: false,
+            device_type: "unknown".to_owned(),
+            first_seen: "2026-03-07T00:00:00Z".to_owned(),
+            last_seen: "2026-03-07T00:00:00Z".to_owned(),
+            last_ip: "192.168.1.10".to_owned(),
+            zone_id: ZONE.to_owned(),
+            connection_mode: DeviceConnectionMode::Lan,
+        })
+        .await
+        .unwrap();
+    id
+}
+
+async fn as_admin<F: Future>(fut: F) -> F::Output {
+    auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        },
+        fut,
+    )
+    .await
+}
+
+#[tokio::test]
+async fn recording_is_admin_gated() {
+    // Background producers (DHCP, mDNS) must supply an admin context. Without
+    // the gate an unauthenticated LAN path would be writing device rows.
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    let result = h
+        .svc
+        .record_signal(&id, DeviceSignalKind::DhcpHostname, "lamp")
+        .await;
+
+    assert!(result.is_err(), "no ambient context must be refused");
+}
+
+#[tokio::test]
+async fn an_mdns_service_names_an_unnamed_device() {
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    as_admin(
+        h.svc
+            .record_signal(&id, DeviceSignalKind::MdnsService, "_googlecast._tcp"),
+    )
+    .await
+    .unwrap();
+
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer.as_deref(), Some("Google"));
+    assert_eq!(device.manufacturer_source, Some(ManufacturerSource::Signal));
+}
+
+#[tokio::test]
+async fn a_second_vendors_signal_does_not_flip_the_manufacturer() {
+    // An Apple TV answers both `_airplay._tcp` and `_googlecast._tcp`. Without
+    // first-writer-wins its manufacturer would flip on every re-announcement.
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    as_admin(
+        h.svc
+            .record_signal(&id, DeviceSignalKind::MdnsService, "_airplay._tcp"),
+    )
+    .await
+    .unwrap();
+    as_admin(
+        h.svc
+            .record_signal(&id, DeviceSignalKind::MdnsService, "_googlecast._tcp"),
+    )
+    .await
+    .unwrap();
+
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer.as_deref(), Some("Apple"));
+    // Both observations are still recorded — only the naming is first-wins.
+    assert_eq!(as_admin(h.svc.signals_for(&id)).await.unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn a_hostname_is_recorded_but_names_nobody() {
+    // Option 12 is a useful signal to show an admin, but it carries no vendor
+    // information, so it must not invent a manufacturer.
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    as_admin(
+        h.svc
+            .record_signal(&id, DeviceSignalKind::DhcpHostname, "some-host"),
+    )
+    .await
+    .unwrap();
+
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer, None);
+    assert_eq!(as_admin(h.svc.signals_for(&id)).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_oversized_value_is_truncated() {
+    // DHCP options are attacker-controlled; one packet must not be able to
+    // store an arbitrarily long string.
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    as_admin(
+        h.svc
+            .record_signal(&id, DeviceSignalKind::DhcpVendorClass, &"x".repeat(4096)),
+    )
+    .await
+    .unwrap();
+
+    let signals = as_admin(h.svc.signals_for(&id)).await.unwrap();
+    assert_eq!(signals.len(), 1);
+    assert!(
+        signals[0].value.len() <= 128,
+        "value should be clamped, got {}",
+        signals[0].value.len()
+    );
+}
+
+#[tokio::test]
+async fn truncation_respects_utf8_boundaries() {
+    // The clamp walks back to a character boundary. A value whose 128th byte
+    // lands mid-character must not panic, and must not emit invalid UTF-8.
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    // One ASCII byte then two-byte characters, so the 128-byte cut lands
+    // *inside* a character and the boundary walk actually has to step back.
+    // (A pure "é" string would put byte 128 exactly on a boundary and never
+    // exercise the loop.)
+    let value = format!("a{}", "é".repeat(200));
+    as_admin(
+        h.svc
+            .record_signal(&id, DeviceSignalKind::DhcpVendorClass, &value),
+    )
+    .await
+    .unwrap();
+
+    let signals = as_admin(h.svc.signals_for(&id)).await.unwrap();
+    assert_eq!(signals.len(), 1);
+    assert!(signals[0].value.len() <= 128);
+    assert!(
+        signals[0].value.starts_with('a') && signals[0].value.ends_with('é'),
+        "truncation must land on a character boundary, got {:?}",
+        signals[0].value
+    );
+}
+
+#[tokio::test]
+async fn a_probed_port_resolves_to_its_vendor() {
+    // The admin-triggered prober records the port that answered; the catalog
+    // turns that into a vendor name.
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    as_admin(
+        h.svc
+            .record_signal(&id, DeviceSignalKind::ProbedPort, "6668"),
+    )
+    .await
+    .unwrap();
+
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer.as_deref(), Some("Tuya"));
+}
+
+#[tokio::test]
+async fn a_port_outside_the_catalog_names_nobody() {
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    as_admin(h.svc.record_signal(&id, DeviceSignalKind::ProbedPort, "22"))
+        .await
+        .unwrap();
+    // A non-numeric value must also degrade rather than panic.
+    as_admin(
+        h.svc
+            .record_signal(&id, DeviceSignalKind::ProbedPort, "not-a-port"),
+    )
+    .await
+    .unwrap();
+
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer, None);
+}
+
+#[tokio::test]
+async fn a_client_cycling_its_vendor_class_cannot_grow_the_table() {
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    for i in 0..40 {
+        as_admin(h.svc.record_signal(
+            &id,
+            DeviceSignalKind::DhcpVendorClass,
+            &format!("vendor-{i}"),
+        ))
+        .await
+        .unwrap();
+    }
+
+    let signals = as_admin(h.svc.signals_for(&id)).await.unwrap();
+    assert!(
+        signals.len() <= 16,
+        "signals per kind should be capped, got {}",
+        signals.len()
+    );
+}
+
+#[tokio::test]
+async fn an_unknown_mac_is_dropped_rather_than_failing() {
+    // DHCP routinely sees a client before ARP discovery inserts its row. A
+    // lease must not fail because an observability side-effect had nowhere to
+    // land.
+    let h = build().await;
+
+    let result = as_admin(h.svc.record_signal_for_mac(
+        "ff:ff:ff:ff:ff:ff",
+        DeviceSignalKind::DhcpHostname,
+        "ghost",
+    ))
+    .await;
+
+    assert!(result.is_ok());
+}
+
+#[tokio::test]
+async fn record_for_mac_is_case_insensitive() {
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    as_admin(h.svc.record_signal_for_mac(
+        "AA:BB:CC:DD:EE:01",
+        DeviceSignalKind::MdnsService,
+        "_govee._tcp",
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(as_admin(h.svc.signals_for(&id)).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn reconcile_names_a_privately_listed_device_discovered_earlier() {
+    // The migration can only *remove* placeholder manufacturers — the catalog
+    // lives in Rust. Without this pass an upgrade leaves the Govee lamp that
+    // motivated issue #1099 unidentified forever, since only insert_new_device
+    // consults the catalog and the device was discovered long ago.
+    let h = build().await;
+    let id = insert_device(&h.devices, "5c:e7:53:4e:ec:d9").await;
+
+    let named = as_admin(h.svc.reconcile_from_catalog()).await.unwrap();
+
+    assert_eq!(named, 1);
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer.as_deref(), Some("Govee"));
+    assert_eq!(
+        device.manufacturer_source,
+        Some(ManufacturerSource::Catalog)
+    );
+}
+
+#[tokio::test]
+async fn reconcile_is_idempotent_and_leaves_named_devices_alone() {
+    let h = build().await;
+    insert_device(&h.devices, "5c:e7:53:4e:ec:d9").await;
+
+    assert_eq!(as_admin(h.svc.reconcile_from_catalog()).await.unwrap(), 1);
+    assert_eq!(
+        as_admin(h.svc.reconcile_from_catalog()).await.unwrap(),
+        0,
+        "a second pass must find nothing left to name"
+    );
+}
+
+#[tokio::test]
+async fn reconcile_skips_devices_the_catalog_cannot_name() {
+    let h = build().await;
+    let id = insert_device(&h.devices, "aa:bb:cc:dd:ee:01").await;
+
+    assert_eq!(as_admin(h.svc.reconcile_from_catalog()).await.unwrap(), 0);
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer, None);
+}

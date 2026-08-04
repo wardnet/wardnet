@@ -27,6 +27,7 @@ vi.mock("@/components/compound/DeviceTable", () => ({
     onGroupChange,
     searchValue,
     onSearchChange,
+    emptyMessage,
   }: {
     devices: Array<{ id: string }>;
     onDeviceClick: (id: string) => void;
@@ -35,6 +36,7 @@ vi.mock("@/components/compound/DeviceTable", () => ({
     onGroupChange: (id: string) => void;
     searchValue: string;
     onSearchChange: (value: string) => void;
+    emptyMessage?: ReactNode;
   }) => (
     <div data-testid="device-table">
       <span data-testid="count">{devices.length}</span>
@@ -55,6 +57,10 @@ vi.mock("@/components/compound/DeviceTable", () => ({
           {`open-${d.id}`}
         </button>
       ))}
+      {/* The real DataTable renders `emptyMessage` in place of rows when there
+          are none. The stub must do the same, or the page's empty state — which
+          is where the MAC-search help now lives — is never exercised. */}
+      {devices.length === 0 && emptyMessage}
     </div>
   ),
 }));
@@ -201,5 +207,94 @@ describe("Devices", () => {
     // Open the visible device.
     const table = within(screen.getByTestId("device-table"));
     await user.click(table.getByText("open-d2"));
+  });
+});
+
+describe("Devices — MAC search dead ends (issue #1099)", () => {
+  /** Render the page with a fixed device set and type `query` into search. */
+  async function searchFor(macs: string[], query: string) {
+    useDevices.mockReturnValue({
+      data: {
+        devices: macs.map((mac, i) => makeDevice({ id: `d${i}`, mac })),
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderWithProviders(<Devices />);
+    await userEvent.type(screen.getByLabelText("search"), query);
+  }
+
+  it("offers near-MAC candidates when an exact search misses", async () => {
+    // The admin types the MAC their vendor app showed. That address is not on
+    // the network — but the Wi-Fi address two below it is, which is the whole
+    // BLE-vs-Wi-Fi trap the issue reports.
+    await searchFor(["5c:e7:53:4e:ec:d9"], "5c:e7:53:4e:ec:db");
+
+    expect(
+      screen.getByTestId("neighbour-match-5c:e7:53:4e:ec:d9"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Bluetooth MAC/i)).toBeInTheDocument();
+  });
+
+  it("explains the Bluetooth-MAC trap even with no candidates", async () => {
+    await searchFor(["aa:bb:cc:dd:ee:ff"], "5c:e7:53:4e:ec:db");
+
+    // No guess to offer, but the admin still must not be left unable to tell
+    // "absent" from "I searched the wrong identifier".
+    expect(screen.queryByTestId(/^neighbour-match-/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Bluetooth MAC/i)).toBeInTheDocument();
+  });
+
+  it("stays silent when the search matched something", async () => {
+    await searchFor(["5c:e7:53:4e:ec:db"], "5CE7534EECDB");
+
+    expect(screen.queryByText(/Bluetooth MAC/i)).not.toBeInTheDocument();
+  });
+});
+
+describe("Devices — the dead-end help must not fire on a present device", () => {
+  it("stays silent when the match is hidden by the active group", async () => {
+    // A device that matches but sits in a tab the admin forgot was selected is
+    // present, not missing. Keying the help off the group-filtered list told
+    // them "this may be the Bluetooth MAC" and sent them chasing a non-problem.
+    useDevices.mockReturnValue({
+      data: {
+        devices: [
+          // Unmanaged: name is null, so the "managed" group excludes it.
+          makeDevice({ id: "d0", mac: "5c:e7:53:4e:ec:db", name: null }),
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderWithProviders(<Devices />);
+
+    await userEvent.click(screen.getByText("group-managed-0"));
+    await userEvent.type(screen.getByLabelText("search"), "5c:e7:53:4e:ec:db");
+
+    expect(screen.getByTestId("active-group")).toHaveTextContent("managed");
+    expect(screen.getByTestId("count")).toHaveTextContent("0");
+    expect(screen.queryByText(/Bluetooth MAC/i)).not.toBeInTheDocument();
+    // ...and says so plainly, rather than claiming the device does not exist.
+    expect(
+      screen.getByText(/No devices in this group match/i),
+    ).toBeInTheDocument();
+  });
+
+  it("shows the plain filter message when nothing is searched", async () => {
+    useDevices.mockReturnValue({
+      data: { devices: [makeDevice({ id: "d0", name: "Named" })] },
+      isLoading: false,
+      isError: false,
+    });
+    renderWithProviders(<Devices />);
+
+    // "Unmanaged" excludes the only (named) device, with no search active.
+    await userEvent.click(screen.getByText("group-unmanaged-0"));
+
+    expect(
+      screen.getByText("No devices match the current filter."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Bluetooth MAC/i)).not.toBeInTheDocument();
   });
 });

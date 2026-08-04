@@ -54,7 +54,9 @@ describe("DeviceTable", () => {
     expect(screen.getByText("Dell")).toBeInTheDocument();
     expect(screen.getByText("Lease")).toBeInTheDocument();
     expect(screen.getByText("Reserved")).toBeInTheDocument();
-    expect(screen.getByText("-")).toBeInTheDocument();
+    // A device with no known manufacturer says so explicitly — a bare dash gave
+    // the admin no way to tell "we don't know" from "the vendor hid it" (#1099).
+    expect(screen.getByText("Unknown manufacturer")).toBeInTheDocument();
   });
 
   it("shows the External DHCP badge", () => {

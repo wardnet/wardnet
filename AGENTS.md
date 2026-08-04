@@ -63,6 +63,15 @@ you're about to make, rather than the whole set.
   global-default-policy caveat via a new `DefaultPolicyChanged` event + a callback
   that unbinds forbidden tunnel bindings to direct. Honest limit: same-subnet peer
   traffic is unaffected (the AP's job).
+- **[Device identification](docs/adr/0025-device-identification.md)** —
+  why placeholder IEEE listings (`Private`, registry filler) are dropped so
+  `lookup_manufacturer` returns `None` by construction; the `is_randomized`
+  flag that replaced the `"Randomized MAC"` manufacturer sentinel; the single
+  `vendors.toml` **vendor catalog** driving every signal kind (OUI override,
+  TCP port, mDNS service, DHCP option 60); `manufacturer_source`
+  (`ieee` | `catalog` | `signal`) and why a curated override always renders as
+  a hedge; the ±4-over-48-bit neighbour search for the BLE-vs-Wi-Fi MAC trap.
+  Invariant: **nothing probes a device without a direct admin action.**
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

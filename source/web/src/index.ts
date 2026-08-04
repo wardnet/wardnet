@@ -56,7 +56,17 @@ export {
   DEVICE_TYPE_OPTIONS,
   deviceTypeLabel,
   isDeviceOnline,
+  manufacturerDisplay,
 } from "./lib/device";
+export type { ManufacturerDisplay } from "./lib/device";
+// Device search — format-tolerant MAC matching and the BLE-vs-Wi-Fi
+// neighbour heuristic (issue #1099).
+export {
+  normalizeMac,
+  matchesDevice,
+  findNeighbourMacs,
+} from "./lib/deviceSearch";
+export type { NeighbourMatch } from "./lib/deviceSearch";
 export { cronToHuman } from "./lib/cron";
 export { logger, createLogger, setLevel } from "./lib/logger";
 export type { Logger, LogLevel } from "./lib/logger";

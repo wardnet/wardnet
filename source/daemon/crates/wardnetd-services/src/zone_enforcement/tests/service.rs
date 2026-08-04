@@ -499,6 +499,8 @@ async fn insert_device(devices: &Arc<dyn DeviceRepository>, ip: &str, zone_id: &
             mac,
             hostname: None,
             manufacturer: None,
+            manufacturer_source: None,
+            is_randomized: false,
             device_type: "unknown".to_owned(),
             first_seen: "2026-07-01T00:00:00Z".to_owned(),
             last_seen: "2026-07-01T00:00:00Z".to_owned(),

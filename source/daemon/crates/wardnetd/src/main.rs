@@ -459,6 +459,28 @@ async fn run(
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;
 
+    // Name already-discovered devices the curated vendor catalog can identify
+    // (issue #1099). Only `insert_new_device` consults the catalog, so without
+    // this an upgrade would leave existing devices unidentified forever. Not
+    // fatal: a failure here costs a nicer label, not a working daemon.
+    match auth_context::with_context(
+        AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        },
+        services.device_identification.reconcile_from_catalog(),
+    )
+    .await
+    {
+        Ok(0) => {}
+        Ok(named) => tracing::info!(
+            named,
+            "identification: named {named} device(s) from the vendor catalog"
+        ),
+        Err(error) => {
+            tracing::warn!(%error, "identification: vendor-catalog reconcile failed; continuing");
+        }
+    }
+
     // Capture the root span so background tasks can create child spans that
     // inherit the `wardnetd{version=...}` context.
     let root_span = tracing::Span::current();
@@ -705,7 +727,8 @@ async fn run(
     // The DHCP server renders every response from the device's per-request
     // resolved scope (#737), so it no longer needs an initial base config.
     let dhcp_server: Arc<dyn wardnetd_services::dhcp::server::DhcpServer> = Arc::new(
-        wardnetd::dhcp::server::UdpDhcpServer::new(services.dhcp.clone()),
+        wardnetd::dhcp::server::UdpDhcpServer::new(services.dhcp.clone())
+            .with_identification(services.device_identification.clone()),
     );
     let dhcp_runner = DhcpRunner::start(
         services.dhcp.clone(),

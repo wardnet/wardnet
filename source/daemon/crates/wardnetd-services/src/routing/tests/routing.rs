@@ -857,6 +857,8 @@ fn sample_device(id: Uuid, ip: &str) -> Device {
         name: Some("Test Device".to_owned()),
         hostname: None,
         manufacturer: None,
+        manufacturer_source: None,
+        is_randomized: false,
         device_type: DeviceType::Phone,
         first_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),

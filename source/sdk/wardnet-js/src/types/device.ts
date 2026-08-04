@@ -22,6 +22,17 @@ export type DeviceType =
   | "server"
   | "unknown";
 
+/**
+ * Provenance of a device's manufacturer name (issue #1099).
+ *
+ * - `ieee` — the registrant on record; stated as fact.
+ * - `catalog` — our curated mapping for an OUI the IEEE lists as `Private`;
+ *   rendered as "likely <vendor>" because we are asserting something the
+ *   registrant chose not to publish.
+ * - `signal` — inferred from something the device announced or answered.
+ */
+export type ManufacturerSource = "ieee" | "catalog" | "signal";
+
 /** A discovered network device. */
 export interface Device {
   id: string;
@@ -29,6 +40,18 @@ export interface Device {
   name: string | null;
   hostname: string | null;
   manufacturer: string | null;
+  /**
+   * Where {@link Device.manufacturer} came from, which is what licenses the UI
+   * to state it as fact or hedge it. `null` exactly when `manufacturer` is
+   * `null`. See issue #1099.
+   */
+  manufacturer_source: ManufacturerSource | null;
+  /**
+   * Whether {@link Device.mac} is locally administered (a privacy/randomized
+   * address). Deliberately separate from `manufacturer`: it says how the device
+   * presents itself, not who built it.
+   */
+  is_randomized: boolean;
   device_type: DeviceType;
   first_seen: string;
   last_seen: string;
