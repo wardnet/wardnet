@@ -1,7 +1,13 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { WardnetClient } from "@wardnet/js";
 
-import { agentGet, agentPost, API_BASE_URL, waitForReady } from "./helpers.js";
+import {
+  agentPost,
+  API_BASE_URL,
+  daemonPid,
+  waitForDaemonRestart,
+  waitForReady,
+} from "./helpers.js";
 
 // The daemon-side test agent shares the wardnetd container (same PID
 // namespace), so it can signal the daemon process directly. Compose DNS
@@ -11,11 +17,6 @@ const TEST_AGENT_URL = "http://wardnetd:3001";
 // The unauthenticated health endpoint is served at the host root (not under
 // /api). Derive it from API_BASE_URL so a port/host override stays consistent.
 const HEALTH_URL = `${API_BASE_URL.replace(/\/api\/?$/, "")}/health`;
-
-interface PidResponse {
-  pid: number;
-  running: boolean;
-}
 
 interface HealthComponent {
   name: string;
@@ -29,7 +30,7 @@ interface HealthBody {
 }
 
 async function getPid(): Promise<number> {
-  const res = await agentGet<PidResponse>(TEST_AGENT_URL, "/pid");
+  const res = await daemonPid(TEST_AGENT_URL);
   expect(res.running).toBe(true);
   return res.pid;
 }
@@ -38,38 +39,6 @@ async function getHealth(): Promise<{ status: number; body: HealthBody }> {
   const res = await fetch(HEALTH_URL);
   const body = (await res.json()) as HealthBody;
   return { status: res.status, body };
-}
-
-/**
- * Poll `/pid` until the daemon is running under a PID *different* from
- * `previousPid` — i.e. systemd restarted the unit and the new process wrote a
- * fresh pidfile. Returns the new PID.
- */
-async function waitForRestart(
-  previousPid: number,
-  timeoutMs: number,
-): Promise<number> {
-  const deadline = Date.now() + timeoutMs;
-  let last: unknown;
-  while (Date.now() < deadline) {
-    try {
-      const res = await agentGet<PidResponse>(TEST_AGENT_URL, "/pid");
-      last = res;
-      if (res.running && res.pid !== previousPid) {
-        return res.pid;
-      }
-    } catch (err) {
-      // The pidfile vanishes between the old process dying and the new one
-      // starting (RuntimeDirectory is torn down and recreated); keep polling.
-      last = err;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-  throw new Error(
-    `daemon did not restart under a new PID within ${timeoutMs}ms; last: ${JSON.stringify(
-      last,
-    )}`,
-  );
 }
 
 describe("Hardware/soft watchdog (issue #214)", () => {
@@ -112,7 +81,11 @@ describe("Hardware/soft watchdog (issue #214)", () => {
 
       // WatchdogSec=15 + kill escalation + RestartSec + startup. Generous
       // ceiling to stay robust on a slow runner.
-      const newPid = await waitForRestart(originalPid, 75_000);
+      const newPid = await waitForDaemonRestart(
+        TEST_AGENT_URL,
+        originalPid,
+        75_000,
+      );
       expect(newPid).not.toBe(originalPid);
 
       // The restarted daemon must come back fully healthy so subsequent specs

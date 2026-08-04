@@ -738,6 +738,58 @@ export async function waitForJob(
   );
 }
 
+/** Shape of the daemon agent's `GET /pid` response. */
+export interface DaemonPidResponse {
+  pid: number;
+  running: boolean;
+}
+
+/**
+ * Read the daemon's PID from its pidfile via the test-agent running in server
+ * mode inside the wardnetd container. `running` is false when the pidfile is
+ * absent or names a dead process, which is what a mid-restart window looks
+ * like.
+ */
+export async function daemonPid(
+  daemonAgent: string,
+): Promise<DaemonPidResponse> {
+  return agentGet<DaemonPidResponse>(daemonAgent, "/pid");
+}
+
+/**
+ * Poll [`daemonPid`] until the daemon is running under a PID *different* from
+ * `previousPid` — i.e. systemd restarted the unit and the new process wrote a
+ * fresh pidfile. Returns the new PID. Throws on timeout.
+ *
+ * Errors from the agent are swallowed while polling: `RuntimeDirectory=wardnetd`
+ * is torn down and recreated across a restart, so the pidfile genuinely
+ * vanishes for a moment and a 404 there is expected, not a failure.
+ *
+ * Note this proves a *process* restart, not merely a reachable API — the API
+ * would answer identically if the daemon had never gone away.
+ */
+export async function waitForDaemonRestart(
+  daemonAgent: string,
+  previousPid: number,
+  timeoutMs = 60_000,
+): Promise<number> {
+  const res = await pollUntil(
+    () => daemonPid(daemonAgent).catch((err: unknown) => err),
+    (value) =>
+      typeof value === "object" &&
+      value !== null &&
+      "pid" in value &&
+      (value as DaemonPidResponse).running &&
+      (value as DaemonPidResponse).pid !== previousPid,
+    {
+      timeoutMs,
+      describe: (last) =>
+        `daemon did not restart under a new PID (previous=${previousPid}, last=${JSON.stringify(last)})`,
+    },
+  );
+  return (res as DaemonPidResponse).pid;
+}
+
 /**
  * Read a WireGuard `.conf` fixture from `fixtures/tunnels/` and return it
  * verbatim for `TunnelService.create` (issue #247). Resolved relative to this

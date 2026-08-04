@@ -26,6 +26,8 @@ const ADMIN_ENDPOINTS: ReadonlyArray<{ name: string; path: string }> = [
   { name: "devices list", path: "/devices" },
   { name: "tunnels list", path: "/tunnels" },
   { name: "backup status", path: "/backup/status" },
+  { name: "system status", path: "/system/status" },
+  { name: "update status", path: "/update/status" },
 ];
 
 describe("auth — admin endpoints reject unauthenticated reads", () => {

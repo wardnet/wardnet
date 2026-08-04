@@ -1,0 +1,12 @@
+{
+  "version": "9999.12.31",
+  "tag": "v9999.12.31",
+  "prerelease": true,
+  "published_at": "2099-12-31T00:00:00Z",
+  "asset_base_url": "http://10.92.0.56/assets",
+  "binary": {
+    "name": "wardnetd-9999.12.31-aarch64.tar.gz",
+    "size_bytes": 1
+  },
+  "notes_url": "http://10.92.0.56/notes/9999.12.31.html"
+}

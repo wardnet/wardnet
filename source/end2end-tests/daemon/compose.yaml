@@ -9,7 +9,9 @@
 # gateway), and `internet_target` (a tunnel-only reachable host). Stage
 # 9 (issue #247) adds `wg_gateway_1` / `wg_gateway_2`: two plain
 # WireGuard peers on wardnet_wan for the manual tunnel-import lifecycle
-# specs (no NAT, no internet segment). See the e2e umbrella issue for the
+# specs (no NAT, no internet segment). Stage 11 (issue #249) adds
+# `update_manifest_server`: a static-file server for the release manifests
+# the auto-update subsystem checks. See the e2e umbrella issue for the
 # full topology, stage list, and conventions:
 # https://github.com/wardnet/wardnet/issues/273
 #
@@ -20,8 +22,10 @@
 #                              can own .1. Docker IPAM .2/28 (only
 #                              .2–.15) leaves .100+ free for the
 #                              daemon's DHCP pool + reservations.
-#   wardnet_wan  10.92.0.0/24 — upstream side: nordvpn_mock (.52) and
-#                              the wg_gateway (.53) tunnel underlay.
+#   wardnet_wan  10.92.0.0/24 — upstream side: nordvpn_mock (.52), the
+#                              wg_gateway (.53) tunnel underlay, the
+#                              tunnel-import peers (.54/.55), and the
+#                              update_manifest_server (.56).
 #   wardnet_internet 10.93.0.0/24 — isolated "public internet"; only
 #                              wg_gateway (.1) and internet_target (.10)
 #                              attach, so it is reachable from the LAN
@@ -158,6 +162,23 @@ services:
           fi
           echo "wardnetd e2e fixture: pinned nordvpn_api_url=http://10.92.0.52:8080 in /etc/wardnet/wardnet.toml" >&2
         fi
+        # Point the auto-update runner at update_manifest_server instead of
+        # releases.wardnet.network (issue #249, E2E Stage 11). Same idempotent
+        # inject-or-append shape as the nordvpn override above: guard on the
+        # key so a container restart doesn't duplicate it, then either add the
+        # key under an existing [update] table or append a fresh one. The
+        # daemon ships no [update] table by default (install.sh only writes one
+        # for CHANNEL=edge), so the append branch is the usual path here.
+        # allow_edge_channel is deliberately NOT set — update-status.spec.ts
+        # asserts the deploy-time gate rejects a switch to edge with 403.
+        if ! grep -q '^manifest_base_url' /etc/wardnet/wardnet.toml; then
+          if grep -q '^\[update\]' /etc/wardnet/wardnet.toml; then
+            sed -i '/^\[update\]/a manifest_base_url = "http://10.92.0.56"' /etc/wardnet/wardnet.toml
+          else
+            printf '\n[update]\nmanifest_base_url = "http://10.92.0.56"\n' >> /etc/wardnet/wardnet.toml
+          fi
+          echo "wardnetd e2e fixture: pinned manifest_base_url=http://10.92.0.56 in /etc/wardnet/wardnet.toml" >&2
+        fi
         exec /lib/systemd/systemd --log-target=console --log-level=debug --show-status=yes
     # cgroup v2 is the default on modern Docker engines; systemd
     # inside the container picks it up automatically.
@@ -249,6 +270,35 @@ services:
       # wget --spider returns 0 on 2xx and is part of the busybox
       # image already.
       test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1/dns-blocklists.txt"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+
+  # Release-manifest server for the auto-update specs (issue #249, E2E
+  # Stage 11). Serves `fixtures/update-manifests/<channel>.json` — the same
+  # JSON shape the marketing site's build step publishes to
+  # releases.wardnet.network — so `UpdateService::check()` resolves against a
+  # fixture instead of the internet. Sits on wardnet_wan (the upstream side)
+  # at a fixed 10.92.0.56, the address the daemon's `[update]
+  # manifest_base_url` override points at.
+  #
+  # Plain HTTP, not HTTPS: the daemon's manifest fetch is a bare reqwest GET
+  # that accepts any scheme, and release authenticity in production rests on
+  # the minisign signature over the asset, not on TLS over the manifest.
+  # Terminating TLS here would mean minting a CA and baking it into the
+  # daemon image's trust store to exercise reqwest rather than Wardnet code.
+  # See fixtures/update-manifests/README.md.
+  update_manifest_server:
+    image: busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662
+    command: ["httpd", "-f", "-v", "-p", "80", "-h", "/srv"]
+    volumes:
+      - ./fixtures/update-manifests:/srv:ro
+    networks:
+      wardnet_wan:
+        ipv4_address: 10.92.0.56
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://127.0.0.1/stable.json"]
       interval: 3s
       timeout: 2s
       retries: 10
@@ -391,6 +441,8 @@ services:
       test_ubuntu:
         condition: service_healthy
       blocklist_server:
+        condition: service_healthy
+      update_manifest_server:
         condition: service_healthy
       nordvpn_mock:
         condition: service_healthy
