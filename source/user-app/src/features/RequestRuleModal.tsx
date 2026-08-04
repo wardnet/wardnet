@@ -5,6 +5,7 @@ import {
   DrawerContent,
   DrawerDescription,
   DrawerTitle,
+  Text,
   Textarea,
 } from "@wardnet/ui";
 import type { CreateRuleRequestRequest, RuleRequestKind } from "@wardnet/js";
@@ -68,13 +69,17 @@ export function RequestRuleModal({
           style={{ paddingBottom: "max(24px, env(safe-area-inset-bottom))" }}
         >
           <div className="flex flex-col gap-1">
-            <DrawerTitle className="text-base font-semibold text-ink">
-              Ask your administrator
+            <DrawerTitle className="text-ink">
+              <Text as="span" size="base" weight="semibold">
+                Ask your administrator
+              </Text>
             </DrawerTitle>
-            <DrawerDescription className="text-sm text-ink-3">
-              Send a request about{" "}
-              <span className="font-mono text-ink">{active?.domain}</span>. Your
-              administrator decides whether to apply it.
+            <DrawerDescription asChild>
+              <Text as="p" size="sm" className="text-ink-3">
+                Send a request about{" "}
+                <span className="font-mono text-ink">{active?.domain}</span>.
+                Your administrator decides whether to apply it.
+              </Text>
             </DrawerDescription>
           </div>
 
@@ -87,13 +92,15 @@ export function RequestRuleModal({
                 type="button"
                 onClick={() => setKind(k)}
                 aria-pressed={kind === k}
-                className={`flex-1 rounded-lg py-2 text-sm font-medium transition-colors ${
+                className={`flex-1 rounded-lg py-2 transition-colors ${
                   kind === k
                     ? "bg-card text-ink shadow-sm"
                     : "text-ink-3 active:text-ink"
                 }`}
               >
-                {k === "block" ? "Block it" : "Allow it"}
+                <Text as="span" size="sm" weight="medium">
+                  {k === "block" ? "Block it" : "Allow it"}
+                </Text>
               </button>
             ))}
           </div>

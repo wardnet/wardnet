@@ -52,16 +52,20 @@ export function ConfirmDialog({
           <button
             data-testid="confirm-dialog-confirm"
             onClick={onConfirm}
-            className={`w-full rounded-2xl py-[15px] text-[15px] font-semibold tracking-tight ${
+            className={`w-full rounded-2xl py-[15px] tracking-tight ${
               variant === "danger"
                 ? "bg-danger text-white active:opacity-85"
                 : "bg-warn text-warn-soft-ink active:opacity-85"
             }`}
           >
-            {confirmLabel}
+            <Text as="span" size="lg" weight="semibold">
+              {confirmLabel}
+            </Text>
           </button>
-          <DrawerClose className="w-full rounded-2xl py-[15px] text-[15px] font-medium text-ink-2 active:bg-sunken">
-            Cancel
+          <DrawerClose className="w-full rounded-2xl py-[15px] text-ink-2 active:bg-sunken">
+            <Text as="span" size="lg" weight="medium">
+              Cancel
+            </Text>
           </DrawerClose>
         </div>
       </DrawerContent>

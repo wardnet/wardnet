@@ -182,10 +182,12 @@ export function DeviceRoutingSheet({
     <Drawer open={open} onOpenChange={handleOpenChange}>
       <DrawerContent side="bottom" aria-describedby={undefined}>
         <div className="mx-auto mt-3 mb-4 h-1 w-10 rounded-full bg-line" />
-        <DrawerTitle className="px-4 pb-1 text-[11px] font-semibold uppercase tracking-wider text-ink-3">
-          {granted
-            ? `Remote access granted - ${granted.name}`
-            : `Route: ${deviceLabel}`}
+        <DrawerTitle className="px-4 pb-1 uppercase tracking-wider text-ink-3">
+          <Text as="span" size="2xs" weight="semibold">
+            {granted
+              ? `Remote access granted - ${granted.name}`
+              : `Route: ${deviceLabel}`}
+          </Text>
         </DrawerTitle>
         {granted ? (
           <div

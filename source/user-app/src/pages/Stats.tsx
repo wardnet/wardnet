@@ -233,9 +233,11 @@ export default function Stats() {
         <Link
           to="/settings"
           data-testid="stats-settings-link"
-          className="rounded-full bg-accent px-4 py-1.5 text-sm font-medium text-accent-ink"
+          className="rounded-full bg-accent px-4 py-1.5 text-accent-ink"
         >
-          Go to Settings
+          <Text as="span" size="sm" weight="medium">
+            Go to Settings
+          </Text>
         </Link>
       </div>
     );
@@ -288,14 +290,27 @@ export default function Stats() {
                 <button
                   key={t.date}
                   onClick={() => setDate(t.date)}
-                  className={`flex flex-1 flex-col items-center rounded-lg px-1 py-1.5 text-[11px] transition-colors ${
+                  className={`flex flex-1 flex-col items-center rounded-lg px-1 py-1.5 transition-colors ${
                     selected
-                      ? "bg-accent/15 font-semibold text-accent"
+                      ? "bg-accent/15 text-accent"
                       : "text-ink-3 active:bg-sunken"
                   }`}
                 >
-                  <span>{weekdayLabel(t.date, today)}</span>
-                  <span className="mt-0.5 text-ink">{t.blocked}</span>
+                  <Text
+                    as="span"
+                    size="2xs"
+                    weight={selected ? "semibold" : "normal"}
+                  >
+                    {weekdayLabel(t.date, today)}
+                  </Text>
+                  <Text
+                    as="span"
+                    size="2xs"
+                    weight={selected ? "semibold" : "normal"}
+                    className="mt-0.5 text-ink"
+                  >
+                    {t.blocked}
+                  </Text>
                 </button>
               );
             })}
