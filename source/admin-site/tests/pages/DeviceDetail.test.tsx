@@ -53,6 +53,11 @@ vi.mock("@/components/features/DeviceDnsCaptureCard", () => ({
 vi.mock("@/components/features/DeviceIdentityCard", () => ({
   DeviceIdentityCard: () => <div data-testid="identity-card" />,
 }));
+vi.mock("@/components/features/DeviceIdentificationCard", () => ({
+  DeviceIdentificationCard: ({ signals }: { signals: unknown[] }) => (
+    <div data-testid="identification-card" data-count={signals.length} />
+  ),
+}));
 vi.mock("@/components/features/DeviceNetworkCard", () => ({
   DeviceNetworkCard: () => <div data-testid="network-card" />,
 }));
@@ -107,6 +112,7 @@ describe("DeviceDetail", () => {
           last_seen: new Date().toISOString(),
         }),
         current_rule: null,
+        signals: [],
       },
       isLoading: false,
       isError: false,
@@ -117,6 +123,32 @@ describe("DeviceDetail", () => {
     expect(screen.getByTestId("identity-card")).toBeInTheDocument();
   });
 
+  it("passes the device's identification signals to the identification card", () => {
+    // The signals are the provenance behind the manufacturer shown on the
+    // identity card, so the detail page has to hand them down (issue #1099).
+    useDevice.mockReturnValue({
+      data: {
+        device: makeDevice({ name: "Lamp" }),
+        current_rule: null,
+        signals: [
+          {
+            kind: "mdns_service",
+            value: "_govee._tcp",
+            inferred: true,
+            observed_at: "2026-08-05T10:00:00Z",
+          },
+        ],
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderWithProviders(<DeviceDetail />);
+    expect(screen.getByTestId("identification-card")).toHaveAttribute(
+      "data-count",
+      "1",
+    );
+  });
+
   it("renders an offline managed device", () => {
     useDevice.mockReturnValue({
       data: {
@@ -125,6 +157,7 @@ describe("DeviceDetail", () => {
           last_seen: "2000-01-01T00:00:00Z",
         }),
         current_rule: null,
+        signals: [],
       },
       isLoading: false,
       isError: false,
@@ -138,6 +171,7 @@ describe("DeviceDetail", () => {
       data: {
         device: makeDevice({ name: null, hostname: "living-room-tv" }),
         current_rule: null,
+        signals: [],
       },
       isLoading: false,
       isError: false,
@@ -163,6 +197,7 @@ describe("DeviceDetail", () => {
           mac: "5c:e7:53:4e:ec:d9",
         }),
         current_rule: null,
+        signals: [],
       },
       isLoading: false,
       isError: false,
@@ -186,6 +221,7 @@ describe("DeviceDetail", () => {
           manufacturer_source: "ieee",
         }),
         current_rule: null,
+        signals: [],
       },
       isLoading: false,
       isError: false,
@@ -204,6 +240,7 @@ describe("DeviceDetail", () => {
           mac: "AA:BB:CC:00:11:22",
         }),
         current_rule: null,
+        signals: [],
       },
       isLoading: false,
       isError: false,
@@ -219,6 +256,7 @@ describe("DeviceDetail", () => {
       data: {
         device: makeDevice({ name: "Weird", last_seen: "not-a-date" }),
         current_rule: null,
+        signals: [],
       },
       isLoading: false,
       isError: false,

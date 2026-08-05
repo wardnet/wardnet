@@ -2805,6 +2805,10 @@ export interface components {
         DeviceDetailResponse: {
             current_rule?: null | components["schemas"]["RoutingTarget"];
             device: components["schemas"]["DeviceWithStatus"];
+            /** @description Identification signals observed for this device, most recent first
+             *     (issue #1099). Empty is the normal case for a device that has only ever
+             *     been seen by ARP — it is an absence of evidence, not a failure. */
+            signals: components["schemas"]["DeviceSignal"][];
         };
         /** @description Per-device DNS filtering settings.
          *
@@ -2845,6 +2849,27 @@ export interface components {
             reason?: string | null;
             status: components["schemas"]["RuleRequestStatus"];
         };
+        /** @description A single observed fact that helps identify a device (issue #1099).
+         *
+         *     Deliberately multi-valued per device: a device can announce several mDNS
+         *     services, and each signal is independent evidence rather than a field that
+         *     overwrites the last one. */
+        DeviceSignal: {
+            /** @description `true` when the raw observation matched the curated vendor catalog, so
+             *     this signal is what named the device. Surfaced because a catalog match
+             *     is a hedged guess: an admin looking at "likely Govee" needs to see the
+             *     observation it was derived from. */
+            inferred: boolean;
+            kind: components["schemas"]["DeviceSignalKind"];
+            /** Format: date-time */
+            observed_at: string;
+            value: string;
+        };
+        /**
+         * @description The kind of an [`DeviceSignal`].
+         * @enum {string}
+         */
+        DeviceSignalKind: "dhcp_hostname" | "dhcp_param_list" | "dhcp_vendor_class" | "mdns_service" | "probed_port";
         /**
          * @description The type/category of a network device.
          * @enum {string}

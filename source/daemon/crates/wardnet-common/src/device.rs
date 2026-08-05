@@ -78,6 +78,11 @@ pub enum ManufacturerSource {
 pub struct DeviceSignal {
     pub kind: DeviceSignalKind,
     pub value: String,
+    /// `true` when the raw observation matched the curated vendor catalog, so
+    /// this signal is what named the device. Surfaced because a catalog match
+    /// is a hedged guess: an admin looking at "likely Govee" needs to see the
+    /// observation it was derived from.
+    pub inferred: bool,
     pub observed_at: DateTime<Utc>,
 }
 

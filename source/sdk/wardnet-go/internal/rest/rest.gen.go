@@ -138,6 +138,33 @@ func (e DeviceConnectionMode) Valid() bool {
 	}
 }
 
+// Defines values for DeviceSignalKind.
+const (
+	DhcpHostname    DeviceSignalKind = "dhcp_hostname"
+	DhcpParamList   DeviceSignalKind = "dhcp_param_list"
+	DhcpVendorClass DeviceSignalKind = "dhcp_vendor_class"
+	MdnsService     DeviceSignalKind = "mdns_service"
+	ProbedPort      DeviceSignalKind = "probed_port"
+)
+
+// Valid indicates whether the value is a known member of the DeviceSignalKind enum.
+func (e DeviceSignalKind) Valid() bool {
+	switch e {
+	case DhcpHostname:
+		return true
+	case DhcpParamList:
+		return true
+	case DhcpVendorClass:
+		return true
+	case MdnsService:
+		return true
+	case ProbedPort:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeviceType.
 const (
 	DeviceTypeGameConsole   DeviceType = "game_console"
@@ -2089,6 +2116,11 @@ type DeviceDetailResponse struct {
 	// the device has no rule of its own and follows the gateway default policy;
 	// `Some(RoutingTarget::Default)` is an explicit persisted default choice.
 	Device DeviceWithStatus `json:"device"`
+
+	// Signals Identification signals observed for this device, most recent first
+	// (issue #1099). Empty is the normal case for a device that has only ever
+	// been seen by ARP — it is an absence of evidence, not a failure.
+	Signals []DeviceSignal `json:"signals"`
 }
 
 // DeviceDnsFilterSettings Per-device DNS filtering settings.
@@ -2137,6 +2169,27 @@ type DeviceRuleRequest struct {
 	// Status Lifecycle state of a request.
 	Status RuleRequestStatus `json:"status"`
 }
+
+// DeviceSignal A single observed fact that helps identify a device (issue #1099).
+//
+// Deliberately multi-valued per device: a device can announce several mDNS
+// services, and each signal is independent evidence rather than a field that
+// overwrites the last one.
+type DeviceSignal struct {
+	// Inferred `true` when the raw observation matched the curated vendor catalog, so
+	// this signal is what named the device. Surfaced because a catalog match
+	// is a hedged guess: an admin looking at "likely Govee" needs to see the
+	// observation it was derived from.
+	Inferred bool `json:"inferred"`
+
+	// Kind The kind of an [`DeviceSignal`].
+	Kind       DeviceSignalKind `json:"kind"`
+	ObservedAt time.Time        `json:"observed_at"`
+	Value      string           `json:"value"`
+}
+
+// DeviceSignalKind The kind of an [`DeviceSignal`].
+type DeviceSignalKind string
 
 // DeviceType The type/category of a network device.
 type DeviceType string

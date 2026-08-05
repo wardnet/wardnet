@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use wardnetd_services::device::identification::DeviceIdentificationService;
 use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::entitlement::Entitlement;
@@ -44,6 +45,7 @@ struct Inner {
     tunnel_service: Arc<dyn TunnelService>,
     inbound_wg_service: Arc<dyn InboundWgService>,
     private_dns_service: Arc<dyn PrivateDnsService>,
+    device_identification_service: Arc<dyn DeviceIdentificationService>,
     update_service: Arc<dyn UpdateService>,
     dhcp_server: Arc<dyn DhcpServer>,
     dns_server: Arc<dyn DnsServer>,
@@ -131,6 +133,9 @@ impl AppState {
                 // service via `with_private_dns_service`.
                 private_dns_service: Arc::new(NoopPrivateDnsService),
                 // Defaults to a no-op; production and the mock inject the live
+                // service via `with_device_identification_service` (#1099).
+                device_identification_service: Arc::new(NoopDeviceIdentificationService),
+                // Defaults to a no-op; production and the mock inject the live
                 // service via `with_push_service`.
                 push_service: Arc::new(NoopPushService),
                 // Defaults to a no-op; production and the mock inject the live
@@ -173,6 +178,20 @@ impl AppState {
         Arc::get_mut(&mut self.inner)
             .expect("with_private_dns_service must be called before AppState is cloned")
             .private_dns_service = private_dns_service;
+        self
+    }
+
+    /// Inject the live [`DeviceIdentificationService`] (issue #1099). Defaults
+    /// to a no-op in [`Self::new`]; production and the mock wire the real one.
+    /// Must be called before the state is cloned or shared.
+    #[must_use]
+    pub fn with_device_identification_service(
+        mut self,
+        device_identification_service: Arc<dyn DeviceIdentificationService>,
+    ) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_device_identification_service must be called before AppState is cloned")
+            .device_identification_service = device_identification_service;
         self
     }
 
@@ -391,6 +410,13 @@ impl AppState {
         self.inner.private_dns_service.as_ref()
     }
 
+    /// Access the device-identification service (observed signals + the
+    /// manufacturer writes they produce — issue #1099).
+    #[must_use]
+    pub fn device_identification_service(&self) -> &dyn DeviceIdentificationService {
+        self.inner.device_identification_service.as_ref()
+    }
+
     /// Access the auto-update service.
     #[must_use]
     pub fn update_service(&self) -> &dyn UpdateService {
@@ -597,6 +623,44 @@ impl PrivateDnsService for NoopPrivateDnsService {
     }
     async fn reconcile(&self) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
+    }
+}
+
+/// No-op [`DeviceIdentificationService`] used as the [`AppState::new`] default
+/// before the live service is injected via
+/// [`AppState::with_device_identification_service`] (issue #1099).
+///
+/// Reads return no signals rather than erroring: a device detail page must
+/// still render on a build that has not wired identification, and "no signals
+/// observed" is already a first-class, non-alarming state in that view.
+struct NoopDeviceIdentificationService;
+
+#[async_trait::async_trait]
+impl DeviceIdentificationService for NoopDeviceIdentificationService {
+    async fn record_signal(
+        &self,
+        _device_id: &str,
+        _kind: wardnet_common::device::DeviceSignalKind,
+        _value: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn record_signal_for_mac(
+        &self,
+        _mac: &str,
+        _kind: wardnet_common::device::DeviceSignalKind,
+        _value: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn signals_for(
+        &self,
+        _device_id: &str,
+    ) -> Result<Vec<wardnet_common::device::DeviceSignal>, wardnetd_services::error::AppError> {
+        Ok(Vec::new())
+    }
+    async fn reconcile_from_catalog(&self) -> Result<usize, wardnetd_services::error::AppError> {
+        Ok(0)
     }
 }
 

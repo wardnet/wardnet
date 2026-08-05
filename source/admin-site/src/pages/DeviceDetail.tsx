@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/compound/StatusBadge";
 import { DeviceDnsFilterCard } from "@/components/features/DeviceDnsFilterCard";
 import { DeviceDnsCaptureCard } from "@/components/features/DeviceDnsCaptureCard";
 import { DeviceIdentityCard } from "@/components/features/DeviceIdentityCard";
+import { DeviceIdentificationCard } from "@/components/features/DeviceIdentificationCard";
 import { DeviceNetworkCard } from "@/components/features/DeviceNetworkCard";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
 import { DeviceRoutingProfilesCard } from "@/components/features/DeviceRoutingProfilesCard";
@@ -98,6 +99,7 @@ export default function DeviceDetail() {
       />
 
       <DeviceIdentityCard device={device} />
+      <DeviceIdentificationCard signals={data.signals} />
       <DeviceSettingsCard device={device} currentRule={data.current_rule} />
       <DeviceRoutingProfilesCard device={device} />
       <DeviceZoneCard device={device} />

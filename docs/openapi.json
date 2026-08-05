@@ -25714,7 +25714,8 @@
         "type": "object",
         "description": "Response for GET /api/devices/:id (admin).",
         "required": [
-          "device"
+          "device",
+          "signals"
         ],
         "properties": {
           "current_rule": {
@@ -25729,6 +25730,13 @@
           },
           "device": {
             "$ref": "#/components/schemas/DeviceWithStatus"
+          },
+          "signals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DeviceSignal"
+            },
+            "description": "Identification signals observed for this device, most recent first\n(issue #1099). Empty is the normal case for a device that has only ever\nbeen seen by ARP — it is an absence of evidence, not a failure."
           }
         }
       },
@@ -25870,6 +25878,43 @@
             "$ref": "#/components/schemas/RuleRequestStatus"
           }
         }
+      },
+      "DeviceSignal": {
+        "type": "object",
+        "description": "A single observed fact that helps identify a device (issue #1099).\n\nDeliberately multi-valued per device: a device can announce several mDNS\nservices, and each signal is independent evidence rather than a field that\noverwrites the last one.",
+        "required": [
+          "kind",
+          "value",
+          "inferred",
+          "observed_at"
+        ],
+        "properties": {
+          "inferred": {
+            "type": "boolean",
+            "description": "`true` when the raw observation matched the curated vendor catalog, so\nthis signal is what named the device. Surfaced because a catalog match\nis a hedged guess: an admin looking at \"likely Govee\" needs to see the\nobservation it was derived from."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DeviceSignalKind"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "value": {
+            "type": "string"
+          }
+        }
+      },
+      "DeviceSignalKind": {
+        "type": "string",
+        "description": "The kind of an [`DeviceSignal`].",
+        "enum": [
+          "dhcp_hostname",
+          "dhcp_param_list",
+          "dhcp_vendor_class",
+          "mdns_service",
+          "probed_port"
+        ]
       },
       "DeviceType": {
         "type": "string",

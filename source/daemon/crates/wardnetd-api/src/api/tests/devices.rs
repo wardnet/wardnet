@@ -13,7 +13,7 @@ use axum::routing::{get, put};
 use tower::ServiceExt;
 use uuid::Uuid;
 use wardnet_common::api::{DeviceMeResponse, SetMyRuleResponse};
-use wardnet_common::device::{Device, DeviceType};
+use wardnet_common::device::{Device, DeviceSignal, DeviceSignalKind, DeviceType};
 use wardnet_common::routing::RoutingTarget;
 
 use crate::state::AppState;
@@ -24,6 +24,7 @@ use crate::tests::stubs::{
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::device::identification::DeviceIdentificationService;
 use wardnetd_services::error::AppError;
 use wardnetd_services::{
     AuthService, DeviceDiscoveryService, DeviceService, DhcpService, TunnelService,
@@ -602,6 +603,82 @@ fn build_state_with_tunnel_svc(
     )
 }
 
+/// Mock [`DeviceIdentificationService`] returning a fixed set of signals.
+struct MockIdentificationService {
+    signals: Vec<DeviceSignal>,
+}
+
+#[async_trait]
+impl DeviceIdentificationService for MockIdentificationService {
+    async fn record_signal(
+        &self,
+        _device_id: &str,
+        _kind: DeviceSignalKind,
+        _value: &str,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn record_signal_for_mac(
+        &self,
+        _mac: &str,
+        _kind: DeviceSignalKind,
+        _value: &str,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn signals_for(&self, _device_id: &str) -> Result<Vec<DeviceSignal>, AppError> {
+        Ok(self.signals.clone())
+    }
+    async fn reconcile_from_catalog(&self) -> Result<usize, AppError> {
+        Ok(0)
+    }
+}
+
+/// Mock [`DeviceIdentificationService`] whose read fails, standing in for a
+/// database error on the signals table.
+struct FailingIdentificationService;
+
+#[async_trait]
+impl DeviceIdentificationService for FailingIdentificationService {
+    async fn record_signal(
+        &self,
+        _device_id: &str,
+        _kind: DeviceSignalKind,
+        _value: &str,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn record_signal_for_mac(
+        &self,
+        _mac: &str,
+        _kind: DeviceSignalKind,
+        _value: &str,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn signals_for(&self, _device_id: &str) -> Result<Vec<DeviceSignal>, AppError> {
+        Err(AppError::Internal(anyhow::anyhow!("signals table is gone")))
+    }
+    async fn reconcile_from_catalog(&self) -> Result<usize, AppError> {
+        Ok(0)
+    }
+}
+
+/// Build a state whose device detail carries identification signals.
+fn build_state_with_identification(
+    device: Device,
+    identification: impl DeviceIdentificationService + 'static,
+) -> AppState {
+    build_state_with_dhcp(
+        MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct)),
+        MockDiscoveryService {
+            devices: vec![device],
+        },
+        MockDhcpService::empty(),
+    )
+    .with_device_identification_service(Arc::new(identification))
+}
+
 fn device_router(state: AppState) -> Router {
     Router::new()
         .route("/api/devices/me", get(crate::api::devices::get_me))
@@ -1038,6 +1115,47 @@ async fn get_device_by_id_success() {
     assert_eq!(json["device"]["mac"], "aa:bb:cc:dd:ee:01");
     assert_eq!(json["current_rule"]["type"], "direct");
     assert_eq!(json["device"]["dhcp_status"], "external");
+    // No identification service injected: the field is present and empty
+    // rather than absent, so the client never has to special-case it.
+    assert_eq!(json["signals"], serde_json::json!([]));
+}
+
+#[tokio::test]
+async fn get_device_by_id_returns_identification_signals() {
+    let device = sample_device();
+    let state = build_state_with_identification(
+        device,
+        MockIdentificationService {
+            signals: vec![DeviceSignal {
+                kind: DeviceSignalKind::MdnsService,
+                value: "_govee._tcp".to_owned(),
+                inferred: true,
+                observed_at: chrono::Utc::now(),
+            }],
+        },
+    );
+    let app = device_router(state);
+
+    let (status, json) = get_json(app, "/api/devices/00000000-0000-0000-0000-000000000001").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["signals"][0]["kind"], "mdns_service");
+    assert_eq!(json["signals"][0]["value"], "_govee._tcp");
+    assert_eq!(json["signals"][0]["inferred"], true);
+}
+
+#[tokio::test]
+async fn get_device_by_id_survives_a_failing_signals_read() {
+    // Signals are supporting evidence. A failure reading them must not take
+    // out the device detail page, which is the admin's only view of the
+    // device.
+    let device = sample_device();
+    let state = build_state_with_identification(device, FailingIdentificationService);
+    let app = device_router(state);
+
+    let (status, json) = get_json(app, "/api/devices/00000000-0000-0000-0000-000000000001").await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["device"]["mac"], "aa:bb:cc:dd:ee:01");
+    assert_eq!(json["signals"], serde_json::json!([]));
 }
 
 #[tokio::test]

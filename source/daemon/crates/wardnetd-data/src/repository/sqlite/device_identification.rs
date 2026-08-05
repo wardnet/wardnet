@@ -30,8 +30,13 @@ impl SqliteDeviceIdentificationRepository {
 struct SignalRow {
     kind: String,
     value: String,
+    confidence: String,
     observed_at: String,
 }
+
+/// The `confidence` value [`DeviceIdentificationRepository::record`] writes for
+/// a signal that resolved to a vendor through the curated catalog.
+const CONFIDENCE_INFERRED: &str = "inferred";
 
 /// Serialize a [`DeviceSignalKind`] to its stored `snake_case` string form
 /// (mirrors how `device_type` and `connection_mode` are persisted).
@@ -61,7 +66,11 @@ impl DeviceIdentificationRepository for SqliteDeviceIdentificationRepository {
         .bind(&row.device_id)
         .bind(kind_to_db(row.kind))
         .bind(&row.value)
-        .bind(if row.inferred { "inferred" } else { "observed" })
+        .bind(if row.inferred {
+            CONFIDENCE_INFERRED
+        } else {
+            "observed"
+        })
         .execute(&self.pools.write)
         .await?;
         Ok(())
@@ -122,7 +131,7 @@ impl DeviceIdentificationRepository for SqliteDeviceIdentificationRepository {
 
     async fn find_by_device(&self, device_id: &str) -> anyhow::Result<Vec<DeviceSignal>> {
         let rows = sqlx::query_as::<_, SignalRow>(
-            "SELECT kind, value, observed_at FROM device_signals \
+            "SELECT kind, value, confidence, observed_at FROM device_signals \
              WHERE device_id = ? ORDER BY observed_at DESC",
         )
         .bind(device_id)
@@ -137,6 +146,7 @@ impl DeviceIdentificationRepository for SqliteDeviceIdentificationRepository {
                 Some(DeviceSignal {
                     kind: kind_from_db(&r.kind)?,
                     value: r.value,
+                    inferred: r.confidence == CONFIDENCE_INFERRED,
                     observed_at: r.observed_at.parse().ok()?,
                 })
             })

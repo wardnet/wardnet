@@ -67,6 +67,12 @@ export {
   findNeighbourMacs,
 } from "./lib/deviceSearch";
 export type { NeighbourMatch } from "./lib/deviceSearch";
+// Identification signals — grouping and per-kind presentation (issue #1099).
+export { signalKindDisplay, groupSignalsByKind } from "./lib/deviceSignals";
+export type {
+  DeviceSignalKindDisplay,
+  DeviceSignalGroup,
+} from "./lib/deviceSignals";
 export { cronToHuman } from "./lib/cron";
 export { logger, createLogger, setLevel } from "./lib/logger";
 export type { Logger, LogLevel } from "./lib/logger";

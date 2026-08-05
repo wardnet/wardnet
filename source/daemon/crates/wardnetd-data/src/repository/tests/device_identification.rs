@@ -49,6 +49,41 @@ async fn record_then_read_back_a_signal() {
 }
 
 #[tokio::test]
+async fn inferred_flag_round_trips() {
+    // The flag is what lets the UI show which observation produced a hedged
+    // "likely <vendor>" name, so it has to survive the write/read cycle rather
+    // than being write-only bookkeeping.
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01").await;
+    let repo = SqliteDeviceIdentificationRepository::new(pool);
+
+    repo.record(&DeviceSignalRow {
+        inferred: true,
+        ..row(DEV1, DeviceSignalKind::MdnsService, "_govee._tcp")
+    })
+    .await
+    .unwrap();
+    repo.record(&row(DEV1, DeviceSignalKind::DhcpHostname, "some-host"))
+        .await
+        .unwrap();
+
+    let signals = repo.find_by_device(DEV1).await.unwrap();
+    let mdns = signals
+        .iter()
+        .find(|s| s.kind == DeviceSignalKind::MdnsService)
+        .expect("expected the mDNS signal");
+    let hostname = signals
+        .iter()
+        .find(|s| s.kind == DeviceSignalKind::DhcpHostname)
+        .expect("expected the hostname signal");
+    assert!(mdns.inferred, "a catalog match must read back as inferred");
+    assert!(
+        !hostname.inferred,
+        "a plain observation must not read back as inferred"
+    );
+}
+
+#[tokio::test]
 async fn re_recording_the_same_fact_does_not_duplicate() {
     // A device re-announcing an unchanged mDNS service on every renewal is the
     // normal case; it must refresh the row rather than pile up duplicates.

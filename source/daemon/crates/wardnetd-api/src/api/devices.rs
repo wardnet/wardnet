@@ -195,6 +195,30 @@ async fn build_dhcp_status_map(state: &AppState) -> Result<HashMap<String, DhcpS
 /// Enrich a [`Device`](wardnet_common::device::Device) with its DHCP status
 /// and current routing target. `current_rule` is `None` when the device has no
 /// rule of its own (it follows the gateway default policy).
+/// Identification signals observed for a device (issue #1099), degrading to an
+/// empty list if the read fails.
+///
+/// Deliberately non-fatal, mirroring how `current_rule` is fetched in these
+/// handlers: signals are supporting evidence, and two of the three callers have
+/// already committed a mutation by this point — failing the response would
+/// report an error for a write that succeeded.
+async fn signals_for_device(
+    state: &AppState,
+    device_id: &str,
+) -> Vec<wardnet_common::device::DeviceSignal> {
+    match state
+        .device_identification_service()
+        .signals_for(device_id)
+        .await
+    {
+        Ok(signals) => signals,
+        Err(err) => {
+            tracing::warn!(%device_id, %err, "failed to read device identification signals");
+            Vec::new()
+        }
+    }
+}
+
 fn enrich_device(
     device: wardnet_common::device::Device,
     dhcp_map: &HashMap<String, DhcpStatus>,
@@ -274,10 +298,12 @@ pub async fn get_device(
         .ok()
         .flatten();
     let dhcp_map = build_dhcp_status_map(&state).await?;
+    let signals = signals_for_device(&state, &device.id.to_string()).await;
     let device = enrich_device(device, &dhcp_map, rule.clone());
     Ok(Json(DeviceDetailResponse {
         device,
         current_rule: rule,
+        signals,
     }))
 }
 
@@ -350,10 +376,12 @@ pub async fn update_device(
         .flatten();
 
     let dhcp_map = build_dhcp_status_map(&state).await?;
+    let signals = signals_for_device(&state, &device.id.to_string()).await;
     let device = enrich_device(device, &dhcp_map, rule.clone());
     Ok(Json(DeviceDetailResponse {
         device,
         current_rule: rule,
+        signals,
     }))
 }
 
@@ -395,9 +423,11 @@ pub async fn assign_device_zone(
         .ok()
         .flatten();
     let dhcp_map = build_dhcp_status_map(&state).await?;
+    let signals = signals_for_device(&state, &device.id.to_string()).await;
     let device = enrich_device(device, &dhcp_map, rule.clone());
     Ok(Json(DeviceDetailResponse {
         device,
         current_rule: rule,
+        signals,
     }))
 }
