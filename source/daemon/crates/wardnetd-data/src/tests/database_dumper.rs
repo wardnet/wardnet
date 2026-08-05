@@ -304,6 +304,62 @@ async fn restore_discards_the_outgoing_databases_wal_sidecars() {
     let _ = tokio::fs::remove_file(&snapshot_path).await;
 }
 
+/// A sidecar that cannot be removed must fail the restore, not be ignored.
+///
+/// Only `NotFound` counts as success when discarding: continuing past any
+/// other error would hand the reconnect a file we already know is unsafe to
+/// open, turning a clear "could not clear the WAL" into the confusing
+/// `malformed database schema` this whole path exists to prevent.
+///
+/// A directory standing where the sidecar belongs is the portable way to make
+/// `remove_file` fail with something that is not `NotFound`.
+#[tokio::test]
+async fn restore_fails_when_a_stale_sidecar_cannot_be_discarded() {
+    let live_path = temp_db_path();
+    let live_pool = open_writable(&live_path).await;
+    live_pool
+        .execute("CREATE TABLE demo (id INTEGER PRIMARY KEY);")
+        .await
+        .unwrap();
+    live_pool.close().await;
+
+    tokio::fs::create_dir(wal_path(&live_path)).await.unwrap();
+
+    let snapshot_path = temp_db_path();
+    let snapshot_pool = open_writable(&snapshot_path).await;
+    snapshot_pool
+        .execute(
+            r"
+            CREATE TABLE _sqlx_migrations (
+                version INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                success BOOLEAN NOT NULL,
+                checksum BLOB NOT NULL,
+                execution_time INTEGER NOT NULL
+            );
+            ",
+        )
+        .await
+        .unwrap();
+    let snapshot_bytes = tokio::fs::read(&snapshot_path).await.unwrap();
+    snapshot_pool.close().await;
+
+    let dumper = SqliteDumper::new(
+        SqlitePool::connect("sqlite::memory:").await.unwrap(),
+        live_path.clone(),
+    );
+    let err = dumper.restore(&snapshot_bytes).await.unwrap_err();
+    assert!(
+        format!("{err:#}").contains("failed to discard stale WAL sidecar"),
+        "expected the discard failure to surface, got: {err:#}"
+    );
+
+    let _ = tokio::fs::remove_dir(wal_path(&live_path)).await;
+    let _ = tokio::fs::remove_file(&live_path).await;
+    let _ = tokio::fs::remove_file(&snapshot_path).await;
+}
+
 fn wal_path(db: &Path) -> PathBuf {
     sidecar(db, "-wal")
 }
