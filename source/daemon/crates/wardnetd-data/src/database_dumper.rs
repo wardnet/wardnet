@@ -174,6 +174,29 @@ impl DatabaseDumper for SqliteDumper {
             ));
         }
 
+        // Drop the *outgoing* database's WAL sidecars before anything opens
+        // the new file. The daemon runs in WAL mode, so `<db>-wal` / `<db>-shm`
+        // sitting next to the path we just swapped describe the database that
+        // was here a moment ago — a schema the restored snapshot knows nothing
+        // about. Any reader that opens the file with those present recovers
+        // their frames onto it and sees a database that is neither the old one
+        // nor the new one, failing with `no such table: _sqlx_migrations` or
+        // `malformed database schema (...)` depending on what the WAL happened
+        // to hold. That is what the reconnect below hits, and it surfaced as an
+        // intermittent 500 from `POST /api/backup/import/apply`.
+        //
+        // Dropping them is always correct here: `dump()` produces a
+        // self-contained `VACUUM INTO` snapshot, so the restored file never has
+        // a WAL of its own to lose. This is the same reasoning as the
+        // `restore-pending` sentinel (#695) — that one stops the stale WAL
+        // being recovered on the *next boot*, whereas this covers every reader
+        // between the swap and that restart, starting with the one below.
+        //
+        // The still-open live pool may recreate `<db>-wal` on its next write;
+        // those frames are equally stale, and the sentinel is what keeps the
+        // next boot from recovering them.
+        remove_wal_sidecars(&self.database_path).await?;
+
         // Reconnect against the fresh file and read back the schema
         // version — lets the caller log it and decide whether to run
         // migrations. We open a throwaway pool here because the live
@@ -212,4 +235,43 @@ impl DatabaseDumper for SqliteDumper {
             .map_err(|e| anyhow::anyhow!("failed to read current schema version: {e}"))?;
         Ok(row.0)
     }
+}
+
+/// Delete the `-wal` / `-shm` sidecars beside `database_path`.
+///
+/// Called immediately after a restore swaps a new file into place, so no
+/// reader recovers the *previous* database's write-ahead log onto it. See the
+/// call site in [`SqliteDumper::restore`] for why discarding is always the
+/// correct choice there.
+///
+/// A missing sidecar is success — journal mode may have been changed, or the
+/// database may never have been opened at this path. Any other error is
+/// propagated: silently continuing would hand the reconnect a file we already
+/// know is unsafe to open.
+async fn remove_wal_sidecars(database_path: &Path) -> anyhow::Result<()> {
+    for suffix in ["-wal", "-shm"] {
+        // SQLite appends the suffix to the whole filename rather than
+        // replacing an extension, so build the name by concatenation.
+        let mut name = database_path.as_os_str().to_owned();
+        name.push(suffix);
+        let sidecar = PathBuf::from(name);
+
+        match tokio::fs::remove_file(&sidecar).await {
+            Ok(()) => {
+                tracing::debug!(
+                    path = %sidecar.display(),
+                    "discarded stale WAL sidecar after restore: path={path}",
+                    path = sidecar.display(),
+                );
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(anyhow::anyhow!(
+                    "failed to discard stale WAL sidecar {}: {e}",
+                    sidecar.display()
+                ));
+            }
+        }
+    }
+    Ok(())
 }

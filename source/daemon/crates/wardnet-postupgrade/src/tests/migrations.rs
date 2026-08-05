@@ -18,6 +18,21 @@ fn lists_polkit_power_rule_migration() {
     assert_eq!(first.severity, Severity::Optional);
 }
 
+/// The unit refresh is deliberately listed twice under different ids. The
+/// runner records each migration applied and skips it forever, so a box that
+/// already ran `0003` would never pick up a later unit change — a follow-up id
+/// re-running the same reconciler is how the fix reaches it. Pinned here so a
+/// well-meaning "duplicate entry" cleanup has to read this comment first.
+#[test]
+fn unit_refresh_runs_again_under_a_follow_up_id() {
+    let ids: Vec<&'static str> = migrations().iter().map(|m| m.id).collect();
+    assert!(ids.contains(&"0003_wardnetd_unit_refresh"), "got {ids:?}");
+    assert!(
+        ids.contains(&"0004_wardnetd_unit_config_write"),
+        "the ReadWritePaths=/etc/wardnet grant must reach existing installs; got {ids:?}"
+    );
+}
+
 #[test]
 fn migration_ids_are_unique() {
     let list = migrations();

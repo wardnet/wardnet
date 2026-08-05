@@ -2,7 +2,7 @@
 //! dump it, restore the bytes into a fresh file, confirm the data
 //! survives.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use sqlx::sqlite::SqliteConnectOptions;
 use sqlx::{Executor, SqlitePool};
@@ -212,6 +212,168 @@ async fn restore_installs_file_with_0600_perms() {
 
     let _ = tokio::fs::remove_file(&src_path).await;
     let _ = tokio::fs::remove_file(&dst_path).await;
+}
+
+/// A restore must not be poisoned by the *outgoing* database's WAL.
+///
+/// `restore` swaps the file, then immediately reopens it to read the schema
+/// version back. In production the live pool is still running in WAL mode
+/// against the old database, so `<db>-wal` / `<db>-shm` on disk hold frames
+/// describing a schema the new file knows nothing about. `SQLite` recovers that
+/// WAL onto the restored snapshot and the read-back fails with
+/// `malformed database schema (...) - no such table: ...`, which surfaces as a
+/// 500 from `POST /api/backup/import/apply`.
+///
+/// Sibling to the `restore-pending` sentinel added in #695: that one stops the
+/// stale WAL being recovered on the *next boot*; this covers the reconnect
+/// inside `restore` itself, which happens long before any restart.
+#[tokio::test]
+async fn restore_discards_the_outgoing_databases_wal_sidecars() {
+    // The database being replaced: WAL mode, with a table + index that exist
+    // only here. Its pool stays open, exactly as the daemon's does.
+    let live_path = temp_db_path();
+    let live_pool = open_writable(&live_path).await;
+    live_pool.execute("PRAGMA journal_mode=WAL;").await.unwrap();
+    live_pool
+        .execute(
+            r"
+            CREATE TABLE dns_query_log (id INTEGER PRIMARY KEY, domain TEXT);
+            CREATE INDEX idx_dns_query_log_domain ON dns_query_log(domain);
+            ",
+        )
+        .await
+        .unwrap();
+    // Keep writing so the WAL holds uncheckpointed frames at swap time.
+    for i in 0..64 {
+        live_pool
+            .execute(sqlx::AssertSqlSafe(format!(
+                "INSERT INTO dns_query_log (id, domain) VALUES ({i}, 'example.com');"
+            )))
+            .await
+            .unwrap();
+    }
+    assert!(
+        tokio::fs::try_exists(wal_path(&live_path)).await.unwrap(),
+        "test needs a live -wal sidecar to be meaningful"
+    );
+
+    // The incoming snapshot: a self-contained database with a different
+    // schema, the way `VACUUM INTO` produces one.
+    let snapshot_path = temp_db_path();
+    let snapshot_pool = open_writable(&snapshot_path).await;
+    snapshot_pool
+        .execute(
+            r"
+            CREATE TABLE _sqlx_migrations (
+                version INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                success BOOLEAN NOT NULL,
+                checksum BLOB NOT NULL,
+                execution_time INTEGER NOT NULL
+            );
+            INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time)
+            VALUES (7, 'm', 1, X'00', 0);
+            ",
+        )
+        .await
+        .unwrap();
+    let snapshot_bytes = tokio::fs::read(&snapshot_path).await.unwrap();
+    snapshot_pool.close().await;
+
+    // Restore over the live path while its pool is still open.
+    let dumper = SqliteDumper::new(live_pool.clone(), live_path.clone());
+    let version = dumper
+        .restore(&snapshot_bytes)
+        .await
+        .expect("restore must not choke on the outgoing database's WAL");
+    assert_eq!(version, 7);
+
+    // The sidecars belonged to a database that no longer exists at this path.
+    assert!(
+        !tokio::fs::try_exists(wal_path(&live_path)).await.unwrap(),
+        "stale -wal must not survive the swap"
+    );
+    assert!(
+        !tokio::fs::try_exists(shm_path(&live_path)).await.unwrap(),
+        "stale -shm must not survive the swap"
+    );
+
+    live_pool.close().await;
+    let _ = tokio::fs::remove_file(&live_path).await;
+    let _ = tokio::fs::remove_file(&snapshot_path).await;
+}
+
+/// A sidecar that cannot be removed must fail the restore, not be ignored.
+///
+/// Only `NotFound` counts as success when discarding: continuing past any
+/// other error would hand the reconnect a file we already know is unsafe to
+/// open, turning a clear "could not clear the WAL" into the confusing
+/// `malformed database schema` this whole path exists to prevent.
+///
+/// A directory standing where the sidecar belongs is the portable way to make
+/// `remove_file` fail with something that is not `NotFound`.
+#[tokio::test]
+async fn restore_fails_when_a_stale_sidecar_cannot_be_discarded() {
+    let live_path = temp_db_path();
+    let live_pool = open_writable(&live_path).await;
+    live_pool
+        .execute("CREATE TABLE demo (id INTEGER PRIMARY KEY);")
+        .await
+        .unwrap();
+    live_pool.close().await;
+
+    tokio::fs::create_dir(wal_path(&live_path)).await.unwrap();
+
+    let snapshot_path = temp_db_path();
+    let snapshot_pool = open_writable(&snapshot_path).await;
+    snapshot_pool
+        .execute(
+            r"
+            CREATE TABLE _sqlx_migrations (
+                version INTEGER PRIMARY KEY,
+                description TEXT NOT NULL,
+                installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                success BOOLEAN NOT NULL,
+                checksum BLOB NOT NULL,
+                execution_time INTEGER NOT NULL
+            );
+            ",
+        )
+        .await
+        .unwrap();
+    let snapshot_bytes = tokio::fs::read(&snapshot_path).await.unwrap();
+    snapshot_pool.close().await;
+
+    let dumper = SqliteDumper::new(
+        SqlitePool::connect("sqlite::memory:").await.unwrap(),
+        live_path.clone(),
+    );
+    let err = dumper.restore(&snapshot_bytes).await.unwrap_err();
+    assert!(
+        format!("{err:#}").contains("failed to discard stale WAL sidecar"),
+        "expected the discard failure to surface, got: {err:#}"
+    );
+
+    let _ = tokio::fs::remove_dir(wal_path(&live_path)).await;
+    let _ = tokio::fs::remove_file(&live_path).await;
+    let _ = tokio::fs::remove_file(&snapshot_path).await;
+}
+
+fn wal_path(db: &Path) -> PathBuf {
+    sidecar(db, "-wal")
+}
+
+fn shm_path(db: &Path) -> PathBuf {
+    sidecar(db, "-shm")
+}
+
+/// `SQLite` names its sidecars by appending to the database filename, so this
+/// is a string suffix rather than an extension change.
+fn sidecar(db: &Path, suffix: &str) -> PathBuf {
+    let mut name = db.as_os_str().to_owned();
+    name.push(suffix);
+    PathBuf::from(name)
 }
 
 #[tokio::test]

@@ -174,10 +174,44 @@ impl BackupServiceImpl {
         Ok(())
     }
 
-    /// Directory where `.bak-*` snapshots live — always a sibling of
-    /// the live database file.
+    /// Directory the service *writes* new snapshots to — always a
+    /// sibling of the live database file. Reads must go through
+    /// [`Self::snapshot_dirs`], which also covers the config's directory.
     fn snapshot_dir(&self) -> &Path {
         self.database_path.parent().unwrap_or(Path::new("."))
+    }
+
+    /// Every directory a restore can leave a `.bak-<timestamp>` sibling
+    /// in: the live database's parent and the live config's parent.
+    ///
+    /// `apply_import` renames each live file aside *in place*, so on a
+    /// real install the two snapshots land in different directories
+    /// (`/var/lib/wardnet` and `/etc/wardnet`). Walking only the database's
+    /// directory is what made config snapshots invisible to
+    /// `GET /api/backup/snapshots` — and, since the cleanup runner shares
+    /// the same walk, immortal: nothing ever pruned them.
+    ///
+    /// Deduped, because tests (and any install that colocates the two
+    /// files) would otherwise report every database snapshot twice.
+    fn snapshot_dirs(&self) -> Vec<&Path> {
+        let db_dir = self.snapshot_dir();
+        let config_dir = self.config_path.parent().unwrap_or(Path::new("."));
+        if config_dir == db_dir {
+            vec![db_dir]
+        } else {
+            vec![db_dir, config_dir]
+        }
+    }
+
+    /// Collect `.bak-*` snapshots from every directory in
+    /// [`Self::snapshot_dirs`]. Shared by the listing endpoint and the
+    /// cleanup runner so the two can never disagree about what exists.
+    async fn enumerate_all_snapshots(&self) -> Result<Vec<LocalSnapshot>, AppError> {
+        let mut out = Vec::new();
+        for dir in self.snapshot_dirs() {
+            out.extend(enumerate_snapshots(dir).await?);
+        }
+        Ok(out)
     }
 
     /// Decide whether a freshly-unpacked manifest can be restored
@@ -736,13 +770,13 @@ impl BackupService for BackupServiceImpl {
 
     async fn list_snapshots(&self) -> Result<ListSnapshotsResponse, AppError> {
         auth_context::require_admin()?;
-        let snapshots = enumerate_snapshots(self.snapshot_dir()).await?;
+        let snapshots = self.enumerate_all_snapshots().await?;
         Ok(ListSnapshotsResponse { snapshots })
     }
 
     async fn cleanup_old_snapshots(&self, retain: Duration) -> Result<u32, AppError> {
         auth_context::require_admin()?;
-        let snapshots = enumerate_snapshots(self.snapshot_dir()).await?;
+        let snapshots = self.enumerate_all_snapshots().await?;
         let now = Utc::now();
         let mut deleted: u32 = 0;
         for snap in snapshots {

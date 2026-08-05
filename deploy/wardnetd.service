@@ -66,7 +66,24 @@ ProtectHome=yes
 # the privileged `wardnet-postupgrade.service` performs the actual
 # /usr/local/bin/wardnetd swap on next start under root, so the
 # wardnet user no longer needs write access to /usr/local/bin.
-ReadWritePaths=/var/lib/wardnet /var/log/wardnet
+#
+# /etc/wardnet is writable because restoring a backup replaces the live
+# config: `BackupService::apply_import` renames wardnet.toml aside to a
+# `.bak-<timestamp>` sibling and moves the bundle's copy into place, both
+# of which need write permission on the *directory*. ProtectSystem=strict
+# mounts all of /etc read-only, so without this a restore fails with
+# EROFS on real hardware — a failure neither e2e suite can catch, because
+# the container image drops in ProtectSystem=no (see Dockerfile.base).
+# Scoped to the one directory rather than /etc: this is the only path
+# under /etc the daemon ever writes.
+#
+# Caveat worth knowing: this also means an admin session can reach
+# wardnet.toml through a crafted restore bundle, including deploy-time
+# keys like [update] allow_edge_channel, whose whole point is to require
+# root on the box rather than an admin session. Closing that gap means
+# preserving deploy-time-only keys across a restore instead of taking
+# them from the bundle — tracked separately, not solved here.
+ReadWritePaths=/var/lib/wardnet /var/log/wardnet /etc/wardnet
 PrivateTmp=yes
 
 # Logging to journal

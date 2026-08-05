@@ -102,6 +102,38 @@ fn start_limit_keys_live_in_unit_section_not_service() {
     }
 }
 
+/// `ProtectSystem=strict` mounts every path outside `ReadWritePaths`
+/// read-only, `/etc` included. Restoring a backup rewrites the live config —
+/// `BackupService::apply_import` renames `/etc/wardnet/wardnet.toml` aside to
+/// a `.bak-<timestamp>` sibling and moves the bundle's copy into its place,
+/// both of which need write access to the *directory*. Without the grant that
+/// fails with EROFS on real hardware.
+///
+/// Neither end-to-end suite can catch this: the container image drops in
+/// `ProtectSystem=no` (see `Dockerfile.base`), so a restore succeeds there no
+/// matter what the unit says. This test is the only guard.
+#[test]
+fn config_directory_is_writable_for_backup_restore() {
+    let service = section_body(UNIT_BODY, "[Service]");
+    assert!(
+        has_directive(&service, "ProtectSystem"),
+        "test assumes the unit hardens the filesystem; if that was dropped, \
+         this assertion is obsolete rather than merely failing"
+    );
+
+    let grants: Vec<&str> = service
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.starts_with('#'))
+        .filter_map(|line| line.strip_prefix("ReadWritePaths="))
+        .flat_map(str::split_whitespace)
+        .collect();
+    assert!(
+        grants.contains(&"/etc/wardnet"),
+        "backup restore writes /etc/wardnet/wardnet.toml; ReadWritePaths is {grants:?}"
+    );
+}
+
 /// Collect the lines of the named section (until the next `[Header]`).
 fn section_body(unit: &str, header: &str) -> String {
     let mut out = String::new();
