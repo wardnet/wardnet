@@ -11,6 +11,8 @@ import {
   countryFlag,
   deviceDisplayName,
   isDeviceOnline,
+  matchesDevice,
+  findNeighbourMacs,
   timeAgo,
   Text,
   Heading,
@@ -119,6 +121,7 @@ const DeviceRow = memo(function DeviceRow({
           </Text>
           <Text as="span" size="xs" className="truncate text-ink-3">
             {device.last_ip} · {routeLabel(device, tunnels)}
+            {device.is_randomized && " · Randomized MAC"}
           </Text>
         </div>
       </button>
@@ -205,6 +208,78 @@ function NewDevicesSection({ onSelect }: { onSelect: (id: string) => void }) {
   );
 }
 
+/**
+ * Empty state for the device list, mirroring the admin site's (issue #1099).
+ *
+ * A missed MAC search is the case that matters: vendor apps frequently print a
+ * device's *Bluetooth* MAC while it associates over Wi-Fi under a different
+ * address, so the nearest addresses are offered as clearly-labelled guesses
+ * rather than leaving the admin unable to tell "absent" from "wrong
+ * identifier".
+ */
+function NoDevicesFound({
+  query,
+  matchesAnywhere,
+  neighbours,
+  onSelect,
+}: {
+  query: string;
+  matchesAnywhere: boolean;
+  neighbours: ReturnType<typeof findNeighbourMacs>;
+  onSelect: (id: string) => void;
+}) {
+  if (query.trim() === "") {
+    return (
+      <Text as="p" size="sm" className="py-16 text-center text-ink-3">
+        No devices match this filter.
+      </Text>
+    );
+  }
+
+  // Present, just filtered out by the online/vpn pill — not missing.
+  if (matchesAnywhere) {
+    return (
+      <Text as="p" size="sm" className="py-16 text-center text-ink-3">
+        No devices in this filter match “{query}”.
+      </Text>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2 py-12 text-center">
+      <Text as="p" size="sm" weight="medium" className="text-ink">
+        No device matches “{query}”.
+      </Text>
+      <Text as="p" size="sm" className="text-ink-3">
+        {neighbours.length > 0
+          ? "Vendor apps often show a device’s Bluetooth MAC, which usually differs from its Wi-Fi MAC by one or two. These are possible matches, not confirmed ones."
+          : "If you copied this from a vendor’s app it may be the Bluetooth MAC, not the Wi-Fi one. Try just the first three pairs."}
+      </Text>
+      {neighbours.length > 0 && (
+        <div className="mt-1 flex w-full flex-col divide-y divide-line rounded-xl border border-line bg-card text-left">
+          {neighbours.map(({ device, offset }) => (
+            <button
+              key={device.id}
+              type="button"
+              data-testid={`neighbour-match-${device.mac}`}
+              onClick={() => onSelect(device.id)}
+              className="flex items-center justify-between px-4 py-3 active:bg-sunken"
+            >
+              <Text as="span" size="sm" className="font-mono text-ink">
+                {device.mac}
+              </Text>
+              <Text as="span" size="xs" className="text-ink-3">
+                {deviceDisplayName(device)} ({offset > 0 ? "+" : ""}
+                {offset})
+              </Text>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Devices() {
   const { data: devicesData, isLoading: devicesLoading } = useDevices();
   const { data: tunnelsData } = useTunnels();
@@ -218,6 +293,10 @@ export default function Devices() {
   const { showingLastKnownState } = useOnlineStatusContext();
 
   const [filter, setFilter] = useState<Filter>("all");
+  // The admin standing next to a gadget with the vendor app open is holding a
+  // phone, so this surface needs the MAC search at least as much as the
+  // desktop one does (issue #1099).
+  const [query, setQuery] = useState("");
   const [selectedDeviceId, setSelectedDeviceId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [selectedPeer, setSelectedPeer] = useState<InboundWgPeerSummary | null>(
@@ -272,11 +351,31 @@ export default function Devices() {
   const visible = useMemo(
     () =>
       sortAnnotated(
-        annotated.filter((a) =>
-          filter === "online" ? a.online : filter === "vpn" ? a.onVpn : true,
+        annotated.filter(
+          (a) =>
+            (filter === "online"
+              ? a.online
+              : filter === "vpn"
+                ? a.onVpn
+                : true) && matchesDevice(a.device, query),
         ),
       ),
-    [annotated, filter],
+    [annotated, filter, query],
+  );
+
+  // Whether the query matches anything at all, ignoring the online/vpn pill —
+  // a device hidden by a filter is present, not missing, and must not trigger
+  // the "this may be the Bluetooth MAC" dead-end copy.
+  const matchesAnywhere = useMemo(
+    () => allDevices.some((d) => matchesDevice(d, query)),
+    [allDevices, query],
+  );
+
+  // Near-miss candidates for a MAC that matched nothing — see the desktop
+  // Devices page for why a vendor app's MAC often is not the Wi-Fi one.
+  const neighbours = useMemo(
+    () => (matchesAnywhere ? [] : findNeighbourMacs(allDevices, query)),
+    [matchesAnywhere, allDevices, query],
   );
 
   const handleDeviceClick = useCallback((id: string) => {
@@ -363,6 +462,24 @@ export default function Devices() {
       >
         <NewDevicesSection onSelect={handleDeviceClick} />
 
+        {/* Search — MAC matching is format-tolerant and prefix-capable */}
+        <input
+          type="search"
+          inputMode="search"
+          data-testid="device-search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search name, MAC, hostname or IP"
+          aria-label="Search devices"
+          className={
+            /* ds-typography-allow: native form control — it cannot be wrapped
+               in <Text>, and the size is a functional constraint rather than a
+               style choice: iOS Safari zooms the viewport on focus for any
+               input below 16px, which would jolt the page mid-search. */
+            "mb-3 w-full rounded-lg bg-sunken px-3 py-2 text-[16px] text-ink placeholder:text-ink-4 focus:outline-none focus:ring-2 focus:ring-accent"
+          }
+        />
+
         {/* Filter pills */}
         <div className="mb-3 flex gap-2 overflow-x-auto pb-1">
           {(["all", "online", "vpn"] as Filter[]).map((id) => (
@@ -387,9 +504,12 @@ export default function Devices() {
 
         {/* Device list */}
         {visible.length === 0 ? (
-          <Text as="p" size="sm" className="py-16 text-center text-ink-3">
-            No devices match this filter.
-          </Text>
+          <NoDevicesFound
+            query={query}
+            matchesAnywhere={matchesAnywhere}
+            neighbours={neighbours}
+            onSelect={handleDeviceClick}
+          />
         ) : (
           <div className="flex flex-col divide-y divide-line rounded-xl border border-line bg-card">
             {visible.map(({ device, online }) => (

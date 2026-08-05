@@ -699,6 +699,27 @@ func (e LastShutdownState) Valid() bool {
 	}
 }
 
+// Defines values for ManufacturerSource.
+const (
+	Catalog ManufacturerSource = "catalog"
+	Ieee    ManufacturerSource = "ieee"
+	Signal  ManufacturerSource = "signal"
+)
+
+// Valid indicates whether the value is a known member of the ManufacturerSource enum.
+func (e ManufacturerSource) Valid() bool {
+	switch e {
+	case Catalog:
+		return true
+	case Ieee:
+		return true
+	case Signal:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Proto.
 const (
 	ProtoTcp Proto = "tcp"
@@ -1481,7 +1502,12 @@ type BestServerSelector struct {
 
 // Blocklist A URL-sourced domain blocklist scoped to a DNS filter profile.
 type Blocklist struct {
-	CreatedAt time.Time `json:"created_at"`
+	// ConsecutiveFailures Failed refresh attempts since the last success, zeroed by any
+	// successful refresh. Drives the cron runner's exponential backoff:
+	// a failure leaves `last_updated` untouched, so without this the
+	// every-minute tick would keep re-downloading a broken feed forever.
+	ConsecutiveFailures int32     `json:"consecutive_failures"`
+	CreatedAt           time.Time `json:"created_at"`
 
 	// CronSchedule Cron expression for update schedule (e.g. "0 3 * * *").
 	CronSchedule string             `json:"cron_schedule"`
@@ -2011,11 +2037,17 @@ type Device struct {
 	FirstSeen          time.Time          `json:"first_seen"`
 	Hostname           *string            `json:"hostname,omitempty"`
 	Id                 openapi_types.UUID `json:"id"`
-	LastIp             string             `json:"last_ip"`
-	LastSeen           time.Time          `json:"last_seen"`
-	Mac                string             `json:"mac"`
-	Manufacturer       *string            `json:"manufacturer,omitempty"`
-	Name               *string            `json:"name,omitempty"`
+
+	// IsRandomized Whether `mac` is locally administered (a privacy/randomized address).
+	// Deliberately separate from `manufacturer`: it says how the device
+	// presents itself, not who built it.
+	IsRandomized       bool                `json:"is_randomized"`
+	LastIp             string              `json:"last_ip"`
+	LastSeen           time.Time           `json:"last_seen"`
+	Mac                string              `json:"mac"`
+	Manufacturer       *string             `json:"manufacturer,omitempty"`
+	ManufacturerSource *ManufacturerSource `json:"manufacturer_source,omitempty"`
+	Name               *string             `json:"name,omitempty"`
 
 	// ZoneId The Network Zone this device belongs to (exactly one). Sticky: set from
 	// the default-for-new zone at discovery-insert time; never resolved at read
@@ -2138,11 +2170,17 @@ type DeviceWithStatus struct {
 	FirstSeen          time.Time          `json:"first_seen"`
 	Hostname           *string            `json:"hostname,omitempty"`
 	Id                 openapi_types.UUID `json:"id"`
-	LastIp             string             `json:"last_ip"`
-	LastSeen           time.Time          `json:"last_seen"`
-	Mac                string             `json:"mac"`
-	Manufacturer       *string            `json:"manufacturer,omitempty"`
-	Name               *string            `json:"name,omitempty"`
+
+	// IsRandomized Whether `mac` is locally administered (a privacy/randomized address).
+	// Deliberately separate from `manufacturer`: it says how the device
+	// presents itself, not who built it.
+	IsRandomized       bool                `json:"is_randomized"`
+	LastIp             string              `json:"last_ip"`
+	LastSeen           time.Time           `json:"last_seen"`
+	Mac                string              `json:"mac"`
+	Manufacturer       *string             `json:"manufacturer,omitempty"`
+	ManufacturerSource *ManufacturerSource `json:"manufacturer_source,omitempty"`
+	Name               *string             `json:"name,omitempty"`
 
 	// ZoneId The Network Zone this device belongs to (exactly one). Sticky: set from
 	// the default-for-new zone at discovery-insert time; never resolved at read
@@ -3040,6 +3078,10 @@ type LoginResponse struct {
 	Message          string `json:"message"`
 	Token            string `json:"token"`
 }
+
+// ManufacturerSource Where a device's manufacturer name came from, which is what licenses the UI
+// to state it as fact or hedge it (issue #1099).
+type ManufacturerSource string
 
 // MeResponse Response for GET /api/users/me.
 type MeResponse struct {
@@ -6597,7 +6639,7 @@ type ClientInterface interface {
 
 	// NotifyDevice performs a POST /api/private-dns/grants/{device_id}/notify (the `NotifyDevice` operationId) request.
 	//
-	// Send a device-keyed push nudging the granted device's household member to set up Private DNS. The notification deep-links the user PWA to `/private-dns`. Returns `delivered: true` when at least one push subscription for the device was targeted, and `delivered: false` (a 200, not an error) when the device holds a grant but has no subscription — the member simply hasn't enabled notifications yet. Returns 404 when the device has no grant. Admin only.
+	// Send a device-keyed push nudging the granted device's household member to set up Private DNS. The notification deep-links the user PWA to `/settings#private-dns`, where the Private DNS card carries the setup steps. Returns `delivered: true` when at least one push subscription for the device was targeted, and `delivered: false` (a 200, not an error) when the device holds a grant but has no subscription — the member simply hasn't enabled notifications yet. Returns 404 when the device has no grant. Admin only.
 	NotifyDevice(ctx context.Context, deviceId openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PrivateDnsGetMe performs a GET /api/private-dns/me (the `PrivateDnsGetMe` operationId) request.
@@ -9449,7 +9491,7 @@ func (c *Client) DeleteGrant(ctx context.Context, deviceId openapi_types.UUID, r
 
 // NotifyDevice performs a POST /api/private-dns/grants/{device_id}/notify (the `NotifyDevice` operationId) request.
 //
-// Send a device-keyed push nudging the granted device's household member to set up Private DNS. The notification deep-links the user PWA to `/private-dns`. Returns `delivered: true` when at least one push subscription for the device was targeted, and `delivered: false` (a 200, not an error) when the device holds a grant but has no subscription — the member simply hasn't enabled notifications yet. Returns 404 when the device has no grant. Admin only.
+// Send a device-keyed push nudging the granted device's household member to set up Private DNS. The notification deep-links the user PWA to `/settings#private-dns`, where the Private DNS card carries the setup steps. Returns `delivered: true` when at least one push subscription for the device was targeted, and `delivered: false` (a 200, not an error) when the device holds a grant but has no subscription — the member simply hasn't enabled notifications yet. Returns 404 when the device has no grant. Admin only.
 func (c *Client) NotifyDevice(ctx context.Context, deviceId openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewNotifyDeviceRequest(c.Server, deviceId)
 	if err != nil {
@@ -18120,7 +18162,7 @@ type ClientWithResponsesInterface interface {
 
 	// NotifyDeviceWithResponse performs a POST /api/private-dns/grants/{device_id}/notify (the `NotifyDevice` operationId) request.
 	//
-	// Send a device-keyed push nudging the granted device's household member to set up Private DNS. The notification deep-links the user PWA to `/private-dns`. Returns `delivered: true` when at least one push subscription for the device was targeted, and `delivered: false` (a 200, not an error) when the device holds a grant but has no subscription — the member simply hasn't enabled notifications yet. Returns 404 when the device has no grant. Admin only.
+	// Send a device-keyed push nudging the granted device's household member to set up Private DNS. The notification deep-links the user PWA to `/settings#private-dns`, where the Private DNS card carries the setup steps. Returns `delivered: true` when at least one push subscription for the device was targeted, and `delivered: false` (a 200, not an error) when the device holds a grant but has no subscription — the member simply hasn't enabled notifications yet. Returns 404 when the device has no grant. Admin only.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	NotifyDeviceWithResponse(ctx context.Context, deviceId openapi_types.UUID, reqEditors ...RequestEditorFn) (*NotifyDeviceResp, error)
@@ -38774,7 +38816,7 @@ func (c *ClientWithResponses) DeleteGrantWithResponse(ctx context.Context, devic
 
 // NotifyDeviceWithResponse performs a POST /api/private-dns/grants/{device_id}/notify (the `NotifyDevice` operationId) request.
 //
-// Send a device-keyed push nudging the granted device's household member to set up Private DNS. The notification deep-links the user PWA to `/private-dns`. Returns `delivered: true` when at least one push subscription for the device was targeted, and `delivered: false` (a 200, not an error) when the device holds a grant but has no subscription — the member simply hasn't enabled notifications yet. Returns 404 when the device has no grant. Admin only.
+// Send a device-keyed push nudging the granted device's household member to set up Private DNS. The notification deep-links the user PWA to `/settings#private-dns`, where the Private DNS card carries the setup steps. Returns `delivered: true` when at least one push subscription for the device was targeted, and `delivered: false` (a 200, not an error) when the device holds a grant but has no subscription — the member simply hasn't enabled notifications yet. Returns 404 when the device has no grant. Admin only.
 //
 // Returns a wrapper object for the known response body format(s).
 func (c *ClientWithResponses) NotifyDeviceWithResponse(ctx context.Context, deviceId openapi_types.UUID, reqEditors ...RequestEditorFn) (*NotifyDeviceResp, error) {

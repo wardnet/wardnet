@@ -64,6 +64,7 @@ use crate::backup::archiver::AgeArchiver;
 use crate::ddns::{DdnsServiceImpl, DdnsSettings};
 use crate::device::DeviceServiceImpl;
 use crate::device::discovery::DeviceDiscoveryServiceImpl;
+use crate::device::identification::{DeviceIdentificationService, DeviceIdentificationServiceImpl};
 use crate::dhcp::DhcpServiceImpl;
 use crate::dns::DnsServiceImpl;
 use crate::dns_filter::DnsFilterServiceImpl;
@@ -229,6 +230,9 @@ pub struct Services {
     /// `TlsRenewalRunner`; also called by the wizard (C9) and Settings (C10).
     pub tls: Arc<dyn TlsService>,
     pub discovery: Arc<dyn DeviceDiscoveryService>,
+    /// Records observed identification signals (DHCP options, mDNS, probes)
+    /// and resolves them to a vendor via the curated catalog (issue #1099).
+    pub device_identification: Arc<dyn DeviceIdentificationService>,
     /// Lock-free IP → device-id map for the DNS hot path (write-time device
     /// attribution of query logs and stats). Rebuilt by the device-snapshot
     /// listener on device lifecycle events.
@@ -515,6 +519,12 @@ fn create_services(
         event_publisher.clone(),
     ));
 
+    let device_identification_service: Arc<dyn DeviceIdentificationService> =
+        Arc::new(DeviceIdentificationServiceImpl::new(
+            repo_factory.device_identification(),
+            device_repo.clone(),
+        ));
+
     let network_zone_service: Arc<dyn NetworkZoneService> = Arc::new(NetworkZoneServiceImpl::new(
         network_zone_repo.clone(),
         device_repo.clone(),
@@ -792,6 +802,7 @@ fn create_services(
         tls,
         log: log_service,
         discovery: discovery_service,
+        device_identification: device_identification_service,
         device_ip_snapshot,
         vpn_provider: vpn_provider_service,
         routing: routing_service,

@@ -108,6 +108,8 @@ fn sample_device() -> Device {
         name: None,
         hostname: None,
         manufacturer: None,
+        manufacturer_source: None,
+        is_randomized: false,
         device_type: DeviceType::Unknown,
         first_seen: chrono::Utc::now(),
         last_seen: chrono::Utc::now(),

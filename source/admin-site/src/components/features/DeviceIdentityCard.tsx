@@ -1,6 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
 import { Text } from "@wardnet/web";
-import { timeAgo } from "@wardnet/web";
+import { manufacturerDisplay, timeAgo } from "@wardnet/web";
 import type { Device } from "@wardnet/js";
 
 interface DeviceIdentityCardProps {
@@ -9,6 +9,7 @@ interface DeviceIdentityCardProps {
 
 /** Read-only identity card: MAC, hostname, manufacturer, first/last seen. */
 export function DeviceIdentityCard({ device }: DeviceIdentityCardProps) {
+  const manufacturer = manufacturerDisplay(device);
   return (
     <Card>
       <CardHeader>
@@ -28,7 +29,19 @@ export function DeviceIdentityCard({ device }: DeviceIdentityCardProps) {
             >
               MAC
             </Text>
-            <dd className="font-mono">{device.mac}</dd>
+            <dd>
+              <span className="font-mono">{device.mac}</span>
+              {device.is_randomized && (
+                <Text
+                  as="span"
+                  size="xs"
+                  className="ml-2 rounded bg-surface-2 px-1.5 py-0.5 text-ink-3"
+                  title="This device presents a randomized (private) MAC address to avoid being tracked across networks. It is not the address burned in by its manufacturer."
+                >
+                  Randomized
+                </Text>
+              )}
+            </dd>
           </div>
           <div>
             <Text
@@ -48,7 +61,12 @@ export function DeviceIdentityCard({ device }: DeviceIdentityCardProps) {
             >
               Manufacturer
             </Text>
-            <dd>{device.manufacturer ?? "-"}</dd>
+            <dd
+              className={manufacturer.unknown ? "text-ink-3" : undefined}
+              title={manufacturer.hint ?? undefined}
+            >
+              {manufacturer.label}
+            </dd>
           </div>
           <div>
             <Text

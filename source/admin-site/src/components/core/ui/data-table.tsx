@@ -84,8 +84,13 @@ export function RowAction({
 interface DataTableProps<TData, TValue> {
   columns: ColumnDef<TData, TValue>[];
   data: TData[];
-  /** Message shown when the table has no rows. */
-  emptyMessage?: string;
+  /**
+   * Shown when the table has no rows. Usually a plain string; accepts a node
+   * so a table can explain *why* it is empty and offer a way forward — see the
+   * Devices page, where a missed MAC search suggests near-miss candidates
+   * (issue #1099) — without bolting a separate panel below the grid.
+   */
+  emptyMessage?: ReactNode;
   /** Optional click handler per row. */
   onRowClick?: (row: TData) => void;
   /**

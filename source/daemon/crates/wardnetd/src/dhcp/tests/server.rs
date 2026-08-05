@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use dhcproto::v4::{DhcpOption, Message, MessageType, Opcode};
+use dhcproto::v4::{DhcpOption, Message, MessageType, Opcode, OptionCode};
 use dhcproto::{Decodable, Decoder, Encodable, Encoder};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -14,6 +14,7 @@ use wardnet_common::api::{
     PreviewDhcpConfigRequest, PreviewDhcpConfigResponse, RevokeDhcpLeaseResponse,
     ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
+use wardnet_common::device::DeviceSignalKind;
 use wardnet_common::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseStatus, DhcpScope};
 
 use crate::dhcp::server::{self, UdpDhcpServer};
@@ -382,7 +383,15 @@ async fn run_server_loop_until_idle(
     let own_macs = Arc::new(HashSet::new());
 
     let handle = tokio::spawn(async move {
-        server::server_loop(socket_dyn, service, running_clone, cancel_clone, own_macs).await;
+        server::server_loop(
+            socket_dyn,
+            service,
+            None,
+            running_clone,
+            cancel_clone,
+            own_macs,
+        )
+        .await;
     });
 
     // Give the loop time to process all queued packets.
@@ -441,6 +450,76 @@ fn extract_hostname_returns_none_when_absent() {
     let msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
     let hostname = crate::dhcp::server::extract_hostname(&msg);
     assert_eq!(hostname, None);
+}
+
+#[test]
+fn extract_param_list_preserves_client_ordering() {
+    // Option 55's identifying property is the ORDER the client asks in, not the
+    // set of codes — that ordering is what makes it a device-class fingerprint
+    // (issue #1099). Sorting or de-duplicating here would destroy the signal.
+    let mut msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    msg.opts_mut().insert(DhcpOption::ParameterRequestList(vec![
+        OptionCode::SubnetMask,
+        OptionCode::Router,
+        OptionCode::DomainNameServer,
+    ]));
+
+    assert_eq!(
+        crate::dhcp::server::extract_param_list(&msg),
+        Some("1,3,6".to_owned())
+    );
+}
+
+#[test]
+fn extract_param_list_returns_none_when_absent_or_empty() {
+    let msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    assert_eq!(crate::dhcp::server::extract_param_list(&msg), None);
+
+    let mut empty = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    empty
+        .opts_mut()
+        .insert(DhcpOption::ParameterRequestList(vec![]));
+    assert_eq!(crate::dhcp::server::extract_param_list(&empty), None);
+}
+
+#[test]
+fn extract_vendor_class_reads_option_60() {
+    let mut msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    msg.opts_mut()
+        .insert(DhcpOption::ClassIdentifier(b"ubnt-unifi-ap".to_vec()));
+
+    assert_eq!(
+        crate::dhcp::server::extract_vendor_class(&msg),
+        Some("ubnt-unifi-ap".to_owned())
+    );
+}
+
+#[test]
+fn extract_vendor_class_survives_non_utf8_bytes() {
+    // Option 60 is a byte string with no encoding guarantee. A mangled
+    // character still gives the vendor catalog a usable substring to match,
+    // whereas dropping the option loses the only vendor tell some devices emit.
+    let mut msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    msg.opts_mut()
+        .insert(DhcpOption::ClassIdentifier(vec![b'u', b'b', 0xff, b'n']));
+
+    let class = crate::dhcp::server::extract_vendor_class(&msg);
+    assert!(
+        class.is_some_and(|c| c.starts_with("ub")),
+        "non-UTF-8 vendor class should degrade, not vanish"
+    );
+}
+
+#[test]
+fn extract_vendor_class_returns_none_when_absent_or_blank() {
+    let msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    assert_eq!(crate::dhcp::server::extract_vendor_class(&msg), None);
+
+    let mut blank = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    blank
+        .opts_mut()
+        .insert(DhcpOption::ClassIdentifier(b"   ".to_vec()));
+    assert_eq!(crate::dhcp::server::extract_vendor_class(&blank), None);
 }
 
 #[test]
@@ -986,7 +1065,15 @@ async fn server_loop_ignores_discover_from_own_mac() {
     let own_macs = Arc::new(HashSet::from([server::format_mac(&own_chaddr)]));
 
     let handle = tokio::spawn(async move {
-        server::server_loop(socket_dyn, service, running_clone, cancel_clone, own_macs).await;
+        server::server_loop(
+            socket_dyn,
+            service,
+            None,
+            running_clone,
+            cancel_clone,
+            own_macs,
+        )
+        .await;
     });
 
     for _ in 0..20 {
@@ -1292,7 +1379,15 @@ async fn server_loop_stops_on_cancellation() {
     let own_macs = Arc::new(HashSet::new());
 
     let handle = tokio::spawn(async move {
-        server::server_loop(socket_dyn, service, running_clone, cancel_clone, own_macs).await;
+        server::server_loop(
+            socket_dyn,
+            service,
+            None,
+            running_clone,
+            cancel_clone,
+            own_macs,
+        )
+        .await;
     });
 
     // Immediately cancel.
@@ -1623,7 +1718,15 @@ async fn server_loop_continues_after_recv_error() {
     let own_macs = Arc::new(HashSet::new());
 
     let handle = tokio::spawn(async move {
-        server::server_loop(socket_dyn, service, running_clone, cancel_clone, own_macs).await;
+        server::server_loop(
+            socket_dyn,
+            service,
+            None,
+            running_clone,
+            cancel_clone,
+            own_macs,
+        )
+        .await;
     });
 
     // Give the loop time to hit the error and continue.
@@ -1951,4 +2054,122 @@ async fn udp_server_restart_cycle() {
     server.stop().await.unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     assert!(!server.is_running());
+}
+
+/// Records every signal a DHCP message carries, so the spawned recorder can be
+/// asserted on without racing it.
+struct RecordingIdentification {
+    seen: Arc<std::sync::Mutex<Vec<(String, DeviceSignalKind, String)>>>,
+    /// When true, every call fails — the recorder must swallow it.
+    fail: bool,
+}
+
+#[async_trait]
+impl wardnetd_services::device::DeviceIdentificationService for RecordingIdentification {
+    async fn record_signal(
+        &self,
+        _device_id: &str,
+        _kind: DeviceSignalKind,
+        _value: &str,
+    ) -> Result<(), AppError> {
+        unimplemented!("the DHCP path records by MAC")
+    }
+
+    async fn record_signal_for_mac(
+        &self,
+        mac: &str,
+        kind: DeviceSignalKind,
+        value: &str,
+    ) -> Result<(), AppError> {
+        if self.fail {
+            return Err(AppError::Internal(anyhow::anyhow!("boom")));
+        }
+        self.seen
+            .lock()
+            .unwrap()
+            .push((mac.to_owned(), kind, value.to_owned()));
+        Ok(())
+    }
+
+    async fn signals_for(
+        &self,
+        _device_id: &str,
+    ) -> Result<Vec<wardnet_common::device::DeviceSignal>, AppError> {
+        unimplemented!("not exercised by the DHCP path")
+    }
+
+    async fn reconcile_from_catalog(&self) -> Result<usize, AppError> {
+        unimplemented!("not exercised by the DHCP path")
+    }
+}
+
+/// Build a DISCOVER carrying all three identification-bearing options.
+fn build_discover_with_signals(mac: [u8; 6]) -> Message {
+    let mut msg = build_discover(mac);
+    msg.opts_mut().insert(DhcpOption::ParameterRequestList(vec![
+        OptionCode::SubnetMask,
+        OptionCode::Router,
+    ]));
+    msg.opts_mut()
+        .insert(DhcpOption::ClassIdentifier(b"ubnt-unifi-ap".to_vec()));
+    msg
+}
+
+#[tokio::test]
+async fn record_dhcp_signals_captures_hostname_param_list_and_vendor_class() {
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let svc: Arc<dyn wardnetd_services::device::DeviceIdentificationService> =
+        Arc::new(RecordingIdentification {
+            seen: Arc::clone(&seen),
+            fail: false,
+        });
+    let msg = build_discover_with_signals([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+
+    let handle = server::record_dhcp_signals(Some(&svc), &msg, "aa:bb:cc:dd:ee:ff")
+        .expect("signals present, so a task should be spawned");
+    handle.await.unwrap();
+
+    let seen = seen.lock().unwrap().clone();
+    assert_eq!(seen.len(), 3, "hostname + option 55 + option 60");
+    assert!(seen.iter().all(|(m, _, _)| m == "aa:bb:cc:dd:ee:ff"));
+    assert!(
+        seen.iter()
+            .any(|(_, k, v)| *k == DeviceSignalKind::DhcpParamList && v == "1,3"),
+        "option 55 must keep the client's ordering: {seen:?}"
+    );
+    assert!(
+        seen.iter()
+            .any(|(_, k, v)| *k == DeviceSignalKind::DhcpVendorClass && v == "ubnt-unifi-ap"),
+    );
+}
+
+#[tokio::test]
+async fn record_dhcp_signals_is_a_no_op_without_an_identification_service() {
+    let msg = build_discover_with_signals([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    assert!(server::record_dhcp_signals(None, &msg, "aa:bb:cc:dd:ee:ff").is_none());
+}
+
+#[tokio::test]
+async fn record_dhcp_signals_spawns_nothing_when_the_message_carries_none() {
+    // A bare REQUEST has no hostname, no option 55 and no option 60.
+    let seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let svc: Arc<dyn wardnetd_services::device::DeviceIdentificationService> =
+        Arc::new(RecordingIdentification { seen, fail: false });
+    let msg = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+
+    assert!(server::record_dhcp_signals(Some(&svc), &msg, "aa:bb:cc:dd:ee:ff").is_none());
+}
+
+#[tokio::test]
+async fn a_failing_signal_write_is_swallowed() {
+    // Recording is best-effort: the lease must not depend on it.
+    let svc: Arc<dyn wardnetd_services::device::DeviceIdentificationService> =
+        Arc::new(RecordingIdentification {
+            seen: Arc::new(std::sync::Mutex::new(Vec::new())),
+            fail: true,
+        });
+    let msg = build_discover_with_signals([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+
+    let handle = server::record_dhcp_signals(Some(&svc), &msg, "aa:bb:cc:dd:ee:ff").unwrap();
+    handle.await.expect("the recorder must not panic on error");
 }

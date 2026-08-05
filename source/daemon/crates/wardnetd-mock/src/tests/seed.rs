@@ -8,6 +8,8 @@ use wardnetd_data::{
     RepositoryFactory, SqliteRepositoryFactory, db::init_pool_from_connection_string,
 };
 
+use wardnet_common::device::ManufacturerSource;
+
 use crate::seed::populate;
 
 #[tokio::test]
@@ -24,12 +26,47 @@ async fn populate_inserts_expected_demo_data() {
         .await
         .expect("populate should succeed");
 
-    assert_eq!(ids.device_ids.len(), 10, "should seed 10 devices");
+    assert_eq!(ids.device_ids.len(), 13, "should seed 13 devices");
     assert_eq!(ids.tunnel_ids.len(), 3, "should seed 3 tunnels");
 
     // Verify via repository reads.
     let devices = factory.device().find_all().await.unwrap();
-    assert_eq!(devices.len(), 10);
+    assert_eq!(devices.len(), 13);
+
+    // The seed must cover every manufacturer state the UI renders, or local
+    // dev never exercises them (issue #1099).
+    let by_mac = |mac: &str| {
+        devices
+            .iter()
+            .find(|d| d.mac == mac)
+            .unwrap_or_else(|| panic!("seed should contain {mac}"))
+            .clone()
+    };
+
+    // A public IEEE registrant, stated as fact.
+    let ieee = by_mac("a8:bb:cc:11:22:01");
+    assert_eq!(ieee.manufacturer.as_deref(), Some("Apple Inc."));
+    assert_eq!(ieee.manufacturer_source, Some(ManufacturerSource::Ieee));
+    assert!(
+        !ieee.is_randomized,
+        "demo MACs must be universally administered — 0xAA would set the \
+         locally-administered bit and flag every device a privacy MAC"
+    );
+
+    // A block the IEEE lists as `Private`, named only by the curated catalog
+    // and therefore rendered as a hedge.
+    let catalog = by_mac("5c:e7:53:4e:ec:d9");
+    assert_eq!(catalog.manufacturer.as_deref(), Some("Govee"));
+    assert_eq!(
+        catalog.manufacturer_source,
+        Some(ManufacturerSource::Catalog)
+    );
+
+    // A privacy MAC: flagged, and with no manufacturer invented for it.
+    let randomized = by_mac("02:1a:2b:3c:4d:5e");
+    assert!(randomized.is_randomized);
+    assert_eq!(randomized.manufacturer, None);
+    assert_eq!(randomized.manufacturer_source, None);
 
     let tunnels = factory.tunnel().find_all().await.unwrap();
     assert_eq!(tunnels.len(), 3);

@@ -12,8 +12,10 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
+use wardnet_common::device::DeviceSignalKind;
 use wardnet_common::dhcp::{DhcpLease, DhcpScope};
 use wardnetd_services::auth_context;
+use wardnetd_services::device::DeviceIdentificationService;
 use wardnetd_services::dhcp::DhcpService;
 use wardnetd_services::dhcp::server::{DhcpServer, DhcpSocket};
 use wardnetd_services::error::AppError;
@@ -61,6 +63,12 @@ impl DhcpSocket for UdpDhcpSocket {
 pub struct UdpDhcpServer {
     /// Service for lease management.
     service: Arc<dyn DhcpService>,
+    /// Records DHCP options 55/60 as identification signals (issue #1099).
+    ///
+    /// Optional so tests that only exercise the lease protocol can leave it
+    /// out; production always supplies it. Recording is best-effort — a failed
+    /// signal write must never fail the lease.
+    identification: Option<Arc<dyn DeviceIdentificationService>>,
     /// Address to bind the UDP socket to.
     bind_addr: SocketAddr,
     /// Pre-injected socket (used in tests). When `None`, `start()` binds a new one.
@@ -82,6 +90,19 @@ impl UdpDhcpServer {
         Self::with_bind_addr(service, SocketAddr::from(([0, 0, 0, 0], 67)))
     }
 
+    /// Attach the identification service that receives DHCP options 55/60.
+    ///
+    /// Builder-style rather than a constructor parameter so the many existing
+    /// test constructions stay untouched.
+    #[must_use]
+    pub fn with_identification(
+        mut self,
+        identification: Arc<dyn DeviceIdentificationService>,
+    ) -> Self {
+        self.identification = Some(identification);
+        self
+    }
+
     /// Create a new DHCP server that binds to the given address.
     ///
     /// Use `127.0.0.1:0` in tests so the OS assigns an ephemeral port and
@@ -95,6 +116,7 @@ impl UdpDhcpServer {
             running: Arc::new(AtomicBool::new(false)),
             cancel: Mutex::new(CancellationToken::new()),
             handle: Mutex::new(None),
+            identification: None,
             local_addr: Arc::new(std::sync::Mutex::new(None)),
         }
     }
@@ -112,6 +134,7 @@ impl UdpDhcpServer {
             running: Arc::new(AtomicBool::new(false)),
             cancel: Mutex::new(CancellationToken::new()),
             handle: Mutex::new(None),
+            identification: None,
             local_addr: Arc::new(std::sync::Mutex::new(None)),
         }
     }
@@ -159,6 +182,7 @@ impl DhcpServer for UdpDhcpServer {
         };
 
         let service = Arc::clone(&self.service);
+        let identification = self.identification.clone();
         let running = Arc::clone(&self.running);
 
         // The daemon's own interfaces (including ones other than the LAN
@@ -181,7 +205,15 @@ impl DhcpServer for UdpDhcpServer {
         running.store(true, Ordering::SeqCst);
 
         let handle = tokio::spawn(async move {
-            server_loop(socket, service, running.clone(), cancel, own_macs).await;
+            server_loop(
+                socket,
+                service,
+                identification,
+                running.clone(),
+                cancel,
+                own_macs,
+            )
+            .await;
             running.store(false, Ordering::SeqCst);
             tracing::info!("DHCP server loop exited");
         });
@@ -218,6 +250,7 @@ impl DhcpServer for UdpDhcpServer {
 pub(crate) async fn server_loop(
     socket: Arc<dyn DhcpSocket>,
     service: Arc<dyn DhcpService>,
+    identification: Option<Arc<dyn DeviceIdentificationService>>,
     running: Arc<AtomicBool>,
     cancel: CancellationToken,
     own_macs: Arc<HashSet<String>>,
@@ -287,33 +320,39 @@ pub(crate) async fn server_loop(
         }
 
         match msg_type {
-            MessageType::Discover => match handle_discover(&service, &msg, &mac).await {
-                Ok(response) => {
-                    // DHCP OFFERs must be broadcast — the client has no IP yet
-                    // and can only receive broadcast packets.
-                    let broadcast = SocketAddr::from(([255, 255, 255, 255], 68));
-                    send_response(socket.as_ref(), &response, broadcast).await;
+            MessageType::Discover => {
+                let _ = record_dhcp_signals(identification.as_ref(), &msg, &mac);
+                match handle_discover(&service, &msg, &mac).await {
+                    Ok(response) => {
+                        // DHCP OFFERs must be broadcast — the client has no IP yet
+                        // and can only receive broadcast packets.
+                        let broadcast = SocketAddr::from(([255, 255, 255, 255], 68));
+                        send_response(socket.as_ref(), &response, broadcast).await;
+                    }
+                    Err(e) => {
+                        tracing::error!(%mac, error = %e, "failed to handle DHCPDISCOVER for {mac}: {e}");
+                    }
                 }
-                Err(e) => {
-                    tracing::error!(%mac, error = %e, "failed to handle DHCPDISCOVER for {mac}: {e}");
+            }
+            MessageType::Request => {
+                let _ = record_dhcp_signals(identification.as_ref(), &msg, &mac);
+                match handle_request(&service, &msg, &mac).await {
+                    Ok(response) => {
+                        // If the client is requesting from 0.0.0.0 (new lease), send
+                        // via broadcast. Renewals come from the client's existing IP
+                        // and can be unicast.
+                        let dest = if src_addr.ip().is_unspecified() {
+                            SocketAddr::from(([255, 255, 255, 255], 68))
+                        } else {
+                            src_addr
+                        };
+                        send_response(socket.as_ref(), &response, dest).await;
+                    }
+                    Err(e) => {
+                        tracing::error!(%mac, error = %e, "failed to handle DHCPREQUEST for {mac}: {e}");
+                    }
                 }
-            },
-            MessageType::Request => match handle_request(&service, &msg, &mac).await {
-                Ok(response) => {
-                    // If the client is requesting from 0.0.0.0 (new lease), send
-                    // via broadcast. Renewals come from the client's existing IP
-                    // and can be unicast.
-                    let dest = if src_addr.ip().is_unspecified() {
-                        SocketAddr::from(([255, 255, 255, 255], 68))
-                    } else {
-                        src_addr
-                    };
-                    send_response(socket.as_ref(), &response, dest).await;
-                }
-                Err(e) => {
-                    tracing::error!(%mac, error = %e, "failed to handle DHCPREQUEST for {mac}: {e}");
-                }
-            },
+            }
             MessageType::Release => {
                 handle_release(&service, &msg, &mac, src_addr).await;
             }
@@ -674,6 +713,110 @@ pub(crate) fn extract_hostname(msg: &Message) -> Option<String> {
     for (_code, opt) in msg.opts().iter() {
         if let DhcpOption::Hostname(h) = opt {
             return Some(h.clone());
+        }
+    }
+    None
+}
+
+/// Record whatever identification signals this DHCP message carries.
+///
+/// Best-effort by design: a failure here is logged and swallowed, never
+/// propagated. A device must still get its lease if we cannot write an
+/// observability row (issue #1099).
+///
+/// Deliberately spawned rather than awaited on the packet path. Recording costs
+/// a MAC lookup plus up to three upserts against the *writer* pool; awaiting it
+/// would put an observability side-effect in front of every OFFER and ACK, so a
+/// slow writer (a blocklist bulk import, say) would delay leases. DHCP clients
+/// retry, but a lease that arrives late for a reason unrelated to leasing is
+/// exactly the coupling to avoid.
+///
+/// Runs under an explicit admin [`AuthContext`] because the identification
+/// service is auth-gated like every other service, and the DHCP packet loop is
+/// a background task with no ambient context of its own.
+/// Returns the spawned task's handle so tests can await it deterministically.
+/// The packet loop ignores it — that is the whole point of spawning.
+pub(crate) fn record_dhcp_signals(
+    identification: Option<&Arc<dyn DeviceIdentificationService>>,
+    msg: &Message,
+    mac: &str,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let identification = identification?;
+
+    // Extract on the packet path (the message does not outlive this call), then
+    // hand the owned values to the spawned task.
+    let signals: Vec<(DeviceSignalKind, String)> = [
+        (DeviceSignalKind::DhcpHostname, extract_hostname(msg)),
+        (DeviceSignalKind::DhcpParamList, extract_param_list(msg)),
+        (DeviceSignalKind::DhcpVendorClass, extract_vendor_class(msg)),
+    ]
+    .into_iter()
+    .filter_map(|(kind, value)| value.map(|v| (kind, v)))
+    .collect();
+
+    if signals.is_empty() {
+        return None;
+    }
+
+    let identification = Arc::clone(identification);
+    let mac = mac.to_owned();
+    Some(tokio::spawn(async move {
+        for (kind, value) in signals {
+            let result = auth_context::with_context(
+                AuthContext::Admin {
+                    admin_id: Uuid::nil(),
+                },
+                identification.record_signal_for_mac(&mac, kind, &value),
+            )
+            .await;
+            if let Err(error) = result {
+                tracing::debug!(%mac, ?kind, %error, "failed to record DHCP identification signal");
+            }
+        }
+    }))
+}
+
+/// Extract DHCP option 55 (the parameter request list) as a comma-separated
+/// list of option codes, preserving the order the client sent them in.
+///
+/// The *ordering* is the identifying part (issue #1099): DHCP clients emit a
+/// stable, implementation-specific sequence, which is what makes option 55 a
+/// device-class fingerprint. Sorting or de-duplicating would destroy exactly
+/// the signal we are capturing, so the codes are serialised verbatim.
+pub(crate) fn extract_param_list(msg: &Message) -> Option<String> {
+    for (_code, opt) in msg.opts().iter() {
+        if let DhcpOption::ParameterRequestList(codes) = opt {
+            if codes.is_empty() {
+                return None;
+            }
+            return Some(
+                codes
+                    .iter()
+                    .map(|c| u8::from(*c).to_string())
+                    .collect::<Vec<_>>()
+                    .join(","),
+            );
+        }
+    }
+    None
+}
+
+/// Extract DHCP option 60 (vendor class identifier) if present.
+///
+/// Many `IoT` stacks put a literal vendor or product string here, which the
+/// curated vendor catalog can match on.
+pub(crate) fn extract_vendor_class(msg: &Message) -> Option<String> {
+    for (_code, opt) in msg.opts().iter() {
+        if let DhcpOption::ClassIdentifier(raw) = opt {
+            // Option 60 is a byte string, not guaranteed UTF-8. Render it
+            // lossily rather than dropping the signal: a mangled character is
+            // still a usable substring match, whereas discarding the option
+            // loses the only vendor tell some devices ever emit.
+            let text = String::from_utf8_lossy(raw).trim().to_owned();
+            if text.is_empty() {
+                return None;
+            }
+            return Some(text);
         }
     }
     None

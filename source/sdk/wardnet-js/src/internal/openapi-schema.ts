@@ -2762,11 +2762,16 @@ export interface components {
             hostname?: string | null;
             /** Format: uuid */
             id: string;
+            /** @description Whether `mac` is locally administered (a privacy/randomized address).
+             *     Deliberately separate from `manufacturer`: it says how the device
+             *     presents itself, not who built it. */
+            is_randomized: boolean;
             last_ip: string;
             /** Format: date-time */
             last_seen: string;
             mac: string;
             manufacturer?: string | null;
+            manufacturer_source?: null | components["schemas"]["ManufacturerSource"];
             name?: string | null;
             /**
              * Format: uuid
@@ -3635,6 +3640,12 @@ export interface components {
             message: string;
             token: string;
         };
+        /**
+         * @description Where a device's manufacturer name came from, which is what licenses the UI
+         *     to state it as fact or hedge it (issue #1099).
+         * @enum {string}
+         */
+        ManufacturerSource: "ieee" | "catalog" | "signal";
         /** @description Response for GET /api/users/me. */
         MeResponse: {
             /** @description Username of the authenticated admin. */

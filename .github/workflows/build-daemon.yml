@@ -140,6 +140,36 @@ jobs:
         # API change must land with a fresh `docs/openapi.json`.
         run: make check-openapi
 
+  check-go-sdk:
+    name: Check Go SDK
+    if: inputs.run-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+
+      - name: Regenerate the Go REST client and verify no drift
+        # The Go SDK's generated client is produced by oapi-codegen from
+        # docs/openapi.json. The JS client has had this gate since #1050; the
+        # Go one did not, so #1102 changed the spec and left rest.gen.go stale
+        # on main with nothing to catch it (found while working #1099).
+        run: make check-go-openapi
+
+      - name: Build and test the Go SDK
+        run: make check-go
+
   build-web:
     name: Build Web (for daemon embed)
     runs-on: ubuntu-latest

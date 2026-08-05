@@ -51,6 +51,53 @@ pub enum DhcpStatus {
     External,
 }
 
+/// Where a device's manufacturer name came from, which is what licenses the UI
+/// to state it as fact or hedge it (issue #1099).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ManufacturerSource {
+    /// The registrant on record in the IEEE MA-L database. Stated as fact.
+    Ieee,
+    /// Our own curated vendor-catalog mapping (`wardnetd-data`'s
+    /// `vendor_catalog`) for an OUI whose IEEE listing is deliberately
+    /// `Private`. Rendered as "likely <vendor>" — we are
+    /// asserting something the vendor chose not to publish, and an OUI can be
+    /// reassigned out from under us.
+    Catalog,
+    /// Inferred from something the device announced (mDNS, DHCP vendor class)
+    /// or answered (a probed port).
+    Signal,
+}
+
+/// A single observed fact that helps identify a device (issue #1099).
+///
+/// Deliberately multi-valued per device: a device can announce several mDNS
+/// services, and each signal is independent evidence rather than a field that
+/// overwrites the last one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeviceSignal {
+    pub kind: DeviceSignalKind,
+    pub value: String,
+    pub observed_at: DateTime<Utc>,
+}
+
+/// The kind of an [`DeviceSignal`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceSignalKind {
+    /// DHCP option 12 — the hostname the device asked to be known by.
+    DhcpHostname,
+    /// DHCP option 55 — the parameter-request-list, stored as the raw ordered
+    /// code list. The *ordering* is the device-class fingerprint.
+    DhcpParamList,
+    /// DHCP option 60 — the vendor class identifier, often a literal brand.
+    DhcpVendorClass,
+    /// An mDNS service type the device advertised (e.g. `_googlecast._tcp`).
+    MdnsService,
+    /// A TCP port that answered during an admin-triggered identification probe.
+    ProbedPort,
+}
+
 /// A discovered network device.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Device {
@@ -59,6 +106,13 @@ pub struct Device {
     pub name: Option<String>,
     pub hostname: Option<String>,
     pub manufacturer: Option<String>,
+    /// Provenance of `manufacturer`. `None` exactly when `manufacturer` is
+    /// `None`.
+    pub manufacturer_source: Option<ManufacturerSource>,
+    /// Whether `mac` is locally administered (a privacy/randomized address).
+    /// Deliberately separate from `manufacturer`: it says how the device
+    /// presents itself, not who built it.
+    pub is_randomized: bool,
     pub device_type: DeviceType,
     pub first_seen: DateTime<Utc>,
     pub last_seen: DateTime<Utc>,

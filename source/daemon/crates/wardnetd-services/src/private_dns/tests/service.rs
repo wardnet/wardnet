@@ -176,6 +176,8 @@ impl MockDeviceService {
             name: Some("phone".to_owned()),
             hostname: None,
             manufacturer: None,
+            manufacturer_source: None,
+            is_randomized: false,
             device_type: DeviceType::Unknown,
             first_seen: Utc::now(),
             last_seen: Utc::now(),

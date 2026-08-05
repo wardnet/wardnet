@@ -12,7 +12,7 @@ import {
   useDeviceFilterSettingsList,
   useDnsFilterProfiles,
 } from "@wardnet/web";
-import { deviceTypeLabel } from "@wardnet/web";
+import { deviceTypeLabel, manufacturerDisplay } from "@wardnet/web";
 import { timeAgo } from "@wardnet/web";
 import type {
   Device,
@@ -62,9 +62,21 @@ function buildColumns(
       accessorKey: "manufacturer",
       header: "Manufacturer",
       meta: { className: "hidden lg:table-cell" },
-      cell: ({ row }) => (
-        <span className="text-ink-3">{row.original.manufacturer ?? "-"}</span>
-      ),
+      cell: ({ row }) => {
+        // Never render a bare "-": an admin cannot tell a Wardnet failure from
+        // a vendor who deliberately took a private IEEE listing (issue #1099).
+        const manufacturer = manufacturerDisplay(row.original);
+        return (
+          <span
+            className={
+              manufacturer.unknown ? "text-ink-4 italic" : "text-ink-3"
+            }
+            title={manufacturer.hint ?? undefined}
+          >
+            {manufacturer.label}
+          </span>
+        );
+      },
     },
     {
       accessorKey: "dhcp_status",
@@ -132,7 +144,8 @@ interface DeviceTableProps {
   searchPlaceholder?: string;
   /** Optional CTA rendered after the search field. */
   action?: ReactNode;
-  emptyMessage?: string;
+  /** Shown when the table has no rows; a node so callers can explain why. */
+  emptyMessage?: ReactNode;
 }
 
 /** Table listing network devices. Receives pre-filtered, pre-sorted data. */

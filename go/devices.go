@@ -33,8 +33,20 @@ type Device struct {
 	Name string `json:"name"`
 	// Hostname is the device's reported hostname, or "" if unknown.
 	Hostname string `json:"hostname"`
-	// Manufacturer is the OUI-derived vendor, or "" if unknown.
+	// Manufacturer is the vendor name, or "" if unknown. Read it together with
+	// ManufacturerSource: an empty value means the IEEE database has no usable
+	// registrant (including the placeholder "Private" listings), not that the
+	// lookup failed.
 	Manufacturer string `json:"manufacturer"`
+	// ManufacturerSource is where Manufacturer came from: "ieee" (the
+	// registrant on record, a fact), "catalog" (Wardnet's curated mapping for a
+	// privately-listed OUI, a hedged guess) or "signal" (inferred from what the
+	// device announced). "" exactly when Manufacturer is "". See issue #1099.
+	ManufacturerSource string `json:"manufacturer_source"`
+	// IsRandomized reports whether MAC is locally administered (a privacy or
+	// randomized address). Deliberately separate from Manufacturer: it says how
+	// the device presents itself, not who built it.
+	IsRandomized bool `json:"is_randomized"`
 	// Type is the detected device category.
 	Type DeviceType `json:"type"`
 	// FirstSeen / LastSeen bound the device's observed presence.
@@ -128,11 +140,18 @@ func deviceFromREST(d *rest.DeviceWithStatus, rule *rest.RoutingTarget) (*Device
 		return nil, err
 	}
 	return &Device{
-		ID:             d.Id.String(),
-		MAC:            d.Mac,
-		Name:           deref(d.Name),
-		Hostname:       deref(d.Hostname),
-		Manufacturer:   deref(d.Manufacturer),
+		ID:           d.Id.String(),
+		MAC:          d.Mac,
+		Name:         deref(d.Name),
+		Hostname:     deref(d.Hostname),
+		Manufacturer: deref(d.Manufacturer),
+		ManufacturerSource: func() string {
+			if d.ManufacturerSource == nil {
+				return ""
+			}
+			return string(*d.ManufacturerSource)
+		}(),
+		IsRandomized:   d.IsRandomized,
 		Type:           DeviceType(d.DeviceType),
 		FirstSeen:      d.FirstSeen,
 		LastSeen:       d.LastSeen,

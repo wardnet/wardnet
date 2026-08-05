@@ -25598,6 +25598,7 @@
         "required": [
           "id",
           "mac",
+          "is_randomized",
           "device_type",
           "first_seen",
           "last_seen",
@@ -25645,6 +25646,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "is_randomized": {
+            "type": "boolean",
+            "description": "Whether `mac` is locally administered (a privacy/randomized address).\nDeliberately separate from `manufacturer`: it says how the device\npresents itself, not who built it."
+          },
           "last_ip": {
             "type": "string"
           },
@@ -25659,6 +25664,17 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "manufacturer_source": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ManufacturerSource",
+                "description": "Provenance of `manufacturer`. `None` exactly when `manufacturer` is\n`None`."
+              }
             ]
           },
           "name": {
@@ -27815,6 +27831,15 @@
             "type": "string"
           }
         }
+      },
+      "ManufacturerSource": {
+        "type": "string",
+        "description": "Where a device's manufacturer name came from, which is what licenses the UI\nto state it as fact or hedge it (issue #1099).",
+        "enum": [
+          "ieee",
+          "catalog",
+          "signal"
+        ]
       },
       "MeResponse": {
         "type": "object",

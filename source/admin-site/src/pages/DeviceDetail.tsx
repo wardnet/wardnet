@@ -26,7 +26,13 @@ function isOnline(lastSeen: string): boolean {
 function deviceLabel(device: Device): string {
   if (device.name) return device.name;
   if (device.hostname) return device.hostname;
-  if (device.manufacturer) return `${device.manufacturer} device`;
+  // Only an IEEE registrant is solid enough to name the page after. A curated
+  // catalog guess or a signal-derived name would otherwise be stated as fact
+  // in the title and heading — "Govee device" — which is exactly the hedging
+  // rule the rest of the UI applies via `manufacturerDisplay` (issue #1099).
+  if (device.manufacturer && device.manufacturer_source === "ieee") {
+    return `${device.manufacturer} device`;
+  }
   return device.mac;
 }
 

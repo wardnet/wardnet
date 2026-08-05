@@ -149,13 +149,41 @@ describe("DeviceDetail", () => {
     );
   });
 
-  it("falls back to manufacturer label", () => {
+  it("does not title the page after a hedged manufacturer guess", () => {
+    // A curated-catalog match is an inference, not a registered fact. Titling
+    // the page "Govee device" would state it as fact — exactly the hedge the
+    // rest of the UI applies via manufacturerDisplay (issue #1099).
+    useDevice.mockReturnValue({
+      data: {
+        device: makeDevice({
+          name: null,
+          hostname: null,
+          manufacturer: "Govee",
+          manufacturer_source: "catalog",
+          mac: "5c:e7:53:4e:ec:d9",
+        }),
+        current_rule: null,
+      },
+      isLoading: false,
+      isError: false,
+    });
+    renderWithProviders(<DeviceDetail />);
+    expect(screen.getByTestId("item-label")).toHaveTextContent(
+      "5c:e7:53:4e:ec:d9",
+    );
+    expect(screen.getByTestId("item-label")).not.toHaveTextContent(
+      "Govee device",
+    );
+  });
+
+  it("falls back to manufacturer label for an IEEE registrant", () => {
     useDevice.mockReturnValue({
       data: {
         device: makeDevice({
           name: null,
           hostname: null,
           manufacturer: "Acme",
+          manufacturer_source: "ieee",
         }),
         current_rule: null,
       },
