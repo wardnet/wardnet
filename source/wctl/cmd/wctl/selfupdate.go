@@ -145,6 +145,9 @@ func selfUpdate(ctx context.Context, version, exe string) error {
 		return fmt.Errorf("checksum mismatch for %s: got %s, want %s", asset, sum, want)
 	}
 
+	// #nosec G302 -- this is the replacement wctl binary; it has to be
+	// executable. 0600 would install an unrunnable file. It is world-readable
+	// but not world-writable, matching every other binary on PATH.
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
 		return err
 	}
