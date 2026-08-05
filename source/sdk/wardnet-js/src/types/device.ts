@@ -84,11 +84,7 @@ export interface Device {
  * - `probed_port` — a TCP port that answered an admin-triggered probe.
  */
 export type DeviceSignalKind =
-  | "dhcp_hostname"
-  | "dhcp_param_list"
-  | "dhcp_vendor_class"
-  | "mdns_service"
-  | "probed_port";
+  "dhcp_hostname" | "dhcp_param_list" | "dhcp_vendor_class" | "mdns_service" | "probed_port";
 
 /**
  * A single observed fact that helps identify a device (issue #1099).

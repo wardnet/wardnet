@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DeviceSignal, DeviceSignalKind } from "@wardnet/js";
-import { groupSignalsByKind, signalKindDisplay } from "../../src/lib/deviceSignals";
+import {
+  groupSignalsByKind,
+  signalKindDisplay,
+} from "../../src/lib/deviceSignals";
 
 function signal(
   kind: DeviceSignalKind,

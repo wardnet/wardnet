@@ -15,28 +15,47 @@ export interface DeviceSignalKindDisplay {
   hint: string;
 }
 
-const SIGNAL_KIND_DISPLAY: Record<DeviceSignalKind, DeviceSignalKindDisplay> = {
-  dhcp_hostname: {
-    label: "Hostname (DHCP)",
-    hint: "The name the device asked to be known by when it requested an address.",
-  },
-  dhcp_vendor_class: {
-    label: "Vendor class (DHCP)",
-    hint: "A vendor string the device sent with its address request. Many IoT stacks put a literal brand name here.",
-  },
-  dhcp_param_list: {
-    label: "DHCP fingerprint",
-    hint: "The list of options the device asked for, in order. The ordering is characteristic of a device class rather than of one manufacturer.",
-  },
-  mdns_service: {
-    label: "Announced services (mDNS)",
-    hint: "Services the device advertised on the local network, such as casting or smart-home control.",
-  },
-  probed_port: {
-    label: "Answering ports",
-    hint: "Ports that responded when you asked Wardnet to identify this device.",
-  },
-};
+/**
+ * A Map rather than an object literal: the key arrives from the daemon, so an
+ * unrecognised kind has to miss cleanly rather than index into an object.
+ */
+const SIGNAL_KIND_DISPLAY = new Map<DeviceSignalKind, DeviceSignalKindDisplay>([
+  [
+    "dhcp_hostname",
+    {
+      label: "Hostname (DHCP)",
+      hint: "The name the device asked to be known by when it requested an address.",
+    },
+  ],
+  [
+    "dhcp_vendor_class",
+    {
+      label: "Vendor class (DHCP)",
+      hint: "A vendor string the device sent with its address request. Many IoT stacks put a literal brand name here.",
+    },
+  ],
+  [
+    "dhcp_param_list",
+    {
+      label: "DHCP fingerprint",
+      hint: "The list of options the device asked for, in order. The ordering is characteristic of a device class rather than of one manufacturer.",
+    },
+  ],
+  [
+    "mdns_service",
+    {
+      label: "Announced services (mDNS)",
+      hint: "Services the device advertised on the local network, such as casting or smart-home control.",
+    },
+  ],
+  [
+    "probed_port",
+    {
+      label: "Answering ports",
+      hint: "Ports that responded when you asked Wardnet to identify this device.",
+    },
+  ],
+]);
 
 /**
  * Display metadata for a signal kind. Falls back to the raw kind so a signal
@@ -46,7 +65,7 @@ export function signalKindDisplay(
   kind: DeviceSignalKind,
 ): DeviceSignalKindDisplay {
   return (
-    SIGNAL_KIND_DISPLAY[kind] ?? {
+    SIGNAL_KIND_DISPLAY.get(kind) ?? {
       label: kind,
       hint: "An identification signal recorded by a newer version of Wardnet.",
     }
