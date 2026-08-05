@@ -6,6 +6,7 @@
 pub mod admin;
 pub mod api_key;
 pub mod device;
+pub mod device_identification;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_events;
@@ -30,6 +31,7 @@ pub mod zone_exception;
 pub use admin::SqliteAdminRepository;
 pub use api_key::SqliteApiKeyRepository;
 pub use device::SqliteDeviceRepository;
+pub use device_identification::SqliteDeviceIdentificationRepository;
 pub use dhcp::SqliteDhcpRepository;
 pub use dns::SqliteDnsRepository;
 pub use dns_events::SqliteDnsEventsRepository;

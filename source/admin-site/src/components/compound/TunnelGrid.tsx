@@ -80,9 +80,12 @@ export function TunnelGrid({
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
       {sorted.map((tunnel) => {
-        // eslint-disable-next-line security/detect-object-injection -- tunnel.id is the card's own key; read-only lookups into the page-owned maps
+        // `tunnel.id` is the card's own key and both maps are page-owned, so
+        // these are read-only lookups with a trusted key. (This used to carry
+        // `security/detect-object-injection` suppressions; the rule no longer
+        // flags them, and leaving the directives in place made eslint report
+        // them as unused.)
         const testOutcome = testOutcomes[tunnel.id] ?? null;
-        // eslint-disable-next-line security/detect-object-injection -- tunnel.id is the card's own key; read-only lookups into the page-owned maps
         const speedTestResult = speedTestResults[tunnel.id] ?? null;
         return (
           <TunnelCard

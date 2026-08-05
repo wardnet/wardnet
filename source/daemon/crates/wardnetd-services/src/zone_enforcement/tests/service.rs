@@ -142,6 +142,14 @@ struct RecordingPolicy {
     calls: Arc<Mutex<Vec<String>>>,
     /// Aliases `list_interface_aliases` should report (existing addrs on iface).
     existing_aliases: Arc<Mutex<Vec<(String, u8)>>>,
+    /// Entries `list_neigh_proxies` should report (existing pneigh on iface).
+    existing_neigh_proxies: Arc<Mutex<Vec<String>>>,
+    /// When set, `list_neigh_proxies` fails, to exercise the enforcer's
+    /// degrade-to-adds-only path.
+    fail_list_neigh: Arc<std::sync::atomic::AtomicBool>,
+    /// When set, the pneigh add/remove + proxy-arp mutations fail, to exercise
+    /// the enforcer's warn-and-continue error paths.
+    fail_neigh_mutations: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[async_trait]
@@ -242,7 +250,48 @@ impl PolicyRouter for RecordingPolicy {
     }
     async fn set_proxy_arp(&self, i: &str, e: bool) -> anyhow::Result<()> {
         self.calls.lock().await.push(format!("proxy_arp:{i}:{e}"));
+        if self
+            .fail_neigh_mutations
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("mock proxy_arp failure");
+        }
         Ok(())
+    }
+    async fn add_neigh_proxy(&self, ip: &str, i: &str) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("add_neigh_proxy:{ip}:{i}"));
+        if self
+            .fail_neigh_mutations
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("mock add_neigh_proxy failure");
+        }
+        Ok(())
+    }
+    async fn remove_neigh_proxy(&self, ip: &str, i: &str) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("remove_neigh_proxy:{ip}:{i}"));
+        if self
+            .fail_neigh_mutations
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("mock remove_neigh_proxy failure");
+        }
+        Ok(())
+    }
+    async fn list_neigh_proxies(&self, _i: &str) -> anyhow::Result<Vec<String>> {
+        if self
+            .fail_list_neigh
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("mock list_neigh_proxies failure");
+        }
+        Ok(self.existing_neigh_proxies.lock().await.clone())
     }
     async fn add_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
         self.calls
@@ -386,6 +435,9 @@ struct Harness {
     fw_isolation: Arc<Mutex<Option<ZoneIsolationRules>>>,
     policy_calls: Arc<Mutex<Vec<String>>>,
     existing_aliases: Arc<Mutex<Vec<(String, u8)>>>,
+    existing_neigh_proxies: Arc<Mutex<Vec<String>>>,
+    fail_list_neigh: Arc<std::sync::atomic::AtomicBool>,
+    fail_neigh_mutations: Arc<std::sync::atomic::AtomicBool>,
     clamps: Arc<Mutex<Vec<String>>>,
     switchback: Arc<Mutex<Vec<String>>>,
 }
@@ -422,9 +474,15 @@ async fn build() -> Harness {
     });
     let policy_calls = Arc::new(Mutex::new(Vec::new()));
     let existing_aliases = Arc::new(Mutex::new(Vec::new()));
+    let existing_neigh_proxies = Arc::new(Mutex::new(Vec::new()));
+    let fail_list_neigh = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fail_neigh_mutations = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let policy_router: Arc<dyn PolicyRouter> = Arc::new(RecordingPolicy {
         calls: policy_calls.clone(),
         existing_aliases: existing_aliases.clone(),
+        existing_neigh_proxies: existing_neigh_proxies.clone(),
+        fail_list_neigh: fail_list_neigh.clone(),
+        fail_neigh_mutations: fail_neigh_mutations.clone(),
     });
     let clamps = Arc::new(Mutex::new(Vec::new()));
     let switchback = Arc::new(Mutex::new(Vec::new()));
@@ -470,6 +528,9 @@ async fn build() -> Harness {
         fw_isolation,
         policy_calls,
         existing_aliases,
+        existing_neigh_proxies,
+        fail_list_neigh,
+        fail_neigh_mutations,
         clamps,
         switchback,
     }
@@ -499,6 +560,8 @@ async fn insert_device(devices: &Arc<dyn DeviceRepository>, ip: &str, zone_id: &
             mac,
             hostname: None,
             manufacturer: None,
+            manufacturer_source: None,
+            is_randomized: false,
             device_type: "unknown".to_owned(),
             first_seen: "2026-07-01T00:00:00Z".to_owned(),
             last_seen: "2026-07-01T00:00:00Z".to_owned(),
@@ -969,7 +1032,12 @@ async fn casting_exception_yields_bidirectional_allows() {
 }
 
 #[tokio::test]
-async fn member_isolation_zone_sets_proxy_arp_and_host_route() {
+async fn member_isolation_adds_proxy_neigh_entry_not_interface_proxy_arp() {
+    // Issue #1107: interface-wide `proxy_arp=1` made the Pi answer ARP for ANY
+    // address a tunnel-bound device probed (macOS "duplicate IP", LAN-peer
+    // hijack) while never firing for the intended same-interface case. Member
+    // isolation must install a per-member pneigh entry instead, and must never
+    // enable the interface-wide sysctl.
     let h = build().await;
     enable_dhcp(&h).await;
     insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
@@ -987,12 +1055,229 @@ async fn member_isolation_zone_sets_proxy_arp_and_host_route() {
     );
     let pc = policy_calls(&h).await;
     assert!(
-        pc.contains(&"proxy_arp:eth0:true".to_owned()),
-        "proxy-arp enabled: {pc:?}"
+        pc.contains(&"add_neigh_proxy:10.44.1.10:eth0".to_owned()),
+        "per-member proxy-neighbour entry added: {pc:?}"
+    );
+    assert!(
+        !pc.contains(&"proxy_arp:eth0:true".to_owned()),
+        "interface-wide proxy-arp must never be enabled (#1107): {pc:?}"
     );
     assert!(
         pc.contains(&"add_host_route:10.44.1.10:eth0".to_owned()),
         "member host route added: {pc:?}"
+    );
+}
+
+#[tokio::test]
+async fn out_of_subnet_member_gets_no_proxy_neigh_entry() {
+    // A device freshly moved into an isolate-members zone can still hold its
+    // old base-subnet address until it re-DHCPs. A pneigh entry for that
+    // address would make the Pi answer ARP for a base-subnet IP the DHCP pool
+    // may re-lease — the duplicate-IP failure of #1107, re-created. Only
+    // in-subnet members get entries.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let straggler = insert_device(&h.devices, "192.168.1.50", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(straggler)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        !pc.iter().any(|c| c.starts_with("add_neigh_proxy:")),
+        "no pneigh entry for an out-of-subnet member address: {pc:?}"
+    );
+}
+
+#[tokio::test]
+async fn proxy_neigh_entries_self_heal_against_kernel_state() {
+    // The kernel purges pneigh entries on a link flap, and a netlink call can
+    // fail transiently — so the reconcile must diff against the kernel's own
+    // listing every pass, not a stored snapshot. With the kernel still
+    // reporting no entries, a second identical reconcile must re-add.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+    // The mock kernel never records the add (list stays empty), simulating a
+    // purge/failed apply; an unchanged second pass must retry, not skip.
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let adds = policy_calls(&h)
+        .await
+        .into_iter()
+        .filter(|c| c == "add_neigh_proxy:10.44.1.10:eth0")
+        .count();
+    assert_eq!(adds, 2, "each pass re-converges against kernel state");
+}
+
+#[tokio::test]
+async fn unusable_and_own_address_members_get_no_proxy_neigh_entry() {
+    // A member row without a parseable IP (a repaired #886 row) and a member
+    // row claiming the zone's own gateway address are both skipped — only the
+    // real in-subnet member gets a pneigh entry.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    insert_device(&h.devices, "", ZONE_A).await;
+    insert_device(&h.devices, "10.44.1.1", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let adds: Vec<String> = policy_calls(&h)
+        .await
+        .into_iter()
+        .filter(|c| c.starts_with("add_neigh_proxy:"))
+        .collect();
+    assert_eq!(
+        adds,
+        vec!["add_neigh_proxy:10.44.1.10:eth0".to_owned()],
+        "only the real member gets an entry"
+    );
+}
+
+#[tokio::test]
+async fn proxy_neigh_list_failure_degrades_to_adds_only() {
+    // A failed kernel listing must not block the idempotent adds (existing
+    // degrades to empty) and must not prune blind — and with no stored
+    // snapshot, the next pass simply retries the listing.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    *h.existing_neigh_proxies.lock().await = vec!["10.44.1.99".to_owned()];
+    h.fail_list_neigh
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"add_neigh_proxy:10.44.1.10:eth0".to_owned()),
+        "adds still run when the listing fails: {pc:?}"
+    );
+    assert!(
+        !pc.iter().any(|c| c.starts_with("remove_neigh_proxy:")),
+        "no blind pruning without a listing: {pc:?}"
+    );
+}
+
+#[tokio::test]
+async fn proxy_neigh_mutation_failures_are_nonfatal() {
+    // A failed add or remove is warn-logged and never aborts the reconcile —
+    // the remaining enforcement (isolation rules, aliases) must still land.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    *h.existing_neigh_proxies.lock().await = vec!["10.44.1.99".to_owned()];
+    h.fail_neigh_mutations
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"add_neigh_proxy:10.44.1.10:eth0".to_owned())
+            && pc.contains(&"remove_neigh_proxy:10.44.1.99:eth0".to_owned()),
+        "both mutations attempted despite failing: {pc:?}"
+    );
+    assert!(
+        calls(&h).await.iter().any(|c| c.starts_with("isolation:")),
+        "isolation rebuild still ran after pneigh failures"
+    );
+}
+
+#[tokio::test]
+async fn reconcile_survives_legacy_proxy_arp_clear_failure() {
+    // The migration clear is best-effort: a sysctl failure must not abort the
+    // startup reconcile that installs every device's rules.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    h.fail_neigh_mutations
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    as_admin(h.svc.reconcile()).await.unwrap();
+
+    assert!(
+        policy_calls(&h)
+            .await
+            .contains(&"proxy_arp:eth0:false".to_owned()),
+        "legacy clear attempted"
+    );
+}
+
+#[tokio::test]
+async fn stale_proxy_neigh_entries_pruned() {
+    // A pneigh entry no longer backed by an isolate-members device (departed
+    // device, or member isolation turned off) is removed on reconcile.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    *h.existing_neigh_proxies.lock().await = vec!["10.44.1.99".to_owned()];
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"remove_neigh_proxy:10.44.1.99:eth0".to_owned()),
+        "stale pneigh entry removed: {pc:?}"
+    );
+    assert!(
+        !pc.contains(&"remove_neigh_proxy:10.44.1.10:eth0".to_owned()),
+        "live member's pneigh entry preserved: {pc:?}"
+    );
+}
+
+#[tokio::test]
+async fn member_isolation_off_removes_proxy_neigh_entries() {
+    // Zone exists but does not isolate members: no entry is added, and an
+    // entry left over from when isolation was on is removed.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "PlainZone", "10.44.1.0/24", false).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    *h.existing_neigh_proxies.lock().await = vec!["10.44.1.10".to_owned()];
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        !pc.iter().any(|c| c.starts_with("add_neigh_proxy:")),
+        "no pneigh entry for a non-isolating zone: {pc:?}"
+    );
+    assert!(
+        pc.contains(&"remove_neigh_proxy:10.44.1.10:eth0".to_owned()),
+        "leftover pneigh entry removed: {pc:?}"
+    );
+}
+
+#[tokio::test]
+async fn reconcile_clears_legacy_interface_proxy_arp() {
+    // Migration for boxes that ran a pre-#1107 daemon: startup reconcile must
+    // force the interface-wide sysctl off — even when member isolation is
+    // active — because pneigh entries have replaced it.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.reconcile()).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"proxy_arp:eth0:false".to_owned()),
+        "legacy interface-wide proxy-arp cleared on startup: {pc:?}"
+    );
+    assert!(
+        !pc.contains(&"proxy_arp:eth0:true".to_owned()),
+        "interface-wide proxy-arp never re-enabled: {pc:?}"
     );
 }
 
@@ -1002,16 +1287,21 @@ async fn dhcp_disabled_degrades_to_empty_isolation() {
     // DHCP left off (the default). A subnetted, member-isolating zone exists but
     // must not take effect.
     insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    // A pneigh entry left over from when Wardnet owned DHCP.
+    *h.existing_neigh_proxies.lock().await = vec!["10.44.1.10".to_owned()];
 
     as_admin(h.svc.handle_exceptions_changed()).await.unwrap();
 
     let rules = isolation(&h).await;
     assert_eq!(rules, ZoneIsolationRules::default(), "empty isolation");
+    let pc = policy_calls(&h).await;
     assert!(
-        policy_calls(&h)
-            .await
-            .contains(&"proxy_arp:eth0:false".to_owned()),
-        "proxy-arp disabled on degrade"
+        !pc.iter().any(|c| c.starts_with("add_neigh_proxy:")),
+        "no pneigh entries while degraded: {pc:?}"
+    );
+    assert!(
+        pc.contains(&"remove_neigh_proxy:10.44.1.10:eth0".to_owned()),
+        "leftover pneigh entry removed on degrade: {pc:?}"
     );
 }
 

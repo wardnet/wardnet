@@ -55,7 +55,7 @@ COV_RUNNER ?=
 # ---------- Phony targets ----------
 
 .PHONY: all init build build-daemon build-sdk build-web build-site \
-        check check-sdk check-sdk-openapi check-web check-site check-go check-go-openapi fmt-daemon check-daemon check-daemon-native check-daemon-container \
+        check check-sdk check-sdk-openapi check-go check-go-openapi check-web check-site fmt-daemon check-daemon check-daemon-native check-daemon-container \
         coverage-daemon coverage-daemon-native coverage-daemon-container \
         coverage-daemon-report-json \
         openapi check-openapi \
@@ -381,6 +381,10 @@ check-go: check-go-openapi
 # Drift gate for the Go SDK's generated REST client, mirroring
 # `check-sdk-openapi`. Regenerate `internal/rest/rest.gen.go` from
 # docs/openapi.json and fail if the committed copy is stale.
+#
+# Missing until issue #1099: the JS client had a gate and the Go client did
+# not, so #1102 changed the spec and left rest.gen.go stale on main with
+# nothing to catch it.
 #
 # Compiling is NOT sufficient on its own, which is why this exists: the
 # hand-written mapping only stops building when the spec REMOVES or RENAMES

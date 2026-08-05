@@ -279,13 +279,14 @@ composite actions; its outputs gate the heavy leaves.
 
 1. `preflight` — detect-changes + check-version.
 2. `build-daemon` — [reusable leaf](../.github/workflows/build-daemon.yml). Lints, runs `cargo test --workspace`, verifies OpenAPI drift, builds the embedded web UI, cross-compiles `wardnetd` (x86_64 + aarch64) and `wardnetd-mock` (x86_64), uploads tarballs as artifacts.
-3. `build-site` — [reusable leaf](../.github/workflows/build-site.yml). Lints + type-checks, builds the marketing site, uploads `site-dist`.
-4. `coverage` — [reusable leaf](../.github/workflows/coverage.yml). Generates daemon + site coverage in parallel and performs a single coordinated Codecov upload with the `daemon` / `site` flags.
-5. `tests-e2e` — [reusable leaf](../.github/workflows/tests-e2e.yml). Stub today; consumes daemon + site artifacts.
+3. `build-go` — [reusable leaf](../.github/workflows/build-go.yml). For both Go modules: verifies `go.mod`/`go.sum` are tidy, regenerates the SDK's REST client and fails on drift, then builds, runs `go test -race`, vets, and lints. Also cross-compiles `wctl` for all four released targets, so a broken release surfaces on the PR rather than mid-tag.
+4. `build-site` — [reusable leaf](../.github/workflows/build-site.yml). Lints + type-checks, builds the marketing site, uploads `site-dist`.
+5. `coverage` — [reusable leaf](../.github/workflows/coverage.yml). Generates daemon + site coverage in parallel and performs a single coordinated Codecov upload with the `daemon` / `site` flags.
+6. `tests-e2e` — [reusable leaf](../.github/workflows/tests-e2e.yml). Stub today; consumes daemon + site artifacts.
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on pushes to `main` and reuses the same `build-daemon` + `build-site` leaves but skips `coverage` and `tests-e2e` (Codecov patch-coverage is PR-keyed; e2e is a PR gate).
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on pushes to `main` and reuses the same `build-daemon` + `build-go` + `build-site` leaves but skips `coverage` and `tests-e2e` (Codecov patch-coverage is PR-keyed; e2e is a PR gate).
 
-[`.github/workflows/release.yml`](../.github/workflows/release.yml) runs on `v*.*.*` tag pushes: `resolve` → the same build leaves → `tests-e2e` → [`deploy-site.yml`](../.github/workflows/deploy-site.yml) (publishes the `site-dist` bundle to GitHub Pages) → [`release-daemon.yml`](../.github/workflows/release-daemon.yml) (renames tarballs with the version, signs each with minisign, publishes the GitHub Release).
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) runs on `v*.*.*` tag pushes: `resolve` → the same build leaves → `tests-e2e` → [`deploy-site.yml`](../.github/workflows/deploy-site.yml) (publishes the `site-dist` bundle to GitHub Pages) → [`release-daemon.yml`](../.github/workflows/release-daemon.yml) (renames tarballs with the version, signs each with minisign, cross-compiles the `wctl` binaries, publishes the GitHub Release) → [`release-go-sdk.yml`](../.github/workflows/release-go-sdk.yml) (mirrors the Go SDK to `wardnet/wardnet-go` and tags it, stable releases only).
 
 [`.github/workflows/deploy-site.yml`](../.github/workflows/deploy-site.yml) is a reusable `workflow_call` leaf: it downloads a pre-built `site-dist` artifact and publishes it to GitHub Pages. It is invoked from `release.yml` only.
 

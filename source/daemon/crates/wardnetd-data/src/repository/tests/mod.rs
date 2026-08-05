@@ -1,6 +1,7 @@
 mod admin;
 mod api_key;
 mod device;
+mod device_identification;
 mod dhcp;
 mod dns;
 mod dns_events;

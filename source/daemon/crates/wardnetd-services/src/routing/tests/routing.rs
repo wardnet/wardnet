@@ -645,6 +645,26 @@ impl PolicyRouter for MockNetlink {
         Ok(())
     }
 
+    async fn add_neigh_proxy(&self, ip: &str, i: &str) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("add_neigh_proxy:{ip}:{i}"));
+        Ok(())
+    }
+
+    async fn remove_neigh_proxy(&self, ip: &str, i: &str) -> anyhow::Result<()> {
+        self.calls
+            .lock()
+            .await
+            .push(format!("remove_neigh_proxy:{ip}:{i}"));
+        Ok(())
+    }
+
+    async fn list_neigh_proxies(&self, _i: &str) -> anyhow::Result<Vec<String>> {
+        Ok(Vec::new())
+    }
+
     async fn add_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
         self.calls
             .lock()
@@ -857,6 +877,8 @@ fn sample_device(id: Uuid, ip: &str) -> Device {
         name: Some("Test Device".to_owned()),
         hostname: None,
         manufacturer: None,
+        manufacturer_source: None,
+        is_randomized: false,
         device_type: DeviceType::Phone,
         first_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),

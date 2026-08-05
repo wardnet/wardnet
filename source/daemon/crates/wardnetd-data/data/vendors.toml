@@ -1,0 +1,71 @@
+# Curated vendor catalog (issue #1099).
+#
+# The single place to teach Wardnet about a manufacturer. Every identification
+# signal — OUI overrides, probed ports, mDNS service types and DHCP vendor
+# class strings — resolves through this file, so adding support for a new
+# manufacturer is a data edit here and NOT a code change.
+#
+# Fields, all optional:
+#
+#   name              Display name shown to the admin.
+#   oui_override      OUI prefixes (6 hex digits, no separators) whose IEEE
+#                     listing is the placeholder token `Private`, so the public
+#                     database cannot name them. A match is deliberately marked
+#                     LOWER CONFIDENCE and rendered as "likely <name>": we are
+#                     asserting something the registrant paid to withhold, and
+#                     IEEE can reassign a block out from under us.
+#   tcp_ports         Ports that answer on this vendor's devices. Only ever
+#                     contacted by an explicit, admin-triggered identification
+#                     probe — nothing in the daemon scans these in the
+#                     background (see ADR 0025).
+#   mdns_services     mDNS service types the device advertises.
+#   vendor_class      DHCP option 60 vendor-class-identifier substrings.
+#
+# Keep entries alphabetical by name.
+
+[[vendor]]
+name = "Amazon"
+mdns_services = ["_amzn-wplay._tcp", "_amazonecho-remote._tcp"]
+
+[[vendor]]
+name = "Apple"
+mdns_services = ["_airplay._tcp", "_raop._tcp", "_homekit._tcp"]
+
+[[vendor]]
+name = "ESPHome"
+tcp_ports = [6053]
+mdns_services = ["_esphomelib._tcp"]
+
+[[vendor]]
+name = "Google"
+tcp_ports = [8009]
+mdns_services = ["_googlecast._tcp", "_googlezone._tcp"]
+
+# The device from the reported case: 5C-E7-53 is listed to `Private`, so the
+# IEEE table can never name it. Without this entry the lamp is unidentifiable
+# by construction.
+[[vendor]]
+name = "Govee"
+oui_override = ["5CE753"]
+tcp_ports = [4003]
+mdns_services = ["_govee._tcp"]
+
+[[vendor]]
+name = "Philips Hue"
+# No tcp_ports: the bridge answers on 80/443/8080, all far too generic to
+# attribute a vendor from. A probe hit on 8080 would name every NAS, printer
+# and router web UI on the network "Philips Hue" — and record_signal would then
+# write that into the device's manufacturer column.
+mdns_services = ["_hue._tcp"]
+
+[[vendor]]
+name = "Sonos"
+mdns_services = ["_sonos._tcp"]
+
+[[vendor]]
+name = "Tuya"
+tcp_ports = [6668]
+
+[[vendor]]
+name = "Ubiquiti"
+vendor_class = ["ubnt"]

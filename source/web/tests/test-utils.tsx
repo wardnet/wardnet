@@ -58,6 +58,8 @@ export function makeDevice(overrides: Partial<Device> = {}): Device {
     name: null,
     hostname: null,
     manufacturer: null,
+    manufacturer_source: null,
+    is_randomized: false,
     device_type: "unknown",
     first_seen: "2026-01-01T00:00:00Z",
     last_seen: "2026-01-01T00:00:00Z",

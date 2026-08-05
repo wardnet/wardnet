@@ -57,7 +57,7 @@ fn generate_oui_data() {
 
         if let (Ok(b0), Ok(b1), Ok(b2)) = (b0, b1, b2) {
             let sanitized = sanitize_org_name(org_name);
-            if sanitized.is_empty() {
+            if is_placeholder_org_name(&sanitized) {
                 continue;
             }
             let escaped = sanitized.replace('\\', "\\\\").replace('"', "\\\"");
@@ -110,6 +110,25 @@ fn parse_csv_line(line: &str) -> Vec<String> {
     }
     fields.push(current.trim().to_string());
     fields
+}
+
+/// Organisation names the IEEE uses as placeholders rather than as the name of
+/// an actual registrant (issue #1099).
+///
+/// * `Private` — the registrant paid to keep their name off the public list.
+///   108 rows in the current table.
+/// * `IEEE Registration Authority` — an MA-M/MA-S parent block. The real
+///   assignee lives behind a 28- or 36-bit prefix, which a 24-bit OUI lookup
+///   cannot resolve. 415 rows.
+/// * empty — no name at all.
+///
+/// Dropping these rows entirely means `lookup_manufacturer` returns `None` by
+/// construction, so the UI can say "unknown" instead of surfacing a string that
+/// looks like real data but identifies nothing.
+fn is_placeholder_org_name(name: &str) -> bool {
+    name.is_empty()
+        || name.eq_ignore_ascii_case("Private")
+        || name.eq_ignore_ascii_case("IEEE Registration Authority")
 }
 
 fn sanitize_org_name(name: &str) -> String {

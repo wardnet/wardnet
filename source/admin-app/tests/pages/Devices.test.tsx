@@ -293,3 +293,92 @@ describe("Devices page", () => {
     expect(screen.queryByTestId("new-devices-section")).not.toBeInTheDocument();
   });
 });
+
+describe("Devices — MAC search (issue #1099)", () => {
+  /** Render the list with a fixed device set and type into the search box. */
+  async function searchFor(
+    devices: Parameters<typeof makeDevice>[0][],
+    q: string,
+  ) {
+    h.useDevices.mockReturnValue({
+      isLoading: false,
+      data: { devices: devices.map((d) => makeDevice(d)) },
+    });
+    renderWithProviders(<Devices />);
+    await userEvent.type(screen.getByTestId("device-search"), q);
+  }
+
+  it("filters the list by a format-tolerant MAC", async () => {
+    await searchFor(
+      [
+        { id: "a", name: "Lamp", mac: "5c:e7:53:4e:ec:d9" },
+        { id: "b", name: "Laptop", mac: "a8:bb:cc:dd:ee:01" },
+      ],
+      "5CE7534EECD9",
+    );
+
+    expect(screen.getByText("Lamp")).toBeInTheDocument();
+    expect(screen.queryByText("Laptop")).not.toBeInTheDocument();
+  });
+
+  it("offers near-MAC candidates when an exact search misses", async () => {
+    // The admin types the MAC their vendor app printed — the BLE address,
+    // two below the Wi-Fi one the device actually associated with.
+    await searchFor(
+      [{ id: "a", name: "Lamp", mac: "5c:e7:53:4e:ec:d9" }],
+      "5c:e7:53:4e:ec:db",
+    );
+
+    expect(
+      screen.getByTestId("neighbour-match-5c:e7:53:4e:ec:d9"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/Bluetooth MAC/i)).toBeInTheDocument();
+  });
+
+  it("explains the Bluetooth-MAC trap even with no candidates", async () => {
+    await searchFor(
+      [{ id: "a", name: "Lamp", mac: "a8:bb:cc:dd:ee:01" }],
+      "5c:e7:53:4e:ec:db",
+    );
+
+    expect(screen.queryByTestId(/^neighbour-match-/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Bluetooth MAC/i)).toBeInTheDocument();
+  });
+
+  it("does not claim a device is missing when a filter merely hides it", async () => {
+    // The device matches but the "On VPN" pill excludes it — saying "no device
+    // matches" would send the admin hunting for something that is right there.
+    h.useDevices.mockReturnValue({
+      isLoading: false,
+      data: {
+        devices: [
+          makeDevice({ id: "a", name: "Lamp", mac: "5c:e7:53:4e:ec:d9" }),
+        ],
+      },
+    });
+    renderWithProviders(<Devices />);
+
+    await userEvent.click(screen.getByTestId("device-filter-vpn"));
+    await userEvent.type(
+      screen.getByTestId("device-search"),
+      "5c:e7:53:4e:ec:d9",
+    );
+
+    expect(
+      screen.getByText(/No devices in this filter match/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Bluetooth MAC/i)).not.toBeInTheDocument();
+  });
+
+  it("badges a randomized MAC on the row rather than as a manufacturer", async () => {
+    h.useDevices.mockReturnValue({
+      isLoading: false,
+      data: {
+        devices: [makeDevice({ id: "a", name: "Phone", is_randomized: true })],
+      },
+    });
+    renderWithProviders(<Devices />);
+
+    expect(screen.getByText(/Randomized MAC/)).toBeInTheDocument();
+  });
+});

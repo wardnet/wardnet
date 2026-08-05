@@ -93,6 +93,8 @@ async fn build_zone_device(
             mac: "aa:bb:cc:dd:ee:01".to_owned(),
             hostname: None,
             manufacturer: None,
+            manufacturer_source: None,
+            is_randomized: false,
             device_type: "unknown".to_owned(),
             first_seen: ts.clone(),
             last_seen: ts,

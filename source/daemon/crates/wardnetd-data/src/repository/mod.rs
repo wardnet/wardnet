@@ -1,6 +1,7 @@
 pub mod admin;
 pub mod api_key;
 pub mod device;
+pub mod device_identification;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_events;
@@ -26,6 +27,7 @@ pub mod zone_exception;
 pub use admin::AdminRepository;
 pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow};
+pub use device_identification::{DeviceIdentificationRepository, DeviceSignalRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
 pub use dns::{DnsRepository, QueryLogFilter, QueryLogRow};
 pub use dns_events::{DnsCaptureStats, DnsEventRow, DnsEventsRepository};
@@ -50,14 +52,14 @@ pub use routing_profile::{
 pub use rule_request::RuleRequestRepository;
 pub use session::SessionRepository;
 pub use sqlite::{
-    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
-    SqliteDnsRepository, SqliteInboundWgPeerRepository, SqliteMaintenanceRepository,
-    SqliteNetworkZoneRepository, SqliteNotificationRepository, SqlitePrivateDnsGrantRepository,
-    SqlitePushRepository, SqliteRoutingProfileRepository, SqliteRuleRequestRepository,
-    SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
-    SqliteTunnelRepository, SqliteTunnelSpeedTestRepository, SqliteUpdateRepository,
-    SqliteZoneExceptionRepository,
+    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceIdentificationRepository,
+    SqliteDeviceRepository, SqliteDhcpRepository, SqliteDnsEventsRepository,
+    SqliteDnsFilterRepository, SqliteDnsLocalRepository, SqliteDnsRepository,
+    SqliteInboundWgPeerRepository, SqliteMaintenanceRepository, SqliteNetworkZoneRepository,
+    SqliteNotificationRepository, SqlitePrivateDnsGrantRepository, SqlitePushRepository,
+    SqliteRoutingProfileRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
+    SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
+    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, SqliteZoneExceptionRepository,
 };
 pub use stats::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 pub use system_config::{LastShutdownInfo, SystemConfigRepository};

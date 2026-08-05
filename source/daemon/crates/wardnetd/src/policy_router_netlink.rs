@@ -5,6 +5,9 @@ use async_trait::async_trait;
 use futures::TryStreamExt;
 use rtnetlink::packet_route::AddressFamily;
 use rtnetlink::packet_route::address::AddressAttribute;
+use rtnetlink::packet_route::neighbour::{
+    NeighbourAddress, NeighbourAttribute, NeighbourFlags, NeighbourMessage,
+};
 use rtnetlink::packet_route::route::{RouteAddress, RouteAttribute, RouteScope};
 use rtnetlink::packet_route::rule::{RuleAction, RuleAttribute, RuleMessage};
 use rtnetlink::{Handle, RouteMessageBuilder};
@@ -835,6 +838,84 @@ impl PolicyRouter for NetlinkPolicyRouter {
         Ok(())
     }
 
+    async fn add_neigh_proxy(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+        let addr: Ipv4Addr = ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid neigh-proxy IP {ip}: {e}"))?;
+        let index = self.link_index(interface).await?;
+
+        // `replace()` makes re-adding an existing entry a no-op success, the
+        // same idempotency `ip neigh replace proxy` provides.
+        match self
+            .handle
+            .neighbours()
+            .add(index, IpAddr::V4(addr))
+            .flags(NeighbourFlags::Proxy)
+            .replace()
+            .execute()
+            .await
+        {
+            Ok(()) => Ok(()),
+            Err(e) => anyhow::bail!("failed to add neigh proxy {ip} dev {interface}: {e}"),
+        }
+    }
+
+    async fn remove_neigh_proxy(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+        let addr: Ipv4Addr = ip
+            .parse()
+            .map_err(|e| anyhow::anyhow!("invalid neigh-proxy IP {ip}: {e}"))?;
+        let index = self.link_index(interface).await?;
+
+        // Unlike an address (where round-tripping the kernel's message preserves
+        // attributes we don't model), a pneigh delete is keyed on exactly
+        // family + ifindex + NTF_PROXY + destination, so the message can be
+        // built directly — no table dump per removal.
+        let mut msg = NeighbourMessage::default();
+        msg.header.family = AddressFamily::Inet;
+        msg.header.ifindex = index;
+        msg.header.flags = NeighbourFlags::Proxy;
+        msg.attributes
+            .push(NeighbourAttribute::Destination(NeighbourAddress::Inet(
+                addr,
+            )));
+
+        match self.handle.neighbours().del(msg).execute().await {
+            Ok(()) => Ok(()),
+            // Idempotent: a missing entry is success, like the other removals.
+            Err(rtnetlink::Error::NetlinkError(m)) if m.raw_code() == -libc::ENOENT => {
+                tracing::debug!(
+                    ip,
+                    interface,
+                    "neigh proxy {ip} dev {interface} not present, nothing to remove",
+                    ip = ip,
+                    interface = interface,
+                );
+                Ok(())
+            }
+            Err(e) => anyhow::bail!("failed to remove neigh proxy {ip} dev {interface}: {e}"),
+        }
+    }
+
+    async fn list_neigh_proxies(&self, interface: &str) -> anyhow::Result<Vec<String>> {
+        let index = self.link_index(interface).await?;
+        let mut entries = self
+            .handle
+            .neighbours()
+            .get()
+            .proxies()
+            .set_family(rtnetlink::IpVersion::V4)
+            .execute();
+        let mut out = Vec::new();
+        while let Some(msg) = entries.try_next().await? {
+            if msg.header.ifindex == index
+                && let Some(addr) = neigh_destination(&msg)
+            {
+                out.push(addr.to_string());
+            }
+        }
+        Ok(out)
+    }
+
     async fn add_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
         let addr: Ipv4Addr = ip
             .parse()
@@ -875,6 +956,14 @@ impl PolicyRouter for NetlinkPolicyRouter {
         tracing::debug!(ip, interface, "host route not present, nothing to remove");
         Ok(())
     }
+}
+
+/// The IPv4 destination of a neighbour message, if it carries one.
+fn neigh_destination(msg: &NeighbourMessage) -> Option<Ipv4Addr> {
+    msg.attributes.iter().find_map(|a| match a {
+        NeighbourAttribute::Destination(NeighbourAddress::Inet(v)) => Some(*v),
+        _ => None,
+    })
 }
 
 /// True if `route` is a host route that [`PolicyRouter::add_host_route`] itself

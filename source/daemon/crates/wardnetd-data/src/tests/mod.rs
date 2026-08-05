@@ -3,3 +3,4 @@ mod database_dumper;
 mod db;
 mod oui;
 mod secret_store;
+mod vendor_catalog;

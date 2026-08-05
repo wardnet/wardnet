@@ -307,6 +307,29 @@ impl PolicyRouter for NoopPolicyRouter {
         Ok(())
     }
 
+    async fn add_neigh_proxy(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+        tracing::debug!(
+            ip,
+            interface,
+            "mock policy add_neigh_proxy: proxy {ip} dev {interface}",
+        );
+        Ok(())
+    }
+
+    async fn remove_neigh_proxy(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+        tracing::debug!(
+            ip,
+            interface,
+            "mock policy remove_neigh_proxy: proxy {ip} dev {interface}",
+        );
+        Ok(())
+    }
+
+    async fn list_neigh_proxies(&self, interface: &str) -> anyhow::Result<Vec<String>> {
+        tracing::debug!(interface, "mock policy list_neigh_proxies");
+        Ok(Vec::new())
+    }
+
     async fn add_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
         tracing::debug!(
             ip,

@@ -6,7 +6,7 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 use uuid::Uuid;
-use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
+use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType, ManufacturerSource};
 use wardnet_common::event::WardnetEvent;
 
 use wardnet_common::auth::AuthContext;
@@ -22,6 +22,7 @@ use wardnetd_data::repository::DhcpRepository;
 use wardnetd_data::repository::NetworkZoneRepository;
 use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_data::repository::device::DeviceRow;
+use wardnetd_data::vendor_catalog;
 
 /// In-memory tracking state for a device.
 struct DeviceMemoryState {
@@ -437,10 +438,34 @@ impl DeviceDiscoveryServiceImpl {
     /// Insert a truly new device into the DB and in-memory map.
     async fn insert_new_device(&self, obs: &ObservedDevice) -> Result<ObservationResult, AppError> {
         let device_id = Uuid::new_v4();
-        let manufacturer = oui::lookup_manufacturer(&obs.mac).map(String::from);
-        let device_type = manufacturer
-            .as_deref()
-            .map_or(DeviceType::Unknown, oui::guess_device_type);
+        // IEEE first — the registrant on record outranks anything we curate.
+        // Only when the public database has nothing (which now includes the
+        // `Private` blocks dropped in `build.rs`) do we fall back to our own
+        // vendor catalog, and that answer is marked as the guess it is so the
+        // UI renders "Likely <vendor>" (issue #1099).
+        let (manufacturer, manufacturer_source) = oui::lookup_manufacturer(&obs.mac).map_or_else(
+            || {
+                vendor_catalog::lookup_oui_override(&obs.mac).map_or((None, None), |v| {
+                    (Some(v.to_owned()), Some(ManufacturerSource::Catalog))
+                })
+            },
+            |m| (Some(m.to_owned()), Some(ManufacturerSource::Ieee)),
+        );
+        let is_randomized = oui::is_randomized_mac(&obs.mac);
+        // A privacy MAC has no OUI to guess from, but it is overwhelmingly a
+        // phone or laptop with MAC randomization on — that inference used to
+        // ride on the "Randomized MAC" manufacturer sentinel and now keys off
+        // the flag instead (issue #1099).
+        let device_type = manufacturer.as_deref().map_or_else(
+            || {
+                if is_randomized {
+                    DeviceType::Phone
+                } else {
+                    DeviceType::Unknown
+                }
+            },
+            oui::guess_device_type,
+        );
         let now = chrono::Utc::now().to_rfc3339();
 
         // Freshly-discovered devices land in the default-for-new zone (Guest).
@@ -456,6 +481,8 @@ impl DeviceDiscoveryServiceImpl {
             mac: obs.mac.clone(),
             hostname: None,
             manufacturer: manufacturer.clone(),
+            manufacturer_source,
+            is_randomized,
             device_type: serde_json::to_string(&device_type)
                 .map_or_else(|_| "unknown".to_owned(), |s| s.trim_matches('"').to_owned()),
             first_seen: now.clone(),

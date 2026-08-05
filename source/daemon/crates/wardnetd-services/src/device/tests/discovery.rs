@@ -112,6 +112,8 @@ impl DeviceRepository for MockDeviceRepo {
             mac: mac.clone(),
             hostname: device.hostname.clone(),
             manufacturer: device.manufacturer.clone(),
+            manufacturer_source: None,
+            is_randomized: false,
             device_type: device.device_type.clone(),
             first_seen: device.first_seen.clone(),
             last_seen: device.last_seen.clone(),
@@ -128,6 +130,8 @@ impl DeviceRepository for MockDeviceRepo {
             name: None,
             hostname: device.hostname.clone(),
             manufacturer: device.manufacturer.clone(),
+            manufacturer_source: None,
+            is_randomized: false,
             device_type: serde_json::from_str(&format!("\"{}\"", device.device_type))
                 .unwrap_or(DeviceType::Unknown),
             first_seen: device.first_seen.parse().unwrap(),
@@ -577,6 +581,8 @@ fn sample_device(id: &str, mac: &str, ip: &str) -> Device {
         name: None,
         hostname: None,
         manufacturer: Some("Apple".to_owned()),
+        manufacturer_source: None,
+        is_randomized: false,
         device_type: DeviceType::Phone,
         first_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
         last_seen: "2026-03-07T00:00:00Z".parse().unwrap(),
@@ -2166,4 +2172,96 @@ async fn process_observation_accepts_nil_admin_context() {
         matches!(result, Ok(ObservationResult::NewDevice { .. })),
         "nil-admin observation should register the device: {result:?}"
     );
+}
+
+/// A device whose IEEE listing is the placeholder `Private` is named from the
+/// curated vendor catalog instead — the Govee lamp that motivated issue #1099.
+#[tokio::test]
+async fn new_device_falls_back_to_the_vendor_catalog_for_a_private_oui() {
+    let h = build_harness();
+
+    let obs = sample_observation("5c:e7:53:4e:ec:d9", "192.168.1.60");
+    let result = h.process_observation(&obs).await.unwrap();
+
+    match result {
+        ObservationResult::NewDevice { manufacturer, .. } => {
+            assert_eq!(
+                manufacturer.as_deref(),
+                Some("Govee"),
+                "the IEEE table cannot name a `Private` block; the catalog must"
+            );
+        }
+        other => panic!("expected NewDevice, got {other:?}"),
+    }
+}
+
+/// A locally-administered (privacy) MAC has no OUI to look up, so it gets no
+/// manufacturer — but it is still overwhelmingly a phone, an inference that
+/// used to ride on the removed "Randomized MAC" sentinel (issue #1099).
+#[tokio::test]
+async fn new_device_with_a_randomized_mac_has_no_manufacturer_but_guesses_phone() {
+    let h = build_harness();
+
+    let obs = sample_observation("02:1a:2b:3c:4d:5e", "192.168.1.61");
+    let result = h.process_observation(&obs).await.unwrap();
+
+    match result {
+        ObservationResult::NewDevice {
+            manufacturer,
+            device_type,
+            ..
+        } => {
+            assert_eq!(manufacturer, None, "a privacy MAC must not name a vendor");
+            assert_eq!(device_type, DeviceType::Phone);
+        }
+        other => panic!("expected NewDevice, got {other:?}"),
+    }
+}
+
+/// An unregistered, universally-administered OUI stays genuinely unknown —
+/// neither the IEEE table nor the catalog invents a name for it.
+#[tokio::test]
+async fn new_device_with_an_unknown_oui_stays_unnamed() {
+    let h = build_harness();
+
+    // B8-4C-87 is an MA-M/MA-S parent block listed to "IEEE Registration
+    // Authority", which `build.rs` drops as a placeholder.
+    let obs = sample_observation("b8:4c:87:00:11:22", "192.168.1.62");
+    let result = h.process_observation(&obs).await.unwrap();
+
+    match result {
+        ObservationResult::NewDevice {
+            manufacturer,
+            device_type,
+            ..
+        } => {
+            assert_eq!(manufacturer, None);
+            assert_eq!(device_type, DeviceType::Unknown);
+        }
+        other => panic!("expected NewDevice, got {other:?}"),
+    }
+}
+
+/// A publicly-registered OUI is named from the IEEE table and marked as the
+/// authoritative source — the arm the catalog fallback defers to.
+#[tokio::test]
+async fn new_device_with_a_public_oui_is_named_from_the_ieee_table() {
+    let h = build_harness();
+
+    // F0-EE-7A is registered to Apple and has the locally-administered bit
+    // clear, so it resolves through the IEEE table rather than the catalog.
+    let obs = sample_observation("f0:ee:7a:00:11:22", "192.168.1.63");
+    let result = h.process_observation(&obs).await.unwrap();
+
+    match result {
+        ObservationResult::NewDevice {
+            manufacturer,
+            device_type,
+            ..
+        } => {
+            assert_eq!(manufacturer.as_deref(), Some("Apple, Inc."));
+            assert_eq!(device_type, DeviceType::Phone);
+        }
+        other => panic!("expected NewDevice, got {other:?}"),
+    }
 }

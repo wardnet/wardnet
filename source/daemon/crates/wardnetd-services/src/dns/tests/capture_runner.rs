@@ -350,6 +350,8 @@ fn sample_device(capture_enabled: bool) -> Device {
         name: Some("Test Device".to_owned()),
         hostname: None,
         manufacturer: None,
+        manufacturer_source: None,
+        is_randomized: false,
         device_type: DeviceType::Phone,
         first_seen: "2026-01-01T00:00:00Z".parse().unwrap(),
         last_seen: "2026-01-01T00:00:00Z".parse().unwrap(),
