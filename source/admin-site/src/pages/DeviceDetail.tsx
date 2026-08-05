@@ -99,7 +99,10 @@ export default function DeviceDetail() {
       />
 
       <DeviceIdentityCard device={device} />
-      <DeviceIdentificationCard signals={data.signals} />
+      {/* `?? []` guards a browser holding a cached bundle newer than the
+          daemon it is talking to: a missing field must render the empty
+          state, not throw out the whole detail page. */}
+      <DeviceIdentificationCard signals={data.signals ?? []} />
       <DeviceSettingsCard device={device} currentRule={data.current_rule} />
       <DeviceRoutingProfilesCard device={device} />
       <DeviceZoneCard device={device} />

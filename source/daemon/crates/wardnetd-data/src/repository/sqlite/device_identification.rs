@@ -38,6 +38,10 @@ struct SignalRow {
 /// a signal that resolved to a vendor through the curated catalog.
 const CONFIDENCE_INFERRED: &str = "inferred";
 
+/// The `confidence` value written for a signal recorded exactly as observed,
+/// with no catalog match behind it.
+const CONFIDENCE_OBSERVED: &str = "observed";
+
 /// Serialize a [`DeviceSignalKind`] to its stored `snake_case` string form
 /// (mirrors how `device_type` and `connection_mode` are persisted).
 fn kind_to_db(kind: DeviceSignalKind) -> String {
@@ -69,7 +73,7 @@ impl DeviceIdentificationRepository for SqliteDeviceIdentificationRepository {
         .bind(if row.inferred {
             CONFIDENCE_INFERRED
         } else {
-            "observed"
+            CONFIDENCE_OBSERVED
         })
         .execute(&self.pools.write)
         .await?;

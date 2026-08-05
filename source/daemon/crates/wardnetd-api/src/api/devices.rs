@@ -192,9 +192,6 @@ async fn build_dhcp_status_map(state: &AppState) -> Result<HashMap<String, DhcpS
     Ok(map)
 }
 
-/// Enrich a [`Device`](wardnet_common::device::Device) with its DHCP status
-/// and current routing target. `current_rule` is `None` when the device has no
-/// rule of its own (it follows the gateway default policy).
 /// Identification signals observed for a device (issue #1099), degrading to an
 /// empty list if the read fails.
 ///
@@ -219,6 +216,9 @@ async fn signals_for_device(
     }
 }
 
+/// Enrich a [`Device`](wardnet_common::device::Device) with its DHCP status
+/// and current routing target. `current_rule` is `None` when the device has no
+/// rule of its own (it follows the gateway default policy).
 fn enrich_device(
     device: wardnet_common::device::Device,
     dhcp_map: &HashMap<String, DhcpStatus>,
