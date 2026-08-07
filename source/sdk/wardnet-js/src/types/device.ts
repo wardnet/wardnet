@@ -96,9 +96,12 @@ export interface DeviceSignal {
   kind: DeviceSignalKind;
   value: string;
   /**
-   * `true` when the observation matched the curated vendor catalog, so this
-   * signal is what named the device — a hedged guess the admin should be able
-   * to trace back to its evidence.
+   * `true` when the value matched a vendor in the curated catalog.
+   *
+   * Deliberately *not* "this signal named the device": naming is
+   * first-writer-wins against a device with no manufacturer yet, so a device
+   * already named by its IEEE registrant collects matching signals that changed
+   * nothing — and one device can match two vendors at once.
    */
   inferred: boolean;
   observed_at: string;

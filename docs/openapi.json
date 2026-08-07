@@ -25891,7 +25891,7 @@
         "properties": {
           "inferred": {
             "type": "boolean",
-            "description": "`true` when the raw observation matched the curated vendor catalog, so\nthis signal is what named the device. Surfaced because a catalog match\nis a hedged guess: an admin looking at \"likely Govee\" needs to see the\nobservation it was derived from."
+            "description": "`true` when the value matched a vendor in the curated catalog.\n\nDeliberately *not* \"this signal named the device\": naming is\nfirst-writer-wins against a `NULL` manufacturer (see\n`set_manufacturer_if_absent`), so a device already named by its IEEE\nregistrant collects matching signals that changed nothing. Surfaced\nbecause a match is still the evidence an admin needs when the name is\nitself a hedge (\"Likely Govee\")."
           },
           "kind": {
             "$ref": "#/components/schemas/DeviceSignalKind"

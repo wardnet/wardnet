@@ -29,11 +29,16 @@ export function DeviceIdentificationCard({
           // An empty list is the ordinary case for a device that has only ever
           // been seen by ARP. Say so plainly — reading this as a Wardnet
           // failure is the exact confusion issue #1099 was filed about.
+          //
+          // The copy names only what the daemon actually records today: the
+          // DHCP options captured in `dhcp/server.rs`. Promising mDNS or port
+          // observation here would tell an admin their device announces
+          // nothing when the truth is that Wardnet never looked (#1115/#1116).
           <Text as="p" size="sm" className="text-ink-3">
-            Nothing observed yet. Wardnet records identification signals as a
-            device uses the network — when it requests an address, or announces
-            a service. A device that only responds to address lookups gives
-            nothing away.
+            Nothing observed yet. Wardnet learns a device's identity from what
+            it says when it asks for a network address, so a device with a fixed
+            address — or one that has not renewed since Wardnet was installed —
+            has never had the chance to tell us anything.
           </Text>
         ) : (
           <div className="col gap-6">
@@ -53,17 +58,33 @@ export function DeviceIdentificationCard({
                       key={`${signal.kind}:${signal.value}`}
                       className="flex flex-wrap items-baseline gap-x-3"
                     >
-                      <Text as="span" size="sm" className="font-mono">
+                      {/* Signal values run to 128 chars and DHCP option lists
+                          carry no natural break opportunity, so the value has
+                          to be allowed to shrink (`min-w-0`) and wrap
+                          mid-token (`break-all`) or it pushes the card open
+                          and scrolls the page sideways. */}
+                      <Text
+                        as="span"
+                        size="sm"
+                        className="min-w-0 break-all font-mono"
+                      >
                         {signal.value}
                       </Text>
                       {signal.inferred && (
                         <Text
                           as="span"
                           size="xs"
-                          className="rounded bg-surface-2 px-1.5 py-0.5 text-ink-3"
-                          title="This observation matched Wardnet's vendor list and is what named the device."
+                          className="shrink-0 rounded bg-surface-2 px-1.5 py-0.5 text-ink-3"
+                          // Deliberately does NOT claim this signal named the
+                          // device. Naming is first-writer-wins against an
+                          // empty manufacturer, so a device already named by
+                          // its IEEE registrant collects matching signals that
+                          // changed nothing — and a device can match two
+                          // different vendors at once (a TV answering both
+                          // _googlecast._tcp and _airplay._tcp).
+                          title="This value matches a vendor in Wardnet's own list. It is evidence about the device, not necessarily where its manufacturer name came from."
                         >
-                          Matched vendor list
+                          Matches vendor list
                         </Text>
                       )}
                       <Text as="span" size="xs" className="text-ink-3">

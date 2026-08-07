@@ -21,6 +21,9 @@ describe("DeviceIdentificationCard", () => {
     // Wardnet failure — the confusion issue #1099 was filed about.
     renderWithProviders(<DeviceIdentificationCard signals={[]} />);
     expect(screen.getByText(/Nothing observed yet/)).toBeInTheDocument();
+    // The copy must not promise observation Wardnet does not yet perform:
+    // mDNS browsing and port probing are #1115/#1116, not shipped here.
+    expect(screen.queryByText(/announces a service/)).not.toBeInTheDocument();
   });
 
   it("groups signals under a per-kind heading", () => {
@@ -38,11 +41,16 @@ describe("DeviceIdentificationCard", () => {
     expect(screen.getByText("govee-lamp")).toBeInTheDocument();
   });
 
-  it("marks the signal that matched the vendor list", () => {
+  it("marks a signal that matches the vendor list, without claiming it named the device", () => {
     renderWithProviders(
       <DeviceIdentificationCard signals={[signal({ inferred: true })]} />,
     );
-    expect(screen.getByText("Matched vendor list")).toBeInTheDocument();
+    const badge = screen.getByText("Matches vendor list");
+    expect(badge).toBeInTheDocument();
+    // Naming is first-writer-wins against an empty manufacturer, so a match is
+    // evidence about the device — not proof of where its name came from. A
+    // device can even match two vendors at once.
+    expect(badge.getAttribute("title")).not.toMatch(/named the device/);
   });
 
   it("does not mark a signal that only records what the device said", () => {
@@ -51,6 +59,6 @@ describe("DeviceIdentificationCard", () => {
         signals={[signal({ kind: "dhcp_hostname", value: "some-host" })]}
       />,
     );
-    expect(screen.queryByText("Matched vendor list")).not.toBeInTheDocument();
+    expect(screen.queryByText("Matches vendor list")).not.toBeInTheDocument();
   });
 });

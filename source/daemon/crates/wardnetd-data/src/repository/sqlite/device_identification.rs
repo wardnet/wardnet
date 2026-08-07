@@ -135,8 +135,13 @@ impl DeviceIdentificationRepository for SqliteDeviceIdentificationRepository {
 
     async fn find_by_device(&self, device_id: &str) -> anyhow::Result<Vec<DeviceSignal>> {
         let rows = sqlx::query_as::<_, SignalRow>(
+            // `rowid DESC` breaks ties for the same reason `prune_signals`
+            // does: `observed_at` has one-second resolution, so a device
+            // announcing several services at once produces identical
+            // timestamps, and "most recent first" would otherwise be a
+            // different order on every read.
             "SELECT kind, value, confidence, observed_at FROM device_signals \
-             WHERE device_id = ? ORDER BY observed_at DESC",
+             WHERE device_id = ? ORDER BY observed_at DESC, rowid DESC",
         )
         .bind(device_id)
         .fetch_all(&self.pools.read)

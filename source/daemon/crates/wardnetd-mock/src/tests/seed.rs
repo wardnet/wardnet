@@ -8,7 +8,7 @@ use wardnetd_data::{
     RepositoryFactory, SqliteRepositoryFactory, db::init_pool_from_connection_string,
 };
 
-use wardnet_common::device::ManufacturerSource;
+use wardnet_common::device::{DeviceSignalKind, ManufacturerSource};
 
 use crate::seed::populate;
 
@@ -60,6 +60,41 @@ async fn populate_inserts_expected_demo_data() {
     assert_eq!(
         catalog.manufacturer_source,
         Some(ManufacturerSource::Catalog)
+    );
+
+    // The Govee lamp carries the observations behind its hedged name, so the
+    // device detail view has a populated signals section in local dev — and,
+    // just as importantly, every other seeded device has none, which is the
+    // empty state the same view has to handle (issue #1099).
+    let govee_signals = factory
+        .device_identification()
+        .find_by_device(&catalog.id.to_string())
+        .await
+        .unwrap();
+    let mdns = govee_signals
+        .iter()
+        .find(|s| s.kind == DeviceSignalKind::MdnsService)
+        .expect("seed should record the Govee mDNS service");
+    assert_eq!(mdns.value, "_govee._tcp");
+    assert!(
+        mdns.inferred,
+        "a catalogued service type must be flagged as a vendor-list match"
+    );
+    assert!(
+        govee_signals
+            .iter()
+            .any(|s| s.kind == DeviceSignalKind::DhcpHostname && !s.inferred),
+        "a plain DHCP hostname must not be marked inferred"
+    );
+
+    let laptop_signals = factory
+        .device_identification()
+        .find_by_device(&ieee.id.to_string())
+        .await
+        .unwrap();
+    assert!(
+        laptop_signals.is_empty(),
+        "most seeded devices must have no signals, so the empty state is reachable in local dev"
     );
 
     // A privacy MAC: flagged, and with no manufacturer invented for it.

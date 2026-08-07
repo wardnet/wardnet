@@ -603,9 +603,25 @@ fn build_state_with_tunnel_svc(
     )
 }
 
-/// Mock [`DeviceIdentificationService`] returning a fixed set of signals.
+/// Mock [`DeviceIdentificationService`] whose `signals_for` returns whatever
+/// the test configured — a fixed list, or an error standing in for a database
+/// failure on the signals table.
 struct MockIdentificationService {
-    signals: Vec<DeviceSignal>,
+    signals_for: Result<Vec<DeviceSignal>, &'static str>,
+}
+
+impl MockIdentificationService {
+    fn returning(signals: Vec<DeviceSignal>) -> Self {
+        Self {
+            signals_for: Ok(signals),
+        }
+    }
+
+    fn failing() -> Self {
+        Self {
+            signals_for: Err("signals table is gone"),
+        }
+    }
 }
 
 #[async_trait]
@@ -627,37 +643,9 @@ impl DeviceIdentificationService for MockIdentificationService {
         Ok(())
     }
     async fn signals_for(&self, _device_id: &str) -> Result<Vec<DeviceSignal>, AppError> {
-        Ok(self.signals.clone())
-    }
-    async fn reconcile_from_catalog(&self) -> Result<usize, AppError> {
-        Ok(0)
-    }
-}
-
-/// Mock [`DeviceIdentificationService`] whose read fails, standing in for a
-/// database error on the signals table.
-struct FailingIdentificationService;
-
-#[async_trait]
-impl DeviceIdentificationService for FailingIdentificationService {
-    async fn record_signal(
-        &self,
-        _device_id: &str,
-        _kind: DeviceSignalKind,
-        _value: &str,
-    ) -> Result<(), AppError> {
-        Ok(())
-    }
-    async fn record_signal_for_mac(
-        &self,
-        _mac: &str,
-        _kind: DeviceSignalKind,
-        _value: &str,
-    ) -> Result<(), AppError> {
-        Ok(())
-    }
-    async fn signals_for(&self, _device_id: &str) -> Result<Vec<DeviceSignal>, AppError> {
-        Err(AppError::Internal(anyhow::anyhow!("signals table is gone")))
+        self.signals_for
+            .clone()
+            .map_err(|e| AppError::Internal(anyhow::anyhow!(e)))
     }
     async fn reconcile_from_catalog(&self) -> Result<usize, AppError> {
         Ok(0)
@@ -1125,14 +1113,12 @@ async fn get_device_by_id_returns_identification_signals() {
     let device = sample_device();
     let state = build_state_with_identification(
         device,
-        MockIdentificationService {
-            signals: vec![DeviceSignal {
-                kind: DeviceSignalKind::MdnsService,
-                value: "_govee._tcp".to_owned(),
-                inferred: true,
-                observed_at: chrono::Utc::now(),
-            }],
-        },
+        MockIdentificationService::returning(vec![DeviceSignal {
+            kind: DeviceSignalKind::MdnsService,
+            value: "_govee._tcp".to_owned(),
+            inferred: true,
+            observed_at: chrono::Utc::now(),
+        }]),
     );
     let app = device_router(state);
 
@@ -1144,17 +1130,35 @@ async fn get_device_by_id_returns_identification_signals() {
 }
 
 #[tokio::test]
-async fn get_device_by_id_survives_a_failing_signals_read() {
-    // Signals are supporting evidence. A failure reading them must not take
-    // out the device detail page, which is the admin's only view of the
-    // device.
+async fn get_device_by_id_fails_loudly_when_signals_cannot_be_read() {
+    // An empty `signals` list is not "unknown" — the UI renders it as the
+    // positive claim "nothing observed yet". On the read path we therefore
+    // refuse to guess: a failed read must surface as an error rather than as a
+    // confident falsehood about the device.
     let device = sample_device();
-    let state = build_state_with_identification(device, FailingIdentificationService);
+    let state = build_state_with_identification(device, MockIdentificationService::failing());
     let app = device_router(state);
 
-    let (status, json) = get_json(app, "/api/devices/00000000-0000-0000-0000-000000000001").await;
+    let (status, _json) = get_json(app, "/api/devices/00000000-0000-0000-0000-000000000001").await;
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+}
+
+#[tokio::test]
+async fn update_device_degrades_when_signals_cannot_be_read() {
+    // The mutation has already landed by the time signals are read, so failing
+    // here would report an error for a change that actually succeeded. The
+    // client's next GET is what surfaces the problem.
+    let device = sample_device();
+    let state = build_state_with_identification(device, MockIdentificationService::failing());
+    let app = device_router(state);
+
+    let (status, json) = put_json(
+        app,
+        "/api/devices/00000000-0000-0000-0000-000000000001",
+        r#"{"name":"Renamed"}"#,
+    )
+    .await;
     assert_eq!(status, StatusCode::OK);
-    assert_eq!(json["device"]["mac"], "aa:bb:cc:dd:ee:01");
     assert_eq!(json["signals"], serde_json::json!([]));
 }
 

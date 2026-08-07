@@ -78,10 +78,14 @@ pub enum ManufacturerSource {
 pub struct DeviceSignal {
     pub kind: DeviceSignalKind,
     pub value: String,
-    /// `true` when the raw observation matched the curated vendor catalog, so
-    /// this signal is what named the device. Surfaced because a catalog match
-    /// is a hedged guess: an admin looking at "likely Govee" needs to see the
-    /// observation it was derived from.
+    /// `true` when the value matched a vendor in the curated catalog.
+    ///
+    /// Deliberately *not* "this signal named the device": naming is
+    /// first-writer-wins against a `NULL` manufacturer (see
+    /// `set_manufacturer_if_absent`), so a device already named by its IEEE
+    /// registrant collects matching signals that changed nothing. Surfaced
+    /// because a match is still the evidence an admin needs when the name is
+    /// itself a hedge ("Likely Govee").
     pub inferred: bool,
     pub observed_at: DateTime<Utc>,
 }
