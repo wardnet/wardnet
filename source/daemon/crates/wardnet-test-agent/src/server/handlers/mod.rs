@@ -7,3 +7,4 @@ pub mod pid;
 pub mod postupgrade;
 pub mod power;
 pub mod process;
+pub mod update;

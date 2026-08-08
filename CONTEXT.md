@@ -64,7 +64,7 @@
 
 **Cross-zone NAT exemption** — The postrouting rule set that stops cross-zone **exception** traffic from being source-NAT'd to the gateway alias by the base `oifname <lan> masquerade` (which exists for WAN egress but incidentally catches inter-zone LAN traffic, since the WAN and the zones share one interface). A dedicated `zone_natexempt` chain, jumped from postrouting **before** the masquerade, carries an `accept` (terminal for the hook, so masquerade is skipped) for each exception's `from_cidr ↔ to_cidr` pair, both directions. It preserves the sender's real IP end-to-end — necessary for the **Mirroring preset**'s sender-push flows and honest in the logs for the rest. Scoped to exception pairs (like **Switchback**); non-exception cross-zone traffic is dropped by **Zone packet enforcement** regardless, so there is no security cost to un-NATing.
 
-**Switchback** — The routing counterpart to a **Cross-zone exception**. A **tunnel-bound** device's source `ip rule` directs *all* its traffic to the tunnel's routing table, whose only route is `default dev wg_wardX`; its cross-zone LAN unicast therefore matches that default and is sent up the tunnel, never reaching the forward chain where the exception's allow-rules live. Switchback restores local delivery: for each peer the device's zone has an exception with, a higher-precedence source+destination `ip rule` — `from <device_ip> to <peer_cidr> lookup main`, at a fixed priority (1000) below the kernel-auto-assigned tunnel rules — returns just that traffic to the main table. **Scoped to exceptions** (routing encodes the same zone-pair policy the firewall does) and **subnet-granular** (the firewall still decides which *ports* pass). It is computed by the **Zone packet enforcement** layer from the same exceptions and pushed to the routing service, which materialises the `ip rule`s only while the device is tunnel-bound and tears them down on unbind, IP change, or removal. See [0023-switchback-and-cross-zone-return.md](docs/adr/0023-switchback-and-cross-zone-return.md).
+**Switchback** — The routing counterpart to a **Cross-zone exception**. A **tunnel-bound** device's source `ip rule` directs *all* its traffic to the tunnel's routing table, whose only route is `default dev wg_wardX`; its cross-zone LAN unicast therefore matches that default and is sent up the tunnel, never reaching the forward chain where the exception's allow-rules live. Switchback restores local delivery: for each peer the device's zone has an exception with, a higher-precedence source+destination `ip rule` — `from <device_ip> to <peer_cidr> lookup main`, at a fixed priority (1000) below the kernel-auto-assigned tunnel rules — returns just that traffic to the main table. **Scoped to exceptions** (routing encodes the same zone-pair policy the firewall does) and **subnet-granular** (the firewall still decides which *ports* pass). It is computed by the **Zone packet enforcement** layer from the same exceptions and pushed to the routing service, which materialises the `ip rule`s only while the device is tunnel-bound and tears them down on unbind, IP change, or removal. See [0026-switchback-and-cross-zone-return.md](docs/adr/0026-switchback-and-cross-zone-return.md).
 
 **Zone packet enforcement** — The #736 layer that makes a zone bite on a flat shared subnet: a per-device **egress gate** (forward-chain drop of egress via a routing-target kind the zone forbids — `wg_ward*` for tunnel, the WAN interface for direct) and an **admin-UI gate** (input-chain TCP-reset of device→Pi :443/:7411 when `admin_ui_reachable = false`, leaving DNS/DHCP to pass). Rules are keyed by device IP via nftables comment UDATA so they survive restarts, and are live-reloaded on zone/device events. **Honest limit:** same-subnet peer↔peer traffic is *not* affected — the daemon never sees it on a flat L2 segment; that's the AP's job (or the isolate-members rung). See [0019-network-zone-enforcement.md](docs/adr/0019-network-zone-enforcement.md).
 
@@ -197,6 +197,34 @@ put on edge without root on that box, and a box already on edge falls back to
 beta at startup if the flag is removed. Never a destination for a real user —
 an operator's testing loop. See
 [0023-edge-release-channel.md](docs/adr/0023-edge-release-channel.md).
+
+## Applying an update
+
+**Pending tarball** — The signed release archive the daemon has downloaded,
+verified, and set aside for the next start, rather than applied itself. It
+lives in the daemon's own writable staging area, which means the unprivileged
+daemon user can put *anything* there; nothing about its presence is trusted.
+It is a request to swap, not a swap.
+
+**Privileged swap** — The step that actually replaces the running daemon
+binary, performed at the next start by a separate root-owned component before
+the daemon is allowed to start. It re-verifies the **pending tarball** from
+scratch — the daemon's earlier check is not taken on faith — and preserves the
+outgoing binary so a **rollback** remains possible. If verification fails the
+swap does not happen *and* the daemon is not started, so a box never runs a
+binary that failed the check.
+
+**Trust anchor** — The signing key the **privileged swap** verifies against,
+fixed when the component was built and therefore not replaceable by anything
+running on the box. It is the whole basis of the arrangement: the daemon user
+can stage any bytes it likes, and the trust anchor alone decides which of them
+ever execute.
+
+**Rollback** — Returning to the binary that was live before the last
+**privileged swap**. Requested by the daemon and carried out by the same
+privileged component on the next start, for the same reason the swap is: the
+daemon cannot write to that location itself. Available only while the previous
+binary is still preserved — one step back, not a history.
 
 ## Reliability and watchdog (issue #214)
 

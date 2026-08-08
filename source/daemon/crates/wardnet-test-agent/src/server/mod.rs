@@ -73,6 +73,28 @@ fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/power/polkit-rule", get(handlers::power::get_polkit_rule))
         .route("/power/pkcheck", get(handlers::power::get_pkcheck))
+        // Auto-update binary-swap e2e (issue #319). These observe and
+        // manipulate state outside the daemon's API — the live binary,
+        // its `.old` sibling, the staging dir — and stay reachable when
+        // `wardnetd.service` itself refuses to start.
+        .route("/update/binaries", get(handlers::update::get_binaries))
+        .route(
+            "/update/stage-bad-signature",
+            post(handlers::update::post_stage_bad_signature),
+        )
+        .route(
+            "/update/clear-staged",
+            post(handlers::update::post_clear_staged),
+        )
+        .route(
+            "/update/restore-original",
+            post(handlers::update::post_restore_original),
+        )
+        .route(
+            "/systemd/restart",
+            post(handlers::update::post_systemd_restart),
+        )
+        .route("/systemd/status", get(handlers::update::get_systemd_status))
         .with_state(state)
 }
 

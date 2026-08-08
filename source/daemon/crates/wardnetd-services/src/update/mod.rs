@@ -36,8 +36,15 @@ pub use verifier::ReleaseVerifier;
 /// the private counterpart, and a daemon built from this commit only trusts
 /// this key. Both the daemon and the mock bind their verifier to this
 /// constant so local dev exercises the same verification code path as prod.
-pub const EMBEDDED_PUBLIC_KEY: &str =
-    include_str!("../../../../../../deploy/keys/wardnet-release.pub");
+///
+/// The path is resolved by `build.rs`, which honours a
+/// `WARDNET_RELEASE_PUBKEY_PATH` override. The only consumer of that
+/// override is `source/daemon/Dockerfile.test`, which points it at an
+/// ephemeral keypair generated during the image build so the e2e suite
+/// can serve a signed release the daemon actually accepts — see
+/// `docs/adr/0027-e2e-auto-update-version-skew.md`. Production builds
+/// leave it unset and get the release key.
+pub const EMBEDDED_PUBLIC_KEY: &str = include_str!(env!("WARDNET_RELEASE_PUBKEY"));
 
 /// Default directory for the wardnet-writable post-upgrade payload
 /// (`wardnet-postupgrade.bin` + `.minisig`). `FsBinaryApplier` writes

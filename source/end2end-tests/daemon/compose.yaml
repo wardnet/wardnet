@@ -11,7 +11,10 @@
 # WireGuard peers on wardnet_wan for the manual tunnel-import lifecycle
 # specs (no NAT, no internet segment). Stage 11 (issue #249) adds
 # `update_manifest_server`: a static-file server for the release manifests
-# the auto-update subsystem checks. See the e2e umbrella issue for the
+# the auto-update subsystem checks. Issue #319 adds
+# `update_release_server`, which publishes the signed tarball those
+# manifests point at, so the suite can drive a real install through to
+# the privileged binary swap. See the e2e umbrella issue for the
 # full topology, stage list, and conventions:
 # https://github.com/wardnet/wardnet/issues/273
 #
@@ -24,8 +27,9 @@
 #                              daemon's DHCP pool + reservations.
 #   wardnet_wan  10.92.0.0/24 — upstream side: nordvpn_mock (.52), the
 #                              wg_gateway (.53) tunnel underlay, the
-#                              tunnel-import peers (.54/.55), and the
-#                              update_manifest_server (.56).
+#                              tunnel-import peers (.54/.55), the
+#                              update_manifest_server (.56), and the
+#                              update_release_server (.57).
 #   wardnet_internet 10.93.0.0/24 — isolated "public internet"; only
 #                              wg_gateway (.1) and internet_target (.10)
 #                              attach, so it is reachable from the LAN
@@ -304,6 +308,49 @@ services:
       retries: 10
       start_period: 5s
 
+  # Release-asset server for the auto-update swap spec (issue #319). Serves the
+  # signed tarball + `.sha256` + `.minisig` that `beta.json`'s `asset_base_url`
+  # points at, so `/update/install` performs a real download → verify → stage →
+  # privileged swap instead of stopping at "a release exists".
+  #
+  # Built from source/daemon/Dockerfile.test's `release-server` target rather
+  # than a standalone Dockerfile: the assets are produced by that file's builder
+  # stage (a second `wardnetd` compiled at 9999.12.31 and signed with the image's
+  # ephemeral minisign key), so sharing the Dockerfile lets BuildKit reuse the
+  # builder layer the `wardnetd` service already materialised instead of
+  # compiling the daemon a third time.
+  #
+  # Separate from `update_manifest_server` because the two serve different
+  # trees at different addresses — manifests are bind-mounted fixtures that can
+  # be edited without a rebuild, whereas the assets are build outputs that must
+  # match the binary compiled into the image. Merging them would mean either
+  # rebuilding the image to touch a manifest or bind-mounting build artefacts
+  # out of the daemon image.
+  #
+  # Plain HTTP for the same reason as the manifest server: authenticity comes
+  # from the minisign signature over the asset, not from TLS.
+  update_release_server:
+    build:
+      context: ../../..
+      dockerfile: source/daemon/Dockerfile.test
+      target: release-server
+    image: wardnet-e2e-release-server:dev
+    command: ["httpd", "-f", "-v", "-p", "80", "-h", "/srv"]
+    networks:
+      wardnet_wan:
+        ipv4_address: 10.92.0.57
+    healthcheck:
+      # Glob the tarball rather than naming it: the filename carries the build
+      # architecture (`-aarch64` locally, `-x86_64` in CI), and hardcoding one
+      # would leave the service permanently unhealthy on the other.
+      test:
+        - "CMD-SHELL"
+        - "ls /srv/wardnetd-*.tar.gz.minisig >/dev/null 2>&1"
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+
   # NordVPN API mock (issue #248, E2E Stage 10). A dependency-free Node HTTP
   # server that answers the subset of api.nordvpn.com the daemon's VPN provider
   # calls, backed by the fixtures/nordvpn JSON. Pinned to 10.92.0.52 on
@@ -443,6 +490,8 @@ services:
       blocklist_server:
         condition: service_healthy
       update_manifest_server:
+        condition: service_healthy
+      update_release_server:
         condition: service_healthy
       nordvpn_mock:
         condition: service_healthy

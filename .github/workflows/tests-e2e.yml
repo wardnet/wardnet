@@ -48,10 +48,14 @@ jobs:
     name: E2E Daemon Tests
     runs-on: ubuntu-latest
     # Generous ceiling: image-test rebuilds wardnetd + wardnet-test-agent
-    # from scratch inside Docker (~7-10 min on a cold runner). A future
-    # optimisation will pre-feed the prebuilt binaries via a
-    # PREBUILT_BIN_DIR build arg, at which point this drops to ~3 min.
-    timeout-minutes: 40
+    # from scratch inside Docker (~7-10 min on a cold runner), then
+    # recompiles wardnetd a second time at the e2e release version for the
+    # auto-update swap spec (issue #319 — the version override invalidates
+    # wardnetd-services and its dependents, so it is a partial rebuild, not
+    # a second cold one). A future optimisation will pre-feed the prebuilt
+    # binaries via a PREBUILT_BIN_DIR build arg, at which point this drops
+    # substantially.
+    timeout-minutes: 55
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
