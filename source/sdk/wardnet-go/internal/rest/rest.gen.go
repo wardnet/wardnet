@@ -1039,6 +1039,7 @@ func (e RuleRequestStatus) Valid() bool {
 const (
 	Casting   ServiceSet = "casting"
 	Mirroring ServiceSet = "mirroring"
+	SmartHome ServiceSet = "smart_home"
 )
 
 // Valid indicates whether the value is a known member of the ServiceSet enum.
@@ -1047,6 +1048,8 @@ func (e ServiceSet) Valid() bool {
 	case Casting:
 		return true
 	case Mirroring:
+		return true
+	case SmartHome:
 		return true
 	default:
 		return false

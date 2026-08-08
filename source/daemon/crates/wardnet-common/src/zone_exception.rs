@@ -69,69 +69,85 @@ pub enum ServiceSet {
     /// in the service); requires the cross-zone NAT exemption so the receiver
     /// reaches the sender's real IP.
     Mirroring,
+    /// Vendor LAN-control `IoT` — the ports a phone needs to *control* a
+    /// smart-home appliance across a zone boundary (issue #1098). A third
+    /// traffic model alongside the two above: client-initiated unicast control
+    /// of an appliance, with no media stream, where the device also sends
+    /// unsolicited replies of its own.
+    ///
+    /// Covers Govee (4001/4002/4003), Tuya / Smart Life (5683, 6668), local
+    /// MQTT/TLS (8883), LIFX (56700) and `ESPHome` (9123). Deliberately
+    /// **excludes TCP 80/443**: several vendors expose local HTTP control
+    /// there, but a zone-scoped hole on those ports reaches every HTTP listener
+    /// in the peer zone (NAS, cameras, dev servers) — far wider than the rest
+    /// of the list, and not something a preset should smuggle in. Admins who
+    /// need it pair this with the admin-site's separate `web` bundle,
+    /// preferably device-scoped.
+    ///
+    /// Must be used **bidirectionally**: the device→client leg (Govee's UDP
+    /// 4002) is a fresh flow, not a conntrack reply — the multicast discovery
+    /// it answers never transits the Pi, so no conntrack entry exists for it.
+    SmartHome,
+}
+
+/// A single-port [`PortSpec`] (`from == to`) — the shape every preset entry
+/// below takes, so each port reads as one line with its rationale beside it.
+const fn one(proto: Proto, port: u16) -> PortSpec {
+    PortSpec {
+        proto,
+        from: port,
+        to: port,
+    }
 }
 
 impl ServiceSet {
     /// The concrete ports this preset expands to. Each port is a single-value
-    /// [`PortSpec`] (`from == to`).
+    /// [`PortSpec`] (`from == to`), except [`Self::Mirroring`], which spans the
+    /// full range.
     #[must_use]
     pub fn ports(&self) -> Vec<PortSpec> {
+        use Proto::{Tcp, Udp};
         match self {
             Self::Casting => vec![
-                PortSpec {
-                    proto: Proto::Udp,
-                    from: 5353,
-                    to: 5353,
-                }, // mDNS
-                PortSpec {
-                    proto: Proto::Udp,
-                    from: 1900,
-                    to: 1900,
-                }, // SSDP / DLNA
-                PortSpec {
-                    proto: Proto::Tcp,
-                    from: 8008,
-                    to: 8008,
-                }, // Chromecast / Cast
-                PortSpec {
-                    proto: Proto::Tcp,
-                    from: 8009,
-                    to: 8009,
-                }, // Chromecast / Cast
-                PortSpec {
-                    proto: Proto::Tcp,
-                    from: 8443,
-                    to: 8443,
-                }, // Google Home app device listing (TLS)
-                PortSpec {
-                    proto: Proto::Tcp,
-                    from: 9000,
-                    to: 9000,
-                }, // Chromecast / Cast
-                PortSpec {
-                    proto: Proto::Tcp,
-                    from: 7000,
-                    to: 7000,
-                }, // AirPlay
-                PortSpec {
-                    proto: Proto::Tcp,
-                    from: 7100,
-                    to: 7100,
-                }, // AirPlay
+                one(Udp, 5353), // mDNS
+                one(Udp, 1900), // SSDP / DLNA
+                one(Tcp, 8008), // Chromecast / Cast
+                one(Tcp, 8009), // Chromecast / Cast
+                one(Tcp, 8443), // Google Home app device listing (TLS)
+                one(Tcp, 9000), // Chromecast / Cast
+                one(Tcp, 7000), // AirPlay
+                one(Tcp, 7100), // AirPlay
             ],
             // Mirroring negotiates media ports dynamically, so the exemption
             // spans the full range on both protocols between the two devices.
             Self::Mirroring => vec![
                 PortSpec {
-                    proto: Proto::Tcp,
+                    proto: Tcp,
                     from: 1,
-                    to: 65535,
+                    to: u16::MAX,
                 },
                 PortSpec {
-                    proto: Proto::Udp,
+                    proto: Udp,
                     from: 1,
-                    to: 65535,
+                    to: u16::MAX,
                 },
+            ],
+            // Vendor LAN-control ports only — no 80/443, see the variant doc.
+            // 5353/1900 are here for the *unicast* leg: an app querying a known
+            // device IP directly. The multicast discovery leg crosses zones at
+            // L2 and never transits the Pi, so no rule of ours carries it
+            // (ADR 0021 §5).
+            Self::SmartHome => vec![
+                one(Udp, 4001),  // Govee LAN API discovery
+                one(Udp, 4002),  // Govee device -> client responses
+                one(Udp, 4003),  // Govee client -> device control
+                one(Udp, 5353),  // mDNS (unicast queries)
+                one(Udp, 1900),  // SSDP (unicast M-SEARCH)
+                one(Udp, 5683),  // CoAP — Tuya / Smart Life / LocalTuya
+                one(Tcp, 6668),  // Tuya local control
+                one(Tcp, 8883),  // Local MQTT/TLS — Shelly gen2, ESPHome
+                one(Udp, 56700), // LIFX
+                one(Tcp, 9123),  // ESPHome native API
             ],
         }
     }

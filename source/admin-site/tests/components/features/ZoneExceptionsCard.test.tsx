@@ -172,6 +172,34 @@ describe("ZoneExceptionsCard", () => {
     );
   });
 
+  it("creates a smart-home exception (issue #1098)", async () => {
+    // The preset the casting one was silently failing to cover: it must reach
+    // the daemon as a real backend preset, not as an expanded port list.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderWithProviders(<ZoneExceptionsCard />);
+    await user.click(screen.getByTestId("exception-add"));
+    const combos = screen.getAllByRole("combobox");
+    await user.click(combos[0]);
+    await user.click(
+      await screen.findByRole("option", { name: "Device: Phone" }),
+    );
+    await user.click(combos[1]);
+    await user.click(
+      await screen.findByRole("option", { name: "Zone: Guest" }),
+    );
+    await user.click(screen.getByTestId("exception-service"));
+    await user.click(await screen.findByRole("option", { name: /Smart home/ }));
+    await user.click(screen.getByTestId("exception-submit"));
+    expect(createMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        service: { type: "preset", set: "smart_home" },
+        // The device->client leg is a fresh flow, so this must be bidirectional.
+        bidirectional: true,
+      }),
+      expect.anything(),
+    );
+  });
+
   it("creates an exception for a curated service bundle (SSH)", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     renderWithProviders(<ZoneExceptionsCard />);
