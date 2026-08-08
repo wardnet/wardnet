@@ -85,6 +85,16 @@ Options:
                         only. Use this on existing Pis to bootstrap the
                         post-upgrade framework without disturbing operator
                         config. Idempotent.
+  -u, --uninstall       Remove Wardnet from this host instead of installing.
+                        Hands over to /usr/local/sbin/wardnet-uninstall (which
+                        the installer writes) or, failing that, to
+                        \`wardnetd uninstall\`. Everything after this flag is
+                        passed straight through, so:
+                          --uninstall --dry-run   list what would be removed
+                          --uninstall             remove, keeping the database
+                                                  and secrets under
+                                                  /var/lib/wardnet
+                          --uninstall --purge     also destroy that data
   -h, --help            Show this help text.
 
 Environment overrides:
@@ -102,6 +112,41 @@ while [[ $# -gt 0 ]]; do
         --lan-interface)  LAN_INTERFACE="$2";     shift 2 ;;
         --static-ip)      STATIC_IP="$2";         shift 2 ;;
         --container-mode) CONTAINER_MODE=true;    shift   ;;
+        # Uninstall short-circuits everything below: it needs none of the
+        # channel validation, dependency checks or arch detection, and must
+        # still work when this script is the only thing the user has (the
+        # `curl | sudo bash` case, where $0 is not a file on disk).
+        -u|--uninstall)
+            shift
+            # `--dry-run` changes nothing, so it must not demand root — both the
+            # docs and the Rust path treat it as usable unprivileged.
+            uninstall_dry_run=""
+            for a in "$@"; do
+                [[ "$a" == "--dry-run" ]] && uninstall_dry_run=true
+            done
+            if [[ -z "$uninstall_dry_run" && $EUID -ne 0 ]]; then
+                echo "Error: uninstall must be run as root" >&2
+                exit 1
+            fi
+            if [[ -x /usr/local/sbin/wardnet-uninstall ]]; then
+                # The generated wrapper knows how this host was installed
+                # (container mode), so it re-adds the flag itself.
+                exec /usr/local/sbin/wardnet-uninstall "$@"
+            elif [[ -x /usr/local/bin/wardnetd ]]; then
+                # No wrapper (an install that failed before it was written), so
+                # nothing recorded the install mode. Forward --container-mode
+                # only if this invocation was given it, and otherwise let the
+                # caller pass it: guessing would make the printed plan claim
+                # drop-ins that were never written.
+                if [[ -n "$CONTAINER_MODE" ]]; then
+                    exec /usr/local/bin/wardnetd uninstall "$@" --container-mode
+                fi
+                exec /usr/local/bin/wardnetd uninstall "$@"
+            fi
+            echo "Error: Wardnet does not appear to be installed" >&2
+            echo "  (no /usr/local/sbin/wardnet-uninstall and no /usr/local/bin/wardnetd)" >&2
+            exit 1
+            ;;
         --upgrade-only)   UPGRADE_ONLY=true;      shift   ;;
         -h|--help)        print_usage; exit 0 ;;
         *) echo "Unknown option: $1" >&2; print_usage >&2; exit 1 ;;
@@ -583,6 +628,268 @@ for unit in wardnetd.service wardnetd-rollback.service wardnet-postupgrade.servi
     fi
 done
 
+# 6a. Escape-hatch uninstaller. Written *before* the units are enabled so a
+#     half-failed install is still removable, and written to disk because
+#     `curl | sudo bash` leaves $0 unusable — there is no script on disk to
+#     re-run with an --uninstall flag.
+#
+#     Deliberately thin. `wardnetd uninstall` is the real implementation: only
+#     the daemon can delete the nftables table, because Wardnet talks nftables
+#     over netlink (ADR 0013) and never depends on the `nft` CLI, which may not
+#     exist on this host at all. The fallback below therefore does file removal
+#     only, and says so rather than claiming a clean uninstall.
+create_uninstall_script() {
+    install -d -m 0755 /usr/local/sbin
+
+    # Recorded at install time: in container mode the installer never wrote the
+    # sysctl / dhcpcd / module-load drop-ins, so uninstall must not claim it is
+    # removing them.
+    #
+    # An --upgrade-only run does not re-state how the box was originally
+    # installed, so carry forward whatever the existing wrapper recorded rather
+    # than overwriting it with this invocation's (absent) flag. Otherwise
+    # upgrading a container install would silently turn it into a bare-metal
+    # one in the uninstall plan.
+    recorded_container_mode="${CONTAINER_MODE:-}"
+    if [[ -z "$recorded_container_mode" && -n "$UPGRADE_ONLY" \
+          && -f /usr/local/sbin/wardnet-uninstall ]] \
+       && grep -qE "^CONTAINER_MODE=(true|'true')$" /usr/local/sbin/wardnet-uninstall; then
+        recorded_container_mode=true
+    fi
+
+    {
+        printf '%s\n' '#!/usr/bin/env bash'
+        printf '%s\n' '# Generated by Wardnet install.sh — do not edit.'
+        printf '%s\n' 'set -euo pipefail'
+        printf 'CONTAINER_MODE=%q\n' "$recorded_container_mode"
+        cat <<'UNINSTALL_EOF'
+
+DAEMON=/usr/local/bin/wardnetd
+
+# Preferred path: hand over to the daemon, which can delete the nftables table
+# and the WireGuard interfaces through the same netlink code that created them.
+if [[ -x "$DAEMON" ]] && "$DAEMON" --version >/dev/null 2>&1; then
+    args=("$@")
+    if [[ -n "$CONTAINER_MODE" ]]; then
+        args+=(--container-mode)
+    fi
+    exec "$DAEMON" uninstall "${args[@]}"
+fi
+
+# Fallback: the binary is missing or will not run. Remove what shell can
+# remove, and be explicit about what we could not.
+echo "wardnetd binary is missing or will not run; falling back to file removal only." >&2
+echo "" >&2
+
+DRY_RUN=""
+PURGE=""
+ASSUME_YES=""
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        --purge)   PURGE=true ;;
+        -y|--yes)  ASSUME_YES=true ;;
+        --container-mode) CONTAINER_MODE=true ;;
+        *) echo "Unknown option: $arg" >&2; exit 1 ;;
+    esac
+done
+
+UNITS=(wardnetd.service wardnetd-rollback.service wardnet-postupgrade.service)
+
+PATHS=(
+    /usr/local/bin/wardnetd
+    /usr/local/bin/wardnetd.old
+    /usr/local/libexec/wardnet
+    /etc/wardnet
+    /var/log/wardnet
+    /var/lib/wardnet-postupgrade
+)
+if [[ -n "$PURGE" ]]; then
+    PATHS+=(/var/lib/wardnet)
+else
+    PATHS+=(/var/lib/wardnet/updates /var/lib/wardnet/postupgrade)
+fi
+if [[ -z "$CONTAINER_MODE" ]]; then
+    PATHS+=(
+        /etc/sysctl.d/99-wardnet.conf
+        /etc/dhcpcd.conf.d/wardnet.conf
+        /etc/modules-load.d/wardnet-watchdog.conf
+    )
+fi
+
+if [[ -n "$DRY_RUN" ]]; then
+    echo "Would disable and remove these units:"
+    printf '  %s\n' "${UNITS[@]}"
+    echo "Would remove these paths:"
+    printf '  %s\n' "${PATHS[@]}"
+    if [[ -z "$PURGE" ]]; then
+        # The plan claims to mark everything removed *or kept*, so the retained
+        # tree has to appear even though it is absent from PATHS.
+        echo "Would KEEP these paths (re-owned to root; --purge destroys them):"
+        echo "  /var/lib/wardnet (database and secrets)"
+    fi
+    if [[ -n "$PURGE" ]]; then
+        echo "Would remove the wardnet system user."
+    else
+        echo "Would remove the wardnet system user (kept if /var/lib/wardnet cannot"
+        echo "  be re-owned to root)."
+    fi
+    echo "Would delete every wg_ward* interface."
+    # Probe for the table the same way the real run does, so the plan reports
+    # what would actually happen rather than what is merely possible. Listing
+    # nftables needs root, and --dry-run is deliberately usable unprivileged, so
+    # only probe when we can: a denied probe looks identical to an absent table,
+    # and reporting "nothing to delete" on a host that has one would be a lie in
+    # exactly the case this feature exists for.
+    if ! command -v nft >/dev/null 2>&1; then
+        echo "Would NOT be able to delete the 'inet wardnet' nftables table:"
+        echo "  neither a working wardnetd binary nor the nft command is available."
+    elif [[ $EUID -ne 0 ]]; then
+        echo "Would delete the 'inet wardnet' nftables table if present (via the nft"
+        echo "  command); re-run with sudo to check whether it currently exists."
+    elif nft list table inet wardnet >/dev/null 2>&1; then
+        echo "Would delete the 'inet wardnet' nftables table (via the nft command)."
+    else
+        echo "The 'inet wardnet' nftables table is not present; nothing to delete."
+    fi
+    exit 0
+fi
+
+# Checked after --dry-run, which changes nothing and so needs no privileges.
+if [[ $EUID -ne 0 ]]; then
+    echo "Error: wardnet-uninstall must be run as root (try: sudo $0 $*)" >&2
+    exit 1
+fi
+
+# Confirm before destroying anything. The Rust path refuses to act without a
+# confirmation, and this fallback must not be the softer option — it runs
+# exactly when the daemon binary is broken, i.e. when the operator is least
+# likely to be here deliberately. Read from /dev/tty, not stdin, so the
+# documented `curl ... | sudo bash -s -- --uninstall` form can still answer.
+echo ""
+echo "This host is your LAN's DHCP server and DNS resolver. Removing Wardnet"
+echo "leaves the network without either until you re-enable DHCP on your router."
+if [[ -n "$PURGE" ]]; then
+    echo ""
+    echo "--purge DESTROYS /var/lib/wardnet: the database, WireGuard private keys,"
+    echo "the backup passphrase and any DDNS credentials. This cannot be undone."
+    prompt="Type PURGE to destroy all data and uninstall: "
+    expected="PURGE"
+else
+    prompt="Type yes to uninstall: "
+    expected="yes"
+fi
+
+if [[ -z "$ASSUME_YES" ]]; then
+    if [[ ! -r /dev/tty ]]; then
+        echo "Error: refusing to uninstall without --yes: no terminal to confirm on" >&2
+        exit 1
+    fi
+    printf '%s' "$prompt" > /dev/tty
+    read -r answer < /dev/tty
+    if [[ "$answer" != "$expected" ]]; then
+        echo "Aborted; nothing was changed."
+        exit 0
+    fi
+fi
+
+# Stop cleanly, never SIGKILL: the daemon disarms the hardware watchdog on a
+# clean exit, and an ungraceful kill reboots this host ~15s later. Verify it
+# actually went down — deleting the binary, units and interfaces out from under
+# a live daemon is the very situation that arms the watchdog.
+systemctl stop wardnetd.service 2>/dev/null || true
+if systemctl is-active --quiet wardnetd.service 2>/dev/null; then
+    echo "Error: wardnetd.service is still running after 'systemctl stop'." >&2
+    echo "  Refusing to continue: removing files under a live daemon risks a" >&2
+    echo "  forced kill, which leaves the hardware watchdog armed and reboots" >&2
+    echo "  this host. Investigate with: systemctl status wardnetd" >&2
+    exit 1
+fi
+for unit in "${UNITS[@]}"; do
+    systemctl disable "$unit" 2>/dev/null || true
+    rm -f "/etc/systemd/system/$unit"
+done
+
+# `ip` is present on any systemd host, so the interfaces we can clean up.
+for iface in $(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | grep '^wg_ward' || true); do
+    ip link delete "$iface" 2>/dev/null || true
+done
+
+for path in "${PATHS[@]}"; do
+    rm -rf "$path"
+done
+
+# Re-own retained data: the wardnet user is about to go, and an orphaned UID
+# can be silently reassigned to another service later.
+#
+# Deleting the account is what turns a failed re-own into that hazard, so the
+# user only goes once the data is safely root-owned. A leftover system user is
+# trivially removable by hand; a recycled UID silently owning the WireGuard
+# keys is not. Mirrors the same gating in `wardnetd uninstall`.
+data_is_root_owned=true
+if [[ -z "$PURGE" && -d /var/lib/wardnet ]]; then
+    if ! chown -R -h root:root -- /var/lib/wardnet 2>/dev/null; then
+        data_is_root_owned=""
+    fi
+fi
+
+if [[ -n "$data_is_root_owned" ]]; then
+    userdel wardnet 2>/dev/null || true
+else
+    echo "Keeping the wardnet user: /var/lib/wardnet could not be re-owned to root," >&2
+    echo "  and removing the account would leave its data owned by an orphaned UID." >&2
+fi
+systemctl daemon-reload 2>/dev/null || true
+
+echo ""
+if [[ -z "$PURGE" ]]; then
+    echo "Kept /var/lib/wardnet (database and secrets), now owned by root."
+    echo "Delete it with: sudo rm -rf /var/lib/wardnet"
+    echo ""
+fi
+
+# The daemon is the only thing guaranteed to be able to delete the nftables
+# table, but if the `nft` CLI happens to be installed we can finish the job and
+# report an honest success instead of an unresolved warning. Deleting only our
+# named table, never a ruleset flush.
+#
+# This script only deletes itself once the job is genuinely done. On the
+# unresolved path below the firewall table is still live, and `nft` is
+# deliberately not an install dependency (ADR 0013), so that path is a real
+# outcome rather than a corner case — leaving the uninstaller on disk is what
+# makes the documented "safe to re-run" promise true.
+if command -v nft >/dev/null 2>&1; then
+    if nft list table inet wardnet >/dev/null 2>&1; then
+        if nft delete table inet wardnet >/dev/null 2>&1; then
+            echo "Removed the 'inet wardnet' nftables table."
+        else
+            echo "Failed to delete the 'inet wardnet' nftables table; it is still active." >&2
+            echo "Leaving $0 in place so you can re-run it." >&2
+            exit 1
+        fi
+    fi
+    rm -f /usr/local/sbin/wardnet-uninstall
+    echo "Wardnet has been removed."
+    exit 0
+fi
+
+echo "Wardnet files were removed, but firewall state may still be present:" >&2
+echo "  the 'inet wardnet' nftables table needs either the daemon or the 'nft'" >&2
+echo "  command to delete, and neither is available on this host. Check with:" >&2
+echo "    sudo nft list table inet wardnet" >&2
+echo "    sudo nft delete table inet wardnet" >&2
+echo "  This uninstaller has been left at $0 so you can re-run it after" >&2
+echo "  installing nftables." >&2
+echo "  Otherwise it clears on the next reboot." >&2
+exit 1
+UNINSTALL_EOF
+    } > /usr/local/sbin/wardnet-uninstall
+    chmod 0755 /usr/local/sbin/wardnet-uninstall
+    echo "Wrote uninstaller to /usr/local/sbin/wardnet-uninstall"
+}
+
+create_uninstall_script
+
 # 6b. IP forwarding. Per-device VPN routing forwards LAN traffic into the
 #     WireGuard tunnels, which requires net.ipv4.ip_forward=1. The daemon
 #     runs as an unprivileged user (User=wardnet, no CAP_DAC_OVERRIDE) and
@@ -620,6 +927,12 @@ if [[ -n "$CONTAINER_MODE" ]]; then
 else
     systemctl enable wardnet-postupgrade.service
     systemctl enable --now wardnetd
+    # NOTE: this is a bare SIGTERM, so the daemon classifies it as a *stop*
+    # (ShutdownCause::Signal) and tears down its nftables table and wg_ward*
+    # interfaces. Both come back on the next boot: startup reconcile rebuilds
+    # the table, and because teardown records each tunnel as Down, the same
+    # reconcile's per-device pass brings the tunnels back up on demand.
+    # See docs/adr/0028-shutdown-teardown-and-uninstall.md.
     systemctl restart wardnetd
 
     # Wait briefly for the daemon to bind its HTTP port so the URL we print is

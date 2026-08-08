@@ -25,6 +25,15 @@ pub mod dns;
 // Host-power operations (systemctl reboot/poweroff).
 pub mod system;
 
+// Shutdown-cause classification and teardown of the kernel state the daemon
+// created (nftables table, wireguard interfaces) — see issue #864.
+pub mod shutdown;
+
+// `wardnetd uninstall` — removes the daemon, its host state, and (with
+// --purge) its data. Lives here because only the binary can delete the
+// nftables table via netlink; see ADR 0013 and issue #864.
+pub mod uninstall;
+
 // Daemon-owned TLS termination: :443 RustlsConfig + hot cert reload, :80→:443
 // redirect, and the 503 "not provisioned" guard.
 pub mod tls_server;

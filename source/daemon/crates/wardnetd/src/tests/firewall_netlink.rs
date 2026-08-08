@@ -9,11 +9,50 @@ use crate::firewall_netlink::{
     IFNAMSIZ, ZONE_ESTABLISHED_COMMENT, ZONE_ISOJUMP_COMMENT, ZONE_ISOLATION, ZONE_NATEXEMPT,
     ZONE_NATEXEMPT_COMMENT, ZONE_NATEXEMPT_JUMP_COMMENT, build_natexempt_batch,
     build_zone_isolation_batch, chain_has_comment, chain_ref, comment_udata,
-    inbound_wg_iface_exact_value, masquerade_rule, natexempt_jump_rule, parse_comment_udata,
-    rule_comment, wardnet_table, zone_rule_ip,
+    inbound_wg_iface_exact_value, is_table_absent_error, masquerade_rule, natexempt_jump_rule,
+    parse_comment_udata, rule_comment, wardnet_table, zone_rule_ip,
 };
+use rustables::error::QueryError;
 use rustables::{Batch, Rule};
 use wardnetd_services::routing::firewall::{ExceptionAllow, ZoneIsolationRules};
+
+/// Build the error rustables produces for a netlink reply carrying `errno`.
+///
+/// The kernel reports errnos negated. `nlmsgerr` is a bindgen-generated FFI
+/// struct whose only field we care about is `error`; zeroing the rest is safe
+/// because it is plain-old-data with no invariants.
+fn netlink_error(errno: i32) -> anyhow::Error {
+    let mut raw: rustables::sys::nlmsgerr = unsafe { std::mem::zeroed() };
+    raw.error = -errno;
+    anyhow::Error::new(QueryError::NetlinkError(raw)).context("destroy wardnet table")
+}
+
+#[test]
+fn absent_table_is_recognised_from_the_netlink_errno() {
+    // The errno lives only in `nlmsgerr.error`: `QueryError::NetlinkError` has
+    // no `#[source]` and its Display is the fixed string "Error received from
+    // the kernel". Matching on message text would silently never fire, and
+    // this is the *common* path — a clean `systemctl stop` already removed the
+    // table before `wardnetd uninstall` sweeps again.
+    assert!(is_table_absent_error(&netlink_error(libc::ENOENT)));
+}
+
+#[test]
+fn a_real_failure_is_not_mistaken_for_an_absent_table() {
+    // EPERM in a restricted namespace must propagate, or uninstall would
+    // report a clean removal while the table kept filtering traffic.
+    assert!(!is_table_absent_error(&netlink_error(libc::EPERM)));
+    assert!(!is_table_absent_error(&netlink_error(libc::EBUSY)));
+}
+
+#[test]
+fn an_unrelated_error_is_not_an_absent_table() {
+    let err = anyhow::anyhow!("No such file or directory");
+    assert!(
+        !is_table_absent_error(&err),
+        "message text must not be treated as evidence of an absent table"
+    );
+}
 
 #[test]
 fn comment_udata_encodes_type_len_value_nul() {

@@ -42,3 +42,4 @@ edge-release-channel one.
 | [0025](0025-device-identification.md) | Device identification — a shared vendor catalog, hedged guesses, and no background probing | 2026-08-03 | Accepted |
 | [0026](0026-switchback-and-cross-zone-return.md) | Switchback — cross-zone exceptions reaching a tunnel-bound device | 2026-07-19 | Accepted |
 | [0027](0027-e2e-auto-update-version-skew.md) | The auto-update e2e synthesises its version skew from one source tree | 2026-08-08 | Accepted |
+| [0028](0028-shutdown-teardown-and-uninstall.md) | Runtime-state teardown on shutdown, gated on stop vs restart; `wardnetd uninstall` | 2026-08-08 | Accepted |

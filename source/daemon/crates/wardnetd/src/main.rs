@@ -2,10 +2,10 @@ use std::ffi::OsStr;
 use std::future::IntoFuture;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use opentelemetry::trace::TracerProvider as _;
 use opentelemetry::{Key, KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
@@ -45,6 +45,7 @@ use wardnetd::policy_router_netlink::NetlinkPolicyRouter;
 use wardnetd::profiling::ProfilingAgent;
 use wardnetd::route_monitor::RouteMonitor;
 use wardnetd::routing_listener::RoutingListener;
+use wardnetd::shutdown::ShutdownCause;
 use wardnetd::system::{
     LinuxWatchdog, PnetNetworkProbe, ProcNetNetworkInspector, SystemctlPowerOps,
 };
@@ -55,6 +56,7 @@ use wardnetd::tunnel_interface_wireguard::WireGuardTunnelInterface;
 use wardnetd::tunnel_latency_prober::SurgePingTunnelLatencyProber;
 use wardnetd::tunnel_monitor::TunnelMonitor;
 use wardnetd::tunnel_throughput_tester::HttpThroughputTester;
+use wardnetd::uninstall::UninstallArgs;
 use wardnetd::watchdog::{HardwareWatchdogRunner, Notifier, SdNotifier, SoftWatchdogRunner};
 use wardnetd::zone_enforcement_listener::ZoneEnforcementListener;
 use wardnetd_api::state::AppState;
@@ -121,11 +123,34 @@ struct Cli {
     /// Run in foreground mode (default). Use with systemd or as a regular process.
     #[arg(long)]
     foreground: bool,
+
+    /// Optional subcommand. Absent means "run the daemon", which is what
+    /// `wardnetd.service` invokes — the unit passes only `--config`, so this
+    /// must stay optional.
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Remove Wardnet from this host: the daemon, its systemd units, its user,
+    /// its configuration and the firewall/`WireGuard` state it created.
+    ///
+    /// Keeps the database and secret store unless `--purge` is given.
+    Uninstall(UninstallArgs),
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+
+    // Uninstall runs before any config load or tracing setup: it must work on
+    // a host whose config is already gone or malformed, and its output is a
+    // human-readable plan on stdout rather than structured logs.
+    if let Some(Command::Uninstall(args)) = &cli.command {
+        return wardnetd::uninstall::run(args).await;
+    }
+
     let config = ApplicationConfiguration::load(&cli.config)?;
 
     // Build the log service BEFORE init_tracing so its tracing layers can
@@ -397,6 +422,13 @@ async fn run(
             )
         };
 
+    // Hold a clone of the firewall backend outside `Backends`, for the same
+    // reason as `garp_ops` and `watchdog_ops`: the shutdown block runs after
+    // `init_services_with_factory` has consumed `Backends`, and it needs to
+    // delete the `inet wardnet` table (issue #864).
+    let firewall: Arc<dyn wardnetd_services::routing::FirewallManager> =
+        Arc::new(NetlinkFirewallManager::new());
+
     let backends = Backends {
         tunnel_interface,
         inbound_wg_interface: inbound_wg_interface.clone(),
@@ -407,7 +439,7 @@ async fn run(
             NetlinkPolicyRouter::new(executor.clone())
                 .expect("failed to initialise netlink policy router"),
         ),
-        firewall: Arc::new(NetlinkFirewallManager::new()),
+        firewall: firewall.clone(),
         packet_capture: packet_capture.clone(),
         hostname_resolver: Arc::new(SystemHostnameResolver),
         secret_store: secret_store.clone(),
@@ -1170,12 +1202,23 @@ async fn run(
     // watchdog supervision and `systemctl start`'s return. No-op outside systemd.
     notifier.notify_ready();
 
+    // `with_graceful_shutdown` takes a `Future<Output = ()>`, so the cause
+    // `shutdown_signal` resolves to is stashed here for the teardown block
+    // below to read once serving has finished.
+    let shutdown_cause: Arc<OnceLock<ShutdownCause>> = Arc::new(OnceLock::new());
+
     let api_span = tracing::info_span!(parent: &root_span, "api_server");
     axum::serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
-    .with_graceful_shutdown(shutdown_signal(shutdown_token.clone()))
+    .with_graceful_shutdown({
+        let token = shutdown_token.clone();
+        let cause_slot = shutdown_cause.clone();
+        async move {
+            let _ = cause_slot.set(shutdown_signal(token).await);
+        }
+    })
     .into_future()
     .instrument(api_span)
     .await?;
@@ -1259,6 +1302,51 @@ async fn run(
     }
     if let Some(agent) = profiling_agent {
         agent.shutdown();
+    }
+
+    // Remove the kernel state we created — the `inet wardnet` nftables table
+    // and our `wg_ward*` interfaces — so a stopped daemon is not still
+    // filtering the user's traffic (issue #864).
+    //
+    // Deliberately skipped for a self-initiated restart: the replacement
+    // process is seconds away, and tunnels have no synchronous boot reconcile,
+    // so tearing them down would black out the user's VPN until the next
+    // tunnel-monitor tick. See `wardnetd::shutdown` for the full rationale.
+    //
+    // Safe to run here because the hardware watchdog was disarmed above: a
+    // slow netlink round-trip can no longer trip a reboot. An unset slot means
+    // serving ended without `shutdown_signal` resolving, which we treat as a
+    // signal — leaning towards cleaning up.
+    let cause = shutdown_cause
+        .get()
+        .copied()
+        .unwrap_or(ShutdownCause::Signal);
+    if cause.tears_down_runtime_state() {
+        // Through the tunnel *service*, not the raw interface, so each tunnel's
+        // recorded status follows the kernel. That is what lets the next boot's
+        // routing reconcile bring the tunnels back up on demand — see
+        // `TunnelTeardown`. Wrapped in an admin context because `list_tunnels`
+        // is auth-gated and this runs outside the HTTP middleware chain, the
+        // same pattern as the GARP farewell above.
+        //
+        // Failures are already logged by the callee; the returned list exists
+        // for `wardnetd uninstall`, which has no tracing subscriber.
+        let teardown_ctx = AuthContext::Admin {
+            admin_id: uuid::Uuid::nil(),
+        };
+        let _ = auth_context::with_context(
+            teardown_ctx,
+            wardnetd::shutdown::teardown_runtime_state(
+                &firewall,
+                wardnetd::shutdown::TunnelTeardown::Service(&services.tunnel),
+                &inbound_wg_interface,
+            ),
+        )
+        .await;
+    } else {
+        tracing::info!(
+            "restart in progress; leaving nftables table and wireguard interfaces in place"
+        );
     }
 
     // Mark this shutdown as graceful so the next boot's
@@ -1536,27 +1624,38 @@ fn init_tracing(
     }
 }
 
-async fn shutdown_signal(restart_token: tokio_util::sync::CancellationToken) {
+/// Wait for a reason to shut down, and report which one arrived.
+///
+/// The distinction matters because it decides whether the teardown block
+/// removes the kernel state we own (issue #864). Only the daemon itself
+/// cancels `restart_token` — the auto-update runner, the rollback path and the
+/// admin Restart button — so a cancellation reliably means "a replacement
+/// process is coming". The two OS signals carry no such promise: `systemctl
+/// stop` and `systemctl restart` both arrive as a bare SIGTERM and are
+/// indistinguishable from each other, so both classify as
+/// [`ShutdownCause::Signal`].
+async fn shutdown_signal(restart_token: tokio_util::sync::CancellationToken) -> ShutdownCause {
     let ctrl_c = tokio::signal::ctrl_c();
 
     #[cfg(unix)]
-    {
+    let cause = {
         let mut sigterm = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
             .expect("failed to install SIGTERM handler");
         tokio::select! {
-            _ = ctrl_c => {},
-            _ = sigterm.recv() => {},
-            () = restart_token.cancelled() => {},
+            _ = ctrl_c => ShutdownCause::Signal,
+            _ = sigterm.recv() => ShutdownCause::Signal,
+            () = restart_token.cancelled() => ShutdownCause::Restart,
         }
-    }
+    };
 
     #[cfg(not(unix))]
-    {
+    let cause = {
         tokio::select! {
-            _ = ctrl_c => {},
-            () = restart_token.cancelled() => {},
+            _ = ctrl_c => ShutdownCause::Signal,
+            () = restart_token.cancelled() => ShutdownCause::Restart,
         }
-    }
+    };
 
-    tracing::info!("shutdown signal received");
+    tracing::info!(?cause, "shutdown signal received");
+    cause
 }
