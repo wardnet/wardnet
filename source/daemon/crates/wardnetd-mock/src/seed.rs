@@ -12,15 +12,15 @@
 
 use chrono::{Datelike, Duration, Utc};
 use uuid::Uuid;
-use wardnet_common::device::ManufacturerSource;
+use wardnet_common::device::{DeviceSignalKind, ManufacturerSource};
 use wardnet_common::routing_profile::DomainRoutingTarget;
 use wardnet_common::zone_exception::{
     ExceptionEndpoint, ExceptionEndpointKind, ServiceSet, ServiceSpec, ZoneException,
 };
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
-    AllowlistRow, CustomRuleRow, DeviceRow, DhcpLeaseRow, DhcpReservationRow, IntradayStatRow,
-    NewNotification, QueryLogRow, RoutingProfileRow, RoutingRuleRow, TunnelRow,
+    AllowlistRow, CustomRuleRow, DeviceRow, DeviceSignalRow, DhcpLeaseRow, DhcpReservationRow,
+    IntradayStatRow, NewNotification, QueryLogRow, RoutingProfileRow, RoutingRuleRow, TunnelRow,
 };
 use wardnetd_data::{oui, vendor_catalog};
 
@@ -211,6 +211,9 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
     // captured by hostname so they survive reordering of the seed list.
     let mut casting_from_id: Option<Uuid> = None;
     let mut casting_to_id: Option<Uuid> = None;
+    // The privately-listed device from the reported case, so its detail page
+    // can show the observations behind its hedged "Likely Govee" name.
+    let mut govee_device_id: Option<Uuid> = None;
     for (mac, hostname, manufacturer, device_type, ip, last_seen_ago, zone_id) in devices {
         let id = Uuid::new_v4();
         let first_seen = (now - Duration::days(7)).to_rfc3339();
@@ -253,6 +256,9 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             Some("living-room-tv") => casting_to_id = Some(id),
             _ => {}
         }
+        if hostname == Some("govee-lamp") {
+            govee_device_id = Some(id);
+        }
         device_lease_inputs.push((
             id,
             mac.to_owned(),
@@ -276,6 +282,49 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             .update_dns_capture_settings(&localhost_id.to_string(), Some(true), None, None)
             .await?;
         tracing::debug!(device_id = %localhost_id, "enabled DNS capture on localhost device");
+    }
+
+    // ------------------------------------------------------------------
+    // Identification signals (issue #1099) — seeded for two devices only, so
+    // the detail view shows both states it has to handle: the populated case
+    // and the far more common "nothing observed yet".
+    //
+    // The Govee lamp is the interesting one. Its OUI is listed to `Private`,
+    // so the catalog is the only thing that can name it; these rows are the
+    // evidence behind the "Likely Govee" hedge the identity card shows.
+    // ------------------------------------------------------------------
+    let identification_repo = factory.device_identification();
+    let mut demo_signals: Vec<(Uuid, DeviceSignalKind, &str)> = Vec::new();
+    if let Some(govee_id) = govee_device_id {
+        demo_signals.extend([
+            (govee_id, DeviceSignalKind::MdnsService, "_govee._tcp"),
+            (govee_id, DeviceSignalKind::DhcpHostname, "govee-lamp"),
+            (
+                govee_id,
+                DeviceSignalKind::DhcpParamList,
+                "1,3,6,15,28,51,58,59",
+            ),
+        ]);
+    }
+    if let Some(tv_id) = casting_to_id {
+        demo_signals.extend([
+            (tv_id, DeviceSignalKind::MdnsService, "_googlecast._tcp"),
+            (tv_id, DeviceSignalKind::MdnsService, "_airplay._tcp"),
+        ]);
+    }
+    for (device_id, kind, value) in demo_signals {
+        identification_repo
+            .record(&DeviceSignalRow {
+                device_id: device_id.to_string(),
+                kind,
+                value: value.to_owned(),
+                // Ask the catalog the same question the recording service asks,
+                // rather than restating the rule here — a second copy would
+                // drift the moment a new signal kind carries vendor
+                // information.
+                inferred: vendor_catalog::lookup_signal(kind, value).is_some(),
+            })
+            .await?;
     }
 
     // ------------------------------------------------------------------

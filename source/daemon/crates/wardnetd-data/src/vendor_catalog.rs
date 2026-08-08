@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use serde::Deserialize;
+use wardnet_common::device::DeviceSignalKind;
 
 /// The catalog source, embedded so the daemon needs no data file at runtime.
 const VENDORS_TOML: &str = include_str!("../data/vendors.toml");
@@ -159,6 +160,27 @@ pub fn lookup_tcp_port(port: u16) -> Option<&'static str> {
         .by_port
         .get(&port)
         .map(|&i| CATALOG.vendors[i].name.as_str())
+}
+
+/// Resolve an observed signal to a vendor, dispatching on the signal's kind.
+///
+/// The one place that decides which signal kinds carry vendor information, so
+/// the recording service and the mock's demo seed cannot disagree about what
+/// counts as an inferred match.
+///
+/// Returns `None` for kinds that carry no vendor information on their own.
+/// Option 55 (the parameter-request list) is deliberately one of them: its
+/// *ordering* is a device-class fingerprint, but matching that fingerprint
+/// needs a corpus we do not ship, so we store the observation now and can
+/// interpret it later without a second capture pass.
+#[must_use]
+pub fn lookup_signal(kind: DeviceSignalKind, value: &str) -> Option<&'static str> {
+    match kind {
+        DeviceSignalKind::MdnsService => lookup_mdns_service(value),
+        DeviceSignalKind::DhcpVendorClass => lookup_vendor_class(value),
+        DeviceSignalKind::ProbedPort => value.parse::<u16>().ok().and_then(lookup_tcp_port),
+        DeviceSignalKind::DhcpHostname | DeviceSignalKind::DhcpParamList => None,
+    }
 }
 
 /// Every vendor entry, for tests that need to assert properties of the catalog

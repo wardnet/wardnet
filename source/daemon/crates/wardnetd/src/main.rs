@@ -1053,6 +1053,7 @@ async fn run(
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
+    .with_device_identification_service(services.device_identification.clone())
     .with_routing_profile_service(services.routing_profile.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
     .with_private_dns_service(services.private_dns.clone())

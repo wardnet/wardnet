@@ -192,6 +192,54 @@ async fn build_dhcp_status_map(state: &AppState) -> Result<HashMap<String, DhcpS
     Ok(map)
 }
 
+/// Build the `DeviceDetailResponse` the three detail-returning handlers share.
+///
+/// `signals_are_fatal` splits the read path from the two mutation paths, and
+/// the split is the whole point. An empty `signals` list is not "unknown" — the
+/// UI renders it as the positive claim "nothing observed yet". On `GET` we
+/// therefore refuse to guess: a failed read surfaces as an error rather than as
+/// a confident falsehood. `PUT` has already committed its write by this point,
+/// so failing there would report an error for a mutation that succeeded; it
+/// degrades to an empty list and logs, and the client's next `GET` tells the
+/// truth.
+async fn device_detail(
+    state: &AppState,
+    device: wardnet_common::device::Device,
+    signals_are_fatal: bool,
+) -> Result<DeviceDetailResponse, AppError> {
+    let device_id = device.id.to_string();
+    let rule = state
+        .device_service()
+        .get_rule_for_device(&device_id)
+        .await
+        .ok()
+        .flatten();
+
+    let signals = match state
+        .device_identification_service()
+        .signals_for(&device_id)
+        .await
+    {
+        Ok(signals) => signals,
+        Err(err) if signals_are_fatal => return Err(err),
+        Err(err) => {
+            tracing::warn!(
+                %device_id,
+                error = %err,
+                "failed to read identification signals for device_id={device_id}: {err}"
+            );
+            Vec::new()
+        }
+    };
+
+    let dhcp_map = build_dhcp_status_map(state).await?;
+    Ok(DeviceDetailResponse {
+        device: enrich_device(device, &dhcp_map, rule.clone()),
+        current_rule: rule,
+        signals,
+    })
+}
+
 /// Enrich a [`Device`](wardnet_common::device::Device) with its DHCP status
 /// and current routing target. `current_rule` is `None` when the device has no
 /// rule of its own (it follows the gateway default policy).
@@ -267,18 +315,8 @@ pub async fn get_device(
         .parse()
         .map_err(|_| AppError::BadRequest("invalid device ID".to_owned()))?;
     let device = state.discovery_service().get_device_by_id(uuid).await?;
-    let rule = state
-        .device_service()
-        .get_rule_for_device(&device.id.to_string())
-        .await
-        .ok()
-        .flatten();
-    let dhcp_map = build_dhcp_status_map(&state).await?;
-    let device = enrich_device(device, &dhcp_map, rule.clone());
-    Ok(Json(DeviceDetailResponse {
-        device,
-        current_rule: rule,
-    }))
+    // Read path: a failed signals read is an error, not an empty list.
+    Ok(Json(device_detail(&state, device, true).await?))
 }
 
 #[utoipa::path(
@@ -341,20 +379,9 @@ pub async fn update_device(
         .update_device(uuid, body.name.as_deref(), body.device_type)
         .await?;
 
-    // Fetch current rule for the response.
-    let rule = state
-        .device_service()
-        .get_rule_for_device(&device_id_str)
-        .await
-        .ok()
-        .flatten();
-
-    let dhcp_map = build_dhcp_status_map(&state).await?;
-    let device = enrich_device(device, &dhcp_map, rule.clone());
-    Ok(Json(DeviceDetailResponse {
-        device,
-        current_rule: rule,
-    }))
+    // Mutation path: the write above already landed, so a failed signals read
+    // degrades rather than reporting an error for a change that succeeded.
+    Ok(Json(device_detail(&state, device, false).await?))
 }
 
 #[utoipa::path(
@@ -388,16 +415,6 @@ pub async fn assign_device_zone(
         .await?;
 
     let device = state.discovery_service().get_device_by_id(uuid).await?;
-    let rule = state
-        .device_service()
-        .get_rule_for_device(&device.id.to_string())
-        .await
-        .ok()
-        .flatten();
-    let dhcp_map = build_dhcp_status_map(&state).await?;
-    let device = enrich_device(device, &dhcp_map, rule.clone());
-    Ok(Json(DeviceDetailResponse {
-        device,
-        current_rule: rule,
-    }))
+    // Mutation path — see `device_detail`.
+    Ok(Json(device_detail(&state, device, false).await?))
 }

@@ -44,6 +44,8 @@ export { isTerminal as isJobTerminal } from "./types/jobs.js";
 export type {
   Device,
   DeviceType,
+  DeviceSignal,
+  DeviceSignalKind,
   ManufacturerSource,
   DhcpStatus,
   DeviceConnectionMode,

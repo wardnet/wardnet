@@ -73,6 +73,40 @@ export interface Device {
   connection_mode: DeviceConnectionMode;
 }
 
+/**
+ * The kind of an identification signal (issue #1099).
+ *
+ * - `dhcp_hostname` — DHCP option 12, the hostname the device asked for.
+ * - `dhcp_param_list` — DHCP option 55; the *ordering* is a device-class
+ *   fingerprint.
+ * - `dhcp_vendor_class` — DHCP option 60, often a literal brand string.
+ * - `mdns_service` — a service type the device advertised over mDNS.
+ * - `probed_port` — a TCP port that answered an admin-triggered probe.
+ */
+export type DeviceSignalKind =
+  "dhcp_hostname" | "dhcp_param_list" | "dhcp_vendor_class" | "mdns_service" | "probed_port";
+
+/**
+ * A single observed fact that helps identify a device (issue #1099).
+ *
+ * Multi-valued per device: each signal is independent evidence rather than a
+ * field that overwrites the last one.
+ */
+export interface DeviceSignal {
+  kind: DeviceSignalKind;
+  value: string;
+  /**
+   * `true` when the value matched a vendor in the curated catalog.
+   *
+   * Deliberately *not* "this signal named the device": naming is
+   * first-writer-wins against a device with no manufacturer yet, so a device
+   * already named by its IEEE registrant collects matching signals that changed
+   * nothing — and one device can match two vendors at once.
+   */
+  inferred: boolean;
+  observed_at: string;
+}
+
 /** Where a device's traffic is routed. */
 export type RoutingTarget =
   { type: "tunnel"; tunnel_id: string } | { type: "direct" } | { type: "default" };

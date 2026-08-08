@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::backup::{BackupStatus, BundleManifest, LocalSnapshot};
-use crate::device::{Device, DeviceType, DhcpStatus};
+use crate::device::{Device, DeviceSignal, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
 use crate::dns::{
     AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
@@ -527,6 +527,10 @@ pub struct ListDevicesResponse {
 pub struct DeviceDetailResponse {
     pub device: DeviceWithStatus,
     pub current_rule: Option<RoutingTarget>,
+    /// Identification signals observed for this device, most recent first
+    /// (issue #1099). Empty is the normal case for a device that has only ever
+    /// been seen by ARP — it is an absence of evidence, not a failure.
+    pub signals: Vec<DeviceSignal>,
 }
 
 /// Request body for PUT /api/devices/:id (admin).

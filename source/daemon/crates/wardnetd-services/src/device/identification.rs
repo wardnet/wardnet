@@ -107,25 +107,6 @@ fn truncate_signal_value(value: &str) -> String {
     value[..end].to_owned()
 }
 
-/// Resolve a raw signal value to a vendor name via the curated catalog.
-///
-/// Returns `None` for kinds that carry no vendor information on their own.
-/// Option 55 (the parameter-request list) is deliberately one of them: its
-/// *ordering* is a device-class fingerprint, but matching that fingerprint
-/// needs a corpus we do not ship, so we store the observation now and can
-/// interpret it later without a second capture pass.
-fn vendor_for_signal(kind: DeviceSignalKind, value: &str) -> Option<&'static str> {
-    match kind {
-        DeviceSignalKind::MdnsService => vendor_catalog::lookup_mdns_service(value),
-        DeviceSignalKind::DhcpVendorClass => vendor_catalog::lookup_vendor_class(value),
-        DeviceSignalKind::ProbedPort => value
-            .parse::<u16>()
-            .ok()
-            .and_then(vendor_catalog::lookup_tcp_port),
-        DeviceSignalKind::DhcpHostname | DeviceSignalKind::DhcpParamList => None,
-    }
-}
-
 #[async_trait]
 impl DeviceIdentificationService for DeviceIdentificationServiceImpl {
     async fn record_signal(
@@ -142,7 +123,7 @@ impl DeviceIdentificationService for DeviceIdentificationServiceImpl {
         // is capped so a client that varies its option-60 on every renewal
         // cannot grow the table without limit.
         let value = truncate_signal_value(value);
-        let vendor = vendor_for_signal(kind, &value);
+        let vendor = vendor_catalog::lookup_signal(kind, &value);
 
         self.identification
             .record(&DeviceSignalRow {

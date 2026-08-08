@@ -1,4 +1,4 @@
-import type { Device, DeviceType, RoutingTarget } from "./device.js";
+import type { Device, DeviceSignal, DeviceType, RoutingTarget } from "./device.js";
 import type {
   AllowedTargetKind,
   NetworkZone,
@@ -77,6 +77,12 @@ export interface ListDevicesResponse {
 export interface DeviceDetailResponse {
   device: Device;
   current_rule: RoutingTarget | null;
+  /**
+   * Identification signals observed for this device, most recent first
+   * (issue #1099). An empty list is the normal case for a device only ever
+   * seen by ARP — an absence of evidence, not a failure.
+   */
+  signals: DeviceSignal[];
 }
 
 /** Request body for PUT /api/devices/:id (admin). */
