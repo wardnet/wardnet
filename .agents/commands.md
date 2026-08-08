@@ -48,6 +48,35 @@ All commands run from `source/sdk/wardnet-js/`. Uses **Yarn 4** (via Corepack).
 - **Type check**: `yarn type-check`
 - **Format**: `yarn format` (check: `yarn format:check`)
 
+### SDK (`wardnet.network/go`)
+
+All commands run from `source/sdk/wardnet-go/`.
+
+- **Build / test**: `go build ./...`, `go test ./...`
+- **Lint**: `go vet ./...`, `golangci-lint run ./...`
+- **Regenerate the REST client**: `go generate ./...` from `internal/rest/` —
+  reads `docs/openapi.json`. Commit the result.
+- **Drift gate**: `make check-go-openapi` regenerates and fails on any diff.
+  Compiling is not enough on its own: the hand-written mapping only breaks when
+  the spec *removes or renames* something it uses, so an added field
+  regenerates to different code that still builds and the drift goes unnoticed.
+- **Versioning**: `VERSION` in this directory drives the published module
+  version, independently of the daemon's CalVer. Bump it to cut an SDK release.
+  Keep it on `0.x` (or `1.x`) — Go demands a `/vN` path suffix at major ≥ 2.
+
+### CLI (`wctl`)
+
+All commands run from `source/wctl/`.
+
+- **Build / test**: `go build ./...`, `go test ./...`
+- **Run**: `go run ./cmd/wctl <subcommand>`
+- **Lint**: `go vet ./...`, `golangci-lint run ./...`
+
+Consumes the Go SDK via `replace wardnet.network/go => ../sdk/wardnet-go`, so
+local SDK edits apply without publishing. Release builds set the version with
+`-ldflags "-X main.version=<version>"`; without it the binary reports `dev` and
+`wctl self-update` refuses to run.
+
 ### Admin site (desktop)
 
 All commands run from `source/admin-site/web/`. Uses **Yarn 4** (via Corepack).

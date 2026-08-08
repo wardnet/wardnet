@@ -10,7 +10,6 @@ members = [
     "crates/wardnetd-data",
     "crates/wardnetd-mock",
     "crates/wardnetd-services",
-    "crates/wctl",
 ]
 # The fuzz harness is its own workspace — libfuzzer-sys + nightly
 # sanitizer rustflags must not leak into normal daemon builds.

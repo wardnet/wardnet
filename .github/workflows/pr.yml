@@ -9,6 +9,7 @@ name: PR
 #   preflight     — detect-changes + check-version composite actions
 #                   in a single job (outputs gate the leaves below)
 #   build-daemon  — lint + tests + release build + artifacts
+#   build-go      — Go SDK + wctl: tidy, build, test, vet, lint, cross-compile
 #   build-site    — lint + release build + artifact
 #   coverage      — daemon + site coverage, single Codecov upload
 #   tests-e2e     — stub today; needs both daemon + site artifacts
@@ -44,6 +45,7 @@ jobs:
       admin-web: ${{ steps.detect.outputs.admin-web }}
       admin-app: ${{ steps.detect.outputs.admin-app }}
       user-app: ${{ steps.detect.outputs.user-app }}
+      go: ${{ steps.detect.outputs.go }}
       ci: ${{ steps.detect.outputs.ci }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -71,6 +73,15 @@ jobs:
       # build-web reads @wardnet/* from GitHub Packages.
       packages: read
     uses: ./.github/workflows/build-daemon.yml
+    secrets: inherit
+
+  build-go:
+    name: Build Go
+    needs: preflight
+    if: needs.preflight.outputs.go == 'true' || needs.preflight.outputs.ci == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-go.yml
     secrets: inherit
 
   build-site:
@@ -219,7 +230,7 @@ jobs:
   # PR forever.
   all-checks-passed:
     name: All checks passed
-    needs: [preflight, build-daemon, build-site, build-admin-web, build-admin-app, build-user-app, coverage, tests-e2e]
+    needs: [preflight, build-daemon, build-go, build-site, build-admin-web, build-admin-app, build-user-app, coverage, tests-e2e]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 2

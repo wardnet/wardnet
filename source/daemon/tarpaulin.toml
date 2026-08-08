@@ -6,7 +6,6 @@
 [default]
 exclude-files = [
     "crates/wardnetd/src/main.rs",
-    "crates/wctl/src/main.rs",
     "crates/wardnetd/src/wireguard_real.rs",
     "crates/wardnetd/src/wireguard_noop.rs",
     "crates/wardnetd/src/packet_capture_noop.rs",

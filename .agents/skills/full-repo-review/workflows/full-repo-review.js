@@ -131,16 +131,15 @@ const UNITS = [
   {
     key: 'daemon-tooling',
     stack: 'rust',
-    loc: 6800,
+    loc: 6300,
     paths: [
       'source/daemon/crates/wardnetd-mock/src',
-      'source/daemon/crates/wctl/src',
       'source/daemon/crates/wardnet-test-agent/src',
       'source/daemon/crates/wardnet-postupgrade/src',
       'source/daemon/crates/wardnet-postupgrade-runner/src',
     ],
     component: ['component:daemon'],
-    role: 'Dev/mock binary, CLI stub, Pi-side test agent, post-upgrade verify+rollback. Lower stakes than the daemon — EXCEPT post-upgrade, where a bug bricks a user\'s box on update. Weight accordingly.',
+    role: 'Dev/mock binary, Pi-side test agent, post-upgrade verify+rollback. Lower stakes than the daemon — EXCEPT post-upgrade, where a bug bricks a user\'s box on update. Weight accordingly.',
   },
 
   // ---- frontend ----------------------------------------------------------

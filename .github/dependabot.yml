@@ -13,6 +13,29 @@ updates:
     cooldown:
       default-days: 3
 
+  # Two independent Go modules, each with its own go.mod, so each needs its
+  # own entry — gomod has no workspace-root equivalent to the npm setup below.
+  # Both ship: the SDK is published to outside consumers as wardnet.network/go,
+  # and wctl is distributed as a signed release binary, so an unpatched
+  # advisory in either reaches users directly.
+  - package-ecosystem: "gomod"
+    directory: "/source/sdk/wardnet-go"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps):"
+    cooldown:
+      default-days: 3
+
+  - package-ecosystem: "gomod"
+    directory: "/source/wctl"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "chore(deps):"
+    cooldown:
+      default-days: 3
+
   # The web codebase is a Yarn-workspaces monorepo with a SINGLE lockfile
   # at /source/yarn.lock. Dependabot must point at the workspace ROOT so
   # every version bump also regenerates the lockfile — per-workspace

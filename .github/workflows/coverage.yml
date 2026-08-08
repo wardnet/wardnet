@@ -277,6 +277,25 @@ jobs:
         with:
           fetch-depth: 0 # bulwark coverage needs full history to resolve the PR's base commit
 
+      - name: Set up Go
+        # bulwark's Go check `go install`s govulncheck, so the binary is built
+        # with whatever Go is on PATH. govulncheck type-checks the code it
+        # scans using the loader compiled into it, and a loader built with an
+        # older Go rejects newer source outright:
+        #
+        #   golang.org/x/vuln@v1.6.0 requires go >= 1.25.0; switching to go1.25.12
+        #   source/sdk/wardnet-go/auth.go:1:1: package requires newer Go version
+        #     go1.26 (application built with go1.25)
+        #
+        # The runner's ambient Go is older than our modules' `go 1.26.0`, so
+        # without this the scan fails on every Go module — not as a finding,
+        # but as a loader error. Both modules are kept on the same Go version;
+        # if they ever diverge this must track the newer of the two.
+        id: setup-go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: source/wctl/go.mod
+
       - name: Restore bulwark's own tool installs
         # bulwark installs cargo-audit/cargo-deny (compiled from source,
         # several minutes) and its pinned eslint toolchain into
@@ -295,7 +314,12 @@ jobs:
         id: bulwark-cache
         with:
           path: ~/.cache/bulwark
-          key: bulwark-tools-${{ runner.os }}
+          # The Go version is part of the key because bulwark keys its own tool
+          # installs by tool version alone. A govulncheck built with an older Go
+          # is indistinguishable from a good one by that key, so a cache entry
+          # created before a Go bump would be served forever and keep failing to
+          # load newer source.
+          key: bulwark-tools-${{ runner.os }}-go${{ steps.setup-go.outputs.go-version }}
 
       - name: Download daemon coverage
         if: needs.daemon-coverage.result == 'success'
@@ -375,4 +399,6 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.cache/bulwark
-          key: bulwark-tools-${{ runner.os }}
+          # Must match the restore key exactly, Go version included, or every
+          # run would miss the cache and rebuild bulwark's tools from source.
+          key: bulwark-tools-${{ runner.os }}-go${{ steps.setup-go.outputs.go-version }}

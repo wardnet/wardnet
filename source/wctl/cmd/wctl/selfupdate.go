@@ -22,7 +22,7 @@ import (
 // binaries. A var so tests can point it at a local server.
 var releaseBaseURL = "https://github.com/wardnet/wardnet"
 
-func newSelfUpdateCmd() *cobra.Command {
+func newSelfUpdateCmd(c *cli) *cobra.Command {
 	return &cobra.Command{
 		Use:   "self-update",
 		Short: "Update the wctl binary in place to the latest release",
@@ -30,12 +30,12 @@ func newSelfUpdateCmd() *cobra.Command {
 			"atomically replace the running binary.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runSelfUpdate(cmd.Context())
+			return runSelfUpdate(cmd.Context(), c.jsonOut)
 		},
 	}
 }
 
-func runSelfUpdate(ctx context.Context) error {
+func runSelfUpdate(ctx context.Context, jsonOut bool) error {
 	if version == "dev" {
 		return fmt.Errorf("wctl was built from source; install a release build to self-update")
 	}
@@ -54,12 +54,27 @@ func runSelfUpdate(ctx context.Context) error {
 		return err
 	}
 	if !versionNewer(latest, version) {
+		if jsonOut {
+			return printJSON(map[string]any{
+				"updated": false,
+				"version": version,
+				"latest":  latest,
+			})
+		}
 		fmt.Printf("wctl %s is already up to date\n", version)
 		return nil
 	}
 
 	if err := selfUpdate(ctx, latest, exe); err != nil {
 		return err
+	}
+	if jsonOut {
+		return printJSON(map[string]any{
+			"updated":  true,
+			"previous": version,
+			"version":  latest,
+			"path":     exe,
+		})
 	}
 	fmt.Printf("updated wctl %s -> %s\n", version, latest)
 	return nil
@@ -130,6 +145,9 @@ func selfUpdate(ctx context.Context, version, exe string) error {
 		return fmt.Errorf("checksum mismatch for %s: got %s, want %s", asset, sum, want)
 	}
 
+	// #nosec G302 -- this is the replacement wctl binary; it has to be
+	// executable. 0600 would install an unrunnable file. It is world-readable
+	// but not world-writable, matching every other binary on PATH.
 	if err := os.Chmod(tmpPath, 0o755); err != nil {
 		return err
 	}

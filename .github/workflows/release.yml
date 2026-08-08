@@ -264,6 +264,23 @@ jobs:
       prerelease: ${{ fromJSON(needs.resolve.outputs.prerelease) }}
     secrets: inherit
 
+  release-go-sdk:
+    name: Release Go SDK
+    # After release-daemon: if publishing the release itself fails, the SDK
+    # mirror should not carry a version that has no release behind it. Tags on
+    # the mirror are immutable, so an over-eager publish cannot be undone.
+    needs: [resolve, release-daemon]
+    # Stable tags only. Prereleases would occupy versions in the module space
+    # that consumers can resolve, and edge builds are cut from arbitrary
+    # branches (ADR-0023).
+    if: >
+      startsWith(github.ref, 'refs/tags/v') &&
+      needs.resolve.outputs.prerelease != 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-go-sdk.yml
+    secrets: inherit
+
   release-image:
     name: Release Image
     # release-image consumes the published release tarball, so it

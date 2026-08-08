@@ -197,6 +197,55 @@ jobs:
           sha256sum release-staging/openapi.json | awk '{print $1}' \
             > release-staging/openapi.json.sha256
 
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: source/wctl/go.mod
+          cache-dependency-path: source/wctl/go.sum
+
+      - name: Build wctl binaries + checksums
+        # `wctl self-update` and scripts/install.sh both resolve
+        # `wctl_<version>_<os>_<arch>` and `checksums.txt` from this release,
+        # so the asset names below are a contract with those two callers —
+        # renaming them breaks every installed CLI's self-update.
+        #
+        # Static binaries (CGO_ENABLED=0): the CLI only speaks HTTP, and a
+        # cgo build would pin it to the runner's glibc and fail on musl or
+        # older distros.
+        env:
+          VERSION: ${{ inputs.version }}
+        working-directory: source/wctl
+        run: |
+          set -euo pipefail
+          OUT="${GITHUB_WORKSPACE}/release-staging"
+
+          for PLATFORM in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            GOOS="${PLATFORM%/*}"
+            GOARCH="${PLATFORM#*/}"
+            ASSET="wctl_${VERSION}_${GOOS}_${GOARCH}"
+            echo "building ${ASSET}"
+            CGO_ENABLED=0 GOOS="${GOOS}" GOARCH="${GOARCH}" \
+              go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" \
+                -o "${OUT}/${ASSET}" ./cmd/wctl
+          done
+
+          # install.sh reads this with `awk '$2 == asset'`, so the plain
+          # `<sha256>  <name>` sha256sum format is what it expects. Generate
+          # from inside the directory so no path prefix reaches the names.
+          cd "${OUT}"
+          sha256sum wctl_"${VERSION}"_* > checksums.txt
+          cat checksums.txt
+
+          # Published under a wctl-specific name: the *daemon* installer is
+          # the one users know as install.sh (served at wardnet.network),
+          # and two assets called install.sh would be a coin flip.
+          cp "${GITHUB_WORKSPACE}/source/wctl/scripts/install.sh" wctl-install.sh
+
+      - name: Attest SLSA build provenance (wctl binaries)
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: release-staging/wctl_*
+
       - name: Attest SLSA build provenance
         # Keyless Sigstore signing — binds each subject to this workflow
         # file, ref, and commit SHA. Attestations surface under the
@@ -254,6 +303,9 @@ jobs:
             release-staging/*.tar.gz
             release-staging/*.tar.gz.sha256
             release-staging/*.tar.gz.minisig
+            release-staging/wctl_*
+            release-staging/checksums.txt
+            release-staging/wctl-install.sh
           )
           if [[ "${ATTACH_OPENAPI}" == "true" ]]; then
             ASSETS+=(

@@ -1,0 +1,168 @@
+name: Release Go SDK
+
+# Publishes the Go SDK by mirroring source/sdk/wardnet-go to
+# github.com/wardnet/wardnet-go, whose root then holds the module.
+#
+# Why a mirror exists at all: Go locates a module by subtracting the
+# `go-import` meta tag's root-path from the module path, so a module named
+# `wardnet.network/go` must sit at the ROOT of whatever repository it is
+# fetched from. There is no way to point Go at a subdirectory. Keeping the
+# source under source/sdk/wardnet-go and mirroring is what buys both the
+# monorepo layout and a clean import path. wardnet.network serves:
+#
+#   <meta name="go-import"
+#         content="wardnet.network/go git https://github.com/wardnet/wardnet-go">
+#
+# The mirror is generated and read-only: issues, wiki, projects, discussions
+# and pull requests are all disabled on it, and `main` is force-pushed here on
+# every release. Never commit to it directly.
+#
+# Stable releases only. Prereleases (beta, edge) are skipped deliberately —
+# publishing them would put versions into the module space that consumers can
+# select, and edge tags are cut from arbitrary branches.
+
+# Takes no version input on purpose: the SDK is versioned by
+# source/sdk/wardnet-go/VERSION, independently of the daemon's CalVer. Passing
+# the daemon tag in is what produced a module version Go cannot resolve.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    name: Mirror to wardnet/wardnet-go
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      # Full history: `git subtree split` has to walk every commit that
+      # touched the prefix, and a shallow clone silently truncates it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          fetch-depth: 0
+
+      # GITHUB_TOKEN is scoped to this repository and cannot push to another
+      # one. wardnet-infra-bot is installed org-wide with contents:write.
+      - name: Mint a token for the mirror
+        id: app-token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: wardnet-go
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: source/sdk/wardnet-go/go.mod
+          cache-dependency-path: source/sdk/wardnet-go/go.sum
+
+      - name: Verify the SDK builds before publishing it
+        # The mirror is what the outside world consumes. Publishing a module
+        # that does not compile would be visible to every consumer and, because
+        # release tags are immutable (see below), not fixable in place.
+        working-directory: source/sdk/wardnet-go
+        run: go build ./... && go test ./...
+
+      # The SDK carries its own version, NOT the daemon's CalVer. Go's
+      # semantic import versioning requires any module at major >= 2 to end
+      # its path in /vN, so a CalVer tag like v2026.08.00 (major 2026) would
+      # demand `module wardnet.network/go/v2026` — a path that changes every
+      # January. Staying on 0.x keeps the import path stable and is what
+      # k8s.io/client-go does for exactly this reason.
+      - name: Resolve the SDK version
+        id: sdk
+        run: |
+          set -euo pipefail
+          SDK_VERSION="$(tr -d '[:space:]' < source/sdk/wardnet-go/VERSION)"
+          if [[ ! "${SDK_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::source/sdk/wardnet-go/VERSION must be a bare semver like 0.1.0, got '${SDK_VERSION}'"
+            exit 1
+          fi
+
+          # The tripwire for the trap described above: if the SDK ever goes to
+          # major >= 2, the module path must gain a matching /vN suffix, and
+          # publishing without it produces a version nobody can resolve.
+          MAJOR="${SDK_VERSION%%.*}"
+          MODULE="$(awk '/^module /{print $2; exit}' source/sdk/wardnet-go/go.mod)"
+          if [[ "${MAJOR}" -ge 2 && "${MODULE}" != */v"${MAJOR}" ]]; then
+            echo "::error::VERSION is ${SDK_VERSION} (major ${MAJOR}) but go.mod declares '${MODULE}'. Go requires the path to end in /v${MAJOR} at major >= 2."
+            exit 1
+          fi
+
+          echo "version=${SDK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${SDK_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "publishing wardnet.network/go@v${SDK_VERSION} (module ${MODULE})"
+
+      - name: Split, push, and tag
+        id: publish
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          SDK_TAG: ${{ steps.sdk.outputs.tag }}
+        run: |
+          set -euo pipefail
+          MIRROR="https://x-access-token:${GH_TOKEN}@github.com/wardnet/wardnet-go.git"
+
+          # Checked BEFORE anything is pushed. Release tags are immutable: the
+          # Go checksum database pins a version's hash on first fetch, so
+          # re-tagging breaks verification for every consumer instead of
+          # updating them. A ruleset on the mirror enforces this too.
+          if git ls-remote --exit-code --tags "${MIRROR}" "refs/tags/${SDK_TAG}" >/dev/null 2>&1; then
+            echo "::notice::${SDK_TAG} is already published — source/sdk/wardnet-go/VERSION was not bumped, so this release ships no new SDK version."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Rewrites the subdirectory's history into commits rooted at the SDK.
+          SPLIT=$(git subtree split --prefix=source/sdk/wardnet-go)
+          echo "split commit: ${SPLIT}"
+
+          # Force-push: the split is a deterministic rewrite, so its commit
+          # ids change whenever monorepo history above the prefix changes.
+          # Nobody depends on the mirror's branch history — consumers resolve
+          # tags, which are never rewritten.
+          git push --force "${MIRROR}" "${SPLIT}:refs/heads/main"
+
+          git tag "${SDK_TAG}" "${SPLIT}"
+          git push "${MIRROR}" "refs/tags/${SDK_TAG}"
+          echo "published=true" >> "$GITHUB_OUTPUT"
+          echo "published wardnet.network/go@${SDK_TAG}"
+
+      - name: Verify the published module resolves
+        if: steps.publish.outputs.published == 'true'
+        env:
+          VERSION: ${{ steps.sdk.outputs.version }}
+        # Fetches through the real module proxy, which exercises the whole
+        # chain: the go-import meta tag on wardnet.network, the mirror, and the
+        # tag. Retried because proxy.golang.org populates asynchronously.
+        run: |
+          set -euo pipefail
+          # `go get` needs a module context, so build a throwaway one rather
+          # than running in the checkout (which would edit the SDK's own go.mod).
+          VERIFY="${RUNNER_TEMP}/verify-go-sdk"
+          mkdir -p "${VERIFY}"
+          cd "${VERIFY}"
+          go mod init verify >/dev/null
+
+          for ATTEMPT in 1 2 3 4 5; do
+            if go get "wardnet.network/go@v${VERSION}"; then
+              echo "wardnet.network/go@v${VERSION} resolves"
+              exit 0
+            fi
+            echo "attempt ${ATTEMPT} failed; the proxy may not have indexed the tag yet"
+            sleep 30
+          done
+
+          # Hard failure, not a warning. This step is the only thing standing
+          # between a broken module path and consumers discovering it for us,
+          # and the tag it validates is immutable — so a green release with an
+          # unresolvable module is the one outcome worth shouting about.
+          echo "::error::wardnet.network/go@v${VERSION} does not resolve through the proxy. The tag is already published and cannot be moved; investigate the go-import meta tag on wardnet.network and the module path in go.mod, then release a new version."
+          exit 1

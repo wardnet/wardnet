@@ -90,5 +90,5 @@ long-running reader.
 ## Versioning
 
 - Version is derived from git tags at compile time via `build.rs` → `WARDNET_VERSION` env var.
-- Shared version-parsing logic lives in `source/daemon/build-support/version.rs` (included by both `wardnetd/build.rs` and `wctl/build.rs` via `include!()`).
+- The version-parsing logic lives in `source/daemon/build-support/version.rs`, pulled into `wardnetd/build.rs` via `include!()`. It sits outside the crate because it was once shared with the Rust `wctl` build script; `wctl` is now a Go binary versioned via `-ldflags`, so `wardnetd` is the only remaining consumer.
 - Release: `v0.1.0` tag → `0.1.0`. Dev: N commits after tag → `0.1.1-dev.N+gabc1234`.

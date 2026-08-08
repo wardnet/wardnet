@@ -23,7 +23,7 @@ Wardnet is in active development. The first stable release, [`2026.07.00`](https
 - Admin site, User PWA, and Admin mobile PWA, with Web Push notifications
 - Stats pipeline with time-series and top-N queries; live DNS query log
 - REST + WebSocket API with session + API-key auth
-- `wctl` CLI (scaffolded)
+- `wctl` CLI and a Go SDK, with tabular and `--json` output on every command
 - OpenTelemetry trace/log/metric export and Pyroscope continuous profiling (opt-in)
 - Signed releases via tag-driven CI, published on GitHub Releases and mirrored at [`wardnet.network/releases/`](https://wardnet.network)
 
@@ -50,10 +50,11 @@ source/
 │       ├── wardnetd-services/ # Business logic layer (auth, device, tunnel, DHCP, DNS, routing, system, logging, VPN)
 │       ├── wardnetd-api/      # HTTP API layer (axum handlers, middleware, state)
 │       ├── wardnetd/          # Daemon binary (Linux-specific backends + startup)
-│       ├── wardnetd-mock/     # Local dev binary (full API, no-op network backends, in-memory SQLite)
-│       └── wctl/              # CLI tool
+│       └── wardnetd-mock/     # Local dev binary (full API, no-op network backends, in-memory SQLite)
 ├── sdk/
-│   └── wardnet-js/        # @wardnet/js — TypeScript SDK (browser + Node)
+│   ├── wardnet-js/        # @wardnet/js — TypeScript SDK (browser + Node)
+│   └── wardnet-go/        # wardnet.network/go — Go SDK (hand-crafted public API over an internal generated REST client)
+├── wctl/                  # github.com/wardnet/wardnet/source/wctl — Cobra CLI built on the Go SDK
 ├── web-ui/                # React 19 + TypeScript frontend (embedded into daemon via rust-embed)
 └── site/                  # Public marketing site (wardnet.network) + release manifests
 ```
@@ -171,8 +172,44 @@ cd source/site && yarn dev                              # marketing site
 ### `wctl` — CLI
 
 ```sh
-cd source/daemon && cargo run -p wctl -- status
+cd source/wctl && go build ./... && go test ./...   # build + test the CLI
+cd source/wctl && go run ./cmd/wctl status         # run against the daemon in ~/.config/wardnet/wctl.toml
+cd source/sdk/wardnet-go && go test ./...          # Go SDK the CLI is built on
 ```
+
+`source/wctl` consumes the SDK through a `replace wardnet.network/go =>
+../sdk/wardnet-go` directive, so local SDK edits are picked up without a
+publish step.
+
+Outside consumers `go get wardnet.network/go`, which resolves through a
+generated mirror. Go finds a module by subtracting the `go-import` meta tag's
+root-path from the module path, so a module named `wardnet.network/go` has to
+sit at the *root* of the repository it is fetched from — a subdirectory of this
+monorepo cannot be named. So `release-go-sdk.yml` force-pushes
+`source/sdk/wardnet-go` to [wardnet/wardnet-go](https://github.com/wardnet/wardnet-go)
+with `git subtree split` on every stable release, and
+`source/marketing-site/public/go/index.html` serves the meta tag pointing there.
+
+That mirror is generated and read-only — issues, wiki, projects, discussions,
+and pull requests are all disabled on it, and its `main` is overwritten on
+every release. Never commit to it; edit `source/sdk/wardnet-go` here.
+
+**The SDK carries its own version**, in `source/sdk/wardnet-go/VERSION`, and it
+is *not* the daemon's CalVer. Bump that file to cut an SDK release; a release
+whose VERSION is unchanged republishes `main` but publishes no new module
+version. This is not bookkeeping preference — Go's semantic import versioning
+requires any module at major ≥ 2 to end its path in `/vN`, so a CalVer version
+like `2026.08.00` (major 2026) would demand `module wardnet.network/go/v2026`,
+an import path that changes every January. Staying on `0.x` keeps the path
+stable, which is exactly why `k8s.io/client-go` is versioned `v0.x.y`. The
+publish job refuses to run if VERSION reaches major ≥ 2 without a matching
+suffix in `go.mod`.
+
+Release tags on the mirror are immutable, enforced by a repository ruleset.
+This is not just hygiene: the Go checksum database records a module version's
+hash the first time anyone fetches it, so re-tagging a published version makes
+every consumer fail verification with a checksum mismatch instead of picking up
+the change. A bad release is superseded by a new version, never replaced.
 
 ### Version management
 
@@ -242,13 +279,14 @@ composite actions; its outputs gate the heavy leaves.
 
 1. `preflight` — detect-changes + check-version.
 2. `build-daemon` — [reusable leaf](../.github/workflows/build-daemon.yml). Lints, runs `cargo test --workspace`, verifies OpenAPI drift, builds the embedded web UI, cross-compiles `wardnetd` (x86_64 + aarch64) and `wardnetd-mock` (x86_64), uploads tarballs as artifacts.
-3. `build-site` — [reusable leaf](../.github/workflows/build-site.yml). Lints + type-checks, builds the marketing site, uploads `site-dist`.
-4. `coverage` — [reusable leaf](../.github/workflows/coverage.yml). Generates daemon + site coverage in parallel and performs a single coordinated Codecov upload with the `daemon` / `site` flags.
-5. `tests-e2e` — [reusable leaf](../.github/workflows/tests-e2e.yml). Stub today; consumes daemon + site artifacts.
+3. `build-go` — [reusable leaf](../.github/workflows/build-go.yml). For both Go modules: verifies `go.mod`/`go.sum` are tidy, regenerates the SDK's REST client and fails on drift, then builds, runs `go test -race`, vets, and lints. Also cross-compiles `wctl` for all four released targets, so a broken release surfaces on the PR rather than mid-tag.
+4. `build-site` — [reusable leaf](../.github/workflows/build-site.yml). Lints + type-checks, builds the marketing site, uploads `site-dist`.
+5. `coverage` — [reusable leaf](../.github/workflows/coverage.yml). Generates daemon + site coverage in parallel and performs a single coordinated Codecov upload with the `daemon` / `site` flags.
+6. `tests-e2e` — [reusable leaf](../.github/workflows/tests-e2e.yml). Stub today; consumes daemon + site artifacts.
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on pushes to `main` and reuses the same `build-daemon` + `build-site` leaves but skips `coverage` and `tests-e2e` (Codecov patch-coverage is PR-keyed; e2e is a PR gate).
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on pushes to `main` and reuses the same `build-daemon` + `build-go` + `build-site` leaves but skips `coverage` and `tests-e2e` (Codecov patch-coverage is PR-keyed; e2e is a PR gate).
 
-[`.github/workflows/release.yml`](../.github/workflows/release.yml) runs on `v*.*.*` tag pushes: `resolve` → the same build leaves → `tests-e2e` → [`deploy-site.yml`](../.github/workflows/deploy-site.yml) (publishes the `site-dist` bundle to GitHub Pages) → [`release-daemon.yml`](../.github/workflows/release-daemon.yml) (renames tarballs with the version, signs each with minisign, publishes the GitHub Release).
+[`.github/workflows/release.yml`](../.github/workflows/release.yml) runs on `v*.*.*` tag pushes: `resolve` → the same build leaves → `tests-e2e` → [`deploy-site.yml`](../.github/workflows/deploy-site.yml) (publishes the `site-dist` bundle to GitHub Pages) → [`release-daemon.yml`](../.github/workflows/release-daemon.yml) (renames tarballs with the version, signs each with minisign, cross-compiles the `wctl` binaries, publishes the GitHub Release) → [`release-go-sdk.yml`](../.github/workflows/release-go-sdk.yml) (mirrors the Go SDK to `wardnet/wardnet-go` and tags it, stable releases only).
 
 [`.github/workflows/deploy-site.yml`](../.github/workflows/deploy-site.yml) is a reusable `workflow_call` leaf: it downloads a pre-built `site-dist` artifact and publishes it to GitHub Pages. It is invoked from `release.yml` only.
 

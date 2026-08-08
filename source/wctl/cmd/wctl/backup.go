@@ -199,6 +199,9 @@ func readPassphrase(passphraseFile string, confirm bool) (string, error) {
 		if passphraseFile == "-" {
 			raw, err = io.ReadAll(os.Stdin)
 		} else {
+			// #nosec G304 -- `passphraseFile` is the --passphrase-file flag, an
+			// operator-chosen path read with their own privileges. It exists so the
+			// passphrase need not be typed or left in shell history.
 			raw, err = os.ReadFile(passphraseFile)
 		}
 		if err != nil {

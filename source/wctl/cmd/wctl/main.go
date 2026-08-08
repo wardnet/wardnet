@@ -49,8 +49,8 @@ func rootCmd() *cobra.Command {
 		newTunnelsCmd(c),
 		newUpdateCmd(c),
 		newBackupCmd(c),
-		newSelfUpdateCmd(),
-		newVersionCmd(),
+		newSelfUpdateCmd(c),
+		newVersionCmd(c),
 	)
 	return root
 }

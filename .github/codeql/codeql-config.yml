@@ -14,6 +14,10 @@ name: "Wardnet CodeQL config"
 #     - source/marketing-site/src/**              (marketing site)
 #     - source/marketing-site/scripts/**          (release-manifest generator)
 #
+#   Go:
+#     - source/sdk/wardnet-go/**               (Go SDK, published as wardnet.network/go)
+#     - source/wctl/**                         (wctl CLI, shipped as a release binary)
+#
 #   GitHub Actions:
 #     - .github/workflows/**
 #     - .github/actions/**

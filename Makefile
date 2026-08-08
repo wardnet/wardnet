@@ -9,7 +9,8 @@ SHELL := /bin/bash
 
 DAEMON_DIR   := source/daemon
 SDK_DIR      := source/sdk/wardnet-js
-GO_DIR       := go
+GO_SDK_DIR   := source/sdk/wardnet-go
+WCTL_DIR     := source/wctl
 ADMIN_DIR    := source/admin-site
 WEBUI_DIR    := source/admin-site
 USER_APP_DIR := source/user-app
@@ -179,31 +180,6 @@ check-sdk-openapi:
 		exit 1; \
 	fi
 	@echo "SDK OpenAPI client is in sync."
-
-# Same drift gate for the Go SDK's generated REST client. `go/internal/rest`
-# is produced by oapi-codegen from docs/openapi.json (see the `go:generate`
-# directive in go/internal/rest/doc.go), so a daemon-side DTO change must land
-# with a fresh rest.gen.go exactly as it must for the JS client.
-#
-# This gate was missing until issue #1099: the JS client had one and the Go
-# client did not, so #1102 changed the spec and left rest.gen.go stale on main
-# with nothing to catch it.
-check-go-openapi:
-	cd $(GO_DIR)/internal/rest && go generate ./...
-	@if ! git diff --exit-code -- $(GO_DIR)/internal/rest/rest.gen.go > /dev/null; then \
-		echo ""; \
-		echo "Go OpenAPI client drift detected in $(GO_DIR)/internal/rest/rest.gen.go."; \
-		echo "Run 'go generate ./...' in $(GO_DIR)/internal/rest and commit the updated file."; \
-		git --no-pager diff --stat -- $(GO_DIR)/internal/rest/rest.gen.go; \
-		exit 1; \
-	fi
-	@echo "Go OpenAPI client is in sync."
-
-# Build + test the Go SDK. Paired with the drift gate above so a regenerated
-# client that no longer matches the hand-written mapping layer fails loudly.
-check-go:
-	cd $(GO_DIR) && go build ./...
-	cd $(GO_DIR) && go test ./...
 
 # Build @wardnet/js's dist/ once. Vite dev servers resolve @wardnet/js via
 # package.json's main/exports, which point at dist/ (needed for the npm
@@ -391,11 +367,46 @@ check-openapi: openapi
 	fi
 	@echo "OpenAPI spec is in sync."
 
+# ---------- Go (SDK + wctl) ----------
+
+# Mirrors .github/workflows/build-go.yml. `wctl` reaches the SDK through a
+# `replace` directive, so the SDK is checked first — a broken SDK surfaces
+# there rather than as a confusing failure inside the CLI.
+check-go: check-go-openapi
+	cd $(GO_SDK_DIR) && go build ./... && go vet ./... && go test -race ./...
+	cd $(GO_SDK_DIR) && golangci-lint run ./...
+	cd $(WCTL_DIR) && go build ./... && go vet ./... && go test -race ./...
+	cd $(WCTL_DIR) && golangci-lint run ./...
+
+# Drift gate for the Go SDK's generated REST client, mirroring
+# `check-sdk-openapi`. Regenerate `internal/rest/rest.gen.go` from
+# docs/openapi.json and fail if the committed copy is stale.
+#
+# Missing until issue #1099: the JS client had a gate and the Go client did
+# not, so #1102 changed the spec and left rest.gen.go stale on main with
+# nothing to catch it.
+#
+# Compiling is NOT sufficient on its own, which is why this exists: the
+# hand-written mapping only stops building when the spec REMOVES or RENAMES
+# something it touches. A spec that merely ADDS a field regenerates to
+# different code that still compiles, so the drift is invisible until a
+# consumer notices the field missing from the public API.
+check-go-openapi:
+	cd $(GO_SDK_DIR)/internal/rest && go generate ./...
+	@if ! git diff --exit-code -- $(GO_SDK_DIR)/internal/rest/rest.gen.go > /dev/null; then \
+		echo ""; \
+		echo "Go SDK OpenAPI client drift detected in $(GO_SDK_DIR)/internal/rest/rest.gen.go."; \
+		echo "Run 'go generate ./...' in $(GO_SDK_DIR)/internal/rest and commit the updated file."; \
+		git --no-pager diff --stat -- $(GO_SDK_DIR)/internal/rest/rest.gen.go; \
+		exit 1; \
+	fi
+	@echo "Go SDK OpenAPI client is in sync."
+
 # ---------- Compound targets ----------
 
 build: build-web build-daemon
 
-check: check-web check-site check-daemon
+check: check-web check-site check-go check-daemon
 
 # ---------- Dev loop ----------
 

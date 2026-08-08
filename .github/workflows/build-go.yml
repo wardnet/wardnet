@@ -1,0 +1,144 @@
+name: Build Go
+
+# Reusable leaf for the two Go modules: the SDK (source/sdk/wardnet-go)
+# and the wctl CLI (source/wctl).
+#
+# Callers: ci.yml (push to main), pr.yml (PRs), indirectly release.yml.
+#
+# Produces no artifacts. The release binaries are cross-compiled in
+# release-daemon.yml, which owns the asset names `wctl self-update` and
+# scripts/install.sh depend on; building them here too would invite the two
+# to drift apart.
+#
+# The modules are checked in a matrix rather than a single `go work` run:
+# wctl reaches the SDK through a `replace` directive, so a matrix still
+# compiles the real pairing, while keeping a failure attributable to one
+# module instead of a merged log.
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: >
+          Git ref to build from. Empty (default) builds the caller's ref.
+        type: string
+        default: ""
+
+# Explicit scopes (not read-all) so this leaf's workflow-level stays a
+# subset of the caller's — GitHub rejects leaf > caller.
+permissions:
+  contents: read
+
+jobs:
+  check-go:
+    name: Check ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      # One module's failure shouldn't mask the other's: a spec-drift break
+      # usually lands in the SDK and the CLI at once, and seeing both is
+      # what tells you it's drift rather than a local mistake.
+      fail-fast: false
+      matrix:
+        include:
+          - name: Go SDK
+            dir: source/sdk/wardnet-go
+          - name: wctl
+            dir: source/wctl
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: ${{ matrix.dir }}/go.mod
+          cache-dependency-path: ${{ matrix.dir }}/go.sum
+
+      - name: Verify go.mod and go.sum are tidy
+        working-directory: ${{ matrix.dir }}
+        run: |
+          set -euo pipefail
+          cp go.mod go.mod.orig
+          cp go.sum go.sum.orig
+          go mod tidy
+          if ! diff -u go.mod.orig go.mod || ! diff -u go.sum.orig go.sum; then
+            echo "::error::go.mod/go.sum are not tidy — run 'go mod tidy' in ${{ matrix.dir }}"
+            exit 1
+          fi
+          rm go.mod.orig go.sum.orig
+
+      # Compiling is not enough to catch spec drift: the hand-written mapping
+      # only breaks when the spec removes or renames something it touches, so
+      # an added field regenerates to different code that still builds. Only a
+      # regenerate-and-diff notices that.
+      - name: Verify the generated REST client is in sync with docs/openapi.json
+        if: matrix.dir == 'source/sdk/wardnet-go'
+        working-directory: ${{ matrix.dir }}/internal/rest
+        run: |
+          set -euo pipefail
+          go generate ./...
+          if ! git diff --exit-code -- rest.gen.go; then
+            echo "::error::rest.gen.go is stale. Run 'go generate ./...' in source/sdk/wardnet-go/internal/rest and commit the result."
+            exit 1
+          fi
+
+      - name: Build
+        working-directory: ${{ matrix.dir }}
+        run: go build ./...
+
+      - name: Test
+        working-directory: ${{ matrix.dir }}
+        run: go test -race ./...
+
+      - name: Vet
+        working-directory: ${{ matrix.dir }}
+        run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@db9de0fc1a667e1a49d2291a1a042dff081d78f6 # v9
+        with:
+          version: v2.12.2
+          working-directory: ${{ matrix.dir }}
+
+  # Cross-compiling here is what stops a release from failing at the last
+  # step: release-daemon.yml builds these same four targets, but only on a
+  # tag, long after the change that broke them merged.
+  cross-compile:
+    name: Cross-compile wctl
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@bf7454d06d71f1098171f2acdf0cd4708d7b5920 # v2.20.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Set up Go
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version-file: source/wctl/go.mod
+          cache-dependency-path: source/wctl/go.sum
+
+      - name: Build every released target
+        working-directory: source/wctl
+        run: |
+          set -euo pipefail
+          for PLATFORM in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            GOOS="${PLATFORM%/*}"
+            GOARCH="${PLATFORM#*/}"
+            echo "building ${GOOS}/${GOARCH}"
+            CGO_ENABLED=0 GOOS="${GOOS}" GOARCH="${GOARCH}" \
+              go build -trimpath -ldflags "-s -w -X main.version=ci" \
+                -o /dev/null ./cmd/wctl
+          done

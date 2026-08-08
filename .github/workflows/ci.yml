@@ -45,6 +45,7 @@ jobs:
       admin-web: ${{ steps.detect.outputs.admin-web }}
       admin-app: ${{ steps.detect.outputs.admin-app }}
       user-app: ${{ steps.detect.outputs.user-app }}
+      go: ${{ steps.detect.outputs.go }}
       ci: ${{ steps.detect.outputs.ci }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -74,6 +75,15 @@ jobs:
       # build-web reads @wardnet/* from GitHub Packages.
       packages: read
     uses: ./.github/workflows/build-daemon.yml
+    secrets: inherit
+
+  build-go:
+    name: Build Go
+    needs: preflight
+    if: needs.preflight.outputs.go == 'true' || needs.preflight.outputs.ci == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-go.yml
     secrets: inherit
 
   build-site:

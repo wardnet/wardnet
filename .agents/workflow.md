@@ -35,6 +35,9 @@ make check-web
 
 # Public marketing site
 make check-site
+
+# Go SDK + wctl — build, vet, test -race, golangci-lint for both modules
+make check-go
 ```
 
 Direct tool invocation is also fine if you want tighter iteration:

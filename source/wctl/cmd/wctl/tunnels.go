@@ -94,6 +94,9 @@ func tunnelsAddCmd(c *cli) *cobra.Command {
 		Short: "Add a new tunnel by importing a WireGuard .conf file",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			// #nosec G304 -- `conf` is the --conf flag: the operator naming the
+			// WireGuard file they want imported. Reading an arbitrary path they
+			// chose, as themselves, is the command.
 			data, err := os.ReadFile(conf)
 			if err != nil {
 				return fmt.Errorf("cannot read WireGuard config %s: %w", conf, err)
@@ -138,6 +141,9 @@ func tunnelsRemoveCmd(c *cli) *cobra.Command {
 			}
 			if err := client.Tunnels.Remove(cmd.Context(), args[0]); err != nil {
 				return err
+			}
+			if c.jsonOut {
+				return printJSON(map[string]any{"id": args[0], "removed": true})
 			}
 			fmt.Printf("tunnel %s removed\n", args[0])
 			return nil

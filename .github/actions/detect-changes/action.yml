@@ -23,6 +23,9 @@ outputs:
   user-app:
     description: "'true' when user-app or its portal deps changed."
     value: ${{ steps.filter.outputs.user-app }}
+  go:
+    description: "'true' when the Go SDK, wctl, or the OpenAPI spec changed."
+    value: ${{ steps.filter.outputs.go }}
   ci:
     description: "'true' when a workflow or composite action changed."
     value: ${{ steps.filter.outputs.ci }}
@@ -57,6 +60,13 @@ runs:
             - 'source/user-app/**'
             - 'source/web/**'
             - 'source/sdk/wardnet-js/**'
+          go:
+            - 'source/sdk/wardnet-go/**'
+            - 'source/wctl/**'
+            # The SDK's internal REST client is generated from this spec, and
+            # build-go.yml regenerates it and fails on any diff. Without this
+            # filter a spec-only change would skip that check entirely.
+            - 'docs/openapi.json'
           ci:
             - '.github/workflows/**'
             - '.github/actions/**'
