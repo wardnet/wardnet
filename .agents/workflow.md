@@ -66,7 +66,7 @@ We use `cargo-llvm-cov` for code coverage. Before starting work, compute the cur
 make coverage-daemon
 ```
 
-The `--ignore-filename-regex` (defined once in the Makefile's `COV_IGNORE` variable) excludes files that are not unit-testable (binary entrypoint, no-op/stub implementations prefixed with `noop_`, database pool setup, static file serving, Tower middleware boilerplate, auth context thread-locals, and Linux-only kernel interface modules). CI calls the same Makefile target with `COV_FMT` overridden for LCOV output.
+The `--ignore-filename-regex` (defined once in the Makefile's `COV_IGNORE` variable) excludes files that are not unit-testable (binary entrypoint, no-op/stub implementations prefixed with `noop_`, database pool setup, static file serving, Tower middleware boilerplate, auth context thread-locals, and Linux-only kernel interface modules — including `uninstall/ops.rs`, the `UninstallOps` impl that shells out to `systemctl`/`chown`/`userdel` and drives netlink; the decisions above it live in `uninstall/mod.rs` and are covered against a recording double). A file only belongs on this list if it holds no decisions of its own — if you find yourself wanting to exclude something with branching logic in it, extract the logic instead. CI calls the same Makefile target with `COV_FMT` overridden for LCOV output.
 
 ## Boundaries
 
