@@ -108,22 +108,55 @@ COPY CALVER /CALVER
 # works.
 ARG WARDNET_VERSION=0.0.0-dev
 
+# Version advertised by the e2e release fixture and compiled into the
+# *second* wardnetd build below (issue #319). Must match the `version`
+# field in
+# source/end2end-tests/daemon/fixtures/update-manifests/beta.json —
+# the daemon derives the asset filename as
+# `wardnetd-<manifest version>-<arch>.tar.gz`, so a mismatch surfaces
+# as a 404 during the download phase rather than as a clear error.
+#
+# Chosen to outrank anything this repo will ever build, so
+# `is_newer(fixture, current)` holds regardless of the version the
+# first build resolved.
+ARG E2E_RELEASE_VERSION=9999.12.31
+
 # Generate the ephemeral signing keypair BEFORE compiling so the
 # wardnet-postupgrade-runner build embeds the test pubkey via
 # WARDNET_POSTUPGRADE_PUBKEY_PATH. -W = no password (prompt-free);
 # -f = overwrite if a key file already exists. Kept under /tmp so
 # the private key never lands in a runtime layer.
-RUN mkdir -p /tmp/local-bundle \
+#
+# The second keypair exists purely to produce a *validly-formatted but
+# wrong-key* signature for the auto-update trust-anchor spec (#319).
+# Its public half is never embedded anywhere, so anything it signs is
+# rejected by both the daemon and the post-upgrade runner — which is
+# the whole point.
+RUN mkdir -p /tmp/local-bundle /tmp/wrong-key \
     && minisign -G -W -f \
         -p /tmp/local-bundle/local-bundle.pub \
-        -s /tmp/local-bundle/local-bundle.key
+        -s /tmp/local-bundle/local-bundle.key \
+    && minisign -G -W -f \
+        -p /tmp/wrong-key/wrong-key.pub \
+        -s /tmp/wrong-key/wrong-key.key
 
 # Build wardnetd + the test agent + the post-upgrade pipeline binaries.
 # WARDNET_POSTUPGRADE_PUBKEY_PATH points at the ephemeral pubkey so the
 # runner's trust anchor in this image only honours signatures from the
 # same ephemeral keypair (production builds default to
 # deploy/keys/wardnet-release.pub).
+#
+# WARDNET_RELEASE_PUBKEY_PATH does the same for the *daemon* side
+# (crates/wardnetd-services/build.rs → update/mod.rs
+# EMBEDDED_PUBLIC_KEY). Both must point at the same key: the daemon
+# verifies the release tarball before staging it and the runner
+# re-verifies the same bytes under root, so a split would either break
+# ordinary boots or wedge every auto-update. Setting it here is what
+# lets the e2e suite keep `[update] require_signature = true` and still
+# install a locally-signed release. See
+# docs/adr/0027-e2e-auto-update-version-skew.md.
 RUN WARDNET_POSTUPGRADE_PUBKEY_PATH=/tmp/local-bundle/local-bundle.pub \
+    WARDNET_RELEASE_PUBKEY_PATH=/tmp/local-bundle/local-bundle.pub \
     cargo build --release \
         -p wardnetd \
         -p wardnet-test-agent \
@@ -169,6 +202,23 @@ tar -C "$STAGE" -czf "/tmp/local-bundle/${TARBALL}" \
     wardnet-postupgrade.bin \
     wardnet-postupgrade.minisig \
     wardnet-postupgrade.service
+
+# Keep the post-upgrade payload + its signature (and the runner and
+# unit file) so the e2e release bundle built below can reuse the exact
+# same bytes rather than re-deriving them (issue #319).
+#
+# Byte-identity matters: `FsBinaryApplier::stage_pending` swaps the
+# payload pair into /var/lib/wardnet/postupgrade/ on every install, but
+# the runner's `perform_rollback` restores only the wardnetd binary. If
+# the two bundles carried different payload bytes, a rollback would
+# leave the container in a state the swap spec didn't start from, and
+# every later spec would inherit it.
+mkdir -p /tmp/postupgrade-artifacts
+cp "$STAGE/wardnet-postupgrade.bin"     /tmp/postupgrade-artifacts/
+cp "$STAGE/wardnet-postupgrade.minisig" /tmp/postupgrade-artifacts/
+cp "$STAGE/wardnet-postupgrade-runner"  /tmp/postupgrade-artifacts/
+cp "$STAGE/wardnet-postupgrade.service" /tmp/postupgrade-artifacts/
+
 rm -rf "$STAGE"
 
 # SHA-256 sidecar. install.sh reads the hash with `awk '{print $1}'`,
@@ -191,11 +241,116 @@ cp /deploy/wardnetd.service \
    /deploy/wardnet-postupgrade.service \
    /tmp/local-bundle/
 
-# Drop the private key. The public key stays so the runtime stage
-# can patch install.sh's embedded MINISIGN_PUBLIC_KEY before invoking
-# the script.
+EOF
+
+# ---- Second wardnetd build: the release the e2e suite installs ----
+#
+# Issue #319 needs a version transition, and the daemon compares the
+# manifest's version against its own compile-time `version::VERSION`
+# (wardnetd-services/src/version.rs, fed by WARDNET_VERSION). A tarball
+# carrying the *same* binary the container is already running would be
+# staged, swapped, and then reported by
+# `do_reconcile_pending_install` as "binary swap reverted" — the daemon
+# would come back as the old version and record a failed history row.
+# So the served release genuinely has to be a distinct build.
+#
+# It cannot instead be a real previous release pulled from GitHub: both
+# trust anchors (the daemon's EMBEDDED_PUBLIC_KEY and the runner's
+# embedded key) are baked in at compile time, so a genuinely-released
+# binary only ever trusts the real release key — which we cannot sign
+# with. Synthesising the skew from this one source tree is the only
+# workable shape. See docs/adr/0027-e2e-auto-update-version-skew.md.
+#
+# Only `-p wardnetd` is rebuilt; the version override invalidates
+# wardnetd-services and its dependents, and everything else stays warm
+# in the cargo cache.
+RUN cp target/release/wardnetd /tmp/wardnetd-live \
+    && WARDNET_POSTUPGRADE_PUBKEY_PATH=/tmp/local-bundle/local-bundle.pub \
+       WARDNET_RELEASE_PUBKEY_PATH=/tmp/local-bundle/local-bundle.pub \
+       WARDNET_VERSION_OVERRIDE=${E2E_RELEASE_VERSION} \
+       cargo build --release -p wardnetd \
+    && strip target/release/wardnetd \
+    && mv target/release/wardnetd /tmp/wardnetd-next \
+    && mv /tmp/wardnetd-live target/release/wardnetd \
+    && /tmp/wardnetd-next --version | grep -q "${E2E_RELEASE_VERSION}"
+
+# Guard above, not decoration: if cargo ever failed to notice the
+# version override (a dropped `rerun-if-env-changed`, a fingerprint
+# quirk) the second build would silently be a byte-identical copy of
+# the first. The e2e suite would then install a tarball carrying the
+# version it is already running, the daemon would report
+# `binary swap reverted`, and the failure would look like a broken swap
+# rather than a broken image build. Failing the build here keeps that
+# diagnosis cheap.
+
+# Assemble the release bundle the fake release server publishes:
+# tarball + sha256 sidecar + minisig, in the exact layout
+# `HttpsManifestSource` derives from the manifest
+# (`<asset_base_url>/wardnetd-<version>-<arch>.tar.gz` plus `.sha256`
+# and `.minisig` siblings).
+#
+# A second, wrong-key signature is emitted alongside for the
+# trust-anchor spec. It is NOT served — the test agent stages it
+# directly into /var/lib/wardnet/updates/ to prove the runner refuses
+# to swap bytes it cannot verify, which is the one path the daemon's
+# own pre-stage verify would otherwise shield.
+RUN <<"EOF" bash
+set -euo pipefail
+case "$(uname -m)" in
+    aarch64|arm64) ARCH=aarch64 ;;
+    x86_64|amd64)  ARCH=x86_64 ;;
+    *) echo "unsupported arch: $(uname -m)" >&2; exit 1 ;;
+esac
+TARBALL="wardnetd-${E2E_RELEASE_VERSION}-${ARCH}.tar.gz"
+
+mkdir -p /tmp/release-bundle /tmp/e2e-artifacts
+
+STAGE=$(mktemp -d)
+cp /tmp/wardnetd-next                                     "$STAGE/wardnetd"
+cp /tmp/postupgrade-artifacts/wardnet-postupgrade-runner  "$STAGE/"
+cp /tmp/postupgrade-artifacts/wardnet-postupgrade.bin     "$STAGE/"
+cp /tmp/postupgrade-artifacts/wardnet-postupgrade.minisig "$STAGE/"
+cp /tmp/postupgrade-artifacts/wardnet-postupgrade.service "$STAGE/"
+tar -C "$STAGE" -czf "/tmp/release-bundle/${TARBALL}" \
+    wardnetd \
+    wardnet-postupgrade-runner \
+    wardnet-postupgrade.bin \
+    wardnet-postupgrade.minisig \
+    wardnet-postupgrade.service
+rm -rf "$STAGE"
+
+( cd /tmp/release-bundle && sha256sum "${TARBALL}" > "${TARBALL}.sha256" )
+
+minisign -S -W \
+    -s /tmp/local-bundle/local-bundle.key \
+    -t "wardnet-test-image e2e release" \
+    -m "/tmp/release-bundle/${TARBALL}"
+
+# The corrupt pair for the trust-anchor spec: the same good tarball,
+# signed by a key nothing trusts. Named for the paths the test agent
+# stages them to, so the handler needs no arch or version awareness.
+cp "/tmp/release-bundle/${TARBALL}" /tmp/e2e-artifacts/wardnetd-pending.tar.gz
+minisign -S -W \
+    -s /tmp/wrong-key/wrong-key.key \
+    -t "wardnet-test-image WRONG KEY - must be rejected" \
+    -m /tmp/e2e-artifacts/wardnetd-pending.tar.gz \
+    -x /tmp/e2e-artifacts/wardnetd-pending.tar.gz.badsig
+
+# Drop both private keys. The local-bundle public key stays so the
+# runtime stage can patch install.sh's embedded MINISIGN_PUBLIC_KEY
+# before invoking the script.
+rm -rf /tmp/wrong-key
 rm -f /tmp/local-bundle/local-bundle.key
 EOF
+
+# ---- Release-server stage: static assets for the e2e fake release ----
+# Selected by source/end2end-tests/daemon/compose.yaml via
+# `target: release-server`. Sharing this Dockerfile (rather than a
+# standalone one under end2end-tests/) means BuildKit reuses the
+# builder stage already materialised for the daemon image instead of
+# compiling wardnetd a third time.
+FROM busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 AS release-server
+COPY --from=builder /tmp/release-bundle /srv
 
 # ---- Runtime stage: layer onto wardnet-base + run install.sh ----
 # wardnet-base provides debian:bookworm-slim + apt: systemd,
@@ -227,6 +382,17 @@ RUN apt-get update \
 COPY deploy/ /tmp/wardnet-deploy/
 COPY --from=builder /tmp/local-bundle /tmp/local-bundle/
 
+# Corrupt-pair fixtures for the auto-update trust-anchor spec (#319).
+# A known-good release tarball plus a signature over it made with a key
+# no binary in this image embeds. `wardnet-test-agent`'s
+# POST /update/stage-bad-signature copies these into
+# /var/lib/wardnet/updates/ so the post-upgrade runner sees bytes the
+# wardnet user could plausibly have staged, and refuses to swap them.
+#
+# Parked outside /tmp so the scrub below (and any tmpfs mount at
+# runtime) leaves them alone.
+COPY --from=builder /tmp/e2e-artifacts /usr/local/share/wardnet-e2e/
+
 # Run install.sh against the local bundle. Two pre-steps:
 #   1. Patch the embedded MINISIGN_PUBLIC_KEY with the ephemeral
 #      pubkey so signature verification accepts the locally-signed
@@ -238,9 +404,11 @@ COPY --from=builder /tmp/local-bundle /tmp/local-bundle/
 #      requires *something*.
 #
 # After the install, scrub the bundle + deploy dir + apt-purge
-# build-only deps. minisign stays purged in this image — the prod
-# Dockerfile keeps it for auto-update; the test image has no
-# auto-update path so it can be removed.
+# build-only deps. minisign stays purged even though the e2e suite now
+# does drive auto-update (#319): every signature check on the install
+# path runs through the `minisign_verify` crate compiled into wardnetd
+# and the post-upgrade runner, never the CLI. install.sh is the only
+# consumer of the binary and it has already run by this point.
 RUN <<"EOF" bash
 set -euo pipefail
 awk -v pub="$(cat /tmp/local-bundle/local-bundle.pub)" '

@@ -25,7 +25,7 @@ already expresses per-device DNS filtering.
 
 Two mechanisms already in the tree make this cheap:
 
-- **Switchback** (ADR-0023) already installs *destination-scoped* `ip rule`s
+- **Switchback** (ADR-0026) already installs *destination-scoped* `ip rule`s
   (`from <ip> to <cidr> lookup …`) with reconcile/prune. Domain routing is the
   same primitive with the table and destination varied.
 - **DNS filter profiles** already model "a named bundle of rules, assigned to

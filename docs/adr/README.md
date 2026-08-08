@@ -1,9 +1,17 @@
 # Architecture Decision Records
 
 Sequentially numbered per [`.claude/skills/challenge/ADR-TEMPLATE.md`](../../.claude/skills/challenge/ADR-TEMPLATE.md).
-To add a new one, scan this directory for the highest number and increment by one.
+To add a new one, scan this directory for the highest number and increment by one,
+**and add a row below in the same change** — the table is the only place the set is
+listed, so an ADR missing from it is effectively unfindable.
 Each file's `status`/`date`/`issue` (and `supersedes`/`superseded_by` where relevant)
 live in a YAML frontmatter block at the top of the file.
+
+Rows are ordered by number, not by date. Numbers are identifiers, and one has
+already been reassigned: two ADRs were authored concurrently as `0023`, and the
+later of the two (Switchback) moved to `0026` rather than churn the dozen
+inbound references — including a generated SDK file — that pointed at the
+edge-release-channel one.
 
 | # | Title | Date | Status |
 |---|---|---|---|
@@ -29,4 +37,8 @@ live in a YAML frontmatter block at the top of the file.
 | [0020](0020-push-notifications.md) | Push notifications — VAPID + Web Push delivery | 2026-07-01 | Accepted |
 | [0021](0021-network-zone-deep-isolation.md) | Network Zone deep isolation — per-zone subnets, whole-chain L3 enforcer | 2026-07-02 | Accepted |
 | [0022](0022-inbound-wireguard-and-published-access.md) | Inbound WireGuard peers are Devices; published access defaults to tunnel-only | 2026-07-07 | Accepted |
+| [0023](0023-edge-release-channel.md) | An edge release channel for unvetted, on-demand builds | 2026-07-14 | Accepted |
 | [0024](0024-domain-routing-profiles.md) | Domain-based routing via routing profiles | 2026-07-20 | Accepted |
+| [0025](0025-device-identification.md) | Device identification — a shared vendor catalog, hedged guesses, and no background probing | 2026-08-03 | Accepted |
+| [0026](0026-switchback-and-cross-zone-return.md) | Switchback — cross-zone exceptions reaching a tunnel-bound device | 2026-07-19 | Accepted |
+| [0027](0027-e2e-auto-update-version-skew.md) | The auto-update e2e synthesises its version skew from one source tree | 2026-08-08 | Accepted |

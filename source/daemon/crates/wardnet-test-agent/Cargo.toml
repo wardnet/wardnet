@@ -44,3 +44,12 @@ pnet.workspace = true
 # watchdog e2e (issue #214). The minimal daemon container has no `kill`
 # binary, so we signal in-process rather than spawning one.
 libc.workspace = true
+# https://crates.io/crates/sha2
+# Digests /usr/local/bin/wardnetd and its `.old` sibling for the
+# auto-update swap e2e (issue #319). Comparing digests is what proves a
+# swap actually replaced the binary — size and mtime both survive a
+# no-op rename.
+sha2.workspace = true
+# https://crates.io/crates/hex
+# Renders the sha2 digests above as the hex strings the specs compare.
+hex.workspace = true
