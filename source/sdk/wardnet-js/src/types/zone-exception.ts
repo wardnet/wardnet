@@ -29,10 +29,16 @@ export interface PortSpec {
 
 /**
  * A built-in named service set.
- * - `casting` = mDNS + AirPlay + Chromecast + DLNA.
- * - `mirroring` = screen-mirroring (AirPlay / Miracast) ports.
+ * - `casting` = mDNS + SSDP/DLNA + Chromecast + AirPlay control ports
+ *   (receiver-pull: only the sender's control channel crosses the boundary).
+ * - `mirroring` = **all** ports, TCP and UDP, between the two endpoints
+ *   (sender-push: media ports are negotiated dynamically). Device-to-device
+ *   only — the daemon rejects a zone-scoped mirroring exception.
+ * - `smart_home` = vendor LAN-control IoT: Govee, Tuya, LIFX, ESPHome, local
+ *   MQTT. Deliberately excludes TCP 80/443 — use an explicit port list for
+ *   vendors whose local control is plain HTTP.
  */
-export type ServiceSet = "casting" | "mirroring";
+export type ServiceSet = "casting" | "mirroring" | "smart_home";
 
 /** Either a named preset or an explicit custom port list. */
 export type ServiceSpec =

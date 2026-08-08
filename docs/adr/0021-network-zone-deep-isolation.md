@@ -84,9 +84,29 @@ of `from`/`to` is `(kind: device | zone, id)`; the service is a **named preset**
 the return path) with an explicit **`bidirectional`** flag for protocols where the
 far side also initiates. The enforcer resolves endpoints to cidrs (device → `/32`,
 zone → its subnet or the base subnet) and expands the service to ACCEPT rules
-emitted ahead of the deny. The **casting** preset expands to mDNS 5353/udp,
-SSDP/DLNA 1900/udp, Chromecast 8008-8009/9000/tcp, and AirPlay 7000/7100/tcp,
-bidirectional.
+emitted ahead of the deny.
+
+Three presets ship, each named for a **traffic model** rather than a vendor:
+
+- **`casting`** (receiver-pull) — mDNS 5353/udp, SSDP/DLNA 1900/udp, Chromecast
+  8008/8009/9000/tcp, AirPlay 7000/7100/tcp, and Google Home's TLS
+  device-listing port 8443/tcp, bidirectional. Only the sender's *control*
+  channel crosses the boundary; the receiver pulls media from the cloud.
+- **`mirroring`** (sender-push) — the sender *is* the live media source over
+  dynamically-negotiated ports, so it opens **all** ports on both protocols
+  between the endpoints. Restricted to **device-to-device** exceptions, which
+  the service enforces by port *width* (any spec spanning `1-65535`), not by
+  preset name.
+- **`smart_home`** (client-initiated appliance control, issue #1098) — vendor
+  LAN-control IoT: Govee 4001/4002/4003 udp, Tuya CoAP 5683/udp + 6668/tcp,
+  local MQTT/TLS 8883/tcp, LIFX 56700/udp, ESPHome 9123/tcp, plus the unicast
+  legs of 5353/1900. **Bidirectional is mandatory** — the device→client leg is
+  a fresh flow, not a conntrack reply (see §5). It deliberately **excludes
+  TCP 80/443**: zone-scoped, those reach every HTTP listener in the peer zone,
+  a far wider surface than the rest of the list and not something a preset
+  should carry implicitly. Endpoint scope is unrestricted, because requiring
+  device-scope would require the admin to identify the individual appliance —
+  which ADR 0025 establishes they frequently cannot.
 
 ### 5. No mDNS reflector — casting works via exceptions on a shared L2 segment
 
@@ -104,6 +124,39 @@ relay that is a no-op on this topology.
 A reflector only becomes load-bearing when *discovery multicast itself* is
 blocked — AP "client isolation" on a guest SSID, or a future move to real VLAN
 segmentation. Both are out of scope here and left as a follow-up.
+
+#### Corollary: no allow-rule can ever carry multicast (issue #1098)
+
+Issue #1098 proposed making multicast "explicit rather than incidental" by
+having presets emit rules matching `239.255.255.250` and `224.0.0.251` directly,
+on the theory that the current behaviour is an accident of the shared-subnet
+stance. **It is not, and such a rule would match zero packets.**
+
+Exception allow-rules live in the `zone_isolation` chain, jumped from the
+**`forward`** hook. That hook only sees packets the kernel has already decided
+to route; a rule there is a *filter*, and can only permit a packet that was
+going to be forwarded anyway. **The Pi routes no multicast:** the daemon sets
+`net.ipv4.ip_forward` and nothing else — there is no `mc_forwarding`, no
+`mrouted`/`smcroute`/`igmpproxy`, and no multicast group join anywhere in the
+daemon. Without a multicast router populating the kernel's forwarding cache, a
+datagram to a multicast group is delivered locally and dropped, never forwarded,
+so it never reaches the chain in the first place.
+
+What actually carries it is **layer 2**: zones are IP aliases on one `eth0`, so
+the frame is flooded to the whole broadcast domain and every device that joined
+the group receives it, regardless of IP subnet. Carving per-zone subnets does
+not change that — the Pi is not in that path at all.
+
+The consequence for presets is a real one and is documented rather than
+papered over: **the only multicast-adjacent ports a preset lists (5353, 1900)
+match the unicast leg** — an app querying a known device IP directly. And
+because the multicast leg never transits the Pi, a device's unicast *reply* to
+a multicast query has no conntrack entry to ride, which is why the `smart_home`
+preset requires `bidirectional` for flows like Govee's device→client UDP 4002.
+
+When multicast does break (AP client isolation, VLANs), the fix remains the
+relay described above. **A firewall rule is not a substitute for a relay and
+never becomes one.**
 
 ## Non-goals / documented limits
 

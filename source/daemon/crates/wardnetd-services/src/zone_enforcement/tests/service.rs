@@ -1690,6 +1690,113 @@ async fn casting_exception_populates_deduped_nat_exempt_pairs() {
     );
 }
 
+#[tokio::test]
+async fn smart_home_exception_yields_bidirectional_allows_zone_to_zone() {
+    // Issue #1098, reproducing the reported deployment: a phone in Family
+    // controlling a Govee bulb in Smart Home. The preset is applied
+    // ZONE-to-zone (not device-to-device) because the admin cannot reliably
+    // identify the individual bulb — see ADR 0025.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Smart Home", "192.168.202.0/24", false).await;
+    let now = chrono::Utc::now();
+    h.exceptions
+        .insert(&ZoneException {
+            id: Uuid::new_v4(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_A.parse().unwrap(),
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_B.parse().unwrap(),
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::SmartHome,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+
+    as_admin(h.svc.handle_exceptions_changed()).await.unwrap();
+
+    let rules = isolation(&h).await;
+    let from = "192.168.200.0/24";
+    let to = "192.168.202.0/24";
+    let has = |proto: &str, port: u16| {
+        rules.allows.iter().any(|a| {
+            a.from_cidr == from && a.to_cidr == to && a.proto == proto && a.port_start == port
+        })
+    };
+
+    // The three Govee LAN API ports — the exact flows the casting preset
+    // missed, which is what made the lights unreachable in the first place.
+    assert!(has("udp", 4001), "Govee discovery: {:?}", rules.allows);
+    assert!(has("udp", 4002), "Govee response: {:?}", rules.allows);
+    assert!(has("udp", 4003), "Govee control: {:?}", rules.allows);
+    // A representative port from each of the other vendor families.
+    assert!(has("tcp", 6668), "Tuya local control: {:?}", rules.allows);
+    assert!(has("udp", 56700), "LIFX: {:?}", rules.allows);
+    assert!(has("tcp", 9123), "ESPHome native API: {:?}", rules.allows);
+
+    // Local HTTP/HTTPS is deliberately NOT opened by this preset: zone-scoped,
+    // it would reach every HTTP listener in the peer zone.
+    assert!(!has("tcp", 80), "no bare HTTP hole: {:?}", rules.allows);
+    assert!(!has("tcp", 443), "no bare HTTPS hole: {:?}", rules.allows);
+
+    // The device->client leg (Govee UDP 4002) is a fresh flow, not a conntrack
+    // reply, so every allow must carry the flag the firewall renders the
+    // reverse direction from.
+    assert!(rules.allows.iter().all(|a| a.bidirectional));
+    // Pinned literally rather than against `ServiceSet::SmartHome.ports().len()`
+    // — a self-referential count cannot catch a port being added or dropped.
+    assert_eq!(rules.allows.len(), 10, "{:?}", rules.allows);
+}
+
+#[tokio::test]
+async fn smart_home_exception_populates_deduped_nat_exempt_pairs() {
+    // Same dedup contract as casting: ten ports collapse to one CIDR pair.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Smart Home", "192.168.202.0/24", false).await;
+    let now = chrono::Utc::now();
+    h.exceptions
+        .insert(&ZoneException {
+            id: Uuid::new_v4(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_A.parse().unwrap(),
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_B.parse().unwrap(),
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::SmartHome,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+
+    as_admin(h.svc.handle_exceptions_changed()).await.unwrap();
+
+    let rules = isolation(&h).await;
+    assert_eq!(
+        rules.nat_exempt_pairs,
+        vec![("192.168.200.0/24".to_owned(), "192.168.202.0/24".to_owned())],
+        "the (from, to) pair must appear exactly once despite ten ports: {:?}",
+        rules.nat_exempt_pairs
+    );
+}
+
 /// Insert a bidirectional casting exception between `ZONE_A` and `ZONE_B`.
 async fn insert_zone_casting_exception(h: &Harness) {
     let now = chrono::Utc::now();

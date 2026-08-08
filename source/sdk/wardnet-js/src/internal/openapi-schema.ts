@@ -4039,7 +4039,7 @@ export interface components {
          *     without a data migration.
          * @enum {string}
          */
-        ServiceSet: "casting" | "mirroring";
+        ServiceSet: "casting" | "mirroring" | "smart_home";
         /** @description How the allowed ports of an exception are specified: either a curated preset
          *     or an explicit list. Internally tagged on the wire so the two shapes are
          *     distinguishable without a discriminant field colliding with payload keys. */

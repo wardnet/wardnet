@@ -3,10 +3,15 @@ import type { PortSpec, ServiceSpec } from "@wardnet/js";
 /**
  * Curated cross-zone service options for the exceptions UI.
  *
- * The daemon models a service as either the built-in `casting` **preset** or an
- * explicit **port list**. Only `casting` is a real backend preset; every other
- * entry here is a UI-side convenience that expands to an explicit port list.
- * `custom` lets the operator enter arbitrary ports.
+ * The daemon models a service as either a built-in **preset** or an explicit
+ * **port list**. `casting` and `smart_home` are real backend presets; every
+ * other entry here is a UI-side convenience that expands to an explicit port
+ * list. `custom` lets the operator enter arbitrary ports.
+ *
+ * Note the `web` bundle below is the intended companion to `smart_home` for
+ * vendors whose local control is plain HTTP (Shelly, Tasmota, ESPHome's web
+ * server): the preset deliberately omits 80/443 because, applied zone-to-zone,
+ * they would reach every HTTP listener in the peer zone.
  */
 export interface ServiceOption {
   id: string;
@@ -26,6 +31,11 @@ export const SERVICE_OPTIONS: ServiceOption[] = [
     id: "casting",
     label: "Casting (mDNS, Cast, AirPlay, DLNA)",
     spec: { type: "preset", set: "casting" },
+  },
+  {
+    id: "smart-home",
+    label: "Smart home (Govee, Tuya, Shelly, ESPHome, LIFX)",
+    spec: { type: "preset", set: "smart_home" },
   },
   {
     id: "printing",
