@@ -282,7 +282,7 @@ x509-parser = "0.18"
 cms = { version = "0.2.3", default-features = false, features = ["std", "alloc"] }
 # https://crates.io/crates/x509-cert — parse the issued chain into the DER
 # certificate + issuer/serial the CMS signer embeds.
-x509-cert = { version = "0.2", features = ["pem"] }
+x509-cert = { version = "0.3", features = ["pem"] }
 # https://crates.io/crates/p256 — sign the CMS SignerInfo with the leaf's
 # ECDSA P-256 key (rcgen generates a P-256 leaf), matching the cert's algorithm.
 p256 = { version = "0.13", features = ["ecdsa", "pem", "pkcs8"] }
