@@ -55,7 +55,7 @@ use wardnet_common::backup::{
     BackupStatus, BundleManifest, CURRENT_BUNDLE_FORMAT_VERSION, LocalSnapshot, MIN_PASSPHRASE_LEN,
     RestorePhase, SnapshotKind,
 };
-use wardnet_common::config_restore::{self, ConfigRestoreError};
+use wardnet_common::config_restore;
 use wardnetd_data::database_dumper::DatabaseDumper;
 use wardnetd_data::db::restore_pending_marker_path;
 use wardnetd_data::repository::SystemConfigRepository;
@@ -221,12 +221,20 @@ impl BackupServiceImpl {
         Ok(out)
     }
 
-    /// Decide whether a freshly-unpacked manifest can be restored
-    /// against the running daemon.
+    /// Decide whether a freshly-unpacked bundle can be restored against the
+    /// running daemon.
+    ///
+    /// Covers the config as well as the manifest. A restore is followed by a
+    /// mandatory restart, so a bundle whose config this daemon cannot load
+    /// would take the box down with no UI left to fix it from — and finding
+    /// that out at `apply_import` is too late, because by then the operator
+    /// has already committed. Checking here means the preview says so while
+    /// nothing is at stake.
     async fn check_compat(
         &self,
-        manifest: &BundleManifest,
+        contents: &BundleContents,
     ) -> Result<(bool, Option<String>), AppError> {
+        let manifest = &contents.manifest;
         if !manifest.is_format_supported() {
             return Ok((
                 false,
@@ -247,6 +255,22 @@ impl BackupServiceImpl {
                 Some(format!(
                     "bundle schema version {} is newer than the running daemon's ({}) - upgrade the daemon first, then retry",
                     manifest.schema_version, running_schema
+                )),
+            ));
+        }
+        // Last, so a bundle from a newer build is told to upgrade the daemon
+        // rather than blamed for a config this one happens not to understand.
+        //
+        // That ordering only settles the cases where the newer build also
+        // moved the bundle format or the DB schema. A release that adds a
+        // config field on its own reaches here, and the bare serde message
+        // ("unknown field ...") reads as a corrupt bundle rather than a
+        // version gap — so the remedy is spelled out either way.
+        if let Err(e) = config_restore::check_bundle_config(&contents.config_bytes) {
+            return Ok((
+                false,
+                Some(format!(
+                    "{e} - if the bundle came from a newer Wardnet, upgrade the daemon first, then retry"
                 )),
             ));
         }
@@ -341,11 +365,8 @@ impl BackupServiceImpl {
     /// Called before anything on disk is touched, so a bundle carrying an
     /// unreadable config fails the restore rather than half-applying it.
     async fn config_bytes_for_restore(&self, bundle_config: &[u8]) -> Result<Vec<u8>, AppError> {
-        let bundle_toml = std::str::from_utf8(bundle_config).map_err(|e| {
-            AppError::BadRequest(format!(
-                "the config in the backup bundle is not valid UTF-8: {e}"
-            ))
-        })?;
+        let bundle_toml = config_restore::check_bundle_config(bundle_config)
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
         let live_toml = match tokio::fs::read_to_string(&self.config_path).await {
             Ok(contents) => contents,
             // No live config at all: every deploy-time key is at its
@@ -359,14 +380,16 @@ impl BackupServiceImpl {
             }
         };
 
-        let merged = config_restore::preserve_deploy_time_keys(&live_toml, bundle_toml).map_err(
-            |e| match e {
+        let merged =
+            config_restore::preserve_deploy_time_keys(&live_toml, bundle_toml).map_err(|e| {
                 // The bundle is caller-supplied, so a broken config in it is
                 // a bad request; a broken *live* config is our own problem.
-                ConfigRestoreError::BundleConfig(_) => AppError::BadRequest(e.to_string()),
-                other => AppError::Internal(anyhow::anyhow!(other)),
-            },
-        )?;
+                if e.blames_the_bundle() {
+                    AppError::BadRequest(e.to_string())
+                } else {
+                    AppError::Internal(anyhow::anyhow!(e))
+                }
+            })?;
 
         if !merged.overridden.is_empty() {
             let keys = merged.overridden.join(", ");
@@ -721,8 +744,7 @@ impl BackupService for BackupServiceImpl {
                 .await
                 .map_err(|e| AppError::BadRequest(format!("bundle could not be decrypted: {e}")))?;
 
-            let (compatible, incompatibility_reason) =
-                self.check_compat(&contents.manifest).await?;
+            let (compatible, incompatibility_reason) = self.check_compat(&contents).await?;
 
             let files_to_replace = vec![
                 self.database_path.display().to_string(),
@@ -786,7 +808,7 @@ impl BackupService for BackupServiceImpl {
             return Err(AppError::BadRequest("preview token has expired".into()));
         }
 
-        let (compatible, reason) = self.check_compat(&pending_entry.contents.manifest).await?;
+        let (compatible, reason) = self.check_compat(&pending_entry.contents).await?;
         if !compatible {
             let reason = reason.unwrap_or_else(|| "bundle is not compatible".into());
             self.set_status(BackupStatus::Failed {

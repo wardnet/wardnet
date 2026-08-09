@@ -974,8 +974,47 @@ async fn apply_import_still_restores_ordinary_config_from_the_bundle() {
 }
 
 #[tokio::test]
+async fn preview_import_reports_a_config_this_daemon_cannot_load() {
+    // A restore is followed by a mandatory restart, so a bundle carrying a
+    // config the daemon cannot parse would take the box down with no UI left
+    // to fix it from. The operator has to learn that at preview, while
+    // nothing is at stake — not after committing to the apply.
+    let h = build_harness(42);
+    let passphrase = "correct-horse-battery-staple";
+
+    for broken in [
+        "this is not toml",
+        "[from_the_future]\nknob = 1\n",
+        "[server]\nport = \"not a number\"\n",
+    ] {
+        let bundle = bundle_with_config(broken, passphrase, 42).await;
+        let preview = auth_context::with_context(
+            admin_ctx(),
+            h.svc.preview_import(bundle, passphrase.to_owned()),
+        )
+        .await
+        .unwrap();
+
+        assert!(!preview.compatible, "{broken:?} previewed as compatible");
+        let reason = preview.incompatibility_reason.expect("reason populated");
+        assert!(
+            reason.contains("config"),
+            "reason should name the config: {reason}",
+        );
+        // A newer release can add a config field without touching the bundle
+        // format or the DB schema, so this branch also catches version gaps
+        // the manifest checks above cannot see. Say what to do about it.
+        assert!(
+            reason.contains("upgrade the daemon"),
+            "reason should name the remedy: {reason}",
+        );
+    }
+}
+
+#[tokio::test]
 async fn apply_import_rejects_a_bundle_whose_config_is_not_toml() {
-    // The merge runs before anything on disk is touched, so an unusable
+    // Belt and braces behind the preview check: apply re-runs compat, and
+    // the merge runs before anything on disk is touched, so an unusable
     // config fails the restore outright rather than half-applying it.
     let h = build_harness(42);
     let passphrase = "correct-horse-battery-staple";

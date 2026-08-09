@@ -6,17 +6,15 @@
 //! the first set honest as the config grows — see
 //! [`every_config_key_is_classified`].
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-
 use crate::config::{
-    AdminConfig, ApplicationConfiguration, AuthConfig, DatabaseConfig, DatabaseProvider,
-    DdnsWardnetConfig, DetectionConfig, EnabledMetrics, HealthConfig, LogFormat, LogRotation,
-    LoggingConfig, MdnsConfig, NetworkConfig, OtelConfig, OtelLogsConfig, OtelMetricsConfig,
-    OtelTracesConfig, PyroscopeConfig, SecretStoreConfig, ServerConfig, TestConfig, TunnelConfig,
-    UpdateConfig, VpnProvidersConfig, WatchdogConfig,
+    AdminConfig, ApplicationConfiguration, AuthConfig, DatabaseConfig, DdnsWardnetConfig,
+    DetectionConfig, EnabledMetrics, HealthConfig, LoggingConfig, MdnsConfig, NetworkConfig,
+    OtelConfig, OtelLogsConfig, OtelMetricsConfig, OtelTracesConfig, PyroscopeConfig, ServerConfig,
+    TestConfig, TunnelConfig, UpdateConfig, VpnProvidersConfig, WatchdogConfig,
 };
-use crate::config_restore::{ConfigRestoreError, DEPLOY_TIME_ONLY_KEYS, preserve_deploy_time_keys};
+use crate::config_restore::{
+    ConfigRestoreError, DEPLOY_TIME_ONLY_KEYS, check_bundle_config, preserve_deploy_time_keys,
+};
 
 /// Config keys a backup bundle *may* set: the user's own settings, which
 /// travel with their data. The counterpart to
@@ -94,158 +92,103 @@ const RESTORABLE_KEYS: &[&str] = &[
     "watchdog.soft_enabled",
 ];
 
-/// A config with **every** field written out explicitly and every optional
-/// field populated, so serialising it yields the full set of config keys.
+/// The full set of config field paths, taken from **serde's own** field
+/// lists rather than from a serialised value.
 ///
-/// The struct literals are the point: they carry no `..Default::default()`,
-/// so adding a field anywhere in the config tree fails to compile here
-/// before it can slip past [`every_config_key_is_classified`] unclassified.
-/// Open-ended maps (`logging.filters`, `vpn_providers.enabled`) are left
-/// empty — their keys are user data, not config fields.
-#[allow(clippy::too_many_lines)] // One literal per config field — length is the point.
-fn probe_config() -> ApplicationConfiguration {
-    ApplicationConfiguration {
-        server: ServerConfig {
-            host: "0.0.0.0".to_owned(),
-            port: 7411,
-            https_port: 443,
-            http_redirect_port: 80,
-        },
-        database: DatabaseConfig {
-            provider: DatabaseProvider::Sqlite,
-            connection_string: "/var/lib/wardnet/wardnet.db".to_owned(),
-        },
-        logging: LoggingConfig {
-            format: LogFormat::Json,
-            level: "info".to_owned(),
-            filters: HashMap::new(),
-            path: PathBuf::from("/var/log/wardnet/wardnetd.log"),
-            rotation: LogRotation::Daily,
-            max_log_files: 7,
-            max_recent_errors: 15,
-            broadcast_capacity: 256,
-            ui_suppressed_targets: Vec::new(),
-            journal_suppressed_targets: Vec::new(),
-        },
-        network: NetworkConfig {
-            lan_interface: "eth0".to_owned(),
-            default_policy: "direct".to_owned(),
-        },
-        auth: AuthConfig {
-            session_expiry_hours: 24,
-            remember_me_expiry_hours: 720,
-        },
-        admin: Some(AdminConfig {
-            username: "admin".to_owned(),
-            password: "hunter2".to_owned(),
-        }),
-        tunnel: TunnelConfig {
-            idle_timeout_secs: 600,
-            health_check_interval_secs: 10,
-            stats_interval_secs: 5,
-            latency_probe_interval_secs: 60,
-            latency_probe_target: "1.1.1.1".to_owned(),
-            test_probe_url: "https://1.1.1.1/cdn-cgi/trace".to_owned(),
-            speed_test_url: "https://speed.cloudflare.com/__down".to_owned(),
-            speed_test_latency_samples: 5,
-            speed_test_parallel_streams: 4,
-            speed_test_warmup_ms: 1000,
-            speed_test_measure_ms: 4000,
-        },
-        detection: DetectionConfig {
-            enabled: true,
-            departure_timeout_secs: 300,
-            batch_flush_interval_secs: 30,
-            departure_scan_interval_secs: 60,
-            arp_scan_interval_secs: 60,
-        },
-        otel: OtelConfig {
-            enabled: false,
-            endpoint: "http://localhost:4317".to_owned(),
-            service_name: "wardnetd".to_owned(),
-            interval_secs: 10,
-            traces: OtelTracesConfig { enabled: true },
-            logs: OtelLogsConfig { enabled: true },
-            metrics: OtelMetricsConfig {
-                enabled: true,
-                enabled_metrics: EnabledMetrics {
-                    system_cpu_utilization: true,
-                    system_memory_usage: true,
-                    system_temperature: true,
-                    system_network_io: true,
-                    wardnet_device_count: true,
-                    wardnet_tunnel_count: true,
-                    wardnet_tunnel_active_count: true,
-                    wardnet_uptime_seconds: true,
-                    wardnet_db_size_bytes: true,
-                    wardnet_disk_free_bytes: true,
-                },
-            },
-        },
-        vpn_providers: VpnProvidersConfig {
-            enabled: HashMap::new(),
-            nordvpn_api_url: Some("https://api.nordvpn.com".to_owned()),
-        },
-        ddns_wardnet: DdnsWardnetConfig {
-            gateway_url: Some("https://api.wardnet.network".to_owned()),
-            region_gateway_url: Some("https://eu.wardnet.network".to_owned()),
-            region_health_url: Some("https://eu.wardnet.network/health".to_owned()),
-        },
-        pyroscope: PyroscopeConfig {
-            enabled: false,
-            endpoint: "http://localhost:4040".to_owned(),
-        },
-        update: UpdateConfig {
-            manifest_base_url: "https://releases.wardnet.network".to_owned(),
-            check_interval_secs: 21_600,
-            live_binary_path: PathBuf::from("/usr/local/bin/wardnetd"),
-            staging_dir: PathBuf::from("/var/lib/wardnet/updates"),
-            require_signature: true,
-            http_timeout_secs: 60,
-            allow_edge_channel: false,
-        },
-        mdns: MdnsConfig {
-            enabled: true,
-            hostname: Some("wardnet".to_owned()),
-        },
-        health: HealthConfig {
-            refresh_interval_secs: 5,
-            failure_threshold: 3,
-            check_timeout_secs: 2,
-        },
-        watchdog: WatchdogConfig {
-            enabled: true,
-            device_path: PathBuf::from("/dev/watchdog"),
-            hardware_timeout_secs: 15,
-            pet_interval_secs: 5,
-            soft_enabled: true,
-        },
-        test: TestConfig {
-            stub_tunnel_backends: false,
-        },
-        secret_store: Some(SecretStoreConfig::FileSystem {
-            path: PathBuf::from("/var/lib/wardnet/secrets"),
-        }),
-        pidfile_path: PathBuf::from("/run/wardnetd/wardnetd.pid"),
-    }
+/// The distinction matters: `toml` drops an `Option` that is `None`, so
+/// enumerating a sample config would silently omit any optional field left
+/// unset — and five config fields are already `Option`. Asking serde what it
+/// expects, via the `deny_unknown_fields` rejection message, sees every
+/// declared field regardless of the value it would hold.
+///
+/// One entry per struct in the tree. A new *field* is picked up
+/// automatically; a new nested *struct* shows up as an unclassified leaf
+/// until it is either registered here or classified as a whole table.
+fn declared_paths() -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut add = |prefix: &str, names: Vec<String>| {
+        for name in names {
+            paths.push(if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}.{name}")
+            });
+        }
+    };
+
+    add("", declared_field_names::<ApplicationConfiguration>());
+    add("server", declared_field_names::<ServerConfig>());
+    add("database", declared_field_names::<DatabaseConfig>());
+    add("logging", declared_field_names::<LoggingConfig>());
+    add("network", declared_field_names::<NetworkConfig>());
+    add("auth", declared_field_names::<AuthConfig>());
+    add("admin", declared_field_names::<AdminConfig>());
+    add("tunnel", declared_field_names::<TunnelConfig>());
+    add("detection", declared_field_names::<DetectionConfig>());
+    add("otel", declared_field_names::<OtelConfig>());
+    add("otel.traces", declared_field_names::<OtelTracesConfig>());
+    add("otel.logs", declared_field_names::<OtelLogsConfig>());
+    add("otel.metrics", declared_field_names::<OtelMetricsConfig>());
+    add(
+        "otel.metrics.enabled_metrics",
+        declared_field_names::<EnabledMetrics>(),
+    );
+    add(
+        "vpn_providers",
+        declared_field_names::<VpnProvidersConfig>(),
+    );
+    add("ddns_wardnet", declared_field_names::<DdnsWardnetConfig>());
+    add("pyroscope", declared_field_names::<PyroscopeConfig>());
+    add("update", declared_field_names::<UpdateConfig>());
+    add("mdns", declared_field_names::<MdnsConfig>());
+    add("health", declared_field_names::<HealthConfig>());
+    add("watchdog", declared_field_names::<WatchdogConfig>());
+    add("test", declared_field_names::<TestConfig>());
+    // `secret_store` is an internally-tagged enum, which serde refuses to
+    // combine with `deny_unknown_fields`, so it has no field list to read.
+    // It is classified as a whole table, which covers every variant's fields
+    // by construction — see DEPLOY_TIME_ONLY_KEYS.
+
+    paths
 }
 
-/// Every dotted path in `value` that holds a scalar, an array, or an empty
-/// table — i.e. the config's leaves, the granularity classification works at.
-fn leaf_paths(value: &toml::Value, prefix: &str, out: &mut Vec<String>) {
-    match value {
-        toml::Value::Table(table) if !table.is_empty() => {
-            for (key, child) in table {
-                let path = if prefix.is_empty() {
-                    key.clone()
-                } else {
-                    format!("{prefix}.{key}")
-                };
-                leaf_paths(child, &path, out);
-            }
-        }
-        _ => out.push(prefix.to_owned()),
-    }
+/// Field names serde declares for `T`, read out of the `deny_unknown_fields`
+/// rejection message.
+///
+/// Serde words the list three ways depending on how many fields there are —
+/// ``expected `a` ``, ``expected `a` or `b` ``, ``expected one of `a`, `b`,
+/// `c` `` — so this takes everything after `expected` and pulls out the
+/// backtick-quoted names rather than matching any one phrasing.
+///
+/// A hack, but a self-checking one: if the message ever stops naming fields
+/// this way the parse fails loudly here rather than quietly returning nothing
+/// and letting [`every_config_key_is_classified`] pass on an empty set.
+fn declared_field_names<T: serde::de::DeserializeOwned>() -> Vec<String> {
+    const PROBE_KEY: &str = "wardnet_unknown_field_probe";
+
+    let message = toml::from_str::<T>(&format!("{PROBE_KEY} = 0"))
+        .err()
+        .expect("a deny_unknown_fields struct must reject an unknown key")
+        .to_string();
+    // Everything before `expected` mentions the probe key itself, in
+    // backticks — start after it so the probe cannot be read as a field.
+    let listed = message
+        .split_once("expected ")
+        .unwrap_or_else(|| {
+            panic!("serde's unknown-field message no longer lists fields: {message}")
+        })
+        .1;
+    let names: Vec<String> = listed
+        .split('`')
+        .skip(1)
+        .step_by(2)
+        .map(ToOwned::to_owned)
+        .collect();
+    assert!(
+        !names.is_empty() && !names.iter().any(String::is_empty),
+        "no field names parsed out of: {message}",
+    );
+    names
 }
 
 /// Whether `key` names `path` itself or one of its ancestors.
@@ -256,11 +199,17 @@ fn covers(key: &str, path: &str) -> bool {
             .is_some_and(|rest| rest.starts_with('.'))
 }
 
-fn probe_leaves() -> Vec<String> {
-    let value = toml::Value::try_from(probe_config()).expect("probe config should serialise");
-    let mut leaves = Vec::new();
-    leaf_paths(&value, "", &mut leaves);
-    leaves
+/// The declared paths that hold a value rather than a nested struct — the
+/// granularity classification works at.
+fn config_leaves() -> Vec<String> {
+    let all = declared_paths();
+    all.iter()
+        .filter(|path| {
+            let prefix = format!("{path}.");
+            !all.iter().any(|other| other.starts_with(&prefix))
+        })
+        .cloned()
+        .collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +218,7 @@ fn probe_leaves() -> Vec<String> {
 
 #[test]
 fn every_config_key_is_classified() {
-    let unclassified: Vec<String> = probe_leaves()
+    let unclassified: Vec<String> = config_leaves()
         .into_iter()
         .filter(|path| {
             !DEPLOY_TIME_ONLY_KEYS
@@ -304,7 +253,7 @@ fn no_key_is_classified_both_ways() {
 
 #[test]
 fn no_classified_key_is_stale() {
-    let leaves = probe_leaves();
+    let leaves = config_leaves();
     let stale: Vec<&&str> = DEPLOY_TIME_ONLY_KEYS
         .iter()
         .chain(RESTORABLE_KEYS)
@@ -426,23 +375,51 @@ fn a_bundle_that_changes_nothing_passes_through_verbatim() {
 }
 
 #[test]
-fn keys_this_daemon_does_not_know_survive_the_merge() {
-    // A bundle from a newer build carries sections we have no struct for.
-    // The merge is untyped precisely so they are not dropped on the floor.
+fn the_merge_keeps_the_file_minimal_rather_than_dumping_every_default() {
+    // Round-tripping through `ApplicationConfiguration` would emit all ~80
+    // fields; the operator wrote five lines and should get five back.
     let merged = preserve_deploy_time_keys(
-        "",
-        "[from_the_future]\nknob = 1\n\n[update]\nallow_edge_channel = true\nfuture_knob = 2\n",
+        "[update]\nallow_edge_channel = true\n",
+        "[logging]\nlevel = \"debug\"\n",
     )
     .unwrap();
 
     let table: toml::Table = merged.toml.parse().unwrap();
-    assert_eq!(table["from_the_future"]["knob"].as_integer(), Some(1));
-    assert_eq!(table["update"]["future_knob"].as_integer(), Some(2));
-    assert!(
-        table["update"].get("allow_edge_channel").is_none(),
-        "the gated key should still have been stripped: {}",
+    assert_eq!(
+        table.keys().collect::<Vec<_>>(),
+        vec!["logging", "update"],
+        "only the sections that were written should appear: {}",
         merged.toml,
     );
+    assert_eq!(table["logging"]["level"].as_str(), Some("debug"));
+    assert_eq!(table["update"]["allow_edge_channel"].as_bool(), Some(true));
+}
+
+#[test]
+fn spelling_out_a_default_is_not_treated_as_a_change() {
+    // The live file omits `allow_edge_channel`; the bundle writes it out at
+    // the value omission already means. Nothing has changed, so this must not
+    // re-serialise the file or log the bundle as trying to move the box.
+    let bundle = "# operator notes\n[update]\nallow_edge_channel = false\n";
+    let merged = preserve_deploy_time_keys("[logging]\nlevel = \"info\"\n", bundle).unwrap();
+
+    assert!(
+        merged.overridden.is_empty(),
+        "explicit default reported as an override: {:?}",
+        merged.overridden,
+    );
+    assert_eq!(merged.toml, bundle, "the comment should have survived");
+}
+
+#[test]
+fn omitting_a_key_the_live_file_spells_out_is_not_a_change_either() {
+    // The mirror image: the live file writes the default, the bundle omits
+    // it. Both resolve to the same value, so the bundle passes through.
+    let bundle = "[logging]\nlevel = \"debug\"\n";
+    let merged = preserve_deploy_time_keys("[update]\nrequire_signature = true\n", bundle).unwrap();
+
+    assert!(merged.overridden.is_empty(), "{:?}", merged.overridden);
+    assert_eq!(merged.toml, bundle);
 }
 
 #[test]
@@ -462,17 +439,15 @@ fn the_secret_store_table_is_replaced_wholesale() {
 }
 
 #[test]
-fn a_non_table_where_a_section_belongs_does_not_stop_the_merge() {
-    // The bundle is untrusted input; `update = "surprise"` must not be a
-    // way to smuggle the section past the merge.
-    let merged = preserve_deploy_time_keys(
+fn a_bundle_that_puts_a_scalar_where_a_section_belongs_is_rejected() {
+    // `update = "surprise"` is valid TOML but not a config the daemon can
+    // load, so it never reaches the merge at all.
+    let err = preserve_deploy_time_keys(
         "[update]\nallow_edge_channel = false\n",
         "update = \"surprise\"\n",
     )
-    .unwrap();
-
-    let table: toml::Table = merged.toml.parse().unwrap();
-    assert_eq!(table["update"]["allow_edge_channel"].as_bool(), Some(false));
+    .unwrap_err();
+    assert!(matches!(err, ConfigRestoreError::BundleConfig(_)), "{err}");
 }
 
 #[test]
@@ -494,16 +469,21 @@ fn a_top_level_key_that_sorts_after_a_section_still_round_trips() {
     // top-level scalar emitted after a `[section]` header would silently be
     // re-read as part of that section. `pidfile_path` sorts after
     // `network`, which is exactly that trap.
+    //
+    // The live value is deliberately *not* the default, so the merge has a
+    // real change to make and takes the re-serialising path where the hazard
+    // lives.
     let merged = preserve_deploy_time_keys(
-        "pidfile_path = \"/run/wardnetd/wardnetd.pid\"\n",
+        "pidfile_path = \"/run/wardnetd/custom.pid\"\n",
         "[network]\nlan_interface = \"eth0\"\n",
     )
     .unwrap();
 
+    assert_eq!(merged.overridden, vec!["pidfile_path"]);
     let table: toml::Table = merged.toml.parse().unwrap();
     assert_eq!(
         table["pidfile_path"].as_str(),
-        Some("/run/wardnetd/wardnetd.pid"),
+        Some("/run/wardnetd/custom.pid"),
         "pidfile_path was swallowed by a section: {}",
         merged.toml,
     );
@@ -527,4 +507,46 @@ fn an_unparseable_live_config_is_rejected() {
         preserve_deploy_time_keys("this is not toml", "[update]\nallow_edge_channel = true\n")
             .unwrap_err();
     assert!(matches!(err, ConfigRestoreError::LiveConfig(_)), "{err}");
+}
+
+#[test]
+fn a_bundle_with_a_section_this_daemon_cannot_load_is_rejected() {
+    // `ApplicationConfiguration` is deny_unknown_fields and a restore is
+    // followed by a mandatory restart, so writing this would leave the box
+    // in a systemd restart loop with no UI left to fix it from.
+    let err = preserve_deploy_time_keys("", "[from_the_future]\nknob = 1\n").unwrap_err();
+    assert!(matches!(err, ConfigRestoreError::BundleConfig(_)), "{err}");
+
+    // Same for a known section that grew a key we do not have.
+    let err = preserve_deploy_time_keys("", "[update]\nfuture_knob = 2\n").unwrap_err();
+    assert!(matches!(err, ConfigRestoreError::BundleConfig(_)), "{err}");
+}
+
+#[test]
+fn a_bundle_with_a_wrongly_typed_value_is_rejected() {
+    let err = preserve_deploy_time_keys("", "[server]\nport = \"not a number\"\n").unwrap_err();
+    assert!(matches!(err, ConfigRestoreError::BundleConfig(_)), "{err}");
+}
+
+#[test]
+fn a_bundle_config_that_is_not_utf8_is_rejected() {
+    let err = check_bundle_config(&[0xFF, 0xFE, 0xFD]).unwrap_err();
+    assert!(matches!(err, ConfigRestoreError::BundleNotUtf8(_)), "{err}");
+    assert!(err.blames_the_bundle());
+}
+
+#[test]
+fn a_loadable_bundle_config_passes_the_check() {
+    let text = check_bundle_config(b"[logging]\nlevel = \"debug\"\n").unwrap();
+    assert_eq!(text, "[logging]\nlevel = \"debug\"\n");
+}
+
+#[test]
+fn a_broken_live_config_is_not_blamed_on_the_bundle() {
+    // The caller maps this to an internal error rather than a rejected
+    // upload, because the machine is what is wrong, not the bundle.
+    let err =
+        preserve_deploy_time_keys("this is not toml", "[update]\nallow_edge_channel = true\n")
+            .unwrap_err();
+    assert!(!err.blames_the_bundle(), "{err}");
 }

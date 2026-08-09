@@ -309,6 +309,11 @@ health — restores from the bundle as you would expect. If a bundle did
 carry different values for any of the keys above, the daemon logs which
 ones it kept at their live values.
 
+A restore also refuses a bundle whose config this daemon cannot read at all
+— an unknown section, a mistyped value — and says so at the preview step,
+before you commit to it. Restoring one would write cleanly and then leave
+the daemon unable to start after the restart a restore requires.
+
 ## Environment variable overrides
 
 Two runtime overrides are honoured independent of the TOML:
