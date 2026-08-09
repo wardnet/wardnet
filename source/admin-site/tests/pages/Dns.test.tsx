@@ -191,6 +191,18 @@ describe("Dns", () => {
     expect(screen.getByText("Loading DNS status...")).toBeInTheDocument();
   });
 
+  it("does not mount the stats queries while the status/config gate is closed", () => {
+    useDnsStatus.mockReturnValue({ data: undefined, isLoading: true });
+    useDnsConfig.mockReturnValue({ data: undefined });
+    renderWithProviders(<Dns />);
+    // The insights block owns these hooks and only mounts inside the gate,
+    // so no stats request fires while the resolver status is unresolved.
+    expect(useDnsStatsDashboard).not.toHaveBeenCalled();
+    expect(useDnsPeriodComparison).not.toHaveBeenCalled();
+    expect(useDnsTopTrackers).not.toHaveBeenCalled();
+    expect(useDnsPerDeviceStats).not.toHaveBeenCalled();
+  });
+
   it("renders the populated resolver page", () => {
     renderWithProviders(<Dns />);
     expect(screen.getByRole("heading", { name: "DNS" })).toBeInTheDocument();

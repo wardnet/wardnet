@@ -28,12 +28,10 @@ const profiles = [profile("p1", "Ads"), profile("p2", "Malware")];
 function cardProps({
   settings = { enabled: true, profile_ids: [] as string[] },
   defaultIds = [] as string[],
-  loading = false,
   update = {},
 }: {
   settings?: { enabled: boolean; profile_ids: string[] } | undefined;
   defaultIds?: string[];
-  loading?: boolean;
   update?: Partial<{
     isPending: boolean;
     isError: boolean;
@@ -48,7 +46,6 @@ function cardProps({
       enabled: true,
       default_profile_ids: defaultIds,
     } as DnsFilterConfig,
-    isLoading: loading,
     update: {
       mutateAsync,
       reset,
@@ -68,9 +65,7 @@ beforeEach(() => {
 describe("DeviceDnsFilterCard read view", () => {
   it("shows a loading placeholder until every query settles", () => {
     renderWithProviders(
-      <DeviceDnsFilterCard
-        {...cardProps({ settings: undefined, loading: true })}
-      />,
+      <DeviceDnsFilterCard {...cardProps()} settings={undefined} />,
     );
     expect(screen.getByText("Loading…")).toBeInTheDocument();
   });

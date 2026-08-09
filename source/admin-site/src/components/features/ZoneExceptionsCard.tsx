@@ -18,6 +18,7 @@ import {
 } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
+import type { MutateFn } from "@/lib/mutationHandle";
 import { deviceDisplayName } from "@wardnet/web";
 import type {
   Device,
@@ -50,7 +51,7 @@ function serviceLabel(service: ServiceSpec): string {
 }
 
 /** The body the card's inline form submits when adding an exception. */
-export interface ZoneExceptionBody {
+interface ZoneExceptionBody {
   from: ExceptionEndpoint;
   to: ExceptionEndpoint;
   service: ServiceSpec;
@@ -63,13 +64,7 @@ interface ZoneExceptionsCardProps {
   devices: Device[];
   /** True while the page's create mutation is in flight. */
   isSaving: boolean;
-  /** Matches TanStack's `mutate` signature so the page can pass the
-   *  mutation's `mutate` straight through; the card uses `onSuccess` to
-   *  close its inline form. */
-  onCreateException: (
-    body: ZoneExceptionBody,
-    callbacks?: { onSuccess?: () => void },
-  ) => void;
+  onCreateException: MutateFn<ZoneExceptionBody>;
   onDeleteException: (id: string) => void;
 }
 

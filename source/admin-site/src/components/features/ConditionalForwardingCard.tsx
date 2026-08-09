@@ -16,6 +16,7 @@ import { Input } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
+import type { MutateFn } from "@/lib/mutationHandle";
 import type {
   ConditionalForwardingRule,
   CreateForwardingRuleRequest,
@@ -29,17 +30,8 @@ interface ConditionalForwardingCardProps {
   /** True while the page's update mutation is in flight (gates the per-row
    *  enable toggles without also locking them during a create). */
   updatePending: boolean;
-  /** The optional callbacks match TanStack's `mutate` signature so the page
-   *  can pass the mutation's `mutate` straight through; the card uses
-   *  `onSuccess` to close its inline form. */
-  onCreateRule: (
-    body: CreateForwardingRuleRequest,
-    callbacks?: { onSuccess?: () => void },
-  ) => void;
-  onUpdateRule: (
-    change: { id: string; body: UpdateForwardingRuleRequest },
-    callbacks?: { onSuccess?: () => void },
-  ) => void;
+  onCreateRule: MutateFn<CreateForwardingRuleRequest>;
+  onUpdateRule: MutateFn<{ id: string; body: UpdateForwardingRuleRequest }>;
   onDeleteRule: (id: string) => void;
 }
 

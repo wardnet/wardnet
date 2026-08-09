@@ -55,42 +55,13 @@ export default function Dns() {
   const toggleDns = useToggleDns();
   const flushCache = useFlushDnsCache();
   const updateConfig = useUpdateDnsConfig();
+  // Dedicated instance for the security card so its controls only lock for
+  // its own saves, not for query-log/upstream edits elsewhere on the page
+  // (and vice versa).
+  const updateSecurityConfig = useUpdateDnsConfig();
 
   const status = statusData;
   const config = configData?.config;
-
-  // ---- Stats + analytics wiring (range, zoom, per-device selection). ----
-  const [range, setRange] = useState<StatsRange>("24h");
-  // Tag zoom with the range it was committed for so it auto-invalidates
-  // when the range changes without needing a useEffect reset.
-  const [storedZoom, setStoredZoom] = useState<{
-    range: StatsRange;
-    zoom: ZoomRange;
-  } | null>(null);
-  const zoom = storedZoom?.range === range ? storedZoom.zoom : null;
-  const setZoom = (z: ZoomRange | null) =>
-    setStoredZoom(z ? { range, zoom: z } : null);
-  // A committed zoom narrows the dashboard's top-N window so all four stat
-  // cards reflect the same time slice.
-  const topOverride = zoom
-    ? {
-        from: new Date(Number(zoom.start)).toISOString(),
-        to: new Date(Number(zoom.end)).toISOString(),
-      }
-    : undefined;
-  const { data: devicesData } = useDevices();
-  const dashboard = useDnsStatsDashboard(range, topOverride);
-  const { data: comparison } = useDnsPeriodComparison(range);
-  const { data: trackers } = useDnsTopTrackers(range);
-
-  const devices = devicesData?.devices ?? [];
-  const [selectedDevice, setSelectedDevice] = useState<string>("");
-  // Default to the first device once the list loads, so the per-device chart
-  // shows something without the user having to pick.
-  const effectiveDevice =
-    selectedDevice || (devices.length > 0 ? devices[0].id : "");
-  const { data: deviceSeries, isLoading: deviceSeriesLoading } =
-    useDnsPerDeviceStats(effectiveDevice || null, range);
 
   // Stable callbacks so UpstreamServersCard's `columns` memo isn't rebuilt on
   // every render (e.g. the 15s status poll). `updateConfig.mutate` is stable.
@@ -261,8 +232,8 @@ export default function Dns() {
           <SecuritySettingsCard
             config={config}
             isLoading={configLoading}
-            onUpdate={updateConfig.mutate}
-            updatePending={updateConfig.isPending}
+            onUpdate={updateSecurityConfig.mutate}
+            updatePending={updateSecurityConfig.isPending}
           />
 
           {/* Query log card — Pill + Toggle in header (matches DHCP
@@ -371,46 +342,88 @@ export default function Dns() {
             onSelectServer={handleSelectServer}
           />
 
-          {/* DNS query stats — range tabs above the section; state lifted
-              here because the range controls cards, chart, and top lists. */}
-          <div className="col gap-4">
-            <div className="flex justify-end">
-              <Tabs
-                value={range}
-                onValueChange={(v) => setRange(v as StatsRange)}
-              >
-                <TabsList>
-                  {RANGES.map((r) => (
-                    <TabsTrigger key={r.value} value={r.value}>
-                      {r.label}
-                    </TabsTrigger>
-                  ))}
-                </TabsList>
-              </Tabs>
-            </div>
-            <DnsStatsSection
-              range={range}
-              zoom={zoom}
-              onZoomChange={setZoom}
-              data={dashboard.data}
-              isLoading={dashboard.isLoading}
-              isError={dashboard.isError}
-              error={dashboard.error}
-              devices={devicesData?.devices}
-            />
-            <DnsAnalyticsSection
-              range={range}
-              comparison={comparison}
-              trackers={trackers}
-              devices={devices}
-              selectedDeviceId={effectiveDevice}
-              onSelectDevice={setSelectedDevice}
-              deviceSeries={deviceSeries}
-              deviceSeriesLoading={deviceSeriesLoading}
-            />
-          </div>
+          {/* DNS query stats — the insights wrapper below owns the range /
+              zoom / device-selection state and the stats queries, and is
+              mounted only inside this `status && config` gate so no stats
+              request fires while the resolver status is unresolved. */}
+          <DnsInsights />
         </div>
       )}
+    </div>
+  );
+}
+
+/** Stats + analytics block for the DNS page. Still the pages layer — split
+ *  from the route component so its query bundle (dashboard, comparison,
+ *  trackers, per-device series; all polling) mounts only once the page's
+ *  `status && config` gate opens, matching the pre-hoist behaviour where the
+ *  sections owned these hooks and never rendered while the gate was closed. */
+function DnsInsights() {
+  const [range, setRange] = useState<StatsRange>("24h");
+  // Tag zoom with the range it was committed for so it auto-invalidates
+  // when the range changes without needing a useEffect reset.
+  const [storedZoom, setStoredZoom] = useState<{
+    range: StatsRange;
+    zoom: ZoomRange;
+  } | null>(null);
+  const zoom = storedZoom?.range === range ? storedZoom.zoom : null;
+  const setZoom = (z: ZoomRange | null) =>
+    setStoredZoom(z ? { range, zoom: z } : null);
+  // A committed zoom narrows the dashboard's top-N window so all four stat
+  // cards reflect the same time slice.
+  const topOverride = zoom
+    ? {
+        from: new Date(Number(zoom.start)).toISOString(),
+        to: new Date(Number(zoom.end)).toISOString(),
+      }
+    : undefined;
+  const { data: devicesData } = useDevices();
+  const dashboard = useDnsStatsDashboard(range, topOverride);
+  const { data: comparison } = useDnsPeriodComparison(range);
+  const { data: trackers } = useDnsTopTrackers(range);
+
+  const devices = devicesData?.devices ?? [];
+  const [selectedDevice, setSelectedDevice] = useState<string>("");
+  // Default to the first device once the list loads, so the per-device chart
+  // shows something without the user having to pick.
+  const effectiveDevice =
+    selectedDevice || (devices.length > 0 ? devices[0].id : "");
+  const { data: deviceSeries, isLoading: deviceSeriesLoading } =
+    useDnsPerDeviceStats(effectiveDevice || null, range);
+
+  return (
+    <div className="col gap-4">
+      <div className="flex justify-end">
+        <Tabs value={range} onValueChange={(v) => setRange(v as StatsRange)}>
+          <TabsList>
+            {RANGES.map((r) => (
+              <TabsTrigger key={r.value} value={r.value}>
+                {r.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+      </div>
+      <DnsStatsSection
+        range={range}
+        zoom={zoom}
+        onZoomChange={setZoom}
+        data={dashboard.data}
+        isLoading={dashboard.isLoading}
+        isError={dashboard.isError}
+        error={dashboard.error}
+        devices={devices}
+      />
+      <DnsAnalyticsSection
+        range={range}
+        comparison={comparison}
+        trackers={trackers}
+        devices={devices}
+        selectedDeviceId={effectiveDevice}
+        onSelectDevice={setSelectedDevice}
+        deviceSeries={deviceSeries}
+        deviceSeriesLoading={deviceSeriesLoading}
+      />
     </div>
   );
 }

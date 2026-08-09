@@ -71,11 +71,16 @@ export default function Dhcp() {
   // change the active group. We only switch to "reservations" after
   // the user confirms and the daemon creates the reservation, via
   // CreateReservationInline.onSuccess below.
+  // Opening resets the page-lifetime mutation: without it a previous
+  // attempt's failure (isError/error) would greet the fresh form with a
+  // stale API error alert.
   function openReservationFromLease(defaults: ReservationDefaults) {
+    createReservation.reset();
     setReservationCreate({ open: true, defaults });
   }
 
   function openReservationCreate() {
+    createReservation.reset();
     setReservationCreate({ open: true });
   }
 

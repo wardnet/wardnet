@@ -111,7 +111,7 @@ function Harness({
       isLoading={isLoading}
       isError={isError}
       error={error}
-      devices={undefined}
+      devices={[]}
     />
   );
 }

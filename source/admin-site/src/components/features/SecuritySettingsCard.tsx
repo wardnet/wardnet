@@ -10,20 +10,17 @@ import {
   Input,
   Toggle,
 } from "@wardnet/web";
+import type { MutateFn } from "@/lib/mutationHandle";
 import type { DnsConfig, UpdateDnsConfigRequest } from "@wardnet/js";
 
 interface SecuritySettingsCardProps {
   /** The DNS config, or `undefined` while the page's query loads. */
   config: DnsConfig | undefined;
   isLoading: boolean;
-  /** Matches TanStack's `mutate` signature so the page can pass the
-   *  mutation's `mutate` straight through; the card uses `onSuccess` to
-   *  clear its rate-limit edit buffer. */
-  onUpdate: (
-    body: UpdateDnsConfigRequest,
-    callbacks?: { onSuccess?: () => void },
-  ) => void;
-  /** True while the page's update mutation is in flight. */
+  onUpdate: MutateFn<UpdateDnsConfigRequest>;
+  /** True while the page's dedicated security-settings update mutation is in
+   *  flight — its own instance, so unrelated config saves elsewhere on the
+   *  page don't lock this card's controls. */
   updatePending: boolean;
 }
 

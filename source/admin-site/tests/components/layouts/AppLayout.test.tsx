@@ -114,6 +114,10 @@ describe("AppLayout", () => {
     expect(screen.getByText("Dashboard")).toBeInTheDocument();
     expect(screen.queryByText("menu")).not.toBeInTheDocument();
     expect(screen.queryByText("shutdown-banner")).not.toBeInTheDocument();
+    // The admin-only /system/status poll must not be subscribed for
+    // non-admin sessions — it would fail every interval forever.
+    expect(useSystemStatus).not.toHaveBeenCalled();
+    expect(useAcknowledgeShutdown).not.toHaveBeenCalled();
   });
 
   it("passes the shell status data down to the sidebar and banners", () => {

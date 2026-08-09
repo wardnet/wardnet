@@ -61,7 +61,7 @@ interface Props {
   /** Device list for resolving top-client entries' `device_id` labels to
    *  names. Lookup is by immutable device id — never by IP, which DHCP may
    *  have reassigned since the stats were recorded. */
-  devices: Device[] | undefined;
+  devices: Device[];
 }
 
 /** Stats panel for the DNS page: top cards, time series, top tables.

@@ -127,12 +127,9 @@ function DeviceDetailLoaded({
   const assignZone = useAssignDeviceZone({ successMessage: "Zone updated" });
 
   // DNS filter card.
-  const { data: filterSettingsData, isLoading: filterSettingsLoading } =
-    useDeviceFilterSettings(device.id);
-  const { data: filterProfilesData, isLoading: filterProfilesLoading } =
-    useDnsFilterProfiles();
-  const { data: filterConfigData, isLoading: filterConfigLoading } =
-    useDnsFilterConfig();
+  const { data: filterSettingsData } = useDeviceFilterSettings(device.id);
+  const { data: filterProfilesData } = useDnsFilterProfiles();
+  const { data: filterConfigData } = useDnsFilterConfig();
   const updateFilterSettings = useUpdateDeviceFilterSettings();
 
   // DNS capture card.
@@ -199,9 +196,6 @@ function DeviceDetailLoaded({
         settings={filterSettingsData?.settings}
         profiles={filterProfilesData?.profiles}
         config={filterConfigData?.config}
-        isLoading={
-          filterSettingsLoading || filterProfilesLoading || filterConfigLoading
-        }
         update={updateFilterSettings}
       />
       <DeviceDnsCaptureCard

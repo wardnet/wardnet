@@ -10,6 +10,7 @@ import { Toggle } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
+import type { MutateFn } from "@/lib/mutationHandle";
 import type {
   CreateZoneRequest,
   CustomDnsRecord,
@@ -31,17 +32,8 @@ interface DnsZonesCardProps {
   /** True while the page's update mutation is in flight (gates the per-row
    *  enable toggles without also locking them during a create). */
   updatePending: boolean;
-  /** The optional callbacks match TanStack's `mutate` signature so the page
-   *  can pass the mutation's `mutate` straight through; the card uses
-   *  `onSuccess` to close its inline form. */
-  onCreateZone: (
-    body: CreateZoneRequest,
-    callbacks?: { onSuccess?: () => void },
-  ) => void;
-  onUpdateZone: (
-    change: { id: string; body: UpdateZoneRequest },
-    callbacks?: { onSuccess?: () => void },
-  ) => void;
+  onCreateZone: MutateFn<CreateZoneRequest>;
+  onUpdateZone: MutateFn<{ id: string; body: UpdateZoneRequest }>;
   onDeleteZone: (id: string) => void;
 }
 

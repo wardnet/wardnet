@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { ZonesCard } from "@/components/features/ZonesCard";
 import { QuarantineSettingsCard } from "@/components/features/QuarantineSettingsCard";
@@ -53,6 +53,25 @@ export default function Zones() {
     [exceptionData],
   );
 
+  // Every approval currently in flight, not just the shared mutation's
+  // latest `variables` — with concurrent approvals the latest-call view
+  // would re-enable an earlier row's button while its request is still
+  // pending, allowing a duplicate submit.
+  const [approvingIds, setApprovingIds] = useState<string[]>([]);
+  function handleApprove(deviceId: string, zoneId: string) {
+    setApprovingIds((prev) => [...prev, deviceId]);
+    approveDevice.mutate(
+      { deviceId, zoneId },
+      {
+        onSettled: () =>
+          setApprovingIds((prev) => prev.filter((id) => id !== deviceId)),
+      },
+    );
+  }
+
+  const handleSetDefaultForNew = (id: string) =>
+    setDefaultForNew.mutate({ id, body: { is_default_for_new: true } });
+
   return (
     <div className="col gap-20">
       <PageHeader
@@ -67,9 +86,7 @@ export default function Zones() {
           onCreateZone={createZone.mutate}
           onUpdateZone={updateZone.mutate}
           onSetHome={(id) => setHome.mutate({ id, body: { is_default: true } })}
-          onSetDefaultForNew={(id) =>
-            setDefaultForNew.mutate({ id, body: { is_default_for_new: true } })
-          }
+          onSetDefaultForNew={handleSetDefaultForNew}
           onDeleteZone={deleteZone.mutate}
         />
         <ZoneExceptionsCard
@@ -84,21 +101,13 @@ export default function Zones() {
           notifyEnabled={quarantine?.enabled ?? false}
           notifyPending={setQuarantine.isPending}
           onSetNotify={setQuarantine.mutate}
-          onSetDefaultForNew={(id) =>
-            setDefaultForNew.mutate({ id, body: { is_default_for_new: true } })
-          }
+          onSetDefaultForNew={handleSetDefaultForNew}
           pending={pending}
           defaultForNew={defaultForNew}
           homeZone={homeZone}
           zones={zones}
-          onApprove={(deviceId, zoneId) =>
-            approveDevice.mutate({ deviceId, zoneId })
-          }
-          approvingDeviceId={
-            approveDevice.isPending
-              ? (approveDevice.variables?.deviceId ?? null)
-              : null
-          }
+          onApprove={handleApprove}
+          approvingDeviceIds={approvingIds}
         />
       </div>
     </div>

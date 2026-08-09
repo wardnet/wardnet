@@ -49,7 +49,10 @@ function cardProps({
     },
     previewConfig: {
       mutateAsync: previewMutateAsync,
+      reset: vi.fn(),
       isPending: false,
+      isError: false,
+      error: null,
     },
   };
 }

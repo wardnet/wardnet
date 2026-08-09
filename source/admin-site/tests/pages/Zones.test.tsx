@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -116,24 +116,27 @@ vi.mock("@/components/features/QuarantineSettingsCard", () => ({
     onSetDefaultForNew,
     pending,
     onApprove,
-    approvingDeviceId,
+    approvingDeviceIds,
   }: {
     notifyEnabled: boolean;
     onSetNotify: (enabled: boolean) => void;
     onSetDefaultForNew: (id: string) => void;
     pending: Array<{ id: string }>;
     onApprove: (deviceId: string, zoneId: string) => void;
-    approvingDeviceId: string | null;
+    approvingDeviceIds: string[];
   }) => (
     <div data-testid="quarantine-card">
       <span data-testid="notify-enabled">{String(notifyEnabled)}</span>
       <span data-testid="pending-count">{pending.length}</span>
-      <span data-testid="approving-id">{approvingDeviceId ?? "-"}</span>
+      <span data-testid="approving-ids">
+        {approvingDeviceIds.join(",") || "-"}
+      </span>
       <button onClick={() => onSetNotify(true)}>set-notify</button>
       <button onClick={() => onSetDefaultForNew("z2")}>
         quarantine-set-dfn
       </button>
       <button onClick={() => onApprove("d1", "z1")}>approve</button>
+      <button onClick={() => onApprove("d2", "z1")}>approve-2</button>
     </div>
   ),
 }));
@@ -253,10 +256,10 @@ describe("Zones", () => {
       body: { is_default_for_new: true },
     });
     await user.click(screen.getByText("approve"));
-    expect(assignMutate).toHaveBeenCalledWith({
-      deviceId: "d1",
-      zoneId: "z1",
-    });
+    expect(assignMutate).toHaveBeenCalledWith(
+      { deviceId: "d1", zoneId: "z1" },
+      expect.objectContaining({ onSettled: expect.any(Function) }),
+    );
   });
 
   it("falls back to empty data while the queries are unresolved", () => {
@@ -269,26 +272,31 @@ describe("Zones", () => {
     useDevices.mockReturnValue({ data: undefined });
     useZoneExceptions.mockReturnValue({ data: undefined });
     useQuarantineNewDevices.mockReturnValue({ data: undefined });
-    useAssignDeviceZone.mockReturnValue({
-      mutate: assignMutate,
-      isPending: true,
-      variables: undefined,
-    });
     renderWithProviders(<Zones />);
     expect(screen.getByTestId("exceptions-count")).toHaveTextContent("0");
     expect(screen.getByTestId("exceptions-devices")).toHaveTextContent("0");
     expect(screen.getByTestId("notify-enabled")).toHaveTextContent("false");
-    // Pending with no variables yet must not claim any row is approving.
-    expect(screen.getByTestId("approving-id")).toHaveTextContent("-");
+    expect(screen.getByTestId("approving-ids")).toHaveTextContent("-");
   });
 
-  it("derives the mid-flight approval device id from the shared mutation", () => {
-    useAssignDeviceZone.mockReturnValue({
-      mutate: assignMutate,
-      isPending: true,
-      variables: { deviceId: "d-new", zoneId: "z1" },
-    });
+  it("keeps every in-flight approval marked until its own request settles", async () => {
+    const user = userEvent.setup();
+    // Capture each call's onSettled so the test can settle them out of order.
+    const settlers: Array<() => void> = [];
+    assignMutate.mockImplementation(
+      (_vars: unknown, opts: { onSettled: () => void }) => {
+        settlers.push(opts.onSettled);
+      },
+    );
     renderWithProviders(<Zones />);
-    expect(screen.getByTestId("approving-id")).toHaveTextContent("d-new");
+    await user.click(screen.getByText("approve"));
+    await user.click(screen.getByText("approve-2"));
+    // Both approvals are in flight — the first must NOT be un-marked by the
+    // second click (the latest-variables race this state exists to prevent).
+    expect(screen.getByTestId("approving-ids")).toHaveTextContent("d1,d2");
+    act(() => settlers[0]());
+    expect(screen.getByTestId("approving-ids")).toHaveTextContent("d2");
+    act(() => settlers[1]());
+    expect(screen.getByTestId("approving-ids")).toHaveTextContent("-");
   });
 });

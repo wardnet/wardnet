@@ -206,6 +206,7 @@ import { renderWithProviders } from "../test-utils";
 const toggleMutate = vi.fn();
 const revokeMutate = vi.fn();
 const deleteMutate = vi.fn();
+const createReservationReset = vi.fn();
 
 function populated() {
   useDhcpStatus.mockReturnValue({
@@ -251,7 +252,8 @@ beforeEach(() => {
   useDeleteReservation.mockReturnValue({ mutate: deleteMutate });
   useCreateReservation.mockReturnValue({
     mutateAsync: vi.fn(),
-    reset: vi.fn(),
+    mutate: vi.fn(),
+    reset: createReservationReset,
     isPending: false,
     isError: false,
     error: null,
@@ -320,6 +322,18 @@ describe("Dhcp", () => {
       "data-has-create",
       "true",
     );
+  });
+
+  it("resets the create mutation whenever the form opens, clearing stale errors", async () => {
+    populated();
+    const user = userEvent.setup();
+    renderWithProviders(<Dhcp />);
+    await user.click(screen.getByText("add-res"));
+    expect(createReservationReset).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByText("close-res"));
+    // Reopening from a lease must also start from a clean mutation.
+    await user.click(screen.getByText("make-static"));
+    expect(createReservationReset).toHaveBeenCalledTimes(2);
   });
 
   it("toggles DHCP, changes group and search", async () => {

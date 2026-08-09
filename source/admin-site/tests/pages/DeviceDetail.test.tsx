@@ -102,17 +102,17 @@ vi.mock("@/components/features/DeviceDnsFilterCard", () => ({
   DeviceDnsFilterCard: ({
     settings,
     profiles,
-    isLoading,
+    config,
   }: {
     settings?: { enabled: boolean };
     profiles?: unknown[];
-    isLoading: boolean;
+    config?: unknown;
   }) => (
     <div
       data-testid="dns-filter-card"
       data-enabled={String(settings?.enabled)}
       data-profiles={profiles?.length ?? "none"}
-      data-loading={String(isLoading)}
+      data-config={String(config != null)}
     />
   ),
 }));
@@ -309,13 +309,13 @@ describe("DeviceDetail", () => {
     );
   });
 
-  it("marks the filter card loading until every filter query settles", () => {
+  it("passes no config to the filter card until its query settles", () => {
     loadDevice({ name: "My Laptop" });
     useDnsFilterConfig.mockReturnValue({ data: undefined, isLoading: true });
     renderWithProviders(<DeviceDetail />);
     expect(screen.getByTestId("dns-filter-card")).toHaveAttribute(
-      "data-loading",
-      "true",
+      "data-config",
+      "false",
     );
   });
 

@@ -31,9 +31,10 @@ interface QuarantineSettingsCardProps {
   zones: NetworkZoneView[];
   /** Approve a pending device into a zone. */
   onApprove: (deviceId: string, zoneId: string) => void;
-  /** Device id whose approval is mid-flight, or `null`. Derived by the page
-   *  from the single hoisted mutation's `isPending` + `variables`. */
-  approvingDeviceId: string | null;
+  /** Device ids whose approvals are mid-flight. A list, not the shared
+   *  mutation's latest `variables`: with concurrent approvals every
+   *  in-flight row must stay disabled, not just the most recent one. */
+  approvingDeviceIds: string[];
 }
 
 /**
@@ -55,7 +56,7 @@ export function QuarantineSettingsCard({
   homeZone,
   zones,
   onApprove,
-  approvingDeviceId,
+  approvingDeviceIds,
 }: QuarantineSettingsCardProps) {
   return (
     <Card>
@@ -124,7 +125,7 @@ export function QuarantineSettingsCard({
                   zones={zones}
                   defaultTargetZoneId={homeZone?.id}
                   onApprove={onApprove}
-                  approving={approvingDeviceId === device.id}
+                  approving={approvingDeviceIds.includes(device.id)}
                 />
               ))}
             </div>

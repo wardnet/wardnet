@@ -17,6 +17,7 @@ import type {
   PrivateDnsPrerequisites,
   PrivateDnsStatusResponse,
 } from "@wardnet/js";
+import type { MutationHandle } from "@/lib/mutationHandle";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import { DeviceSelect } from "@/components/compound/DeviceSelect";
 import { PrivateDnsGrantsTable } from "@/components/compound/PrivateDnsGrantsTable";
@@ -31,11 +32,8 @@ interface PrivateDnsCardProps {
   /** True while the page's enable/disable mutation is in flight. */
   setEnabledPending: boolean;
   /** The page's hoisted grant mutation. The card consumes the resolved grant
-   *  to open the setup-link modal, so it needs `mutateAsync`. */
-  grantDevice: {
-    mutateAsync: (deviceId: string) => Promise<PrivateDnsGrantSummary>;
-    isPending: boolean;
-  };
+   *  to open the setup-link modal. */
+  grantDevice: MutationHandle<string, PrivateDnsGrantSummary>;
   onRevokeDevice: (deviceId: string) => void;
   onSendToDevice: (deviceId: string) => void;
   /** True while the page's send-to-device mutation is in flight. */

@@ -41,7 +41,7 @@ const zones = [
 function renderCard({
   enabled = false,
   pending = [] as Device[],
-  approvingDeviceId = null as string | null,
+  approvingDeviceIds = [] as string[],
 } = {}) {
   return renderWithProviders(
     <QuarantineSettingsCard
@@ -54,7 +54,7 @@ function renderCard({
       homeZone={zones[0]}
       zones={zones}
       onApprove={onApprove}
-      approvingDeviceId={approvingDeviceId}
+      approvingDeviceIds={approvingDeviceIds}
     />,
   );
 }
@@ -108,16 +108,18 @@ describe("QuarantineSettingsCard", () => {
     expect(onApprove).toHaveBeenCalledWith("new-1", "zone-1");
   });
 
-  it("disables the approve button for the row whose approval is mid-flight", () => {
+  it("disables every row whose approval is mid-flight, not just the latest", () => {
     renderCard({
       pending: [
         makeDevice({ id: "new-1", name: "Phone A", zone_id: "zone-guest" }),
         makeDevice({ id: "new-2", name: "Phone B", zone_id: "zone-guest" }),
+        makeDevice({ id: "new-3", name: "Phone C", zone_id: "zone-guest" }),
       ],
-      approvingDeviceId: "new-1",
+      approvingDeviceIds: ["new-1", "new-2"],
     });
     const buttons = screen.getAllByTestId("quarantine-approve");
     expect(buttons[0]).toBeDisabled();
-    expect(buttons[1]).toBeEnabled();
+    expect(buttons[1]).toBeDisabled();
+    expect(buttons[2]).toBeEnabled();
   });
 });

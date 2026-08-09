@@ -57,15 +57,12 @@ interface DhcpConfigCardProps {
   dnsEnabled: boolean | undefined;
   /** The page's hoisted config-update mutation. */
   updateConfig: MutationHandle<UpdateDhcpConfigRequest>;
-  /** The page's hoisted pool-change dry-run mutation. Typed separately from
-   *  `MutationHandle` because the card consumes its resolved value (the
-   *  affected leases). */
-  previewConfig: {
-    mutateAsync: (
-      body: PreviewDhcpConfigRequest,
-    ) => Promise<PreviewDhcpConfigResponse>;
-    isPending: boolean;
-  };
+  /** The page's hoisted pool-change dry-run mutation; the card consumes its
+   *  resolved value (the affected leases). */
+  previewConfig: MutationHandle<
+    PreviewDhcpConfigRequest,
+    PreviewDhcpConfigResponse
+  >;
 }
 
 /** Card displaying the DHCP pool configuration with inline edit-mode.

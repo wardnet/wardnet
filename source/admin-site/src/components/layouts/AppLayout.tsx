@@ -31,8 +31,6 @@ export function AppLayout() {
   // Only admins see update state — self-service users don't have the perms
   // to trigger installs, so we don't bother them with the banner.
   const { data: updateStatus } = useUpdateStatus();
-  const { data: systemStatus } = useSystemStatus();
-  const acknowledgeShutdown = useAcknowledgeShutdown();
   const location = useLocation();
   const crumb = crumbFromPath(location.pathname);
 
@@ -71,19 +69,30 @@ export function AppLayout() {
         </header>
 
         <ConnectionBanner reachable={daemonStatus?.reachable} />
-        {isAdmin && (
-          <UncleanShutdownBanner
-            status={systemStatus}
-            onDismiss={acknowledgeShutdown.mutate}
-            dismissPending={acknowledgeShutdown.isPending}
-          />
-        )}
+        {isAdmin && <AdminUncleanShutdownBanner />}
 
         <div className="scroll">
           <Outlet />
         </div>
       </main>
     </div>
+  );
+}
+
+/** Wires the admin-only shutdown-state query + acknowledgement mutation.
+ *  A separate component so the shell only subscribes to the admin-gated
+ *  `/api/system/status` poll when an admin session is actually present —
+ *  mounting it unconditionally would leave non-admin sessions issuing a
+ *  failing request every poll interval. */
+function AdminUncleanShutdownBanner() {
+  const { data: systemStatus } = useSystemStatus();
+  const acknowledgeShutdown = useAcknowledgeShutdown();
+  return (
+    <UncleanShutdownBanner
+      status={systemStatus}
+      onDismiss={acknowledgeShutdown.mutate}
+      dismissPending={acknowledgeShutdown.isPending}
+    />
   );
 }
 

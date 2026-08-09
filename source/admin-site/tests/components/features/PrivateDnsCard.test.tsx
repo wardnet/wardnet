@@ -63,7 +63,13 @@ function renderCard({
       devices={devices}
       onSetEnabled={onSetEnabled}
       setEnabledPending={false}
-      grantDevice={{ mutateAsync: grantMutateAsync, isPending: false }}
+      grantDevice={{
+        mutateAsync: grantMutateAsync,
+        reset: vi.fn(),
+        isPending: false,
+        isError: false,
+        error: null,
+      }}
       onRevokeDevice={onRevokeDevice}
       onSendToDevice={onSendToDevice}
       sendPending={false}

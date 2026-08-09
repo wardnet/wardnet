@@ -30,8 +30,6 @@ interface DeviceDnsFilterCardProps {
   profiles: DnsFilterProfile[] | undefined;
   /** The global filter config, or `undefined` while loading. */
   config: DnsFilterConfig | undefined;
-  /** True while any of the three queries above is still loading. */
-  isLoading: boolean;
   /** The page's hoisted filter-settings update mutation. */
   update: MutationHandle<{
     id: string;
@@ -50,7 +48,6 @@ export function DeviceDnsFilterCard({
   settings,
   profiles,
   config,
-  isLoading,
   update,
 }: DeviceDnsFilterCardProps) {
   const [editing, setEditing] = useState(false);
@@ -80,8 +77,10 @@ export function DeviceDnsFilterCard({
 
   // All three queries must settle before rendering — otherwise the
   // read-only summary line resolves `defaultProfiles`/`assignedProfiles`
-  // against an empty profiles cache and falsely reports "None".
-  const ready = !isLoading && settings && profiles && config;
+  // against an empty profiles cache and falsely reports "None". Defined
+  // data implies the query is no longer loading, so the data props are the
+  // whole predicate.
+  const ready = settings && profiles && config;
 
   if (!ready) {
     return (

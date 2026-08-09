@@ -19,6 +19,7 @@ import {
 } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
+import type { MutateFn } from "@/lib/mutationHandle";
 import type {
   AllowedTargetKind,
   NetworkZoneView,
@@ -33,7 +34,7 @@ const STANCE_LABEL: Record<ZoneStance, string> = {
 
 /** The full zone shape the card's form submits. Assignable to the SDK's
  *  create/update request bodies. */
-export interface ZoneFormBody {
+interface ZoneFormBody {
   name: string;
   isolation_stance: ZoneStance;
   allowed_targets: AllowedTargetKind[];
@@ -46,17 +47,8 @@ interface ZonesCardProps {
   zones: NetworkZoneView[];
   /** True while the page's create or update mutation is in flight. */
   isSaving: boolean;
-  /** The optional callbacks match TanStack's `mutate` signature so the page
-   *  can pass the mutation's `mutate` straight through; the card uses
-   *  `onSuccess` to close its inline form. */
-  onCreateZone: (
-    body: ZoneFormBody,
-    callbacks?: { onSuccess?: () => void },
-  ) => void;
-  onUpdateZone: (
-    change: { id: string; body: ZoneFormBody },
-    callbacks?: { onSuccess?: () => void },
-  ) => void;
+  onCreateZone: MutateFn<ZoneFormBody>;
+  onUpdateZone: MutateFn<{ id: string; body: ZoneFormBody }>;
   /** Promote a zone to the home (default) zone. */
   onSetHome: (id: string) => void;
   /** Flag a zone as the landing spot for newly-discovered devices. */

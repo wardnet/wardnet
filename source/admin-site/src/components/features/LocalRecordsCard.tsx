@@ -18,6 +18,7 @@ import {
 } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
+import type { MutateFn } from "@/lib/mutationHandle";
 import type {
   CreateRecordRequest,
   CustomDnsRecord,
@@ -47,17 +48,8 @@ interface LocalRecordsCardProps {
   /** True while the page's update mutation is in flight (gates the per-row
    *  enable toggles without also locking them during a create). */
   updatePending: boolean;
-  /** The optional callbacks match TanStack's `mutate` signature so the page
-   *  can pass the mutation's `mutate` straight through; the card uses
-   *  `onSuccess` to close its inline form. */
-  onCreateRecord: (
-    body: CreateRecordRequest,
-    callbacks?: { onSuccess?: () => void },
-  ) => void;
-  onUpdateRecord: (
-    change: { id: string; body: UpdateRecordRequest },
-    callbacks?: { onSuccess?: () => void },
-  ) => void;
+  onCreateRecord: MutateFn<CreateRecordRequest>;
+  onUpdateRecord: MutateFn<{ id: string; body: UpdateRecordRequest }>;
   onDeleteRecord: (id: string) => void;
 }
 
