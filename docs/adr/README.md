@@ -43,3 +43,4 @@ edge-release-channel one.
 | [0026](0026-switchback-and-cross-zone-return.md) | Switchback — cross-zone exceptions reaching a tunnel-bound device | 2026-07-19 | Accepted |
 | [0027](0027-e2e-auto-update-version-skew.md) | The auto-update e2e synthesises its version skew from one source tree | 2026-08-08 | Accepted |
 | [0028](0028-shutdown-teardown-and-uninstall.md) | Runtime-state teardown on shutdown, gated on stop vs restart; `wardnetd uninstall` | 2026-08-08 | Accepted |
+| [0029](0029-private-dns-dot.md) | Private DNS is a closed `DoT` resolver keyed by a per-device secret hostname | 2026-08-09 | Accepted |

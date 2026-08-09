@@ -11,7 +11,9 @@ required to run the gateway itself:
 - **Dynamic DNS**, reach your gateway with no domain of your own.
 - **Secure remote tunneling**, encrypted inbound access from anywhere,
   with automatic HTTPS. See [remote access](/docs/remote-access).
-- **Roaming private DNS**, keep your filtering with you off the LAN.
+- **Private DNS**, your phone resolves through your gateway everywhere,
+  at home and on cellular, with no VPN. Your filtering and your query
+  log follow it off the LAN. See [private DNS](/docs/private-dns).
 - **Personal VPN**, run your own inbound WireGuard server so your phone
   and laptop connect back to your home network from anywhere. See
   [personal VPN](/docs/personal-vpn).
@@ -38,7 +40,7 @@ same account is what you enroll with when setting up
 | Desktop admin site | ✓ | ✓ |
 | Dynamic DNS | | ✓ |
 | Secure remote tunneling & auto-HTTPS | | ✓ |
-| Roaming private DNS | | ✓ |
+| Private DNS, at home and roaming | | ✓ |
 | Personal VPN, inbound WireGuard | | ✓ |
 | User PWA & Admin mobile PWA | | ✓ |
 

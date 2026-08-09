@@ -36,6 +36,15 @@ describe("DocsArticle", () => {
     expect(screen.getAllByRole("heading", { level: 1 }).length).toBeGreaterThan(0);
   });
 
+  it("renders the private-dns doc, which premium.md links to as the setup pointer", () => {
+    // `premium.md` points its Private DNS bullet at `/docs/private-dns`, and
+    // `docs.yml` lists the topic. Same gap as `uninstall` above: a missing or
+    // misnamed file would turn the only setup pointer into a "coming soon".
+    renderAt("/docs/private-dns");
+    expect(screen.queryByText(/documentation coming soon/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 }).length).toBeGreaterThan(0);
+  });
+
   it("renders the ComingSoon placeholder with title and description for a known topic without a doc file", () => {
     // A slug that exists in `content/docs.yml` topics but doesn't have a
     // matching markdown file falls back to ComingSoon with the topic

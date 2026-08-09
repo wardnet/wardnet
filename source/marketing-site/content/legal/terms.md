@@ -33,7 +33,7 @@ the software's own license controls.
 ## 2. Premium
 
 Premium is an optional, paid subscription that unlocks dynamic DNS,
-secure remote tunneling, roaming private DNS, and the mobile apps, see
+secure remote tunneling, Private DNS, and the mobile apps, see
 [Premium](/docs/premium) for details. Premium requires an account at
 account.wardnet.network and is billed through our payment processor.
 

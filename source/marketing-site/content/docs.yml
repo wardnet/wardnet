@@ -84,6 +84,11 @@ topics:
     icon: radio
     description: Dynamic DNS, secure remote tunneling, and automatic HTTPS. A Premium capability.
 
+  - slug: private-dns
+    title: Private DNS
+    icon: lock
+    description: Put your phone's DNS on your gateway everywhere, at home and on cellular, with no VPN. A Premium capability.
+
   - slug: personal-vpn
     title: Personal VPN
     icon: shield
@@ -122,7 +127,7 @@ topics:
   - slug: premium
     title: Premium
     icon: sparkles
-    description: What Premium unlocks, dynamic DNS, secure remote tunneling, roaming private DNS, and both mobile apps.
+    description: What Premium unlocks, dynamic DNS, secure remote tunneling, Private DNS, and both mobile apps.
 
   - slug: api-reference
     title: API reference

@@ -50,9 +50,9 @@ pieces of personal data, nothing more:
   hostname currently resolves to, deleted immediately on account
   cancellation.
 
-Roaming private DNS queries and remote-access traffic pass through our
-infrastructure while a subscription is active, but we do not log or
-retain them, they're routed, not recorded.
+Private DNS queries made while roaming, and remote-access traffic, pass
+through our infrastructure while a subscription is active, but we do not
+log or retain them, they're routed, not recorded.
 
 We do not sell your data. We share it only with the sub-processors
 listed below and when required by law.

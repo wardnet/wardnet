@@ -14,7 +14,7 @@ const FREE_POINTS = [
 const PREMIUM_POINTS = [
   "Dynamic DNS reaches your gateway with no domain of your own",
   "Secure remote tunneling for encrypted inbound access from anywhere",
-  "Roaming private DNS keeps your filtering with you off the LAN",
+  "Private DNS puts your phone on your gateway's resolver, at home and roaming",
   "Personal VPN: your devices connect back to your home network from anywhere",
   "Both mobile apps: the User PWA and the Admin mobile PWA",
 ];
