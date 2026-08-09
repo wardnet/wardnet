@@ -11,6 +11,10 @@ const {
   useToggleDhcp,
   useRevokeLease,
   useDeleteReservation,
+  useCreateReservation,
+  useUpdateDhcpConfig,
+  usePreviewDhcpConfig,
+  useDnsConfig,
   useDevices,
   navigate,
 } = vi.hoisted(() => ({
@@ -21,6 +25,10 @@ const {
   useToggleDhcp: vi.fn(),
   useRevokeLease: vi.fn(),
   useDeleteReservation: vi.fn(),
+  useCreateReservation: vi.fn(),
+  useUpdateDhcpConfig: vi.fn(),
+  usePreviewDhcpConfig: vi.fn(),
+  useDnsConfig: vi.fn(),
   useDevices: vi.fn(),
   navigate: vi.fn(),
 }));
@@ -41,6 +49,10 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useToggleDhcp,
     useRevokeLease,
     useDeleteReservation,
+    useCreateReservation,
+    useUpdateDhcpConfig,
+    usePreviewDhcpConfig,
+    useDnsConfig,
     useDevices,
   };
 });
@@ -64,7 +76,22 @@ vi.mock("@/components/compound/DhcpStatusCard", () => ({
   ),
 }));
 vi.mock("@/components/compound/DhcpConfigCard", () => ({
-  DhcpConfigCard: () => <div data-testid="dhcp-config-card" />,
+  DhcpConfigCard: ({
+    dnsEnabled,
+    updateConfig,
+    previewConfig,
+  }: {
+    dnsEnabled: boolean | undefined;
+    updateConfig: { mutateAsync: unknown };
+    previewConfig: { mutateAsync: unknown };
+  }) => (
+    <div
+      data-testid="dhcp-config-card"
+      data-dns-enabled={String(dnsEnabled)}
+      data-has-update={String(typeof updateConfig.mutateAsync === "function")}
+      data-has-preview={String(typeof previewConfig.mutateAsync === "function")}
+    />
+  ),
 }));
 vi.mock("@/components/compound/DhcpEntryTable", () => ({
   DhcpEntryTable: ({
@@ -153,12 +180,19 @@ vi.mock("@/components/features/CreateReservationInline", () => ({
     onClose,
     onSuccess,
     defaults,
+    createReservation,
   }: {
     onClose: () => void;
     onSuccess: () => void;
     defaults?: unknown;
+    createReservation: { mutateAsync: unknown };
   }) => (
-    <div data-testid="create-reservation">
+    <div
+      data-testid="create-reservation"
+      data-has-create={String(
+        typeof createReservation.mutateAsync === "function",
+      )}
+    >
       <span data-testid="defaults">{JSON.stringify(defaults ?? null)}</span>
       <button onClick={() => onClose()}>close-res</button>
       <button onClick={() => onSuccess()}>success-res</button>
@@ -215,6 +249,25 @@ beforeEach(() => {
   useToggleDhcp.mockReturnValue({ mutate: toggleMutate, isPending: false });
   useRevokeLease.mockReturnValue({ mutate: revokeMutate });
   useDeleteReservation.mockReturnValue({ mutate: deleteMutate });
+  useCreateReservation.mockReturnValue({
+    mutateAsync: vi.fn(),
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+  });
+  useUpdateDhcpConfig.mockReturnValue({
+    mutateAsync: vi.fn(),
+    reset: vi.fn(),
+    isPending: false,
+    isError: false,
+    error: null,
+  });
+  usePreviewDhcpConfig.mockReturnValue({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  });
+  useDnsConfig.mockReturnValue({ data: { config: { enabled: true } } });
   useDhcpStatus.mockReturnValue({ data: undefined, isLoading: false });
   useDhcpConfig.mockReturnValue({ data: undefined });
   useDhcpLeases.mockReturnValue({ data: undefined });
@@ -237,6 +290,36 @@ describe("Dhcp", () => {
     expect(screen.getByTestId("dhcp-config-card")).toBeInTheDocument();
     expect(screen.getByTestId("lease-count")).toHaveTextContent("2");
     expect(screen.getByTestId("reservation-count")).toHaveTextContent("2");
+  });
+
+  it("wires the hoisted config mutations and DNS state into the config card", () => {
+    populated();
+    renderWithProviders(<Dhcp />);
+    const card = screen.getByTestId("dhcp-config-card");
+    expect(card).toHaveAttribute("data-dns-enabled", "true");
+    expect(card).toHaveAttribute("data-has-update", "true");
+    expect(card).toHaveAttribute("data-has-preview", "true");
+  });
+
+  it("keeps the config card's DNS state tri-state while the DNS query is unresolved", () => {
+    populated();
+    useDnsConfig.mockReturnValue({ data: undefined });
+    renderWithProviders(<Dhcp />);
+    expect(screen.getByTestId("dhcp-config-card")).toHaveAttribute(
+      "data-dns-enabled",
+      "undefined",
+    );
+  });
+
+  it("hands the hoisted create-reservation mutation to the inline form", async () => {
+    populated();
+    const user = userEvent.setup();
+    renderWithProviders(<Dhcp />);
+    await user.click(screen.getByText("add-res"));
+    expect(screen.getByTestId("create-reservation")).toHaveAttribute(
+      "data-has-create",
+      "true",
+    );
   });
 
   it("toggles DHCP, changes group and search", async () => {

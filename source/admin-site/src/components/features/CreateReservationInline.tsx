@@ -6,8 +6,9 @@ import { Input } from "@wardnet/web";
 import { Ipv4Input } from "@wardnet/web";
 import { MacInput } from "@/components/core/ui/mac-input";
 import { ApiErrorAlert } from "@wardnet/web";
-import { useCreateReservation, suggestHostnameForMac } from "@wardnet/web";
-import type { Device } from "@wardnet/js";
+import { suggestHostnameForMac } from "@wardnet/web";
+import type { MutationHandle } from "@/lib/mutationHandle";
+import type { CreateDhcpReservationRequest, Device } from "@wardnet/js";
 
 /** Optional pre-filled values for the reservation form. */
 export interface ReservationDefaults {
@@ -31,6 +32,8 @@ interface CreateReservationInlineProps {
    *  (issue #85). Sourced from the parent's `useDevices()` — passed in
    *  rather than fetched here so the component stays presentational. */
   devices?: Device[];
+  /** The page's hoisted create-reservation mutation. */
+  createReservation: MutationHandle<CreateDhcpReservationRequest>;
 }
 
 /**
@@ -51,9 +54,8 @@ export function CreateReservationInline({
   onSuccess,
   defaults,
   devices = [],
+  createReservation,
 }: CreateReservationInlineProps) {
-  const createReservation = useCreateReservation();
-
   // Auto-suggest a hostname from a matching managed device (issue #85).
   // An explicit `defaults.hostname` (e.g. carried over from a lease on
   // "Make static") is respected as-is; we only suggest into an empty

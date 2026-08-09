@@ -5,26 +5,6 @@ import type { DhcpConfig } from "@wardnet/js";
 import { DhcpConfigCard } from "@/components/compound/DhcpConfigCard";
 import { renderWithProviders } from "../../test-utils";
 
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useUpdateDhcpConfig: vi.fn(),
-    usePreviewDhcpConfig: vi.fn(),
-    useDnsConfig: vi.fn(),
-  };
-});
-
-import {
-  useUpdateDhcpConfig,
-  usePreviewDhcpConfig,
-  useDnsConfig,
-} from "@wardnet/web";
-
-const mockUpdate = vi.mocked(useUpdateDhcpConfig);
-const mockPreview = vi.mocked(usePreviewDhcpConfig);
-const mockDns = vi.mocked(useDnsConfig);
-
 const updateMutateAsync = vi.fn();
 const previewMutateAsync = vi.fn();
 const updateReset = vi.fn();
@@ -43,27 +23,46 @@ function makeConfig(overrides: Partial<DhcpConfig> = {}): DhcpConfig {
   };
 }
 
+function cardProps({
+  config = makeConfig(),
+  dnsEnabled = false as boolean | undefined,
+  update = {},
+}: {
+  config?: DhcpConfig;
+  dnsEnabled?: boolean | undefined;
+  update?: Partial<{
+    isPending: boolean;
+    isError: boolean;
+    error: Error | null;
+  }>;
+} = {}) {
+  return {
+    config,
+    dnsEnabled,
+    updateConfig: {
+      mutateAsync: updateMutateAsync,
+      reset: updateReset,
+      isPending: false,
+      isError: false,
+      error: null,
+      ...update,
+    },
+    previewConfig: {
+      mutateAsync: previewMutateAsync,
+      isPending: false,
+    },
+  };
+}
+
 beforeEach(() => {
   updateMutateAsync.mockReset().mockResolvedValue(undefined);
   previewMutateAsync.mockReset().mockResolvedValue({ affected: [] });
   updateReset.mockReset();
-  mockUpdate.mockReturnValue({
-    mutateAsync: updateMutateAsync,
-    reset: updateReset,
-    isPending: false,
-    isError: false,
-    error: null,
-  } as never);
-  mockPreview.mockReturnValue({
-    mutateAsync: previewMutateAsync,
-    isPending: false,
-  } as never);
-  mockDns.mockReturnValue({ data: { config: { enabled: false } } } as never);
 });
 
 describe("DhcpConfigCard", () => {
   it("renders the read view with pool range and upstream DNS", () => {
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(<DhcpConfigCard {...cardProps()} />);
     expect(screen.getByTestId("dhcp-config-pool-range")).toHaveTextContent(
       "10.232.1.100",
     );
@@ -73,18 +72,23 @@ describe("DhcpConfigCard", () => {
 
   it("formats sub-hour and sub-day lease durations", () => {
     const { rerender } = renderWithProviders(
-      <DhcpConfigCard config={makeConfig({ lease_duration_secs: 1800 })} />,
+      <DhcpConfigCard
+        {...cardProps({ config: makeConfig({ lease_duration_secs: 1800 }) })}
+      />,
     );
     expect(screen.getByText("30m")).toBeInTheDocument();
     rerender(
-      <DhcpConfigCard config={makeConfig({ lease_duration_secs: 7200 })} />,
+      <DhcpConfigCard
+        {...cardProps({ config: makeConfig({ lease_duration_secs: 7200 }) })}
+      />,
     );
     expect(screen.getByText("2h")).toBeInTheDocument();
   });
 
   it("shows 'Wardnet DNS' in the read view when the DNS server is enabled", () => {
-    mockDns.mockReturnValue({ data: { config: { enabled: true } } } as never);
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(
+      <DhcpConfigCard {...cardProps({ dnsEnabled: true })} />,
+    );
     expect(screen.getByText("Wardnet DNS")).toBeInTheDocument();
   });
 
@@ -95,25 +99,28 @@ describe("DhcpConfigCard", () => {
   // assert on the accessible name: that is both what a screen reader announces
   // and the only copy a sighted user can surface by hovering.
   it("warns that already-leased devices keep their old DNS until they reconnect", () => {
-    mockDns.mockReturnValue({ data: { config: { enabled: true } } } as never);
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(
+      <DhcpConfigCard {...cardProps({ dnsEnabled: true })} />,
+    );
     expect(screen.getByTestId("dhcp-dns-lease-note")).toHaveAccessibleName(
       /reconnect a device/i,
     );
   });
 
   it("omits the lease note when the DNS server is off", () => {
-    mockDns.mockReturnValue({ data: { config: { enabled: false } } } as never);
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(
+      <DhcpConfigCard {...cardProps({ dnsEnabled: false })} />,
+    );
     expect(screen.queryByTestId("dhcp-dns-lease-note")).not.toBeInTheDocument();
   });
 
   it("shows a placeholder, not the upstream list, while the DNS query is unresolved", () => {
-    // While the ["dns"] query is loading (or errored) the effective client
-    // DNS is unknown — rendering the raw upstream list would claim clients
-    // bypass the Pi when the daemon may actually be advertising it.
-    mockDns.mockReturnValue({ data: undefined } as never);
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    // While the page's ["dns"] query is loading (or errored) the effective
+    // client DNS is unknown — rendering the raw upstream list would claim
+    // clients bypass the Pi when the daemon may actually be advertising it.
+    renderWithProviders(
+      <DhcpConfigCard {...cardProps()} dnsEnabled={undefined} />,
+    );
     expect(screen.getByText("…")).toBeInTheDocument();
     expect(screen.queryByText(/1\.1\.1\.1/)).not.toBeInTheDocument();
     expect(screen.queryByText("Wardnet DNS")).not.toBeInTheDocument();
@@ -121,8 +128,9 @@ describe("DhcpConfigCard", () => {
 
   it("enters edit mode and hides the upstream DNS field when DNS is enabled", async () => {
     const user = userEvent.setup();
-    mockDns.mockReturnValue({ data: { config: { enabled: true } } } as never);
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(
+      <DhcpConfigCard {...cardProps({ dnsEnabled: true })} />,
+    );
     await user.click(screen.getByTestId("dhcp-config-edit"));
     expect(screen.getByTestId("dhcp-pool-start")).toBeInTheDocument();
     expect(screen.queryByLabelText(/Upstream DNS/)).not.toBeInTheDocument();
@@ -132,9 +140,11 @@ describe("DhcpConfigCard", () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DhcpConfigCard
-        config={makeConfig({
-          pool_start: "10.232.1.200",
-          pool_end: "10.232.1.100",
+        {...cardProps({
+          config: makeConfig({
+            pool_start: "10.232.1.200",
+            pool_end: "10.232.1.100",
+          }),
         })}
       />,
     );
@@ -149,9 +159,11 @@ describe("DhcpConfigCard", () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DhcpConfigCard
-        config={makeConfig({
-          pool_start: "8.8.8.100",
-          pool_end: "8.8.8.200",
+        {...cardProps({
+          config: makeConfig({
+            pool_start: "8.8.8.100",
+            pool_end: "8.8.8.200",
+          }),
         })}
       />,
     );
@@ -164,7 +176,7 @@ describe("DhcpConfigCard", () => {
 
   it("cancels back to the read view", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(<DhcpConfigCard {...cardProps()} />);
     await user.click(screen.getByTestId("dhcp-config-edit"));
     await user.click(screen.getByTestId("dhcp-config-cancel"));
     expect(screen.queryByTestId("dhcp-pool-start")).not.toBeInTheDocument();
@@ -173,7 +185,7 @@ describe("DhcpConfigCard", () => {
 
   it("saves directly when the pool range is unchanged", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(<DhcpConfigCard {...cardProps()} />);
     await user.click(screen.getByTestId("dhcp-config-edit"));
     await user.click(screen.getByTestId("dhcp-config-save"));
     expect(previewMutateAsync).not.toHaveBeenCalled();
@@ -192,7 +204,7 @@ describe("DhcpConfigCard", () => {
         },
       ],
     });
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(<DhcpConfigCard {...cardProps()} />);
     await user.click(screen.getByTestId("dhcp-config-edit"));
 
     // Change the pool-start octets so the range differs from the config.
@@ -217,7 +229,7 @@ describe("DhcpConfigCard", () => {
   // field that triggers it.
   it("rejects an incomplete pool start", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(<DhcpConfigCard {...cardProps()} />);
     await user.click(screen.getByTestId("dhcp-config-edit"));
     const input = screen
       .getByTestId("dhcp-pool-start")
@@ -235,7 +247,7 @@ describe("DhcpConfigCard", () => {
   // would leave the field valid.
   it("rejects an incomplete fallback router address", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(<DhcpConfigCard {...cardProps()} />);
     await user.click(screen.getByTestId("dhcp-config-edit"));
     const octets = screen.getByTestId("dhcp-router").querySelectorAll("input");
     await user.click(octets[3]);
@@ -248,7 +260,7 @@ describe("DhcpConfigCard", () => {
   // A public router address would hand every client a gateway off the LAN.
   it("rejects a non-private fallback router address", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(<DhcpConfigCard {...cardProps()} />);
     await user.click(screen.getByTestId("dhcp-config-edit"));
     const router = screen
       .getByTestId("dhcp-router")
@@ -262,7 +274,7 @@ describe("DhcpConfigCard", () => {
 
   it("edits the lease duration and upstream DNS fields", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(<DhcpConfigCard {...cardProps()} />);
     await user.click(screen.getByTestId("dhcp-config-edit"));
 
     const lease = screen.getByLabelText(/Lease duration/i);
@@ -278,14 +290,13 @@ describe("DhcpConfigCard", () => {
 
   it("renders an API error alert in edit mode when the update failed", async () => {
     const user = userEvent.setup();
-    mockUpdate.mockReturnValue({
-      mutateAsync: updateMutateAsync,
-      reset: updateReset,
-      isPending: false,
-      isError: true,
-      error: new Error("nope"),
-    } as never);
-    renderWithProviders(<DhcpConfigCard config={makeConfig()} />);
+    renderWithProviders(
+      <DhcpConfigCard
+        {...cardProps({
+          update: { isError: true, error: new Error("nope") },
+        })}
+      />,
+    );
     await user.click(screen.getByTestId("dhcp-config-edit"));
     // Edit mode is active and the isError branch renders the alert.
     expect(screen.getByTestId("dhcp-pool-start")).toBeInTheDocument();

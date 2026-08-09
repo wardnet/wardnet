@@ -19,10 +19,16 @@ import {
   useToggleDhcp,
   useRevokeLease,
   useDeleteReservation,
+  useCreateReservation,
+  useUpdateDhcpConfig,
+  usePreviewDhcpConfig,
+  useDnsConfig,
 } from "@wardnet/web";
 import { useDevices } from "@wardnet/web";
 
-/** DHCP management page (admin only). */
+/** DHCP management page (admin only). Owns every query and mutation for the
+ *  cards below, passing data + callbacks down so they stay pure
+ *  presentation. */
 export default function Dhcp() {
   const navigate = useNavigate();
   const { data: statusData, isLoading: statusLoading } = useDhcpStatus();
@@ -30,10 +36,14 @@ export default function Dhcp() {
   const { data: leaseData } = useDhcpLeases();
   const { data: reservationData } = useDhcpReservations();
   const { data: deviceData } = useDevices();
+  const { data: dnsConfigData } = useDnsConfig();
 
   const toggleDhcp = useToggleDhcp();
   const revokeLease = useRevokeLease();
   const deleteReservation = useDeleteReservation();
+  const createReservation = useCreateReservation();
+  const updateConfig = useUpdateDhcpConfig();
+  const previewConfig = usePreviewDhcpConfig();
 
   const [group, setGroup] = useState<DhcpGroupId>("all");
   const [query, setQuery] = useState("");
@@ -92,7 +102,12 @@ export default function Dhcp() {
               onToggle={(enabled) => toggleDhcp.mutate(enabled)}
               isPending={toggleDhcp.isPending}
             />
-            <DhcpConfigCard config={config} />
+            <DhcpConfigCard
+              config={config}
+              dnsEnabled={dnsConfigData?.config.enabled}
+              updateConfig={updateConfig}
+              previewConfig={previewConfig}
+            />
           </div>
 
           {reservationCreate.open && (
@@ -102,6 +117,7 @@ export default function Dhcp() {
               key={JSON.stringify(reservationCreate.defaults ?? {})}
               defaults={reservationCreate.defaults}
               devices={devices}
+              createReservation={createReservation}
               onClose={() => setReservationCreate({ open: false })}
               onSuccess={() => setGroup("reservations")}
             />
