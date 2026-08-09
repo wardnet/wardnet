@@ -39,13 +39,17 @@ after merge). Everything else is mechanical.
   version of `sync-version` did write this `package.json`, which is
   how it once drifted ahead of what npm actually had.
 - **`source/sdk/wardnet-go/VERSION`** — SemVer for the Go module
-  `wardnet.network/go`. Unlike the JS SDK, this one **publishes off
-  the daemon tag**: `release.yml` calls `release-go-sdk.yml` after
-  `release-daemon`, which mirrors `source/sdk/wardnet-go` to
-  `wardnet/wardnet-go` and tags it `v<that VERSION>`. Stable tags
-  only — prereleases and edge builds are skipped. If the version is
-  already published on the mirror the job no-ops, so a stale VERSION
-  means the release silently ships no new Go SDK.
+  `wardnet.network/go`. Same shape as the JS SDK: published by
+  pushing a **`wardnet-go@x.y.z`** tag (`release-go-sdk.yml`), *not*
+  by the daemon tag. The job asserts the tag matches this file, and
+  refuses a version already on the mirror — those tags are immutable,
+  because the Go checksum database pins a version's hash the first
+  time anyone fetches it.
+
+**Neither SDK rides the daemon tag.** `v<CALVER>` publishes the
+daemon, its image and the site; each SDK needs its own tag push. A
+release PR that bumps an SDK without saying so leaves a package
+unpublished with nobody tracking it.
 
 For a typical point release: bump `CALVER` to the next free counter
 slot in the current month (e.g. `2026.05.00` → `2026.05.01`) and
@@ -63,8 +67,9 @@ npm view @wardnet/js version                         # what npm actually has
 ```
 
 **Go SDK** — if the diff has user-visible changes, bump
-`source/sdk/wardnet-go/VERSION` *in this PR*. The daemon tag will
-publish whatever is in that file, so this is the last chance.
+`source/sdk/wardnet-go/VERSION` in this PR, then push a matching
+`wardnet-go@x.y.z` tag after merge (Step 7b). Bumping the file alone
+publishes nothing.
 
 **JS SDK** — if `source/.changeset/` holds unconsumed changesets, the
 package is due a release. Consuming them is `yarn changeset version`
@@ -269,9 +274,8 @@ PR body should:
   release-notes doc.
 - Surface any action-required upgrade note prominently, so reviewers
   don't miss it during review.
-- State what each SDK does on merge: the Go SDK version this tag will
-  publish (or that it will no-op), and whether a separate
-  `@wardnet/js@x.y.z` tag push is still owed.
+- State which SDK tags are still owed after merge, and at what
+  versions. Neither SDK is published by the daemon tag.
 - List the test plan: `make check-version`, `make check-openapi`,
   `make check-sdk-openapi`, `make check-go-openapi`, `make check-daemon`
   all green.
@@ -304,28 +308,40 @@ What the tag triggers (`.github/workflows/release.yml` watches
 - `deploy-site.yml` regenerates `releases/stable.json` and
   `releases/beta.json` so auto-update clients pick up the new
   version on their next manifest poll.
-- `release-go-sdk.yml` (stable tags only, after `release-daemon`)
-  mirrors `source/sdk/wardnet-go` to `wardnet/wardnet-go` and tags it
-  `v<source/sdk/wardnet-go/VERSION>`. Mirror tags are immutable and
-  `main` there is force-pushed — never commit to the mirror.
+Neither SDK is published here — see Step 7b.
 
 Watch the workflow run; if any step fails, do not retry blindly — a
 failed publish can land partial assets that auto-update will then
 try to verify and reject.
 
-### Step 7b — the JS SDK tag, if one is owed
+### Step 7b — the SDK tags, for whichever are owed
 
-`@wardnet/js` is **not** published by the daemon tag. If this release
-consumed changesets, push its tag after the daemon release is green:
+Each SDK publishes on its own tag, after the daemon release is green.
+Both jobs verify the tag against the committed version and refuse a
+version that is already published, so a mismatch fails loudly rather
+than shipping the wrong thing.
 
 ```sh
+# npm — must match source/sdk/wardnet-js/package.json on main
 git tag -s '@wardnet/js@<x.y.z>' -m '@wardnet/js@<x.y.z>'
 git push origin '@wardnet/js@<x.y.z>'
+
+# Go — must match source/sdk/wardnet-go/VERSION on main
+git tag -s 'wardnet-go@<x.y.z>' -m 'wardnet-go@<x.y.z>'
+git push origin 'wardnet-go@<x.y.z>'
 ```
 
-The version in the tag must match `source/sdk/wardnet-js/package.json`
-on `main`. `release-sdk.yml` publishes to npmjs.org via OIDC trusted
-publishing — there is no token to supply.
+`release-sdk.yml` publishes to npmjs.org via OIDC trusted publishing —
+no token to supply. `release-go-sdk.yml` mirrors `source/sdk/wardnet-go`
+to `wardnet/wardnet-go` and tags it `v<x.y.z>` there (Go requires that
+shape at the module root). Mirror tags are immutable and its `main` is
+force-pushed — never commit to the mirror.
+
+Both publish paths are only ever exercised by a real tag push. Watch
+each run to completion rather than assuming: a failed npm publish still
+writes a permanent entry to the public sigstore transparency log, and a
+failed mirror push can leave the module unpublished while the daemon
+release looks entirely green.
 
 ## Common pitfalls
 
@@ -347,10 +363,16 @@ publishing — there is no token to supply.
 - **Regenerating the spec but not the two clients that are generated
   from it.** `check-sdk-openapi` and `check-go-openapi` are separate
   CI gates on separate files, and each fails on its own.
-- **Assuming the daemon tag publishes both SDKs.** It publishes the Go
-  module and nothing else. `@wardnet/js` needs its own tag, and a
-  release PR that bumps it without saying so leaves the npm package
-  unpublished with no one tracking it.
+- **Assuming the daemon tag publishes an SDK.** It publishes neither.
+  Each needs its own tag push, and a release PR that bumps an SDK
+  version without saying so leaves a package unpublished with nobody
+  tracking it. `v2026.08.00` shipped with both SDKs unpublished for
+  exactly this reason.
+- **Calling a release done because the daemon release is green.** The
+  SDK publish jobs run on separate tags, so their failures are not
+  visible from the release run at all. Check what actually landed:
+  `npm view @wardnet/js version` and
+  `gh api repos/wardnet/wardnet-go/tags --jq '.[].name'`.
 - **Hand-editing `source/sdk/wardnet-js/package.json`.** Changesets
   owns it. A hand bump produces a version with no changelog entry and
   no published tag behind it, and the *next* `changeset version` builds

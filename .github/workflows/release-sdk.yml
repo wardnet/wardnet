@@ -66,6 +66,29 @@ jobs:
         working-directory: source
         run: yarn workspace @wardnet/js build
 
+      # Deliberately not gated on the tag ref: workflow_dispatch is meant to
+      # validate a publish without performing one, and this is exactly the
+      # kind of thing it should catch.
+      #
+      # `--provenance` makes the registry cross-check the attestation against
+      # the package, and npm rejects the upload with E422 unless
+      # `repository.url` matches the repository the build came from. That
+      # check happens registry-side, AFTER npm has signed the provenance
+      # statement and written it to the public Rekor transparency log — so a
+      # missing field costs a permanent public log entry for a version that
+      # never published. Fail before anything is signed instead.
+      - name: Verify the metadata npm will check the provenance against
+        working-directory: source/sdk/wardnet-js
+        run: |
+          set -euo pipefail
+          URL="$(node -p "require('./package.json').repository?.url ?? ''")"
+          EXPECTED="git+https://github.com/${GITHUB_REPOSITORY}.git"
+          if [[ "${URL}" != "${EXPECTED}" ]]; then
+            echo "::error::package.json repository.url is '${URL}', expected '${EXPECTED}'. npm publish --provenance would fail with E422."
+            exit 1
+          fi
+          echo "repository.url = ${URL}"
+
       - name: Publish to npmjs.org
         if: startsWith(github.ref, 'refs/tags/@wardnet/js@')
         working-directory: source/sdk/wardnet-js

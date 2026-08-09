@@ -17,18 +17,39 @@ name: Release Go SDK
 # and pull requests are all disabled on it, and `main` is force-pushed here on
 # every release. Never commit to it directly.
 #
-# Stable releases only. Prereleases (beta, edge) are skipped deliberately —
-# publishing them would put versions into the module space that consumers can
-# select, and edge tags are cut from arbitrary branches.
-
-# Takes no version input on purpose: the SDK is versioned by
-# source/sdk/wardnet-go/VERSION, independently of the daemon's CalVer. Passing
-# the daemon tag in is what produced a module version Go cannot resolve.
+# Driven by its own tag namespace, mirroring how @wardnet/js publishes on
+# `@wardnet/js@x.y.z`. NOT `v*.*.*` — that is the daemon's namespace, and a
+# CalVer tag like v2026.08.00 is major 2026, which Go would require the module
+# path to end in `/v2026` to resolve. The SDK's version is its own semver and
+# has to stay that way; a separate namespace is what keeps the two apart.
+#
+# This used to hang off the daemon's release as a `workflow_call`, reading the
+# version from source/sdk/wardnet-go/VERSION with no tag of its own. That
+# conflated "a daemon release happened" with "the SDK has something to ship":
+# forgetting to bump VERSION published nothing while the release still went
+# green (a ::notice:: in a job log is not a gate), an SDK-only fix could not
+# ship without cutting a daemon release, and a VERSION bump merged today
+# detonated at whatever the next daemon tag turned out to be. A tag is the
+# deliberate act that authorising a publish deserves.
+#
+# Stable releases only. There is no prerelease path: publishing one would put a
+# version into the module space that consumers can select, and Go's checksum
+# database pins it permanently on first fetch.
+#
+# `workflow_dispatch` validates everything except the publish itself.
 on:
-  workflow_call:
+  push:
+    tags:
+      - "wardnet-go@*.*.*"
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+# Mirror pushes are force-pushes and tags are immutable; never run two at once.
+concurrency:
+  group: release-go-sdk-publish
+  cancel-in-progress: false
 
 jobs:
   mirror:
@@ -43,9 +64,19 @@ jobs:
 
       # Full history: `git subtree split` has to walk every commit that
       # touched the prefix, and a shallow clone silently truncates it.
+      #
+      # `persist-credentials: false` because checkout otherwise writes
+      # `http.https://github.com/.extraheader` with an Authorization header
+      # for GITHUB_TOKEN, and that header wins over the userinfo in a push
+      # URL. The mirror push below embeds an app token in its URL, so with
+      # credentials persisted it authenticated as github-actions[bot] —
+      # which has no access to wardnet-go — and 403'd. Nothing in this job
+      # needs the checkout's credentials: `git subtree split` is entirely
+      # local, and every remote operation supplies its own token.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # GITHUB_TOKEN is scoped to this repository and cannot push to another
       # one. wardnet-infra-bot is installed org-wide with contents:write.
@@ -97,12 +128,29 @@ jobs:
             exit 1
           fi
 
+          # VERSION stays the source of truth (it is what the major-suffix
+          # tripwire above reads); the tag has to agree with it, exactly as
+          # @wardnet/js requires its tag to match package.json. Checking rather
+          # than deriving means the tag cannot quietly publish a version the
+          # committed tree does not claim.
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG_VERSION="${GITHUB_REF#refs/tags/wardnet-go@}"
+            if [[ "${TAG_VERSION}" != "${SDK_VERSION}" ]]; then
+              echo "::error::tag is wardnet-go@${TAG_VERSION} but source/sdk/wardnet-go/VERSION says ${SDK_VERSION}. Bump the file and re-tag."
+              exit 1
+            fi
+          fi
+
           echo "version=${SDK_VERSION}" >> "$GITHUB_OUTPUT"
           echo "tag=v${SDK_VERSION}" >> "$GITHUB_OUTPUT"
           echo "publishing wardnet.network/go@v${SDK_VERSION} (module ${MODULE})"
 
+      # Everything above runs on workflow_dispatch as a dry validation — build,
+      # tests, version and module-path checks. Only this step needs a tag,
+      # mirroring release-sdk.yml's gate on the npm publish.
       - name: Split, push, and tag
         id: publish
+        if: startsWith(github.ref, 'refs/tags/wardnet-go@')
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           SDK_TAG: ${{ steps.sdk.outputs.tag }}
@@ -114,11 +162,34 @@ jobs:
           # Go checksum database pins a version's hash on first fetch, so
           # re-tagging breaks verification for every consumer instead of
           # updating them. A ruleset on the mirror enforces this too.
-          if git ls-remote --exit-code --tags "${MIRROR}" "refs/tags/${SDK_TAG}" >/dev/null 2>&1; then
-            echo "::notice::${SDK_TAG} is already published — source/sdk/wardnet-go/VERSION was not bumped, so this release ships no new SDK version."
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          #
+          # Exit codes are separated rather than collapsed with `if`. Both a
+          # missing tag and an auth failure are non-zero, so treating any
+          # non-zero as "not published yet" turns a 403 into a green light —
+          # which is exactly how the auth bug above stayed invisible until
+          # the push failed. 0 = tag exists, 2 = ran fine and found nothing,
+          # anything else = the query itself failed and we must not guess.
+          set +e
+          git ls-remote --exit-code --tags "${MIRROR}" "refs/tags/${SDK_TAG}" >/dev/null
+          LS_STATUS=$?
+          set -e
+          case "${LS_STATUS}" in
+            0)
+              # A hard failure now that a tag is what triggers this. Under the
+              # old daemon-release trigger, re-seeing a published version was
+              # the ordinary case (every release re-ran the job) and a notice
+              # was right. Pushing wardnet-go@x.y.z for a version already on
+              # the mirror is instead a mistake, and one that cannot be
+              # satisfied: the tag is immutable.
+              echo "::error::${SDK_TAG} is already published on the mirror and release tags are immutable. Bump source/sdk/wardnet-go/VERSION and tag the new version."
+              exit 1
+              ;;
+            2) ;;  # reachable, tag absent — proceed to publish
+            *)
+              echo "::error::Could not query the mirror for ${SDK_TAG} (git ls-remote exit ${LS_STATUS}). Refusing to publish without knowing whether the tag already exists."
+              exit 1
+              ;;
+          esac
 
           # Rewrites the subdirectory's history into commits rooted at the SDK.
           SPLIT=$(git subtree split --prefix=source/sdk/wardnet-go)
