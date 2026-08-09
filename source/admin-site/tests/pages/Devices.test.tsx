@@ -3,11 +3,21 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useDevices } = vi.hoisted(() => ({ useDevices: vi.fn() }));
+const { useDevices, useDeviceFilterSettingsList, useDnsFilterProfiles } =
+  vi.hoisted(() => ({
+    useDevices: vi.fn(),
+    useDeviceFilterSettingsList: vi.fn(),
+    useDnsFilterProfiles: vi.fn(),
+  }));
 
 vi.mock("@wardnet/web", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, useDevices };
+  return {
+    ...actual,
+    useDevices,
+    useDeviceFilterSettingsList,
+    useDnsFilterProfiles,
+  };
 });
 
 vi.mock("@/components/compound/PageHeader", () => ({
@@ -75,6 +85,8 @@ beforeEach(() => {
     isLoading: false,
     isError: false,
   });
+  useDeviceFilterSettingsList.mockReturnValue({ data: undefined });
+  useDnsFilterProfiles.mockReturnValue({ data: undefined });
 });
 
 describe("Devices", () => {

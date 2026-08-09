@@ -13,6 +13,7 @@ import { TunnelThroughputChart } from "@/components/features/TunnelThroughputCha
 import { TunnelLatencyChart } from "@/components/features/TunnelLatencyChart";
 import {
   useTunnel,
+  useTunnelDevices,
   useDeleteTunnel,
   useSetTunnelDnsOverride,
   useRebuildTunnel,
@@ -121,6 +122,11 @@ export default function TunnelDetail() {
     isLoading: statsLoading,
     isError: statsError,
   } = useTunnelStats(id, range);
+  const {
+    data: tunnelDevicesData,
+    isLoading: tunnelDevicesLoading,
+    isError: tunnelDevicesError,
+  } = useTunnelDevices(id);
 
   if (isLoading) {
     return (
@@ -273,7 +279,11 @@ export default function TunnelDetail() {
         />
       </div>
 
-      <TunnelDevicesTable tunnelId={tunnel.id} />
+      <TunnelDevicesTable
+        devices={tunnelDevicesData?.devices}
+        isLoading={tunnelDevicesLoading}
+        isError={tunnelDevicesError}
+      />
 
       <SpeedTestHistory tunnelId={tunnel.id} />
 

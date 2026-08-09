@@ -13,11 +13,14 @@ import {
 import { DataTable } from "@/components/core/ui/data-table";
 import { DeviceIcon } from "@wardnet/web";
 import { HostCell } from "@/components/compound/HostCell";
-import { useTunnelDevices } from "@wardnet/web";
 import type { Device } from "@wardnet/js";
 
 interface Props {
-  tunnelId: string;
+  /** Devices routed through the tunnel, from the owning page's
+   *  `useTunnelDevices(tunnelId)`. */
+  devices: Device[] | undefined;
+  isLoading: boolean;
+  isError: boolean;
 }
 
 function buildColumns(): ColumnDef<Device>[] {
@@ -49,12 +52,17 @@ function buildColumns(): ColumnDef<Device>[] {
   ];
 }
 
-export function TunnelDevicesTable({ tunnelId }: Props) {
+/** Devices routed through a tunnel. Pure presentation — the owning page
+ *  wires the query hook and passes data in. */
+export function TunnelDevicesTable({
+  devices: rawDevices,
+  isLoading,
+  isError,
+}: Props) {
   const navigate = useNavigate();
-  const { data, isLoading, isError } = useTunnelDevices(tunnelId);
   const devices = useMemo(
-    () => sortByLabel(data?.devices ?? [], deviceDisplayName),
-    [data?.devices],
+    () => sortByLabel(rawDevices ?? [], deviceDisplayName),
+    [rawDevices],
   );
   const columns = useMemo(() => buildColumns(), []);
 
