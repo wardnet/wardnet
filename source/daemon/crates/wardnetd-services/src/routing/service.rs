@@ -928,7 +928,10 @@ impl RoutingServiceImpl {
 ///
 /// For example, `"wg_ward0"` returns `Some(0)` and `"wg_ward12"` returns `Some(12)`.
 fn parse_interface_index(interface_name: &str) -> Option<u32> {
-    interface_name.strip_prefix("wg_ward")?.parse().ok()
+    interface_name
+        .strip_prefix(crate::tunnel::interface::TUNNEL_INTERFACE_PREFIX)?
+        .parse()
+        .ok()
 }
 
 /// Compute the routing table number for a tunnel interface index.

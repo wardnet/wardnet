@@ -72,6 +72,22 @@ you're about to make, rather than the whole set.
   (`ieee` | `catalog` | `signal`) and why a curated override always renders as
   a hedge; the ±4-over-48-bit neighbour search for the BLE-vs-Wi-Fi MAC trap.
   Invariant: **nothing probes a device without a direct admin action.**
+- **[Uninstall + shutdown teardown](docs/adr/0028-shutdown-teardown-and-uninstall.md)** —
+  why a stopped daemon now deletes the `inet wardnet` table and its
+  `wg_ward*` interfaces, and why a **self-initiated restart deliberately
+  does not** (the replacement process inherits correct kernel state, so
+  tearing down on every six-hourly auto-update is pure churn). Critically:
+  shutdown tears tunnels down **through `TunnelService`, not the raw
+  interface**, so each tunnel is recorded `Down` and the next boot's
+  routing reconcile brings it back on demand — deleting the interface
+  behind the database's back is unrecoverable, because
+  `handle_tunnel_down` strips the routing and nothing recreates the
+  interface. Covers the
+  `ShutdownCause` gate, `wardnetd uninstall` owning the implementation
+  because ADR 0013 removed the `nft` CLI dependency, the generated
+  `/usr/local/sbin/wardnet-uninstall` escape hatch, and the
+  default/`--purge` tiers. Invariant: **teardown deletes only our named
+  table, never a ruleset flush.**
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

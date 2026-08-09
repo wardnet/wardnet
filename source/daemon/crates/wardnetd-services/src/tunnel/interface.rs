@@ -3,6 +3,17 @@ use chrono::{DateTime, Utc};
 use ipnetwork::IpNetwork;
 use std::net::SocketAddr;
 
+/// Name prefix shared by every `WireGuard` interface Wardnet owns.
+///
+/// Outbound tunnels are `wg_ward{idx}`; the inbound remote-access server
+/// (`INBOUND_WG_INTERFACE`) deliberately shares the prefix so the zone-egress
+/// drop rule can match tunnels with a single wildcard.
+///
+/// The prefix is what distinguishes our interfaces from any the user created
+/// themselves, so anything that enumerates or sweeps interfaces must filter on
+/// it — `TunnelInterface::list` returns every `WireGuard` device on the host.
+pub const TUNNEL_INTERFACE_PREFIX: &str = "wg_ward";
+
 /// Configuration for creating a tunnel interface.
 #[derive(Debug, Clone)]
 pub struct CreateTunnelParams {

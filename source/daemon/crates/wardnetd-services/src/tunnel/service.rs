@@ -950,7 +950,7 @@ impl TunnelService for TunnelServiceImpl {
             .next_interface_index()
             .await
             .map_err(AppError::Internal)?;
-        let interface_name = format!("wg_ward{idx}");
+        let interface_name = format!("{}{idx}", crate::tunnel::interface::TUNNEL_INTERFACE_PREFIX);
 
         // Generate tunnel ID.
         let id = Uuid::new_v4();

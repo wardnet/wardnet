@@ -26,6 +26,16 @@ describe("DocsArticle", () => {
     expect(screen.getAllByRole("heading", { level: 1 }).length).toBeGreaterThan(0);
   });
 
+  it("renders the uninstall doc, which docs.yml links to as a topic", () => {
+    // `content/docs.yml` lists an `uninstall` topic. Nothing in the build
+    // cross-checks that a listed slug has a markdown file behind it, and
+    // `.md` is neither linted nor prettier-formatted here, so a typo in
+    // either place would silently ship a "coming soon" card instead.
+    renderAt("/docs/uninstall");
+    expect(screen.queryByText(/documentation coming soon/i)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 1 }).length).toBeGreaterThan(0);
+  });
+
   it("renders the ComingSoon placeholder with title and description for a known topic without a doc file", () => {
     // A slug that exists in `content/docs.yml` topics but doesn't have a
     // matching markdown file falls back to ComingSoon with the topic

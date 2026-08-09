@@ -18,8 +18,10 @@
 use std::collections::HashSet;
 use std::net::{IpAddr, Ipv4Addr};
 
+use anyhow::Context as _;
 use async_trait::async_trait;
 use ipnetwork::IpNetwork;
+use rustables::error::QueryError;
 use rustables::expr::{
     Bitwise, Cmp, CmpOp, ConnTrackState, Conntrack, ConntrackKey, Immediate, Meta, MetaType,
     Payload, Register, Reject, RejectType, VerdictKind,
@@ -1080,19 +1082,56 @@ impl FirewallManager for NetlinkFirewallManager {
             let table = wardnet_table();
             let mut batch = Batch::new();
             batch.add(&table, MsgType::Del);
+            // Preserve the `QueryError` instead of interpolating it into a new
+            // `anyhow!`. The kernel's "no such table" answer lives only in
+            // `nlmsgerr.error`; `QueryError`'s `Display` is the static string
+            // "Error received from the kernel" and the variant carries no
+            // `#[source]`, so stringifying here would destroy the one piece of
+            // information `is_table_absent_error` needs.
             batch
                 .send()
-                .map_err(|e| anyhow::anyhow!("destroy wardnet table: {e}"))?;
+                .map_err(anyhow::Error::new)
+                .context("destroy wardnet table")?;
             Ok(())
         })
         .await;
         match result {
-            Ok(()) => tracing::info!("nftables: wardnet table destroyed"),
-            // Ignore errors when the table doesn't exist (first run / already gone).
-            Err(e) => {
-                tracing::debug!(error = %e, "nftables: ignoring error during table destruction: {e}");
+            Ok(()) => {
+                tracing::info!("nftables: wardnet table destroyed");
+                Ok(())
             }
+            // An absent table is success: this runs on shutdown and on
+            // uninstall, both of which must be safe to repeat.
+            Err(e) if is_table_absent_error(&e) => {
+                tracing::debug!(error = %e, "nftables: wardnet table already absent");
+                Ok(())
+            }
+            // Anything else is real and must propagate. Swallowing it would let
+            // `wardnetd uninstall` report a clean removal while the table was
+            // still filtering the user's traffic — see issue #864.
+            Err(e) => Err(e),
         }
-        Ok(())
     }
+}
+
+/// Whether a table-delete error means "there was no table", as opposed to a
+/// real failure such as `EPERM` in a restricted namespace or a busy socket.
+///
+/// The kernel answers a delete of a non-existent table with `ENOENT`, which
+/// `rustables` reports as [`QueryError::NetlinkError`] carrying the raw
+/// `nlmsgerr`. That struct's `error` field is the only place the errno appears:
+/// the variant has no `#[source]`, and its `Display` is a fixed string. So this
+/// must downcast to the concrete error and read the field — matching on message
+/// text would silently never fire, and the absent-table case is the *common*
+/// one (a clean `systemctl stop` already removed the table before
+/// `wardnetd uninstall` sweeps again).
+///
+/// The kernel reports errnos negated, so compare on the magnitude.
+pub(crate) fn is_table_absent_error(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<QueryError>(),
+            Some(QueryError::NetlinkError(e)) if e.error.abs() == libc::ENOENT
+        )
+    })
 }

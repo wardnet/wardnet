@@ -284,30 +284,18 @@ fires the `wardnetd-rollback.service` unit after three failures within
 
 ### Uninstall
 
+The installer writes an uninstaller alongside the daemon:
+
 ```bash
-sudo systemctl disable --now wardnetd
-sudo systemctl disable --now wardnet-postupgrade.service
-sudo rm -f /etc/systemd/system/wardnetd.service
-sudo rm -f /etc/systemd/system/wardnetd-rollback.service
-sudo rm -f /etc/systemd/system/wardnet-postupgrade.service
-sudo rm -f /usr/local/bin/wardnetd /usr/local/bin/wardnetd.old
-sudo rm -rf /etc/wardnet /var/lib/wardnet /var/log/wardnet
-sudo rm -rf /usr/local/libexec/wardnet /var/lib/wardnet-postupgrade
-sudo rm -f /etc/sysctl.d/99-wardnet.conf
-sudo rm -f /etc/dhcpcd.conf.d/wardnet.conf
-sudo userdel wardnet
-sudo systemctl daemon-reload
+sudo wardnet-uninstall --dry-run   # see exactly what would go
+sudo wardnet-uninstall             # remove, keeping your data
 ```
 
-This removes everything the installer created. Two notes:
+It removes the daemon, its units, its user, and the firewall and WireGuard
+state it created, while keeping your database and secrets unless you pass
+`--purge`.
 
-- `/etc/dhcpcd.conf.d/wardnet.conf` only exists if you installed with
-  `--static-ip`; the `rm -f` is a harmless no-op otherwise.
-- Removing `/etc/sysctl.d/99-wardnet.conf` stops IP forwarding from
-  persisting across reboots, but the running kernel keeps
-  `net.ipv4.ip_forward=1` until the next reboot. Leave the setting alone
-  if anything else on the host relies on forwarding.
-
-**This deletes your configuration and data** (the SQLite database,
-WireGuard keys, and secrets under `/var/lib/wardnet`). Take an
-[encrypted backup](/docs/backup-restore) first if you might want it back.
+**Re-enable DHCP on your router first.** This host is your LAN's DHCP server
+and DNS resolver, and removing it leaves the network without either. See
+[Uninstall](/docs/uninstall) for the full procedure, what is kept, and the
+static-IP caveat.

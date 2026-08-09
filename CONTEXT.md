@@ -240,6 +240,14 @@ binary is still preserved — one step back, not a history.
 
 **Hard watchdog** — The last-resort backstop: the daemon pets `/dev/watchdog` on a fixed cadence **ungated** by health (a `WatchdogOps` trait with a Linux impl and a `NoopWatchdog` mock). If the entire runtime freezes — even the health loop and the soft sd_notify ping can no longer run — the pets stop and the kernel **reboots the host**. On clean shutdown it disarms (magic close) so a graceful `systemctl stop` does not reboot. **Invariant: this layer is never health-gated.** See [0014-watchdog-and-health.md](docs/adr/0014-watchdog-and-health.md).
 
+## Uninstall and teardown (issue #864)
+
+**Runtime state** — The state the daemon installs in the *kernel*, as distinct from the files the installer put on disk: the `inet wardnet` nftables table and the `wg_ward*` `WireGuard` interfaces (outbound tunnels plus the inbound remote-access server). It is removed by name, never by flushing the whole ruleset, so rules belonging to Docker or to the operator are untouched. A stopped daemon leaves none of it behind; the installed files are a separate concern, removed by **uninstall**.
+
+**Shutdown cause** — Why the daemon is shutting down: a **signal** (SIGINT/SIGTERM from outside the process) or a **restart** (the daemon cancelling its own shutdown token to hand over to a replacement, as the auto-updater, the rollback path and the admin Restart button all do). **Runtime state** is torn down only on a signal, because a restart's replacement process is seconds away while tunnels are only rebuilt on the tunnel monitor's next tick. `systemctl restart` is indistinguishable from `systemctl stop` and therefore counts as a signal. See [0028-shutdown-teardown-and-uninstall.md](docs/adr/0028-shutdown-teardown-and-uninstall.md).
+
+**Purge** — The uninstall tier that additionally destroys `/var/lib/wardnet`: the database, the `WireGuard` private keys, the backup passphrase and the DDNS credentials. The default tier keeps them and re-owns them to root. Purged data is unrecoverable, so it is the only operation that demands the word typed in full rather than a yes.
+
 ## Monetization and entitlement
 
 **Free tier** — Self-host the daemon with your **own** domain (the **BYOD-Cloudflare DnsProvider**). Full features via the desktop admin website and `/api/*`, uncapped, forever-free; touches no wardnet-operated service beyond release downloads, so it costs Wardnet nothing. The growth surface. Does **not** include the mobile PWAs — see **Premium tier**.

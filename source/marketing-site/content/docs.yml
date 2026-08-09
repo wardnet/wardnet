@@ -133,3 +133,8 @@ topics:
     title: SDK reference
     icon: code
     description: JavaScript/TypeScript SDK for integrating with Wardnet programmatically.
+
+  - slug: uninstall
+    title: Uninstall
+    icon: trash-2
+    description: Remove Wardnet cleanly, what it deletes, what it keeps, and what to do about DHCP first.

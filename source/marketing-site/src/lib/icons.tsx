@@ -18,6 +18,7 @@ import {
   Radio,
   Smartphone,
   Bell,
+  Trash2,
   type LucideProps,
 } from "lucide-react";
 import type { ComponentType } from "react";
@@ -42,6 +43,7 @@ const ICON_MAP: Record<string, ComponentType<LucideProps>> = {
   radio: Radio,
   smartphone: Smartphone,
   bell: Bell,
+  "trash-2": Trash2,
 };
 
 /** Resolves a string icon name from YAML content to a Lucide icon component. */
