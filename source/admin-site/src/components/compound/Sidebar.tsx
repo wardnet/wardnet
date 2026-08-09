@@ -16,16 +16,25 @@ import {
   Split,
 } from "lucide-react";
 import { ShieldWifi, GlobeFilter } from "@wardnet/web";
-import { useAuth } from "@wardnet/web";
-import { useDaemonStatus } from "@wardnet/web";
-import { useUpdateStatus } from "@wardnet/web";
 import { Logo } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import { ConnectionStatus } from "./ConnectionStatus";
 import { UpdateBanner } from "./UpdateBanner";
 
-interface SidebarProps {
+export interface SidebarProps {
   onNavigate?: () => void;
+  /** Whether the current session is an admin (drives nav + footer links). */
+  isAdmin: boolean;
+  /** Revoke the server session; resolves even when the network call fails. */
+  onLogout: () => Promise<unknown>;
+  /** Daemon version for the caption under the brand mark, if known. */
+  version: string | null | undefined;
+  /** Connection-indicator state, from the shell layout's daemon-status query. */
+  connectionLoading: boolean;
+  connected: boolean;
+  /** Update-banner state, from the shell layout's update-status query. */
+  updateAvailable: boolean;
+  latestVersion: string | null;
 }
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
@@ -134,23 +143,28 @@ const adminSections: NavSection[] = [
  * itself per the slice 0a sweep, so no variant prop is needed.
  *
  * `<UpdateBanner />` stays mounted as a child — it's a separate compound
- * already on Forge accent tokens.
+ * already on Forge accent tokens. Pure presentation — the shell layout wires
+ * the auth/status hooks and passes data + callbacks in.
  */
-export function Sidebar({ onNavigate }: SidebarProps) {
-  const { isAdmin, logout } = useAuth();
+export function Sidebar({
+  onNavigate,
+  isAdmin,
+  onLogout,
+  version,
+  connectionLoading,
+  connected,
+  updateAvailable,
+  latestVersion,
+}: SidebarProps) {
   const navigate = useNavigate();
-  // Only admins see update state — self-service users don't have the perms
-  // to trigger installs, so we don't bother them with the banner.
-  const { data: updateStatus } = useUpdateStatus();
-  const { data: daemonStatus } = useDaemonStatus();
 
   const sections = isAdmin ? adminSections : [];
 
   function handleLogout() {
-    // Revoke the server session before leaving the page. logout() clears
+    // Revoke the server session before leaving the page. onLogout() clears
     // local auth state even when the network call fails, so the redirect
     // always happens.
-    void logout().then(() => {
+    void onLogout().then(() => {
       onNavigate?.();
       navigate("/");
     });
@@ -161,7 +175,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       <div className="side__brand">
         <Logo height={28} variant="dark" />
       </div>
-      {daemonStatus?.version && (
+      {version && (
         // -mt absorbs the version into `.side__brand`'s bottom padding so it
         // sits as a tight caption right under the logo lockup. pl-[50px] lines
         // the "v" up under the start of the "WARDNET" wordmark at this height.
@@ -171,7 +185,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
           weight="normal"
           className="-mt-6 pb-2 pl-[50px] text-side-ink/40"
         >
-          v{daemonStatus.version}
+          v{version}
         </Text>
       )}
 
@@ -205,12 +219,15 @@ export function Sidebar({ onNavigate }: SidebarProps) {
       <div className="side__foot">
         {isAdmin && (
           <UpdateBanner
-            updateAvailable={updateStatus?.status.update_available ?? false}
-            latestVersion={updateStatus?.status.latest_version ?? null}
+            updateAvailable={updateAvailable}
+            latestVersion={latestVersion}
           />
         )}
         <div className="side__status">
-          <ConnectionStatus />
+          <ConnectionStatus
+            isLoading={connectionLoading}
+            reachable={connected}
+          />
         </div>
         <div className="side__links">
           {isAdmin ? (
