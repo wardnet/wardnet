@@ -4,6 +4,7 @@ extends:
 skills:
   - ./.agents/skills/bump-rust
   - ./.agents/skills/full-repo-review
+  - ./.agents/skills/release-prep
 agents:
   - ./.agents/agents/rust-engineer
 mcp:
