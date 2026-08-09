@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { Link } from "react-router";
 import {
   CartesianGrid,
@@ -20,10 +20,9 @@ import { DashboardStatCard } from "@/components/compound/DashboardStatCard";
 import { HostCell } from "@/components/compound/HostCell";
 import { useChartZoom, type ZoomRange } from "@/hooks/useChartZoom";
 import {
-  useDevices,
-  useDnsStatsDashboard,
   deviceDisplayName,
   RANGE_HOURS,
+  type DnsStatsDashboardData,
   type StatsRange,
 } from "@wardnet/web";
 import type { Device, StatsTopEntry } from "@wardnet/js";
@@ -50,34 +49,34 @@ function formatXAxis(tsMs: number, range: StatsRange): string {
 
 interface Props {
   range: StatsRange;
+  /** The committed chart-zoom window, owned by the page because it also
+   *  drives the dashboard query's top-N window. */
+  zoom: ZoomRange | null;
+  onZoomChange: (zoom: ZoomRange | null) => void;
+  /** The page's `useDnsStatsDashboard` result. */
+  data: DnsStatsDashboardData | undefined;
+  isLoading: boolean;
+  isError: boolean;
+  error: unknown;
+  /** Device list for resolving top-client entries' `device_id` labels to
+   *  names. Lookup is by immutable device id — never by IP, which DHCP may
+   *  have reassigned since the stats were recorded. */
+  devices: Device[] | undefined;
 }
 
-/** Stats panel for the DNS page: top cards, time series, top tables. */
-export function DnsStatsSection({ range }: Props) {
-  // Device list for resolving top-client entries' `device_id` labels to
-  // names. Lookup is by immutable device id — never by IP, which DHCP may
-  // have reassigned since the stats were recorded.
-  const { data: devicesData } = useDevices();
-  // Tag zoom with the range it was committed for so it auto-invalidates
-  // when the parent changes range without needing a useEffect reset.
-  const [storedZoom, setStoredZoom] = useState<{
-    range: StatsRange;
-    zoom: ZoomRange;
-  } | null>(null);
-  const zoom = storedZoom?.range === range ? storedZoom.zoom : null;
-  const setZoom = (z: ZoomRange | null) =>
-    setStoredZoom(z ? { range, zoom: z } : null);
-  const topOverride = zoom
-    ? {
-        from: new Date(Number(zoom.start)).toISOString(),
-        to: new Date(Number(zoom.end)).toISOString(),
-      }
-    : undefined;
-  const { data, isLoading, isError, error } = useDnsStatsDashboard(
-    range,
-    topOverride,
-  );
-
+/** Stats panel for the DNS page: top cards, time series, top tables.
+ *  Pure presentation — the owning page wires the query hooks and passes
+ *  data + callbacks in. */
+export function DnsStatsSection({
+  range,
+  zoom,
+  onZoomChange: setZoom,
+  data,
+  isLoading,
+  isError,
+  error,
+  devices,
+}: Props) {
   // Numeric-timestamp chart data lets Recharts XAxis use type="number"
   // so the domain can be constrained to the zoom window, same pattern as
   // TunnelThroughputChart.
@@ -280,7 +279,7 @@ export function DnsStatsSection({ range }: Props) {
         <TopClientsList
           title={`Top clients (${zoomLabel ?? range})`}
           entries={data?.topClients.entries}
-          devices={devicesData?.devices}
+          devices={devices}
         />
       </div>
     </div>

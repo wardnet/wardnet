@@ -34,14 +34,23 @@ import {
   useToggleDns,
   useFlushDnsCache,
   useUpdateDnsConfig,
+  useDevices,
+  useDnsStatsDashboard,
+  useDnsPeriodComparison,
+  useDnsTopTrackers,
+  useDnsPerDeviceStats,
 } from "@wardnet/web";
 import { RANGES, type StatsRange } from "@wardnet/web";
+import type { ZoomRange } from "@/hooks/useChartZoom";
 import type { DnsResolutionMode, ForwarderSelectionMode } from "@wardnet/js";
 
-/** DNS server configuration page (admin only). */
+/** DNS server configuration page (admin only). Owns every query and mutation
+ *  for the cards and stats sections below, fetching the shared device/config
+ *  queries once and passing data + callbacks down so they stay pure
+ *  presentation. */
 export default function Dns() {
   const { data: statusData, isLoading: statusLoading } = useDnsStatus();
-  const { data: configData } = useDnsConfig();
+  const { data: configData, isLoading: configLoading } = useDnsConfig();
 
   const toggleDns = useToggleDns();
   const flushCache = useFlushDnsCache();
@@ -49,6 +58,39 @@ export default function Dns() {
 
   const status = statusData;
   const config = configData?.config;
+
+  // ---- Stats + analytics wiring (range, zoom, per-device selection). ----
+  const [range, setRange] = useState<StatsRange>("24h");
+  // Tag zoom with the range it was committed for so it auto-invalidates
+  // when the range changes without needing a useEffect reset.
+  const [storedZoom, setStoredZoom] = useState<{
+    range: StatsRange;
+    zoom: ZoomRange;
+  } | null>(null);
+  const zoom = storedZoom?.range === range ? storedZoom.zoom : null;
+  const setZoom = (z: ZoomRange | null) =>
+    setStoredZoom(z ? { range, zoom: z } : null);
+  // A committed zoom narrows the dashboard's top-N window so all four stat
+  // cards reflect the same time slice.
+  const topOverride = zoom
+    ? {
+        from: new Date(Number(zoom.start)).toISOString(),
+        to: new Date(Number(zoom.end)).toISOString(),
+      }
+    : undefined;
+  const { data: devicesData } = useDevices();
+  const dashboard = useDnsStatsDashboard(range, topOverride);
+  const { data: comparison } = useDnsPeriodComparison(range);
+  const { data: trackers } = useDnsTopTrackers(range);
+
+  const devices = devicesData?.devices ?? [];
+  const [selectedDevice, setSelectedDevice] = useState<string>("");
+  // Default to the first device once the list loads, so the per-device chart
+  // shows something without the user having to pick.
+  const effectiveDevice =
+    selectedDevice || (devices.length > 0 ? devices[0].id : "");
+  const { data: deviceSeries, isLoading: deviceSeriesLoading } =
+    useDnsPerDeviceStats(effectiveDevice || null, range);
 
   // Stable callbacks so UpstreamServersCard's `columns` memo isn't rebuilt on
   // every render (e.g. the 15s status poll). `updateConfig.mutate` is stable.
@@ -74,7 +116,6 @@ export default function Dns() {
   // Retention edit-mode state — follows DhcpConfigCard pattern. The
   // draft is reset when leaving edit mode so subsequent edits start
   // from the latest server value.
-  const [range, setRange] = useState<StatsRange>("24h");
   const [editingRetention, setEditingRetention] = useState(false);
   const [retentionDraft, setRetentionDraft] = useState<number>(7);
 
@@ -217,7 +258,12 @@ export default function Dns() {
 
           {/* Security settings — DNSSEC, rebinding protection, rate limit
               (Stage 4). */}
-          <SecuritySettingsCard />
+          <SecuritySettingsCard
+            config={config}
+            isLoading={configLoading}
+            onUpdate={updateConfig.mutate}
+            updatePending={updateConfig.isPending}
+          />
 
           {/* Query log card — Pill + Toggle in header (matches DHCP
               status card); retention follows the Edit/Save pattern
@@ -342,8 +388,26 @@ export default function Dns() {
                 </TabsList>
               </Tabs>
             </div>
-            <DnsStatsSection range={range} />
-            <DnsAnalyticsSection range={range} />
+            <DnsStatsSection
+              range={range}
+              zoom={zoom}
+              onZoomChange={setZoom}
+              data={dashboard.data}
+              isLoading={dashboard.isLoading}
+              isError={dashboard.isError}
+              error={dashboard.error}
+              devices={devicesData?.devices}
+            />
+            <DnsAnalyticsSection
+              range={range}
+              comparison={comparison}
+              trackers={trackers}
+              devices={devices}
+              selectedDeviceId={effectiveDevice}
+              onSelectDevice={setSelectedDevice}
+              deviceSeries={deviceSeries}
+              deviceSeriesLoading={deviceSeriesLoading}
+            />
           </div>
         </div>
       )}

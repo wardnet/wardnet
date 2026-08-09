@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   CartesianGrid,
   Line,
@@ -20,16 +20,14 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  useDevices,
-  useDnsPeriodComparison,
-  useDnsPerDeviceStats,
-  useDnsTopTrackers,
   deviceDisplayName,
   parseLabels,
   RANGE_HOURS,
+  type DevicePoint,
+  type DnsPeriodComparison,
   type StatsRange,
 } from "@wardnet/web";
-import type { StatsTopEntry } from "@wardnet/js";
+import type { Device, StatsTopEntry, StatsTopResponse } from "@wardnet/js";
 
 const perDeviceConfig: ChartConfig = {
   total: { label: "Queries", color: "var(--chart-1)" },
@@ -71,30 +69,37 @@ function formatXAxis(tsMs: number, range: StatsRange): string {
 
 interface Props {
   range: StatsRange;
+  /** The page's `useDnsPeriodComparison` data. */
+  comparison: DnsPeriodComparison | undefined;
+  /** The page's `useDnsTopTrackers` data. */
+  trackers: StatsTopResponse | undefined;
+  devices: Device[];
+  /** The device the per-device chart is showing (the page defaults it to the
+   *  first device once the list loads). */
+  selectedDeviceId: string;
+  onSelectDevice: (deviceId: string) => void;
+  /** The page's `useDnsPerDeviceStats` series for the selected device. */
+  deviceSeries: DevicePoint[] | undefined;
+  deviceSeriesLoading: boolean;
 }
 
 /**
  * Deeper DNS analytics for the DNS page, rendered under the same range
  * selector as {@link DnsStatsSection}: period-over-period comparison, top
  * trackers blocked (categorised by operating company), and a per-device
- * query timeseries.
+ * query timeseries. Pure presentation — the owning page wires the query
+ * hooks and passes data + callbacks in.
  */
-export function DnsAnalyticsSection({ range }: Props) {
-  const { data: comparison } = useDnsPeriodComparison(range);
-  const { data: trackers } = useDnsTopTrackers(range);
-  const { data: devicesData } = useDevices();
-
-  const devices = devicesData?.devices ?? [];
-  const [selectedDevice, setSelectedDevice] = useState<string>("");
-  // Default to the first device once the list loads, so the chart shows
-  // something without the user having to pick.
-  const effectiveDevice =
-    selectedDevice || (devices.length > 0 ? devices[0].id : "");
-  const { data: deviceSeries, isLoading: deviceLoading } = useDnsPerDeviceStats(
-    effectiveDevice || null,
-    range,
-  );
-
+export function DnsAnalyticsSection({
+  range,
+  comparison,
+  trackers,
+  devices,
+  selectedDeviceId: effectiveDevice,
+  onSelectDevice: setSelectedDevice,
+  deviceSeries,
+  deviceSeriesLoading: deviceLoading,
+}: Props) {
   const chartSeries = useMemo(
     () =>
       (deviceSeries ?? []).map((p) => ({

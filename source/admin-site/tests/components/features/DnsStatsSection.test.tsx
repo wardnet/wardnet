@@ -1,8 +1,10 @@
 import { act, screen } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useDnsStatsDashboard } from "@wardnet/web";
 import { DnsStatsSection } from "@/components/features/DnsStatsSection";
+import type { ZoomRange } from "@/hooks/useChartZoom";
 import { renderWithProviders } from "../../test-utils";
+import type { DnsStatsDashboardData, StatsRange } from "@wardnet/web";
 
 // Drag-to-zoom is driven by useChartZoom, whose recharts mouse plumbing does
 // not compute an activeLabel under jsdom. Mock the hook so we can deterministically
@@ -11,28 +13,32 @@ import { renderWithProviders } from "../../test-utils";
 const zoomState = vi.hoisted(() => ({
   commit: null as null | ((z: { start: number; end: number } | null) => void),
 }));
-vi.mock("@/hooks/useChartZoom", () => ({
-  useChartZoom: ({
-    zoom,
-    onZoomChange,
-  }: {
-    zoom: unknown;
-    onZoomChange: (z: { start: number; end: number } | null) => void;
-  }) => {
-    zoomState.commit = onZoomChange;
-    return {
-      chartProps: {
-        onMouseDown() {},
-        onMouseMove() {},
-        onMouseUp() {},
-        onMouseLeave() {},
-      },
-      previewRange: null,
-      isZoomed: zoom != null,
-      reset: () => onZoomChange(null),
-    };
-  },
-}));
+vi.mock("@/hooks/useChartZoom", async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    useChartZoom: ({
+      zoom,
+      onZoomChange,
+    }: {
+      zoom: unknown;
+      onZoomChange: (z: { start: number; end: number } | null) => void;
+    }) => {
+      zoomState.commit = onZoomChange;
+      return {
+        chartProps: {
+          onMouseDown() {},
+          onMouseMove() {},
+          onMouseUp() {},
+          onMouseLeave() {},
+        },
+        previewRange: null,
+        isZoomed: zoom != null,
+        reset: () => onZoomChange(null),
+      };
+    },
+  };
+});
 
 vi.stubGlobal(
   "ResizeObserver",
@@ -57,25 +63,6 @@ Element.prototype.getBoundingClientRect = () =>
     toJSON() {},
   }) as DOMRect;
 
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, useDnsStatsDashboard: vi.fn() };
-});
-
-const mockDashboard = vi.mocked(useDnsStatsDashboard);
-
-function dashboardResult(
-  overrides: Partial<ReturnType<typeof useDnsStatsDashboard>> = {},
-) {
-  return {
-    data: undefined,
-    isLoading: false,
-    isError: false,
-    error: null,
-    ...overrides,
-  } as unknown as ReturnType<typeof useDnsStatsDashboard>;
-}
-
 const fullData = {
   series: [
     { ts: "2026-01-01T00:00:00Z", total: 100, blocked: 40 },
@@ -94,7 +81,40 @@ const fullData = {
   topClients: {
     entries: [{ labels: JSON.stringify({ client: "10.0.0.5" }), total: 120 }],
   },
-};
+} as unknown as DnsStatsDashboardData;
+
+interface HarnessProps {
+  range: StatsRange;
+  data?: DnsStatsDashboardData;
+  isLoading?: boolean;
+  isError?: boolean;
+  error?: unknown;
+}
+
+/** Stateful harness standing in for the page: owns the committed zoom the
+ *  way pages/Dns.tsx does, so zoom commits from the chart re-render the
+ *  section with the new window. */
+function Harness({
+  range,
+  data,
+  isLoading = false,
+  isError = false,
+  error = null,
+}: HarnessProps) {
+  const [zoom, setZoom] = useState<ZoomRange | null>(null);
+  return (
+    <DnsStatsSection
+      range={range}
+      zoom={zoom}
+      onZoomChange={setZoom}
+      data={data}
+      isLoading={isLoading}
+      isError={isError}
+      error={error}
+      devices={undefined}
+    />
+  );
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -102,45 +122,33 @@ beforeEach(() => {
 
 describe("DnsStatsSection", () => {
   it("renders an error card with the error message", () => {
-    mockDashboard.mockReturnValue(
-      dashboardResult({ isError: true, error: new Error("stats down") }),
+    renderWithProviders(
+      <Harness range="24h" isError error={new Error("stats down")} />,
     );
-    renderWithProviders(<DnsStatsSection range="24h" />);
     expect(screen.getByText("stats down")).toBeInTheDocument();
   });
 
   it("renders a generic error card for a non-Error rejection", () => {
-    mockDashboard.mockReturnValue(
-      dashboardResult({ isError: true, error: "weird" as unknown as Error }),
-    );
-    renderWithProviders(<DnsStatsSection range="24h" />);
+    renderWithProviders(<Harness range="24h" isError error="weird" />);
     expect(screen.getByText("Failed to load DNS stats")).toBeInTheDocument();
   });
 
   it("shows the loading state in the chart area", () => {
-    mockDashboard.mockReturnValue(dashboardResult({ isLoading: true }));
-    renderWithProviders(<DnsStatsSection range="1h" />);
+    renderWithProviders(<Harness range="1h" isLoading />);
     expect(screen.getByText("Loading…")).toBeInTheDocument();
     // Stat cards fall back to em dashes with no data.
     expect(screen.getAllByText("-").length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows an empty chart message when the series is empty", () => {
-    mockDashboard.mockReturnValue(
-      dashboardResult({
-        data: {
-          ...fullData,
-          series: [],
-        } as unknown as typeof fullData,
-      } as never),
+    renderWithProviders(
+      <Harness range="7d" data={{ ...fullData, series: [] }} />,
     );
-    renderWithProviders(<DnsStatsSection range="7d" />);
     expect(screen.getByText("No data yet.")).toBeInTheDocument();
   });
 
   it("renders stat cards, chart and top lists from full data", () => {
-    mockDashboard.mockReturnValue(dashboardResult({ data: fullData as never }));
-    renderWithProviders(<DnsStatsSection range="12h" />);
+    renderWithProviders(<Harness range="12h" data={fullData} />);
     expect(screen.getByText("Queries (12h)")).toBeInTheDocument();
     expect(screen.getByText("300")).toBeInTheDocument();
     expect(screen.getByText("33.3%")).toBeInTheDocument();
@@ -156,20 +164,17 @@ describe("DnsStatsSection", () => {
   });
 
   it("renders the chart with a multi-day x-axis (7d range)", () => {
-    mockDashboard.mockReturnValue(dashboardResult({ data: fullData as never }));
-    renderWithProviders(<DnsStatsSection range="7d" />);
+    renderWithProviders(<Harness range="7d" data={fullData} />);
     expect(screen.getByText("Queries over time")).toBeInTheDocument();
   });
 
   it("renders the chart with a monthly x-axis (12mo range)", () => {
-    mockDashboard.mockReturnValue(dashboardResult({ data: fullData as never }));
-    renderWithProviders(<DnsStatsSection range="12mo" />);
+    renderWithProviders(<Harness range="12mo" data={fullData} />);
     expect(screen.getByText("Queries over time")).toBeInTheDocument();
   });
 
   it("commits a zoom (relabelling cards) then resets it", () => {
-    mockDashboard.mockReturnValue(dashboardResult({ data: fullData as never }));
-    renderWithProviders(<DnsStatsSection range="24h" />);
+    renderWithProviders(<Harness range="24h" data={fullData} />);
     const t0 = new Date("2026-01-01T00:00:00Z").getTime();
     const t1 = new Date("2026-01-01T01:00:00Z").getTime();
     // Commit a 1-hour zoom window through the hook's onZoomChange.
@@ -184,16 +189,18 @@ describe("DnsStatsSection", () => {
   });
 
   it("renders top-list empty states when entries are missing", () => {
-    mockDashboard.mockReturnValue(
-      dashboardResult({
-        data: {
-          ...fullData,
-          topDomains: { entries: [] },
-          topClients: { entries: [] },
-        } as never,
-      }),
+    renderWithProviders(
+      <Harness
+        range="12mo"
+        data={
+          {
+            ...fullData,
+            topDomains: { entries: [] },
+            topClients: { entries: [] },
+          } as unknown as DnsStatsDashboardData
+        }
+      />,
     );
-    renderWithProviders(<DnsStatsSection range="12mo" />);
     // Both top lists show the empty message.
     expect(screen.getAllByText("No data yet.").length).toBeGreaterThanOrEqual(
       2,
