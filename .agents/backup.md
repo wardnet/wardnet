@@ -56,6 +56,30 @@ On apply, the service:
 3. Sets `backup_restart_pending = "true"` in `system_config`.
 4. Returns the list of snapshots created.
 
+### Deploy-time-only config keys (issue #1112)
+
+Step 2 does **not** write the bundle's `wardnet.toml` verbatim. The
+systemd unit grants `ReadWritePaths=/etc/wardnet` so restore can write
+the config at all, which puts that file within reach of an admin
+session: export a bundle, edit the TOML (the passphrase is the admin's
+own), repack, restore, restart. `[update] allow_edge_channel` is
+exactly what must stay out of that reach — ADR-0023 makes putting a box
+on the edge channel take root *on that box*.
+
+`wardnet_common::config_restore::preserve_deploy_time_keys` therefore
+merges the bundle's config over the live one, taking every key in
+`DEPLOY_TIME_ONLY_KEYS` from the live machine: the update path, the
+filesystem locations the sandbox pins, this box's hardware identity, and
+the test-harness overrides that are never set in production. The merge is
+untyped (`toml::Table`, never `ApplicationConfiguration`) so keys from a
+newer daemon survive, and a bundle that changes none of them is passed
+through byte-for-byte so operator comments are not lost to a
+re-serialisation.
+
+Adding a config field without deciding which side of that line it falls on
+fails `wardnet-common`'s
+`tests::config_restore::every_config_key_is_classified`.
+
 The running SQLite pool still points at the (now renamed) old file
 via its open file descriptor, so writes from the old pool would land
 in the unlinked inode and vanish. That's why the response tells the

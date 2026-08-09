@@ -2,6 +2,7 @@ pub mod api;
 pub mod auth;
 pub mod backup;
 pub mod config;
+pub mod config_restore;
 pub mod device;
 pub mod dhcp;
 pub mod dns;

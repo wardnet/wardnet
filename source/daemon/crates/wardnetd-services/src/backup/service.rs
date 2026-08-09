@@ -18,6 +18,12 @@
 //! * Every method begins with `auth_context::require_admin()?` — no
 //!   anonymous access to backup operations, same defense-in-depth rule
 //!   as the rest of the service layer.
+//! * The config a restore writes is **not** the bundle's copy verbatim:
+//!   deploy-time-only keys are taken from the live machine first, so a
+//!   bundle cannot change this box's deployment posture (which builds it
+//!   installs, where its files live, what hardware it drives). See
+//!   [`wardnet_common::config_restore`] and
+//!   [`BackupServiceImpl::config_bytes_for_restore`].
 //!
 //! ### What happens to the secret store on restore
 //!
@@ -49,6 +55,7 @@ use wardnet_common::backup::{
     BackupStatus, BundleManifest, CURRENT_BUNDLE_FORMAT_VERSION, LocalSnapshot, MIN_PASSPHRASE_LEN,
     RestorePhase, SnapshotKind,
 };
+use wardnet_common::config_restore::{self, ConfigRestoreError};
 use wardnetd_data::database_dumper::DatabaseDumper;
 use wardnetd_data::db::restore_pending_marker_path;
 use wardnetd_data::repository::SystemConfigRepository;
@@ -319,6 +326,59 @@ impl BackupServiceImpl {
         base.with_file_name(format!(".{name}.pre-restore-{}", Uuid::new_v4()))
     }
 
+    /// The config a restore should actually write: the bundle's, with
+    /// every deploy-time-only key reset to this machine's live value.
+    ///
+    /// Restoring replaces `/etc/wardnet/wardnet.toml` wholesale, and the
+    /// systemd unit grants `ReadWritePaths=/etc/wardnet` so the write
+    /// lands. That puts the file within reach of an admin session — export
+    /// a bundle, edit the TOML, restore it — which is exactly what
+    /// `[update] allow_edge_channel` is supposed to be out of reach of
+    /// (ADR-0023: putting a box on edge takes root *on that box*).
+    /// [`config_restore::preserve_deploy_time_keys`] holds that line; see
+    /// its module docs for what counts as deploy-time and why.
+    ///
+    /// Called before anything on disk is touched, so a bundle carrying an
+    /// unreadable config fails the restore rather than half-applying it.
+    async fn config_bytes_for_restore(&self, bundle_config: &[u8]) -> Result<Vec<u8>, AppError> {
+        let bundle_toml = std::str::from_utf8(bundle_config).map_err(|e| {
+            AppError::BadRequest(format!(
+                "the config in the backup bundle is not valid UTF-8: {e}"
+            ))
+        })?;
+        let live_toml = match tokio::fs::read_to_string(&self.config_path).await {
+            Ok(contents) => contents,
+            // No live config at all: every deploy-time key is at its
+            // compiled-in default, which is what the merge falls back to.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => {
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "failed to read live config at {}: {e}",
+                    self.config_path.display()
+                )));
+            }
+        };
+
+        let merged = config_restore::preserve_deploy_time_keys(&live_toml, bundle_toml).map_err(
+            |e| match e {
+                // The bundle is caller-supplied, so a broken config in it is
+                // a bad request; a broken *live* config is our own problem.
+                ConfigRestoreError::BundleConfig(_) => AppError::BadRequest(e.to_string()),
+                other => AppError::Internal(anyhow::anyhow!(other)),
+            },
+        )?;
+
+        if !merged.overridden.is_empty() {
+            let keys = merged.overridden.join(", ");
+            tracing::warn!(
+                keys = %keys,
+                "backup restore: bundle would have changed deploy-time-only config keys, live values kept: keys={keys}",
+            );
+        }
+
+        Ok(merged.toml.into_bytes())
+    }
+
     /// Stage the bundle's config bytes as a sibling file so the
     /// eventual `rename` into place is atomic. The staging file is
     /// created with `0600` — the config may carry provider
@@ -353,6 +413,10 @@ impl BackupServiceImpl {
     /// `.bak-<timestamp>`. On any failure after the swap begins,
     /// best-effort rollback renames the holds back into place and
     /// replays the pre-restore secret-store state.
+    // The phases share the rollback state they build up (the two holds, the
+    // staged config, the pre-restore secrets); splitting them into methods
+    // would thread all of it through signatures for no gain in clarity.
+    #[allow(clippy::too_many_lines)]
     async fn run_apply_import(
         &self,
         pending: &PendingImport,
@@ -377,7 +441,10 @@ impl BackupServiceImpl {
             phase: RestorePhase::Validating,
         })
         .await;
-        let staged_config = self.stage_config(&pending.contents.config_bytes).await?;
+        let restored_config = self
+            .config_bytes_for_restore(&pending.contents.config_bytes)
+            .await?;
+        let staged_config = self.stage_config(&restored_config).await?;
 
         // ---- Phase 2: move live files aside ----
         //

@@ -285,6 +285,30 @@ pet is never health-gated.
 | --- | --- | --- |
 | `pidfile_path` | `"/run/wardnetd/wardnetd.pid"` | Where the daemon writes its PID file. Not part of any `[section]`. |
 
+## Keys a backup restore will not change
+
+Restoring a backup bundle replaces this file with the copy inside the
+bundle — except for the keys that describe the *machine* rather than your
+settings. Those are always taken from the box you are restoring onto:
+
+- **The update path** — every key in `[update]`. A bundle cannot open
+  `allow_edge_channel`, repoint `manifest_base_url`, or turn off
+  `require_signature`. Opting a box into the edge channel takes root on
+  that box, and a restore is not root.
+- **File locations** — `[database]`, `[secret_store]`, `logging.path`,
+  `pidfile_path`. These are pinned by the systemd sandbox; a bundle from a
+  differently-laid-out box would point the daemon at paths it cannot write.
+- **Hardware** — `network.lan_interface`, `watchdog.enabled`,
+  `watchdog.device_path`. Your NIC is not the same NIC as the box the
+  bundle came from.
+- **Test-harness overrides** — `[test]`, `vpn_providers.nordvpn_api_url`,
+  `[ddns_wardnet]`. Never set on a real deployment.
+
+Everything else — log level, tunnel tuning, detection, telemetry, mDNS,
+health — restores from the bundle as you would expect. If a bundle did
+carry different values for any of the keys above, the daemon logs which
+ones it kept at their live values.
+
 ## Environment variable overrides
 
 Two runtime overrides are honoured independent of the TOML:
