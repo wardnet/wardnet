@@ -1,5 +1,10 @@
-import { useTlsStatus } from "@wardnet/web";
+import type { TlsStatusResponse } from "@wardnet/js";
 import { RemoteAccessStatus } from "@/components/features/RemoteAccessStatus";
+
+interface DashboardRemoteAccessBannerProps {
+  /** The TLS provisioning status, from the owning page's `useTlsStatus()`. */
+  status: TlsStatusResponse | undefined;
+}
 
 /**
  * Persistent dashboard indicator for remote-access provisioning. Surfaces the
@@ -11,12 +16,13 @@ import { RemoteAccessStatus } from "@/components/features/RemoteAccessStatus";
  * suppressed here: a permanent "remote access is live" card would clutter every
  * dashboard load forever, and the steady-state certificate panel (with manual
  * retry) is owned by Settings (C10). The wizard's own step still shows the
- * issued confirmation inline. Renders nothing while idle. Polls only while
- * issuance is in flight (the hook stops once a terminal phase is reached).
+ * issued confirmation inline. Renders nothing while idle. Pure presentation —
+ * the owning page wires the status query (which polls only while issuance is
+ * in flight) and passes the data in.
  */
-export function DashboardRemoteAccessBanner() {
-  const { data: status } = useTlsStatus();
-
+export function DashboardRemoteAccessBanner({
+  status,
+}: DashboardRemoteAccessBannerProps) {
   if (!status || status.phase === "idle" || status.phase === "issued")
     return null;
 

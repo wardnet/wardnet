@@ -22,8 +22,14 @@ import { WardnetApiError } from "@wardnet/js";
 import {
   useDdnsStatus,
   useDeleteDdns,
+  useDevices,
   useResolutionCheck,
   useTlsStatus,
+  usePrivateDnsStatus,
+  useSetPrivateDnsEnabled,
+  useGrantPrivateDnsDevice,
+  useRevokePrivateDnsDevice,
+  useSendPrivateDnsToDevice,
 } from "@wardnet/web";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { PrivateDnsCard } from "@/components/features/PrivateDnsCard";
@@ -56,6 +62,15 @@ import { suggestName } from "@/lib/suggestName";
 export default function RemoteAccess() {
   const { data: ddns } = useDdnsStatus();
   const { data: tls } = useTlsStatus();
+  // Private DNS card wiring — the page owns the queries/mutations so the
+  // card stays pure presentation.
+  const { data: privateDnsStatus, isLoading: privateDnsLoading } =
+    usePrivateDnsStatus();
+  const setPrivateDnsEnabled = useSetPrivateDnsEnabled();
+  const grantPrivateDnsDevice = useGrantPrivateDnsDevice();
+  const revokePrivateDnsDevice = useRevokePrivateDnsDevice();
+  const sendPrivateDnsToDevice = useSendPrivateDnsToDevice();
+  const { data: devicesData } = useDevices();
   const configured = !!ddns?.provider;
   const resolution = useResolutionCheck(configured);
 
@@ -310,7 +325,17 @@ export default function RemoteAccess() {
         </Card>
       )}
 
-      <PrivateDnsCard />
+      <PrivateDnsCard
+        status={privateDnsStatus}
+        isLoading={privateDnsLoading}
+        devices={devicesData?.devices ?? []}
+        onSetEnabled={setPrivateDnsEnabled.mutate}
+        setEnabledPending={setPrivateDnsEnabled.isPending}
+        grantDevice={grantPrivateDnsDevice}
+        onRevokeDevice={revokePrivateDnsDevice.mutate}
+        onSendToDevice={sendPrivateDnsToDevice.mutate}
+        sendPending={sendPrivateDnsToDevice.isPending}
+      />
 
       {configured && (
         <Card style={{ background: "var(--danger-soft)" }}>
