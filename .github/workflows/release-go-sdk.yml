@@ -43,9 +43,19 @@ jobs:
 
       # Full history: `git subtree split` has to walk every commit that
       # touched the prefix, and a shallow clone silently truncates it.
+      #
+      # `persist-credentials: false` because checkout otherwise writes
+      # `http.https://github.com/.extraheader` with an Authorization header
+      # for GITHUB_TOKEN, and that header wins over the userinfo in a push
+      # URL. The mirror push below embeds an app token in its URL, so with
+      # credentials persisted it authenticated as github-actions[bot] —
+      # which has no access to wardnet-go — and 403'd. Nothing in this job
+      # needs the checkout's credentials: `git subtree split` is entirely
+      # local, and every remote operation supplies its own token.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # GITHUB_TOKEN is scoped to this repository and cannot push to another
       # one. wardnet-infra-bot is installed org-wide with contents:write.
@@ -114,11 +124,29 @@ jobs:
           # Go checksum database pins a version's hash on first fetch, so
           # re-tagging breaks verification for every consumer instead of
           # updating them. A ruleset on the mirror enforces this too.
-          if git ls-remote --exit-code --tags "${MIRROR}" "refs/tags/${SDK_TAG}" >/dev/null 2>&1; then
-            echo "::notice::${SDK_TAG} is already published — source/sdk/wardnet-go/VERSION was not bumped, so this release ships no new SDK version."
-            echo "published=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
+          #
+          # Exit codes are separated rather than collapsed with `if`. Both a
+          # missing tag and an auth failure are non-zero, so treating any
+          # non-zero as "not published yet" turns a 403 into a green light —
+          # which is exactly how the auth bug above stayed invisible until
+          # the push failed. 0 = tag exists, 2 = ran fine and found nothing,
+          # anything else = the query itself failed and we must not guess.
+          set +e
+          git ls-remote --exit-code --tags "${MIRROR}" "refs/tags/${SDK_TAG}" >/dev/null
+          LS_STATUS=$?
+          set -e
+          case "${LS_STATUS}" in
+            0)
+              echo "::notice::${SDK_TAG} is already published — source/sdk/wardnet-go/VERSION was not bumped, so this release ships no new SDK version."
+              echo "published=false" >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+            2) ;;  # reachable, tag absent — proceed to publish
+            *)
+              echo "::error::Could not query the mirror for ${SDK_TAG} (git ls-remote exit ${LS_STATUS}). Refusing to publish without knowing whether the tag already exists."
+              exit 1
+              ;;
+          esac
 
           # Rewrites the subdirectory's history into commits rooted at the SDK.
           SPLIT=$(git subtree split --prefix=source/sdk/wardnet-go)
