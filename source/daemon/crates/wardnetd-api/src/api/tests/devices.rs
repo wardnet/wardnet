@@ -642,6 +642,14 @@ impl DeviceIdentificationService for MockIdentificationService {
     ) -> Result<(), AppError> {
         Ok(())
     }
+    async fn record_signal_for_ip(
+        &self,
+        _ip: std::net::IpAddr,
+        _kind: DeviceSignalKind,
+        _value: &str,
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
     async fn signals_for(&self, _device_id: &str) -> Result<Vec<DeviceSignal>, AppError> {
         self.signals_for
             .clone()

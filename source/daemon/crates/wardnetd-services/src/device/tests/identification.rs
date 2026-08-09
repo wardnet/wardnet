@@ -51,6 +51,16 @@ async fn build() -> Harness {
 
 /// Insert a device with no manufacturer, returning its id.
 async fn insert_device(devices: &Arc<dyn DeviceRepository>, mac: &str) -> String {
+    insert_device_with_ip(devices, mac, "192.168.1.10").await
+}
+
+/// Insert a device with no manufacturer at a specific `last_ip`, returning its
+/// id. The IP is what the mDNS observer resolves against.
+async fn insert_device_with_ip(
+    devices: &Arc<dyn DeviceRepository>,
+    mac: &str,
+    last_ip: &str,
+) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     devices
         .insert(&DeviceRow {
@@ -63,7 +73,7 @@ async fn insert_device(devices: &Arc<dyn DeviceRepository>, mac: &str) -> String
             device_type: "unknown".to_owned(),
             first_seen: "2026-03-07T00:00:00Z".to_owned(),
             last_seen: "2026-03-07T00:00:00Z".to_owned(),
-            last_ip: "192.168.1.10".to_owned(),
+            last_ip: last_ip.to_owned(),
             zone_id: ZONE.to_owned(),
             connection_mode: DeviceConnectionMode::Lan,
         })
@@ -303,6 +313,94 @@ async fn record_for_mac_is_case_insensitive() {
     .unwrap();
 
     assert_eq!(as_admin(h.svc.signals_for(&id)).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_mdns_signal_names_the_single_device_holding_an_ip() {
+    // The happy path: an IP that resolves to exactly one device attributes the
+    // observed service type to it, just like the MAC path.
+    let h = build().await;
+    let id = insert_device_with_ip(&h.devices, "aa:bb:cc:dd:ee:01", "192.168.1.42").await;
+
+    as_admin(h.svc.record_signal_for_ip(
+        "192.168.1.42".parse().unwrap(),
+        DeviceSignalKind::MdnsService,
+        "_googlecast._tcp.local.",
+    ))
+    .await
+    .unwrap();
+
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer.as_deref(), Some("Google"));
+    assert_eq!(as_admin(h.svc.signals_for(&id)).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_ip_with_no_device_is_skipped() {
+    // A browse result for an address no device currently holds is dropped
+    // rather than failing — an observability side-effect must never error out
+    // the passive observer.
+    let h = build().await;
+    let id = insert_device_with_ip(&h.devices, "aa:bb:cc:dd:ee:01", "192.168.1.42").await;
+
+    as_admin(h.svc.record_signal_for_ip(
+        "192.168.1.99".parse().unwrap(),
+        DeviceSignalKind::MdnsService,
+        "_googlecast._tcp.local.",
+    ))
+    .await
+    .unwrap();
+
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer, None);
+    assert!(as_admin(h.svc.signals_for(&id)).await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn an_ip_shared_by_two_devices_is_skipped() {
+    // The core of the ADR's mDNS decision: `last_ip` is not unique (a departed
+    // row can still hold a recycled address), and a wrong attribution is worse
+    // than no signal. When an IP maps to more than one device, neither is
+    // named and nothing is recorded.
+    let h = build().await;
+    let a = insert_device_with_ip(&h.devices, "aa:bb:cc:dd:ee:01", "192.168.1.42").await;
+    let b = insert_device_with_ip(&h.devices, "aa:bb:cc:dd:ee:02", "192.168.1.42").await;
+
+    as_admin(h.svc.record_signal_for_ip(
+        "192.168.1.42".parse().unwrap(),
+        DeviceSignalKind::MdnsService,
+        "_googlecast._tcp.local.",
+    ))
+    .await
+    .unwrap();
+
+    for id in [&a, &b] {
+        let device = h.devices.find_by_id(id).await.unwrap().unwrap();
+        assert_eq!(device.manufacturer, None, "no device may be named on a tie");
+        assert!(
+            as_admin(h.svc.signals_for(id)).await.unwrap().is_empty(),
+            "no signal may be recorded on a tie"
+        );
+    }
+}
+
+#[tokio::test]
+async fn record_signal_for_ip_is_admin_gated() {
+    // The observer is a background component and must supply an admin context,
+    // exactly like the DHCP producer.
+    let h = build().await;
+    insert_device_with_ip(&h.devices, "aa:bb:cc:dd:ee:01", "192.168.1.42").await;
+
+    let result = h
+        .svc
+        .record_signal_for_ip(
+            "192.168.1.42".parse().unwrap(),
+            DeviceSignalKind::MdnsService,
+            "_googlecast._tcp.local.",
+        )
+        .await;
+
+    assert!(result.is_err(), "no ambient context must be refused");
 }
 
 #[tokio::test]
