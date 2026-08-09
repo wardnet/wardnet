@@ -129,6 +129,21 @@ describe("AppLayout", () => {
     );
   });
 
+  it("falls back to safe defaults while the status queries are unresolved", () => {
+    useAuth.mockReturnValue({ isAdmin: true, logout: vi.fn() });
+    useDaemonStatus.mockReturnValue({ data: undefined, isLoading: true });
+    useUpdateStatus.mockReturnValue({ data: undefined });
+    renderAt("/devices");
+    const sidebar = screen.getByText("sidebar");
+    expect(sidebar).toHaveAttribute("data-version", "-");
+    expect(sidebar).toHaveAttribute("data-connected", "false");
+    expect(sidebar).toHaveAttribute("data-update", "false");
+    expect(screen.getByTestId("connection-banner")).toHaveAttribute(
+      "data-reachable",
+      "undefined",
+    );
+  });
+
   it("wires the shutdown acknowledgement mutation to the banner", async () => {
     useAuth.mockReturnValue({ isAdmin: true, logout: vi.fn() });
     renderAt("/devices");

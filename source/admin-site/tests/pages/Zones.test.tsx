@@ -259,6 +259,29 @@ describe("Zones", () => {
     });
   });
 
+  it("falls back to empty data while the queries are unresolved", () => {
+    usePendingDevices.mockReturnValue({
+      pending: [],
+      defaultForNew: undefined,
+      homeZone: undefined,
+      zones: [],
+    });
+    useDevices.mockReturnValue({ data: undefined });
+    useZoneExceptions.mockReturnValue({ data: undefined });
+    useQuarantineNewDevices.mockReturnValue({ data: undefined });
+    useAssignDeviceZone.mockReturnValue({
+      mutate: assignMutate,
+      isPending: true,
+      variables: undefined,
+    });
+    renderWithProviders(<Zones />);
+    expect(screen.getByTestId("exceptions-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("exceptions-devices")).toHaveTextContent("0");
+    expect(screen.getByTestId("notify-enabled")).toHaveTextContent("false");
+    // Pending with no variables yet must not claim any row is approving.
+    expect(screen.getByTestId("approving-id")).toHaveTextContent("-");
+  });
+
   it("derives the mid-flight approval device id from the shared mutation", () => {
     useAssignDeviceZone.mockReturnValue({
       mutate: assignMutate,

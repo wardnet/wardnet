@@ -265,6 +265,17 @@ describe("DnsLocal", () => {
     expect(deleteRuleMutate).toHaveBeenCalledWith("r1");
   });
 
+  it("falls back to empty data while the queries are unresolved", () => {
+    useDnsRecords.mockReturnValue({ data: undefined });
+    useDnsZones.mockReturnValue({ data: undefined });
+    useForwardingRules.mockReturnValue({ data: undefined });
+    renderWithProviders(<DnsLocal />);
+    expect(screen.getByTestId("records-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("zones-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("rules-count")).toHaveTextContent("0");
+    expect(screen.getByTestId("dhcp-lan-info")).toHaveTextContent("0");
+  });
+
   it("derives isSaving from the create/update record mutations", () => {
     useCreateDnsRecord.mockReturnValue({
       mutate: createRecordMutate,
