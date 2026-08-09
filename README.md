@@ -70,7 +70,8 @@ money to run on your behalf, plus the mobile layer:
 - **Dynamic DNS**: reach your gateway with no domain of your own.
 - **Secure remote tunneling** with automatic HTTPS: encrypted inbound access
   from anywhere.
-- **Roaming private DNS**: keep your filtering with you off the LAN.
+- **Private DNS**: your phone resolves through your gateway everywhere, at
+  home and on cellular, with no VPN, so your filtering follows it off the LAN.
 - **Personal VPN**: your own inbound WireGuard server, so your phone and
   laptop reach your home network from anywhere.
 - **The mobile apps**: the User PWA and the Admin mobile PWA, and the push

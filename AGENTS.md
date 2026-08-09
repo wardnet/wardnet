@@ -88,6 +88,19 @@ you're about to make, rather than the whole set.
   `/usr/local/sbin/wardnet-uninstall` escape hatch, and the
   default/`--purge` tiers. Invariant: **teardown deletes only our named
   table, never a ruleset flush.**
+- **[Private DNS](docs/adr/0029-private-dns-dot.md)** — why the `DoT`
+  `:853` listener treats the TLS **SNI** as both authentication and
+  attribution, and why the resolver is therefore closed (the apex slug is
+  public via CT logs, so apex serving is not acceptable); the per-device
+  secret hostname `<token>.<fqdn>` riding the existing wildcard SAN so no
+  token ever reaches a CT log; the two paths one hostname takes
+  (split-horizon to the Pi on the LAN, the **Tunneller**'s
+  `FRAME_CONNECT dest_port=853` while roaming); DoT-only until #816
+  unblocks `:443`; Premium gating with a *persisted* disable on
+  entitlement loss; and the Android constraints that shape the listener —
+  **no ALPN advertised**, publicly-trusted chain, fail-closed. Also the
+  **Tunneller**-vs-**Private DNS** terminology split (relay infrastructure
+  vs user-facing feature).
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with
