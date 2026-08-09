@@ -19,15 +19,17 @@ import {
 import { Text } from "@wardnet/web";
 import { ApiErrorAlert } from "@wardnet/web";
 import { FormActions } from "@wardnet/web";
-import {
-  useRoutingProfiles,
-  useDeviceRoutingProfiles,
-  useSetDeviceRoutingProfiles,
-} from "@wardnet/web";
+import type { MutationHandle } from "@/lib/mutationHandle";
 import type { Device, RoutingProfile } from "@wardnet/js";
 
 interface DeviceRoutingProfilesCardProps {
   device: Device;
+  /** All routing profiles. */
+  allProfiles: RoutingProfile[];
+  /** This device's assigned profile ids, in priority order. */
+  assignedIds: string[];
+  /** The page's hoisted assignment-save mutation. */
+  save: MutationHandle<{ deviceId: string; profileIds: string[] }>;
 }
 
 /**
@@ -35,18 +37,15 @@ interface DeviceRoutingProfilesCardProps {
  * profiles are consulted in priority order — the first profile whose rule
  * matches a resolved domain wins — so the list order matters. Editing mirrors
  * the upstream-DNS reorder idiom: move up/down + remove, add from the
- * unassigned set, then save the whole ordered list.
+ * unassigned set, then save the whole ordered list. Pure presentation — the
+ * owning page wires the query/mutation hooks and passes data + callbacks in.
  */
 export function DeviceRoutingProfilesCard({
   device,
+  allProfiles,
+  assignedIds,
+  save,
 }: DeviceRoutingProfilesCardProps) {
-  const { data: profilesData } = useRoutingProfiles();
-  const { data: assignedData } = useDeviceRoutingProfiles(device.id);
-  const save = useSetDeviceRoutingProfiles();
-
-  const allProfiles = profilesData?.profiles ?? [];
-  const assignedIds = assignedData?.profile_ids ?? [];
-
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<string[]>([]);
 

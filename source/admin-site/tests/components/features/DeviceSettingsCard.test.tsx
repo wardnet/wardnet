@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
 import { makeDevice, renderWithProviders } from "../../test-utils";
-import type { RoutingTarget, Tunnel } from "@wardnet/js";
+import type { Device, RoutingTarget, Tunnel } from "@wardnet/js";
 
 // Radix primitives (Select) measure their trigger in a layout effect; jsdom has
 // no ResizeObserver / pointer-capture, so stub them as elsewhere in the suite.
@@ -19,13 +19,6 @@ vi.stubGlobal(
     disconnect() {}
   },
 );
-
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, useTunnels: vi.fn(), useUpdateDevice: vi.fn() };
-});
-
-import { useTunnels, useUpdateDevice } from "@wardnet/web";
 
 const mutateAsync = vi.fn();
 const reset = vi.fn();
@@ -51,37 +44,44 @@ function makeTunnel(over: Partial<Tunnel> = {}): Tunnel {
   } as Tunnel;
 }
 
-function setup({
+function cardProps({
+  device = makeDevice({ name: "TV" }),
+  currentRule = null as RoutingTarget | null,
   tunnels = [] as Tunnel[],
   update = {},
-}: { tunnels?: Tunnel[]; update?: Record<string, unknown> } = {}) {
-  vi.mocked(useTunnels).mockReturnValue({
-    data: { tunnels },
-  } as unknown as ReturnType<typeof useTunnels>);
-  vi.mocked(useUpdateDevice).mockReturnValue({
-    mutateAsync,
-    reset,
-    isPending: false,
-    isError: false,
-    error: null,
-    ...update,
-  } as unknown as ReturnType<typeof useUpdateDevice>);
+}: {
+  device?: Device;
+  currentRule?: RoutingTarget | null;
+  tunnels?: Tunnel[];
+  update?: Partial<{
+    isPending: boolean;
+    isError: boolean;
+    error: Error | null;
+  }>;
+} = {}) {
+  return {
+    device,
+    currentRule,
+    tunnels,
+    updateDevice: {
+      mutateAsync,
+      reset,
+      isPending: false,
+      isError: false,
+      error: null,
+      ...update,
+    },
+  };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mutateAsync.mockResolvedValue(undefined);
-  setup();
 });
 
 describe("DeviceSettingsCard routing label", () => {
   it("shows Direct when there is no rule", () => {
-    renderWithProviders(
-      <DeviceSettingsCard
-        device={makeDevice({ name: "TV" })}
-        currentRule={null}
-      />,
-    );
+    renderWithProviders(<DeviceSettingsCard {...cardProps()} />);
     expect(
       screen.getByTestId("device-settings-routing-value"),
     ).toHaveTextContent("Direct (no VPN)");
@@ -90,8 +90,7 @@ describe("DeviceSettingsCard routing label", () => {
   it("shows Direct for an explicit direct rule", () => {
     renderWithProviders(
       <DeviceSettingsCard
-        device={makeDevice({ name: "TV" })}
-        currentRule={{ type: "direct" } as RoutingTarget}
+        {...cardProps({ currentRule: { type: "direct" } as RoutingTarget })}
       />,
     );
     expect(
@@ -100,11 +99,12 @@ describe("DeviceSettingsCard routing label", () => {
   });
 
   it("shows the tunnel label for a matched tunnel", () => {
-    setup({ tunnels: [makeTunnel({ id: "tun-1", label: "US West" })] });
     renderWithProviders(
       <DeviceSettingsCard
-        device={makeDevice({ name: "TV" })}
-        currentRule={{ type: "tunnel", tunnel_id: "tun-1" }}
+        {...cardProps({
+          tunnels: [makeTunnel({ id: "tun-1", label: "US West" })],
+          currentRule: { type: "tunnel", tunnel_id: "tun-1" },
+        })}
       />,
     );
     expect(
@@ -115,8 +115,9 @@ describe("DeviceSettingsCard routing label", () => {
   it("falls back to 'Via tunnel' when the tunnel is unknown", () => {
     renderWithProviders(
       <DeviceSettingsCard
-        device={makeDevice({ name: "TV" })}
-        currentRule={{ type: "tunnel", tunnel_id: "missing" }}
+        {...cardProps({
+          currentRule: { type: "tunnel", tunnel_id: "missing" },
+        })}
       />,
     );
     expect(
@@ -129,8 +130,9 @@ describe("DeviceSettingsCard editing", () => {
   it("shows read-only fields for a managed device", () => {
     renderWithProviders(
       <DeviceSettingsCard
-        device={makeDevice({ name: "Laptop", admin_locked: true })}
-        currentRule={null}
+        {...cardProps({
+          device: makeDevice({ name: "Laptop", admin_locked: true }),
+        })}
       />,
     );
     expect(screen.getByText("Laptop")).toBeInTheDocument();
@@ -139,12 +141,7 @@ describe("DeviceSettingsCard editing", () => {
 
   it("saves edits for a managed device", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <DeviceSettingsCard
-        device={makeDevice({ name: "TV" })}
-        currentRule={null}
-      />,
-    );
+    renderWithProviders(<DeviceSettingsCard {...cardProps()} />);
     await user.click(screen.getByTestId("device-settings-edit"));
     const nameInput = screen.getByLabelText("Friendly name");
     await user.clear(nameInput);
@@ -167,8 +164,7 @@ describe("DeviceSettingsCard editing", () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DeviceSettingsCard
-        device={makeDevice({ name: null })}
-        currentRule={null}
+        {...cardProps({ device: makeDevice({ name: null }) })}
       />,
     );
     await user.click(screen.getByTestId("device-settings-edit"));
@@ -187,8 +183,7 @@ describe("DeviceSettingsCard editing", () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DeviceSettingsCard
-        device={makeDevice({ name: null })}
-        currentRule={null}
+        {...cardProps({ device: makeDevice({ name: null }) })}
       />,
     );
     await user.click(screen.getByTestId("device-settings-edit"));
@@ -208,8 +203,7 @@ describe("DeviceSettingsCard editing", () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DeviceSettingsCard
-        device={makeDevice({ name: null })}
-        currentRule={null}
+        {...cardProps({ device: makeDevice({ name: null }) })}
       />,
     );
     await user.click(screen.getByTestId("device-settings-edit"));
@@ -226,29 +220,24 @@ describe("DeviceSettingsCard editing", () => {
 
   it("shows the saving label and error alert while pending", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <DeviceSettingsCard
-        device={makeDevice({ name: "TV" })}
-        currentRule={null}
-      />,
+    const { rerender } = renderWithProviders(
+      <DeviceSettingsCard {...cardProps()} />,
     );
     await user.click(screen.getByTestId("device-settings-edit"));
-    setup({
-      update: { isPending: true, isError: true, error: new Error("x") },
-    });
-    await user.type(screen.getByLabelText("Friendly name"), "x");
+    rerender(
+      <DeviceSettingsCard
+        {...cardProps({
+          update: { isPending: true, isError: true, error: new Error("x") },
+        })}
+      />,
+    );
     expect(screen.getByRole("button", { name: "Saving…" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });
 
   it("cancels editing", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <DeviceSettingsCard
-        device={makeDevice({ name: "TV" })}
-        currentRule={null}
-      />,
-    );
+    renderWithProviders(<DeviceSettingsCard {...cardProps()} />);
     await user.click(screen.getByTestId("device-settings-edit"));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByTestId("device-settings-edit")).toBeInTheDocument();

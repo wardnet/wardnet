@@ -3,23 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceNetworkCard } from "@/components/features/DeviceNetworkCard";
 import { makeDevice, renderWithProviders } from "../../test-utils";
-import type { DhcpReservation } from "@wardnet/js";
-
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useDhcpReservations: vi.fn(),
-    useCreateReservation: vi.fn(),
-    useDeleteReservation: vi.fn(),
-  };
-});
-
-import {
-  useCreateReservation,
-  useDeleteReservation,
-  useDhcpReservations,
-} from "@wardnet/web";
+import type { Device, DhcpReservation } from "@wardnet/js";
 
 const createAsync = vi.fn();
 const deleteAsync = vi.fn();
@@ -39,41 +23,51 @@ function makeReservation(over: Partial<DhcpReservation> = {}): DhcpReservation {
   };
 }
 
-function setup({
-  reservations = [],
+function cardProps({
+  device = makeDevice(),
+  reservations = [] as DhcpReservation[],
   create = {},
   del = {},
 }: {
+  device?: Device;
   reservations?: DhcpReservation[];
-  create?: Record<string, unknown>;
-  del?: Record<string, unknown>;
+  create?: Partial<{
+    isPending: boolean;
+    isError: boolean;
+    error: Error | null;
+  }>;
+  del?: Partial<{ isPending: boolean; isError: boolean; error: Error | null }>;
 } = {}) {
-  vi.mocked(useDhcpReservations).mockReturnValue({
-    data: { reservations },
-  } as unknown as ReturnType<typeof useDhcpReservations>);
-  vi.mocked(useCreateReservation).mockReturnValue({
+  // Both create instances share the same spy, mirroring the sequence the card
+  // drives: first the edit's create, then (on failure) the silent restore.
+  const createHandle = {
     mutateAsync: createAsync,
     reset: createReset,
     isPending: false,
     isError: false,
     error: null,
     ...create,
-  } as unknown as ReturnType<typeof useCreateReservation>);
-  vi.mocked(useDeleteReservation).mockReturnValue({
-    mutateAsync: deleteAsync,
-    reset: deleteReset,
-    isPending: false,
-    isError: false,
-    error: null,
-    ...del,
-  } as unknown as ReturnType<typeof useDeleteReservation>);
+  };
+  return {
+    device,
+    reservations,
+    createReservation: createHandle,
+    restoreReservation: createHandle,
+    deleteReservation: {
+      mutateAsync: deleteAsync,
+      reset: deleteReset,
+      isPending: false,
+      isError: false,
+      error: null,
+      ...del,
+    },
+  };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   createAsync.mockResolvedValue(undefined);
   deleteAsync.mockResolvedValue(undefined);
-  setup();
 });
 
 async function setLastOctet(
@@ -89,7 +83,9 @@ async function setLastOctet(
 describe("DeviceNetworkCard", () => {
   it("renders the read-only IP and lease status badge", () => {
     renderWithProviders(
-      <DeviceNetworkCard device={makeDevice({ dhcp_status: "lease" })} />,
+      <DeviceNetworkCard
+        {...cardProps({ device: makeDevice({ dhcp_status: "lease" }) })}
+      />,
     );
     expect(screen.getByText("10.232.1.10")).toBeInTheDocument();
     expect(screen.getByText("Lease")).toBeInTheDocument();
@@ -97,14 +93,18 @@ describe("DeviceNetworkCard", () => {
 
   it("shows the reservation badge", () => {
     renderWithProviders(
-      <DeviceNetworkCard device={makeDevice({ dhcp_status: "reservation" })} />,
+      <DeviceNetworkCard
+        {...cardProps({ device: makeDevice({ dhcp_status: "reservation" }) })}
+      />,
     );
     expect(screen.getByText("Reserved")).toBeInTheDocument();
   });
 
   it("shows the external badge", () => {
     renderWithProviders(
-      <DeviceNetworkCard device={makeDevice({ dhcp_status: "external" })} />,
+      <DeviceNetworkCard
+        {...cardProps({ device: makeDevice({ dhcp_status: "external" }) })}
+      />,
     );
     expect(screen.getByText("External")).toBeInTheDocument();
   });
@@ -113,7 +113,9 @@ describe("DeviceNetworkCard", () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DeviceNetworkCard
-        device={makeDevice({ name: "TV", hostname: "tv-host" })}
+        {...cardProps({
+          device: makeDevice({ name: "TV", hostname: "tv-host" }),
+        })}
       />,
     );
     await user.click(screen.getByRole("button", { name: "Edit" }));
@@ -131,8 +133,13 @@ describe("DeviceNetworkCard", () => {
 
   it("closes without mutating when IP is unchanged for an existing reservation", async () => {
     const user = userEvent.setup();
-    setup({ reservations: [makeReservation({ ip_address: "10.232.1.10" })] });
-    renderWithProviders(<DeviceNetworkCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceNetworkCard
+        {...cardProps({
+          reservations: [makeReservation({ ip_address: "10.232.1.10" })],
+        })}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
@@ -146,8 +153,13 @@ describe("DeviceNetworkCard", () => {
 
   it("deletes then creates when the IP changes for an existing reservation", async () => {
     const user = userEvent.setup();
-    setup({ reservations: [makeReservation({ ip_address: "10.232.1.10" })] });
-    renderWithProviders(<DeviceNetworkCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceNetworkCard
+        {...cardProps({
+          reservations: [makeReservation({ ip_address: "10.232.1.10" })],
+        })}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await setLastOctet(user, "20");
@@ -161,12 +173,17 @@ describe("DeviceNetworkCard", () => {
 
   it("restores the original reservation when the replacement create fails", async () => {
     const user = userEvent.setup();
-    setup({ reservations: [makeReservation({ ip_address: "10.232.1.10" })] });
     // First create (the new IP) is rejected; the rollback recreate succeeds.
     createAsync
       .mockRejectedValueOnce(new Error("409"))
       .mockResolvedValueOnce(undefined);
-    renderWithProviders(<DeviceNetworkCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceNetworkCard
+        {...cardProps({
+          reservations: [makeReservation({ ip_address: "10.232.1.10" })],
+        })}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await setLastOctet(user, "20");
@@ -193,10 +210,15 @@ describe("DeviceNetworkCard", () => {
 
   it("warns that the reservation is lost when the rollback recreate also fails", async () => {
     const user = userEvent.setup();
-    setup({ reservations: [makeReservation({ ip_address: "10.232.1.10" })] });
     // Both the new-IP create and the rollback recreate fail.
     createAsync.mockRejectedValue(new Error("409"));
-    renderWithProviders(<DeviceNetworkCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceNetworkCard
+        {...cardProps({
+          reservations: [makeReservation({ ip_address: "10.232.1.10" })],
+        })}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await setLastOctet(user, "20");
@@ -213,8 +235,11 @@ describe("DeviceNetworkCard", () => {
 
   it("removes an existing reservation", async () => {
     const user = userEvent.setup();
-    setup({ reservations: [makeReservation()] });
-    renderWithProviders(<DeviceNetworkCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceNetworkCard
+        {...cardProps({ reservations: [makeReservation()] })}
+      />,
+    );
 
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(
@@ -226,7 +251,7 @@ describe("DeviceNetworkCard", () => {
 
   it("cancels edit mode", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DeviceNetworkCard device={makeDevice()} />);
+    renderWithProviders(<DeviceNetworkCard {...cardProps()} />);
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
@@ -235,10 +260,13 @@ describe("DeviceNetworkCard", () => {
 
   it("shows a busy label and error alert", async () => {
     const user = userEvent.setup();
-    setup({
-      create: { isPending: true, isError: true, error: new Error("x") },
-    });
-    renderWithProviders(<DeviceNetworkCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceNetworkCard
+        {...cardProps({
+          create: { isPending: true, isError: true, error: new Error("x") },
+        })}
+      />,
+    );
     await user.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.getByRole("button", { name: "Saving…" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toBeInTheDocument();

@@ -13,15 +13,26 @@ import { Field } from "@wardnet/web";
 import { Ipv4Input } from "@wardnet/web";
 import { ApiErrorAlert } from "@wardnet/web";
 import { StatusBadge } from "@/components/compound/StatusBadge";
-import {
-  useCreateReservation,
-  useDeleteReservation,
-  useDhcpReservations,
-} from "@wardnet/web";
-import type { Device, DhcpReservation, DhcpStatus } from "@wardnet/js";
+import type { MutationHandle } from "@/lib/mutationHandle";
+import type {
+  CreateDhcpReservationRequest,
+  Device,
+  DhcpReservation,
+  DhcpStatus,
+} from "@wardnet/js";
 
 interface DeviceNetworkCardProps {
   device: Device;
+  /** All DHCP reservations — the card resolves this device's by MAC. */
+  reservations: DhcpReservation[] | undefined;
+  /** The page's hoisted create-reservation mutation. */
+  createReservation: MutationHandle<CreateDhcpReservationRequest>;
+  /** Dedicated silent create instance for the rollback recreate: it must not
+   *  pop a "Reservation created" toast that would contradict the failure the
+   *  admin is being shown for their actual edit. */
+  restoreReservation: MutationHandle<CreateDhcpReservationRequest>;
+  /** The page's hoisted delete-reservation mutation. */
+  deleteReservation: MutationHandle<string>;
 }
 
 function statusBadge(status: DhcpStatus) {
@@ -44,20 +55,17 @@ function findReservation(
   return reservations?.find((r) => r.mac_address === mac);
 }
 
-/** Editable network card: current IP, DHCP status, reservation create/update/remove. */
-export function DeviceNetworkCard({ device }: DeviceNetworkCardProps) {
-  const { data: reservationsData } = useDhcpReservations();
-  const reservation = findReservation(
-    reservationsData?.reservations,
-    device.mac,
-  );
-
-  const createReservation = useCreateReservation();
-  // Dedicated silent instance for the rollback recreate below: it must not
-  // pop a "Reservation created" toast that would contradict the failure the
-  // admin is being shown for their actual edit.
-  const restoreReservation = useCreateReservation({ silent: true });
-  const deleteReservation = useDeleteReservation();
+/** Editable network card: current IP, DHCP status, reservation
+ *  create/update/remove. Pure presentation — the owning page wires the
+ *  query/mutation hooks and passes data + callbacks in. */
+export function DeviceNetworkCard({
+  device,
+  reservations,
+  createReservation,
+  restoreReservation,
+  deleteReservation,
+}: DeviceNetworkCardProps) {
+  const reservation = findReservation(reservations, device.mac);
 
   const [editing, setEditing] = useState(false);
   const [ip, setIp] = useState(reservation?.ip_address ?? device.last_ip);

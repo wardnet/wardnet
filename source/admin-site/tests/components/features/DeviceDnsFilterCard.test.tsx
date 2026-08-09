@@ -3,25 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceDnsFilterCard } from "@/components/features/DeviceDnsFilterCard";
 import { makeDevice, renderWithProviders } from "../../test-utils";
-import type { DnsFilterProfile } from "@wardnet/js";
-
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useDeviceFilterSettings: vi.fn(),
-    useDnsFilterProfiles: vi.fn(),
-    useDnsFilterConfig: vi.fn(),
-    useUpdateDeviceFilterSettings: vi.fn(),
-  };
-});
-
-import {
-  useDeviceFilterSettings,
-  useDnsFilterConfig,
-  useDnsFilterProfiles,
-  useUpdateDeviceFilterSettings,
-} from "@wardnet/web";
+import type {
+  DeviceDnsFilterSettings,
+  DnsFilterConfig,
+  DnsFilterProfile,
+} from "@wardnet/js";
 
 const mutateAsync = vi.fn();
 const reset = vi.fn();
@@ -39,7 +25,7 @@ function profile(id: string, name: string): DnsFilterProfile {
 
 const profiles = [profile("p1", "Ads"), profile("p2", "Malware")];
 
-function setup({
+function cardProps({
   settings = { enabled: true, profile_ids: [] as string[] },
   defaultIds = [] as string[],
   loading = false,
@@ -48,70 +34,89 @@ function setup({
   settings?: { enabled: boolean; profile_ids: string[] } | undefined;
   defaultIds?: string[];
   loading?: boolean;
-  update?: Record<string, unknown>;
+  update?: Partial<{
+    isPending: boolean;
+    isError: boolean;
+    error: Error | null;
+  }>;
 } = {}) {
-  vi.mocked(useDeviceFilterSettings).mockReturnValue({
-    data: settings ? { settings } : undefined,
+  return {
+    device: makeDevice(),
+    settings: settings as DeviceDnsFilterSettings | undefined,
+    profiles,
+    config: {
+      enabled: true,
+      default_profile_ids: defaultIds,
+    } as DnsFilterConfig,
     isLoading: loading,
-  } as unknown as ReturnType<typeof useDeviceFilterSettings>);
-  vi.mocked(useDnsFilterProfiles).mockReturnValue({
-    data: { profiles },
-    isLoading: loading,
-  } as unknown as ReturnType<typeof useDnsFilterProfiles>);
-  vi.mocked(useDnsFilterConfig).mockReturnValue({
-    data: { config: { enabled: true, default_profile_ids: defaultIds } },
-    isLoading: loading,
-  } as unknown as ReturnType<typeof useDnsFilterConfig>);
-  vi.mocked(useUpdateDeviceFilterSettings).mockReturnValue({
-    mutateAsync,
-    reset,
-    isPending: false,
-    isError: false,
-    error: null,
-    ...update,
-  } as unknown as ReturnType<typeof useUpdateDeviceFilterSettings>);
+    update: {
+      mutateAsync,
+      reset,
+      isPending: false,
+      isError: false,
+      error: null,
+      ...update,
+    },
+  };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mutateAsync.mockResolvedValue(undefined);
-  setup();
 });
 
 describe("DeviceDnsFilterCard read view", () => {
   it("shows a loading placeholder until every query settles", () => {
-    setup({ settings: undefined, loading: true });
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceDnsFilterCard
+        {...cardProps({ settings: undefined, loading: true })}
+      />,
+    );
     expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 
   it("lists assigned profiles by name", () => {
-    setup({ settings: { enabled: true, profile_ids: ["p1"] } });
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceDnsFilterCard
+        {...cardProps({ settings: { enabled: true, profile_ids: ["p1"] } })}
+      />,
+    );
     expect(screen.getByText("Filtering on")).toBeInTheDocument();
     expect(screen.getByText("Ads")).toBeInTheDocument();
   });
 
   it("shows the default profile hint when none are assigned", () => {
-    setup({
-      settings: { enabled: true, profile_ids: [] },
-      defaultIds: ["p2"],
-    });
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceDnsFilterCard
+        {...cardProps({
+          settings: { enabled: true, profile_ids: [] },
+          defaultIds: ["p2"],
+        })}
+      />,
+    );
     expect(screen.getByText("Malware (default)")).toBeInTheDocument();
   });
 
   it("shows the no-default message", () => {
-    setup({ settings: { enabled: true, profile_ids: [] }, defaultIds: [] });
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceDnsFilterCard
+        {...cardProps({
+          settings: { enabled: true, profile_ids: [] },
+          defaultIds: [],
+        })}
+      />,
+    );
     expect(
       screen.getByText("None (no default profile set)"),
     ).toBeInTheDocument();
   });
 
   it("shows a dash when filtering is off", () => {
-    setup({ settings: { enabled: false, profile_ids: [] } });
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceDnsFilterCard
+        {...cardProps({ settings: { enabled: false, profile_ids: [] } })}
+      />,
+    );
     expect(screen.getByText("Filtering off")).toBeInTheDocument();
   });
 });
@@ -119,8 +124,11 @@ describe("DeviceDnsFilterCard read view", () => {
 describe("DeviceDnsFilterCard editing", () => {
   it("saves updated settings", async () => {
     const user = userEvent.setup();
-    setup({ settings: { enabled: true, profile_ids: ["p1"] } });
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceDnsFilterCard
+        {...cardProps({ settings: { enabled: true, profile_ids: ["p1"] } })}
+      />,
+    );
     await user.click(screen.getByRole("button", { name: "Edit" }));
     // hasExplicit hint (profile already selected)
     expect(
@@ -136,8 +144,14 @@ describe("DeviceDnsFilterCard editing", () => {
 
   it("shows the global-default hint when nothing is selected", async () => {
     const user = userEvent.setup();
-    setup({ settings: { enabled: true, profile_ids: [] }, defaultIds: ["p1"] });
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceDnsFilterCard
+        {...cardProps({
+          settings: { enabled: true, profile_ids: [] },
+          defaultIds: ["p1"],
+        })}
+      />,
+    );
     await user.click(screen.getByRole("button", { name: "Edit" }));
     expect(
       screen.getByText(/follows the global default profile/),
@@ -146,8 +160,14 @@ describe("DeviceDnsFilterCard editing", () => {
 
   it("shows the unfiltered hint when no default and nothing selected", async () => {
     const user = userEvent.setup();
-    setup({ settings: { enabled: true, profile_ids: [] }, defaultIds: [] });
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceDnsFilterCard
+        {...cardProps({
+          settings: { enabled: true, profile_ids: [] },
+          defaultIds: [],
+        })}
+      />,
+    );
     await user.click(screen.getByRole("button", { name: "Edit" }));
     expect(
       screen.getByText(/this device's traffic\s+isn't filtered/),
@@ -156,8 +176,14 @@ describe("DeviceDnsFilterCard editing", () => {
 
   it("shows the filtering-off hint after disabling the toggle", async () => {
     const user = userEvent.setup();
-    setup({ settings: { enabled: true, profile_ids: [] }, defaultIds: [] });
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    renderWithProviders(
+      <DeviceDnsFilterCard
+        {...cardProps({
+          settings: { enabled: true, profile_ids: [] },
+          defaultIds: [],
+        })}
+      />,
+    );
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("switch", { name: /DNS filtering/i }));
     expect(screen.getByText(/skip every profile/)).toBeInTheDocument();
@@ -165,7 +191,7 @@ describe("DeviceDnsFilterCard editing", () => {
 
   it("cancels editing", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    renderWithProviders(<DeviceDnsFilterCard {...cardProps()} />);
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
@@ -174,12 +200,17 @@ describe("DeviceDnsFilterCard editing", () => {
 
   it("renders an error alert while pending", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DeviceDnsFilterCard device={makeDevice()} />);
+    const { rerender } = renderWithProviders(
+      <DeviceDnsFilterCard {...cardProps()} />,
+    );
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    setup({
-      update: { isPending: true, isError: true, error: new Error("x") },
-    });
-    await user.click(screen.getByRole("switch", { name: /DNS filtering/i }));
+    rerender(
+      <DeviceDnsFilterCard
+        {...cardProps({
+          update: { isPending: true, isError: true, error: new Error("x") },
+        })}
+      />,
+    );
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Saving…" })).toBeInTheDocument();
   });

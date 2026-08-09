@@ -15,53 +15,41 @@ vi.stubGlobal(
   },
 );
 
-const {
-  useRoutingProfiles,
-  useDeviceRoutingProfiles,
-  useSetDeviceRoutingProfiles,
-} = vi.hoisted(() => ({
-  useRoutingProfiles: vi.fn(),
-  useDeviceRoutingProfiles: vi.fn(),
-  useSetDeviceRoutingProfiles: vi.fn(),
-}));
-
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useRoutingProfiles,
-    useDeviceRoutingProfiles,
-    useSetDeviceRoutingProfiles,
-  };
-});
-
 import { DeviceRoutingProfilesCard } from "@/components/features/DeviceRoutingProfilesCard";
 import { renderWithProviders, makeDevice } from "../../test-utils";
+import type { RoutingProfile } from "@wardnet/js";
 
 const profiles = [
   { id: "p1", name: "Streaming" },
   { id: "p2", name: "Work" },
   { id: "p3", name: "Kids" },
-];
+] as RoutingProfile[];
 
-const saveMutateAsync = vi.fn().mockResolvedValue({ message: "ok" });
+const saveMutateAsync = vi.fn();
+const saveReset = vi.fn();
 
 function setup(assigned: string[] = ["p1", "p2"]) {
-  useRoutingProfiles.mockReturnValue({ data: { profiles } });
-  useDeviceRoutingProfiles.mockReturnValue({ data: { profile_ids: assigned } });
-  useSetDeviceRoutingProfiles.mockReturnValue({
-    mutate: vi.fn(),
-    mutateAsync: saveMutateAsync,
-    reset: vi.fn(),
-    isPending: false,
-    isError: false,
-    error: null,
-  });
-  renderWithProviders(<DeviceRoutingProfilesCard device={makeDevice()} />);
+  renderWithProviders(
+    <DeviceRoutingProfilesCard
+      device={makeDevice()}
+      allProfiles={profiles}
+      assignedIds={assigned}
+      save={{
+        mutateAsync: saveMutateAsync,
+        reset: saveReset,
+        isPending: false,
+        isError: false,
+        error: null,
+      }}
+    />,
+  );
 }
 
 describe("DeviceRoutingProfilesCard", () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    saveMutateAsync.mockResolvedValue({ message: "ok" });
+  });
 
   it("shows the assigned profiles in priority order", () => {
     setup();

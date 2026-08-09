@@ -12,14 +12,20 @@ import {
 import { Input } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { ApiErrorAlert } from "@wardnet/web";
-import {
-  useDnsCaptureSettings,
-  useUpdateDnsCaptureSettings,
-} from "@wardnet/web";
 import { formatBytes } from "@wardnet/web";
+import type { MutationHandle } from "@/lib/mutationHandle";
+import type {
+  DnsCaptureSettingsRequest,
+  DnsCaptureSettingsResponse,
+} from "@wardnet/js";
 
 interface DeviceDnsCaptureCardProps {
-  deviceId: string;
+  /** The device's capture settings, or `undefined` while loading. */
+  settings: DnsCaptureSettingsResponse | undefined;
+  isLoading: boolean;
+  /** The page's hoisted capture-settings update mutation (already bound to
+   *  this device). */
+  update: MutationHandle<DnsCaptureSettingsRequest>;
 }
 
 function StorageBar({ value, max }: { value: number; max: number }) {
@@ -35,10 +41,14 @@ function StorageBar({ value, max }: { value: number; max: number }) {
   );
 }
 
-export function DeviceDnsCaptureCard({ deviceId }: DeviceDnsCaptureCardProps) {
-  const { data, isLoading } = useDnsCaptureSettings(deviceId);
-  const update = useUpdateDnsCaptureSettings(deviceId);
-
+/** Editable DNS-capture settings card for the device detail page. Pure
+ *  presentation — the owning page wires the query/mutation hooks and passes
+ *  data + callbacks in. */
+export function DeviceDnsCaptureCard({
+  settings: data,
+  isLoading,
+  update,
+}: DeviceDnsCaptureCardProps) {
   const [editing, setEditing] = useState(false);
   const [enabled, setEnabled] = useState(false);
   const [capCount, setCapCount] = useState(1000);
