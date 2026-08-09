@@ -71,6 +71,11 @@ session is not enough. If the flag is removed from a box already on edge, the
 daemon logs a warning at startup and falls back to `beta`, writing the change
 back so the stored state never contradicts the config.
 
+Backup restore is the one admin-session path that writes `wardnet.toml`, so it
+is explicitly held to the same line: `apply_import` takes this flag (and every
+other deploy-time-only key) from the live machine rather than the bundle. See
+`wardnet_common::config_restore` and issue #1112.
+
 ## Consequences
 
 Edge builds are signed with the production key, so the *channel* remains

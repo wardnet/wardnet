@@ -28,9 +28,28 @@ use wardnetd_data::repository::SystemConfigRepository;
 use wardnetd_data::secret_store::{FileSecretStore, SecretStore};
 
 use crate::auth_context;
-use crate::backup::archiver::{AgeArchiver, BackupArchiver};
+use crate::backup::archiver::{AgeArchiver, BackupArchiver, BundleContents};
 use crate::backup::service::{BACKUP_RESTART_PENDING_KEY, BackupService, BackupServiceImpl};
 use crate::error::AppError;
+
+/// Live config the harness plants on disk.
+///
+/// Real TOML, because `apply_import` parses it to carry deploy-time-only
+/// keys across a restore — and because a fixture that could never exist on
+/// a real box would hide that step from every test here. `allow_edge_channel`
+/// is set the way `install.sh` writes it for a box installed from the edge
+/// channel: opted in, with root, on this machine.
+const LIVE_CONFIG: &str = "\
+[network]
+lan_interface = \"eth0\"
+
+[logging]
+level = \"info\"
+
+[update]
+allow_edge_channel = true
+manifest_base_url = \"https://releases.wardnet.network\"
+";
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -159,7 +178,7 @@ fn build_harness_at(schema_version: i64, config_location: ConfigLocation) -> Har
     // Pre-populate the live files so apply_import has something to
     // rename — tests that don't touch apply_import don't care.
     std::fs::write(&database_path, b"live db").unwrap();
-    std::fs::write(&config_path, b"live config").unwrap();
+    std::fs::write(&config_path, LIVE_CONFIG).unwrap();
 
     let dumper = Arc::new(MockDumper {
         dump_bytes: b"snapshot bytes".to_vec(),
@@ -309,8 +328,8 @@ async fn round_trip_export_preview_apply() {
 
     // Live files were rewritten.
     assert_eq!(
-        tokio::fs::read(&h.config_path).await.unwrap(),
-        b"live config",
+        tokio::fs::read_to_string(&h.config_path).await.unwrap(),
+        LIVE_CONFIG,
         "config should match the exported content"
     );
     assert!(
@@ -768,7 +787,7 @@ async fn apply_import_rolls_back_and_leaves_no_restore_marker_on_failure() {
     let database_path = tempdir.join("wardnet.db");
     let config_path = tempdir.join("wardnet.toml");
     std::fs::write(&database_path, b"live db").unwrap();
-    std::fs::write(&config_path, b"live config").unwrap();
+    std::fs::write(&config_path, LIVE_CONFIG).unwrap();
 
     let secret_store: Arc<dyn SecretStore> = Arc::new(FileSecretStore::new(tempdir.join("sec")));
     let svc = BackupServiceImpl::new(
@@ -818,6 +837,288 @@ async fn apply_import_rolls_back_and_leaves_no_restore_marker_on_failure() {
     assert!(
         !restore_pending_marker_path(&database_path).exists(),
         "no restore-pending marker should remain after a rolled-back apply"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Deploy-time-only config keys (issue #1112)
+//
+// Restore writes /etc/wardnet/wardnet.toml, and the systemd unit grants
+// ReadWritePaths=/etc/wardnet so the write lands. An admin session can
+// therefore export a bundle, edit the TOML it contains (the passphrase is
+// theirs), and restore it — which would otherwise be a way around the
+// `[update] allow_edge_channel` gate that ADR-0023 says takes root *on the
+// box*. The classification itself is tested in wardnet-common; these tests
+// pin that apply_import actually applies it.
+// ---------------------------------------------------------------------------
+
+/// Pack a bundle whose config is `config` rather than the live machine's —
+/// what an admin gets by unpacking their own export, editing the TOML, and
+/// repacking it.
+async fn bundle_with_config(config: &str, passphrase: &str, schema_version: i64) -> Vec<u8> {
+    AgeArchiver::new()
+        .pack(
+            passphrase,
+            BundleContents {
+                manifest: BundleManifest::new("0.2.0-test", schema_version, "test-host", 0),
+                database_bytes: b"snapshot bytes".to_vec(),
+                config_bytes: config.as_bytes().to_vec(),
+                secrets: Vec::new(),
+            },
+        )
+        .await
+        .unwrap()
+}
+
+/// Preview and apply `bundle`, returning the config left on disk.
+async fn apply_and_read_config(h: &Harness, bundle: Vec<u8>, passphrase: &str) -> String {
+    let preview = auth_context::with_context(
+        admin_ctx(),
+        h.svc.preview_import(bundle, passphrase.to_owned()),
+    )
+    .await
+    .unwrap();
+    auth_context::with_context(
+        admin_ctx(),
+        h.svc.apply_import(ApplyImportRequest {
+            preview_token: preview.preview_token,
+        }),
+    )
+    .await
+    .unwrap();
+    tokio::fs::read_to_string(&h.config_path).await.unwrap()
+}
+
+#[tokio::test]
+async fn apply_import_keeps_the_live_value_of_deploy_time_keys() {
+    let h = build_harness(42);
+    let passphrase = "correct-horse-battery-staple";
+
+    // The live box has the gate open and points at the real release server.
+    // The bundle tries to flip both, plus repoint the secret store.
+    let bundle = bundle_with_config(
+        "[network]\nlan_interface = \"eth0\"\n\n\
+         [update]\nallow_edge_channel = false\nmanifest_base_url = \"https://attacker.example\"\n\n\
+         [secret_store]\nprovider = \"file_system\"\npath = \"/tmp/attacker\"\n",
+        passphrase,
+        42,
+    )
+    .await;
+
+    let written: toml::Table = apply_and_read_config(&h, bundle, passphrase)
+        .await
+        .parse()
+        .unwrap();
+
+    assert_eq!(
+        written["update"]["allow_edge_channel"].as_bool(),
+        Some(true),
+        "a bundle must not change the edge gate",
+    );
+    assert_eq!(
+        written["update"]["manifest_base_url"].as_str(),
+        Some("https://releases.wardnet.network"),
+        "a bundle must not repoint the update source",
+    );
+    assert!(
+        written.get("secret_store").is_none(),
+        "the live machine has no [secret_store], so the bundle's must not survive: {written:?}",
+    );
+}
+
+#[tokio::test]
+async fn apply_import_cannot_open_the_edge_gate_on_a_box_that_never_had_it() {
+    // The direction that matters: the live config leaves the gate at its
+    // default (absent), and the bundle tries to open it.
+    let h = build_harness(42);
+    let passphrase = "correct-horse-battery-staple";
+    tokio::fs::write(&h.config_path, "[logging]\nlevel = \"info\"\n")
+        .await
+        .unwrap();
+
+    let bundle = bundle_with_config(
+        "[logging]\nlevel = \"info\"\n\n[update]\nallow_edge_channel = true\n",
+        passphrase,
+        42,
+    )
+    .await;
+
+    let written: toml::Table = apply_and_read_config(&h, bundle, passphrase)
+        .await
+        .parse()
+        .unwrap();
+    assert!(
+        written.get("update").is_none(),
+        "the bundle's [update] section must not survive the restore: {written:?}",
+    );
+}
+
+#[tokio::test]
+async fn apply_import_still_restores_ordinary_config_from_the_bundle() {
+    let h = build_harness(42);
+    let passphrase = "correct-horse-battery-staple";
+
+    let bundle = bundle_with_config(
+        "[logging]\nlevel = \"debug\"\n\n[detection]\nenabled = false\n",
+        passphrase,
+        42,
+    )
+    .await;
+
+    let written: toml::Table = apply_and_read_config(&h, bundle, passphrase)
+        .await
+        .parse()
+        .unwrap();
+    assert_eq!(written["logging"]["level"].as_str(), Some("debug"));
+    assert_eq!(written["detection"]["enabled"].as_bool(), Some(false));
+}
+
+#[tokio::test]
+async fn apply_import_onto_a_box_with_no_config_file_falls_back_to_defaults() {
+    // A box that never had a config file has every deploy-time key at its
+    // compiled-in default, and those defaults are what the bundle must be
+    // held to — not the bundle's own values.
+    let h = build_harness(42);
+    let passphrase = "correct-horse-battery-staple";
+    tokio::fs::remove_file(&h.config_path).await.unwrap();
+
+    let bundle = bundle_with_config(
+        "[logging]\nlevel = \"debug\"\n\n[update]\nallow_edge_channel = true\n",
+        passphrase,
+        42,
+    )
+    .await;
+
+    let written: toml::Table = apply_and_read_config(&h, bundle, passphrase)
+        .await
+        .parse()
+        .unwrap();
+    assert!(
+        written.get("update").is_none(),
+        "the gate must stay at its default on a box that never opened it: {written:?}",
+    );
+    assert_eq!(
+        written["logging"]["level"].as_str(),
+        Some("debug"),
+        "ordinary settings should still restore",
+    );
+}
+
+#[tokio::test]
+async fn apply_import_fails_closed_when_the_live_config_is_unreadable() {
+    // With no live values to read, letting the bundle's copy through would
+    // hand it every deploy-time key. The machine is what is wrong here, not
+    // the bundle, so this is an internal error rather than a rejected upload.
+    let h = build_harness(42);
+    let passphrase = "correct-horse-battery-staple";
+    tokio::fs::write(&h.config_path, "this is not toml")
+        .await
+        .unwrap();
+
+    let bundle = bundle_with_config("[update]\nallow_edge_channel = true\n", passphrase, 42).await;
+    let preview = auth_context::with_context(
+        admin_ctx(),
+        h.svc.preview_import(bundle, passphrase.to_owned()),
+    )
+    .await
+    .unwrap();
+    let err = auth_context::with_context(
+        admin_ctx(),
+        h.svc.apply_import(ApplyImportRequest {
+            preview_token: preview.preview_token,
+        }),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(err, AppError::Internal(_)), "got {err:?}");
+    assert_eq!(
+        tokio::fs::read_to_string(&h.config_path).await.unwrap(),
+        "this is not toml",
+        "the live config should be untouched",
+    );
+    assert!(
+        h.dumper.restored.lock().unwrap().is_none(),
+        "the restore should have failed before touching the database",
+    );
+}
+
+#[tokio::test]
+async fn preview_import_reports_a_config_this_daemon_cannot_load() {
+    // A restore is followed by a mandatory restart, so a bundle carrying a
+    // config the daemon cannot parse would take the box down with no UI left
+    // to fix it from. The operator has to learn that at preview, while
+    // nothing is at stake — not after committing to the apply.
+    let h = build_harness(42);
+    let passphrase = "correct-horse-battery-staple";
+
+    for broken in [
+        "this is not toml",
+        "[from_the_future]\nknob = 1\n",
+        "[server]\nport = \"not a number\"\n",
+    ] {
+        let bundle = bundle_with_config(broken, passphrase, 42).await;
+        let preview = auth_context::with_context(
+            admin_ctx(),
+            h.svc.preview_import(bundle, passphrase.to_owned()),
+        )
+        .await
+        .unwrap();
+
+        assert!(!preview.compatible, "{broken:?} previewed as compatible");
+        let reason = preview.incompatibility_reason.expect("reason populated");
+        assert!(
+            reason.contains("config"),
+            "reason should name the config: {reason}",
+        );
+        // A newer release can add a config field without touching the bundle
+        // format or the DB schema, so this branch also catches version gaps
+        // the manifest checks above cannot see. Say what to do about it.
+        assert!(
+            reason.contains("upgrade the daemon"),
+            "reason should name the remedy: {reason}",
+        );
+    }
+}
+
+#[tokio::test]
+async fn apply_import_rejects_a_bundle_whose_config_is_not_toml() {
+    // Belt and braces behind the preview check: apply re-runs compat, and
+    // the merge runs before anything on disk is touched, so an unusable
+    // config fails the restore outright rather than half-applying it.
+    let h = build_harness(42);
+    let passphrase = "correct-horse-battery-staple";
+    let bundle = bundle_with_config("this is not toml", passphrase, 42).await;
+
+    let preview = auth_context::with_context(
+        admin_ctx(),
+        h.svc.preview_import(bundle, passphrase.to_owned()),
+    )
+    .await
+    .unwrap();
+    let err = auth_context::with_context(
+        admin_ctx(),
+        h.svc.apply_import(ApplyImportRequest {
+            preview_token: preview.preview_token,
+        }),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(err, AppError::BadRequest(_)), "got {err:?}");
+    assert_eq!(
+        tokio::fs::read_to_string(&h.config_path).await.unwrap(),
+        LIVE_CONFIG,
+        "the live config should be untouched",
+    );
+    assert_eq!(
+        tokio::fs::read(&h.database_path).await.unwrap(),
+        b"live db",
+        "the live database should be untouched",
+    );
+    assert!(
+        h.dumper.restored.lock().unwrap().is_none(),
+        "the restore should have failed before touching the database",
     );
 }
 

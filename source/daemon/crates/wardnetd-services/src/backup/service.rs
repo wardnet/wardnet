@@ -18,6 +18,12 @@
 //! * Every method begins with `auth_context::require_admin()?` — no
 //!   anonymous access to backup operations, same defense-in-depth rule
 //!   as the rest of the service layer.
+//! * The config a restore writes is **not** the bundle's copy verbatim:
+//!   deploy-time-only keys are taken from the live machine first, so a
+//!   bundle cannot change this box's deployment posture (which builds it
+//!   installs, where its files live, what hardware it drives). See
+//!   [`wardnet_common::config_restore`] and
+//!   [`BackupServiceImpl::config_bytes_for_restore`].
 //!
 //! ### What happens to the secret store on restore
 //!
@@ -49,6 +55,7 @@ use wardnet_common::backup::{
     BackupStatus, BundleManifest, CURRENT_BUNDLE_FORMAT_VERSION, LocalSnapshot, MIN_PASSPHRASE_LEN,
     RestorePhase, SnapshotKind,
 };
+use wardnet_common::config_restore;
 use wardnetd_data::database_dumper::DatabaseDumper;
 use wardnetd_data::db::restore_pending_marker_path;
 use wardnetd_data::repository::SystemConfigRepository;
@@ -214,12 +221,20 @@ impl BackupServiceImpl {
         Ok(out)
     }
 
-    /// Decide whether a freshly-unpacked manifest can be restored
-    /// against the running daemon.
+    /// Decide whether a freshly-unpacked bundle can be restored against the
+    /// running daemon.
+    ///
+    /// Covers the config as well as the manifest. A restore is followed by a
+    /// mandatory restart, so a bundle whose config this daemon cannot load
+    /// would take the box down with no UI left to fix it from — and finding
+    /// that out at `apply_import` is too late, because by then the operator
+    /// has already committed. Checking here means the preview says so while
+    /// nothing is at stake.
     async fn check_compat(
         &self,
-        manifest: &BundleManifest,
+        contents: &BundleContents,
     ) -> Result<(bool, Option<String>), AppError> {
+        let manifest = &contents.manifest;
         if !manifest.is_format_supported() {
             return Ok((
                 false,
@@ -240,6 +255,22 @@ impl BackupServiceImpl {
                 Some(format!(
                     "bundle schema version {} is newer than the running daemon's ({}) - upgrade the daemon first, then retry",
                     manifest.schema_version, running_schema
+                )),
+            ));
+        }
+        // Last, so a bundle from a newer build is told to upgrade the daemon
+        // rather than blamed for a config this one happens not to understand.
+        //
+        // That ordering only settles the cases where the newer build also
+        // moved the bundle format or the DB schema. A release that adds a
+        // config field on its own reaches here, and the bare serde message
+        // ("unknown field ...") reads as a corrupt bundle rather than a
+        // version gap — so the remedy is spelled out either way.
+        if let Err(e) = config_restore::check_bundle_config(&contents.config_bytes) {
+            return Ok((
+                false,
+                Some(format!(
+                    "{e} - if the bundle came from a newer Wardnet, upgrade the daemon first, then retry"
                 )),
             ));
         }
@@ -319,6 +350,58 @@ impl BackupServiceImpl {
         base.with_file_name(format!(".{name}.pre-restore-{}", Uuid::new_v4()))
     }
 
+    /// The config a restore should actually write: the bundle's, with
+    /// every deploy-time-only key reset to this machine's live value.
+    ///
+    /// Restoring replaces `/etc/wardnet/wardnet.toml` wholesale, and the
+    /// systemd unit grants `ReadWritePaths=/etc/wardnet` so the write
+    /// lands. That puts the file within reach of an admin session — export
+    /// a bundle, edit the TOML, restore it — which is exactly what
+    /// `[update] allow_edge_channel` is supposed to be out of reach of
+    /// (ADR-0023: putting a box on edge takes root *on that box*).
+    /// [`config_restore::preserve_deploy_time_keys`] holds that line; see
+    /// its module docs for what counts as deploy-time and why.
+    ///
+    /// Called before anything on disk is touched, so a bundle carrying an
+    /// unreadable config fails the restore rather than half-applying it.
+    async fn config_bytes_for_restore(&self, bundle_config: &[u8]) -> Result<Vec<u8>, AppError> {
+        let bundle_toml = config_restore::check_bundle_config(bundle_config)
+            .map_err(|e| AppError::BadRequest(e.to_string()))?;
+        let live_toml = match tokio::fs::read_to_string(&self.config_path).await {
+            Ok(contents) => contents,
+            // No live config at all: every deploy-time key is at its
+            // compiled-in default, which is what the merge falls back to.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+            Err(e) => {
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "failed to read live config at {}: {e}",
+                    self.config_path.display()
+                )));
+            }
+        };
+
+        let merged =
+            config_restore::preserve_deploy_time_keys(&live_toml, bundle_toml).map_err(|e| {
+                // The bundle is caller-supplied, so a broken config in it is
+                // a bad request; a broken *live* config is our own problem.
+                if e.blames_the_bundle() {
+                    AppError::BadRequest(e.to_string())
+                } else {
+                    AppError::Internal(anyhow::anyhow!(e))
+                }
+            })?;
+
+        if !merged.overridden.is_empty() {
+            let keys = merged.overridden.join(", ");
+            tracing::warn!(
+                keys = %keys,
+                "backup restore: bundle would have changed deploy-time-only config keys, live values kept: keys={keys}",
+            );
+        }
+
+        Ok(merged.toml.into_bytes())
+    }
+
     /// Stage the bundle's config bytes as a sibling file so the
     /// eventual `rename` into place is atomic. The staging file is
     /// created with `0600` — the config may carry provider
@@ -353,6 +436,10 @@ impl BackupServiceImpl {
     /// `.bak-<timestamp>`. On any failure after the swap begins,
     /// best-effort rollback renames the holds back into place and
     /// replays the pre-restore secret-store state.
+    // The phases share the rollback state they build up (the two holds, the
+    // staged config, the pre-restore secrets); splitting them into methods
+    // would thread all of it through signatures for no gain in clarity.
+    #[allow(clippy::too_many_lines)]
     async fn run_apply_import(
         &self,
         pending: &PendingImport,
@@ -377,7 +464,10 @@ impl BackupServiceImpl {
             phase: RestorePhase::Validating,
         })
         .await;
-        let staged_config = self.stage_config(&pending.contents.config_bytes).await?;
+        let restored_config = self
+            .config_bytes_for_restore(&pending.contents.config_bytes)
+            .await?;
+        let staged_config = self.stage_config(&restored_config).await?;
 
         // ---- Phase 2: move live files aside ----
         //
@@ -654,8 +744,7 @@ impl BackupService for BackupServiceImpl {
                 .await
                 .map_err(|e| AppError::BadRequest(format!("bundle could not be decrypted: {e}")))?;
 
-            let (compatible, incompatibility_reason) =
-                self.check_compat(&contents.manifest).await?;
+            let (compatible, incompatibility_reason) = self.check_compat(&contents).await?;
 
             let files_to_replace = vec![
                 self.database_path.display().to_string(),
@@ -719,7 +808,7 @@ impl BackupService for BackupServiceImpl {
             return Err(AppError::BadRequest("preview token has expired".into()));
         }
 
-        let (compatible, reason) = self.check_compat(&pending_entry.contents.manifest).await?;
+        let (compatible, reason) = self.check_compat(&pending_entry.contents).await?;
         if !compatible {
             let reason = reason.unwrap_or_else(|| "bundle is not compatible".into());
             self.set_status(BackupStatus::Failed {

@@ -1,6 +1,7 @@
 mod api;
 mod auth;
 mod config;
+mod config_restore;
 mod device;
 mod dhcp;
 mod dns;
