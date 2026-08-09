@@ -48,6 +48,20 @@ pub trait DeviceIdentificationService: Send + Sync {
         value: &str,
     ) -> Result<(), AppError>;
 
+    /// Record a signal against the device that currently holds `ip`.
+    ///
+    /// Silently does nothing when the address maps to no device, or to more
+    /// than one. mDNS hands us an address rather than a MAC, and an ambiguous
+    /// mapping is skipped rather than guessed: a wrong attribution puts a
+    /// confident vendor name on the wrong device, which is the failure mode
+    /// issue #1099 was filed about (ADR 0025).
+    async fn record_signal_for_ip(
+        &self,
+        ip: &str,
+        kind: DeviceSignalKind,
+        value: &str,
+    ) -> Result<(), AppError>;
+
     /// Every signal recorded for a device, most recent first.
     async fn signals_for(&self, device_id: &str) -> Result<Vec<DeviceSignal>, AppError>;
 
@@ -170,6 +184,40 @@ impl DeviceIdentificationService for DeviceIdentificationServiceImpl {
             .map_err(AppError::Internal)?
         else {
             tracing::debug!(%mac, ?kind, "identification: no device for MAC yet, dropping signal");
+            return Ok(());
+        };
+
+        self.record_signal(&device.id.to_string(), kind, value)
+            .await
+    }
+
+    async fn record_signal_for_ip(
+        &self,
+        ip: &str,
+        kind: DeviceSignalKind,
+        value: &str,
+    ) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        let devices = self
+            .devices
+            .find_all_by_ip(ip)
+            .await
+            .map_err(AppError::Internal)?;
+
+        // Deliberately `find_all_by_ip` and not `find_by_ip`: the latter breaks
+        // a collision by last-seen, and picking a winner is exactly what must
+        // not happen here. Zero matches is the ordinary case for a device
+        // discovery has not inserted yet; more than one is DHCP having recycled
+        // the address before the departed row was cleared.
+        let [device] = devices.as_slice() else {
+            tracing::debug!(
+                %ip,
+                ?kind,
+                matches = devices.len(),
+                "identification: ambiguous IP, dropping mDNS observation: ip={ip}, matches={}",
+                devices.len()
+            );
             return Ok(());
         };
 

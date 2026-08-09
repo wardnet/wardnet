@@ -109,6 +109,59 @@ async fn find_by_ip_returns_most_recently_seen_on_collision() {
     );
 }
 
+// Issue #1115: where `find_by_ip` picks a winner, `find_all_by_ip` must expose
+// the collision. The mDNS observer maps an address to a device, and an address
+// two rows claim is ambiguous — the observation is dropped rather than pinned on
+// whichever row happens to be live (ADR 0025).
+#[tokio::test]
+async fn find_all_by_ip_returns_every_claimant_of_a_colliding_address() {
+    let pool = test_pool().await;
+    insert_device_seen_at(
+        &pool,
+        DEV1,
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.10",
+        "2026-03-07T00:00:00Z",
+    )
+    .await;
+    insert_device_seen_at(
+        &pool,
+        DEV2,
+        "aa:bb:cc:dd:ee:02",
+        "192.168.1.10",
+        "2026-03-08T00:00:00Z",
+    )
+    .await;
+    insert_device(&pool, DEV3, "aa:bb:cc:dd:ee:03", "192.168.1.11").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    let devices = repo.find_all_by_ip("192.168.1.10").await.unwrap();
+    let ids: Vec<String> = devices.iter().map(|d| d.id.to_string()).collect();
+    assert_eq!(
+        ids,
+        vec![DEV2.to_owned(), DEV1.to_owned()],
+        "both claimants, most recently seen first"
+    );
+
+    let sole = repo.find_all_by_ip("192.168.1.11").await.unwrap();
+    assert_eq!(sole.len(), 1);
+    assert_eq!(sole[0].id.to_string(), DEV3);
+
+    assert!(repo.find_all_by_ip("10.0.0.99").await.unwrap().is_empty());
+}
+
+// The empty-string sentinel must not match, for the same reason
+// `find_by_ip_empty_returns_none` exists: every departed device carries it.
+#[tokio::test]
+async fn find_all_by_ip_never_matches_the_empty_sentinel() {
+    let pool = test_pool().await;
+    insert_device_seen_at(&pool, DEV1, "aa:bb:cc:dd:ee:01", "", "2026-03-07T00:00:00Z").await;
+    insert_device_seen_at(&pool, DEV2, "aa:bb:cc:dd:ee:02", "", "2026-03-08T00:00:00Z").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    assert!(repo.find_all_by_ip("").await.unwrap().is_empty());
+}
+
 // Regression for issue #831: clearing a departed device's `last_ip` must make
 // its row unresolvable by that IP so it can never again be returned for a live
 // device's source address.

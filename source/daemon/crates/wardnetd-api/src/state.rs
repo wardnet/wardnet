@@ -653,6 +653,14 @@ impl DeviceIdentificationService for NoopDeviceIdentificationService {
     ) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
     }
+    async fn record_signal_for_ip(
+        &self,
+        _ip: &str,
+        _kind: wardnet_common::device::DeviceSignalKind,
+        _value: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
     async fn signals_for(
         &self,
         _device_id: &str,

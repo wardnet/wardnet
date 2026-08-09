@@ -763,17 +763,31 @@ impl Default for UpdateConfig {
     }
 }
 
-/// mDNS advertisement configuration.
+/// mDNS configuration — advertising, and observing what others advertise.
 ///
 /// On startup, the daemon advertises an `_http._tcp.local.` service
 /// record so users can reach the setup wizard at `http://wardnet.local`
 /// without knowing the LAN IP. Disable via `enabled = false` if the
 /// LAN already has another mDNS responder owning the name.
+///
+/// Separately, the daemon browses for the service types its vendor catalog
+/// knows, to identify LAN devices (issue #1115). The two are independent:
+/// advertising is about being reachable, observing is about naming devices,
+/// and each has its own switch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct MdnsConfig {
     /// When `false`, the daemon does not start the mDNS advertiser.
     pub enabled: bool,
+    /// When `false`, the daemon does not browse for other devices'
+    /// advertisements.
+    ///
+    /// Observation is passive — it emits multicast DNS-SD queries to the LAN
+    /// group and never contacts a device directly, so it stays on the right
+    /// side of ADR 0025's "no background probing" invariant. It is still an
+    /// off switch worth having: an admin may prefer the daemon not listen to
+    /// what their devices announce about themselves.
+    pub observe: bool,
     /// Hostname to advertise (without the `.local.` suffix).
     ///
     /// `None` means use the built-in default (`"wardnet"`). On detected
@@ -786,6 +800,7 @@ impl Default for MdnsConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            observe: true,
             hostname: None,
         }
     }

@@ -36,6 +36,7 @@ use wardnetd::hostname_resolver::SystemHostnameResolver;
 use wardnetd::inbound_wg_interface_wireguard::WireGuardInboundInterface;
 use wardnetd::inbound_wg_peer_monitor::InboundWgPeerMonitor;
 use wardnetd::mdns_advertiser::MdnsAdvertiser;
+use wardnetd::mdns_observer::MdnsObserver;
 use wardnetd::metrics_collector::MetricsCollector;
 use wardnetd::noop_tunnel_backends::{
     NoopExitProbe, NoopLatencyProber, NoopThroughputTester, NoopTunnelInterface,
@@ -688,6 +689,28 @@ async fn run(
         None
     };
 
+    // mDNS observer: browses for the service types the vendor catalog knows
+    // and records them as identification signals (issue #1115). Passive —
+    // multicast queries to the mDNS group, never traffic aimed at a device.
+    // Failure here is non-fatal: identification keeps working from the signals
+    // it already has.
+    let mdns_observer = if config.mdns.observe {
+        match MdnsObserver::start(
+            &config.network.lan_interface,
+            services.device_identification.clone(),
+            &root_span,
+        ) {
+            Ok(observer) => Some(observer),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to start mDNS observer; continuing without it: {e}");
+                None
+            }
+        }
+    } else {
+        tracing::info!("mDNS observation disabled");
+        None
+    };
+
     // Start device detector (conditionally).
     let device_detector = if config.detection.enabled {
         Some(DeviceDetector::start(
@@ -1250,6 +1273,9 @@ async fn run(
     heartbeat_runner.shutdown().await;
     if let Some(advertiser) = mdns_advertiser {
         advertiser.shutdown().await;
+    }
+    if let Some(observer) = mdns_observer {
+        observer.shutdown().await;
     }
     if let Some(detector) = device_detector {
         detector.shutdown().await;

@@ -198,3 +198,21 @@ pub fn probe_ports() -> Vec<u16> {
     ports.sort_unstable();
     ports
 }
+
+/// Every mDNS service type the catalog knows, sorted for a deterministic
+/// browse order.
+///
+/// The mDNS observer (issue #1115) browses exactly this set, so teaching
+/// Wardnet to recognise a new vendor's advertisement stays a `vendors.toml`
+/// edit rather than a code change — the property decision 3 of ADR 0025
+/// asserts for every other signal kind.
+///
+/// Entries are the bare service types as written in the catalog
+/// (`_govee._tcp`); browsing wants the fully-qualified `_govee._tcp.local.`
+/// form, which the observer appends.
+#[must_use]
+pub fn mdns_service_types() -> Vec<&'static str> {
+    let mut types: Vec<&'static str> = CATALOG.by_mdns.keys().map(String::as_str).collect();
+    types.sort_unstable();
+    types
+}

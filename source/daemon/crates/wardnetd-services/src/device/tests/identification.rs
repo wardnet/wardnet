@@ -14,7 +14,8 @@ use wardnet_common::auth::AuthContext;
 use wardnet_common::device::{DeviceConnectionMode, DeviceSignalKind, ManufacturerSource};
 use wardnetd_data::repository::device::DeviceRow;
 use wardnetd_data::repository::{
-    DeviceRepository, SqliteDeviceIdentificationRepository, SqliteDeviceRepository,
+    DeviceIdentificationRepository, DeviceRepository, SqliteDeviceIdentificationRepository,
+    SqliteDeviceRepository,
 };
 
 use crate::auth_context;
@@ -37,20 +38,34 @@ async fn test_pool() -> SqlitePool {
 struct Harness {
     svc: DeviceIdentificationServiceImpl,
     devices: Arc<dyn DeviceRepository>,
+    /// Direct repository handle, so a test can establish pre-existing state
+    /// (an IEEE-sourced manufacturer) that no service method can produce.
+    identification: Arc<dyn DeviceIdentificationRepository>,
 }
 
 async fn build() -> Harness {
     let pool = test_pool().await;
-    let identification = Arc::new(SqliteDeviceIdentificationRepository::new(pool.clone()));
+    let identification: Arc<dyn DeviceIdentificationRepository> =
+        Arc::new(SqliteDeviceIdentificationRepository::new(pool.clone()));
     let devices: Arc<dyn DeviceRepository> = Arc::new(SqliteDeviceRepository::new(pool));
     Harness {
-        svc: DeviceIdentificationServiceImpl::new(identification, devices.clone()),
+        svc: DeviceIdentificationServiceImpl::new(identification.clone(), devices.clone()),
         devices,
+        identification,
     }
 }
 
 /// Insert a device with no manufacturer, returning its id.
 async fn insert_device(devices: &Arc<dyn DeviceRepository>, mac: &str) -> String {
+    insert_device_at_ip(devices, mac, "192.168.1.10").await
+}
+
+/// Insert a device with no manufacturer at a specific address, returning its id.
+async fn insert_device_at_ip(
+    devices: &Arc<dyn DeviceRepository>,
+    mac: &str,
+    last_ip: &str,
+) -> String {
     let id = uuid::Uuid::new_v4().to_string();
     devices
         .insert(&DeviceRow {
@@ -63,7 +78,7 @@ async fn insert_device(devices: &Arc<dyn DeviceRepository>, mac: &str) -> String
             device_type: "unknown".to_owned(),
             first_seen: "2026-03-07T00:00:00Z".to_owned(),
             last_seen: "2026-03-07T00:00:00Z".to_owned(),
-            last_ip: "192.168.1.10".to_owned(),
+            last_ip: last_ip.to_owned(),
             zone_id: ZONE.to_owned(),
             connection_mode: DeviceConnectionMode::Lan,
         })
@@ -303,6 +318,123 @@ async fn record_for_mac_is_case_insensitive() {
     .unwrap();
 
     assert_eq!(as_admin(h.svc.signals_for(&id)).await.unwrap().len(), 1);
+}
+
+// --- IP-keyed recording (issue #1115, the mDNS observer's entry point) ---
+
+#[tokio::test]
+async fn an_mdns_observation_names_the_sole_device_at_that_address() {
+    let h = build().await;
+    let id = insert_device_at_ip(&h.devices, "aa:bb:cc:dd:ee:01", "192.168.1.42").await;
+
+    as_admin(h.svc.record_signal_for_ip(
+        "192.168.1.42",
+        DeviceSignalKind::MdnsService,
+        "_govee._tcp",
+    ))
+    .await
+    .unwrap();
+
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer.as_deref(), Some("Govee"));
+    assert_eq!(device.manufacturer_source, Some(ManufacturerSource::Signal));
+    assert_eq!(as_admin(h.svc.signals_for(&id)).await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn an_address_two_devices_claim_is_skipped_entirely() {
+    // DHCP recycling an address leaves the departed row sharing it until
+    // discovery clears `last_ip`. mDNS gives us an address, not a MAC, so
+    // there is no way to tell which row advertised — and naming the wrong one
+    // is worse than recording nothing (ADR 0025).
+    let h = build().await;
+    let first = insert_device_at_ip(&h.devices, "aa:bb:cc:dd:ee:01", "192.168.1.42").await;
+    let second = insert_device_at_ip(&h.devices, "aa:bb:cc:dd:ee:02", "192.168.1.42").await;
+
+    as_admin(h.svc.record_signal_for_ip(
+        "192.168.1.42",
+        DeviceSignalKind::MdnsService,
+        "_govee._tcp",
+    ))
+    .await
+    .unwrap();
+
+    for id in [&first, &second] {
+        let device = h.devices.find_by_id(id).await.unwrap().unwrap();
+        assert_eq!(
+            device.manufacturer, None,
+            "an ambiguous address must name nobody"
+        );
+        assert!(
+            as_admin(h.svc.signals_for(id)).await.unwrap().is_empty(),
+            "an ambiguous address must record nothing"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_address_no_device_holds_is_dropped_rather_than_failing() {
+    // The observer sees an announcement from a host discovery has not inserted
+    // yet — the same race `record_signal_for_mac` tolerates. It must not error.
+    let h = build().await;
+    let id = insert_device_at_ip(&h.devices, "aa:bb:cc:dd:ee:01", "192.168.1.42").await;
+
+    as_admin(h.svc.record_signal_for_ip(
+        "192.168.1.99",
+        DeviceSignalKind::MdnsService,
+        "_govee._tcp",
+    ))
+    .await
+    .unwrap();
+
+    assert!(
+        as_admin(h.svc.signals_for(&id)).await.unwrap().is_empty(),
+        "no device holds that address, so nothing is recorded"
+    );
+}
+
+#[tokio::test]
+async fn an_mdns_observation_never_overwrites_an_ieee_manufacturer() {
+    // The registrant on record outranks anything we infer. The observation is
+    // still worth recording — it just does not get to rename the device.
+    let h = build().await;
+    let id = insert_device_at_ip(&h.devices, "aa:bb:cc:dd:ee:01", "192.168.1.42").await;
+    h.identification
+        .set_manufacturer_if_absent(&id, "Espressif Inc.", ManufacturerSource::Ieee)
+        .await
+        .unwrap();
+
+    as_admin(h.svc.record_signal_for_ip(
+        "192.168.1.42",
+        DeviceSignalKind::MdnsService,
+        "_govee._tcp",
+    ))
+    .await
+    .unwrap();
+
+    let device = h.devices.find_by_id(&id).await.unwrap().unwrap();
+    assert_eq!(device.manufacturer.as_deref(), Some("Espressif Inc."));
+    assert_eq!(device.manufacturer_source, Some(ManufacturerSource::Ieee));
+    assert_eq!(
+        as_admin(h.svc.signals_for(&id)).await.unwrap().len(),
+        1,
+        "the observation is still recorded"
+    );
+}
+
+#[tokio::test]
+async fn recording_for_ip_is_admin_gated() {
+    // The observer is a background component with no ambient context of its
+    // own; the gate is what forces it to establish one.
+    let h = build().await;
+    insert_device_at_ip(&h.devices, "aa:bb:cc:dd:ee:01", "192.168.1.42").await;
+
+    let result = h
+        .svc
+        .record_signal_for_ip("192.168.1.42", DeviceSignalKind::MdnsService, "_govee._tcp")
+        .await;
+
+    assert!(result.is_err(), "no ambient context must be refused");
 }
 
 #[tokio::test]

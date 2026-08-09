@@ -1,6 +1,6 @@
 use crate::vendor_catalog::{
-    lookup_mdns_service, lookup_oui_override, lookup_tcp_port, lookup_vendor_class, probe_ports,
-    vendors,
+    lookup_mdns_service, lookup_oui_override, lookup_tcp_port, lookup_vendor_class,
+    mdns_service_types, probe_ports, vendors,
 };
 
 #[test]
@@ -120,6 +120,33 @@ fn probe_ports_are_sorted_and_bounded() {
         ports.len() < 20,
         "probe surface grew unexpectedly large: {ports:?}"
     );
+}
+
+#[test]
+fn mdns_service_types_are_sorted_deduped_and_all_resolve() {
+    let types = mdns_service_types();
+    assert!(!types.is_empty(), "catalog declares no mDNS service types");
+
+    let mut sorted = types.clone();
+    sorted.sort_unstable();
+    assert_eq!(types, sorted, "browse order must be deterministic");
+
+    sorted.dedup();
+    assert_eq!(
+        types.len(),
+        sorted.len(),
+        "duplicate service type: {types:?}"
+    );
+
+    // The set the observer browses and the set the observer can attribute must
+    // be the same set — browsing a type no vendor claims would record signals
+    // that never name anything.
+    for ty in &types {
+        assert!(
+            lookup_mdns_service(ty).is_some(),
+            "browsable type {ty} resolves to no vendor"
+        );
+    }
 }
 
 #[test]

@@ -252,6 +252,7 @@ Continuous profiling agent. Disabled by default.
 | Key | Default | Notes |
 | --- | --- | --- |
 | `enabled` | `true` | Advertise the daemon over mDNS so `wardnet.local` resolves on the LAN. |
+| `observe` | `true` | Passively browse for the service types Wardnet's vendor catalog knows, and use them to identify LAN devices. Never contacts a device directly. |
 | `hostname` | _(none)_ | Override the advertised hostname. Defaults to the system hostname when unset. |
 
 ## `[health]`

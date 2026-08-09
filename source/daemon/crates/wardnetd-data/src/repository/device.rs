@@ -35,6 +35,33 @@ pub trait DeviceRepository: Send + Sync {
     /// Find a device by its most recently observed IP address.
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>>;
 
+    /// Every device whose most recently observed IP is `ip`.
+    ///
+    /// Companion to [`find_by_ip`](Self::find_by_ip), which resolves a
+    /// collision to the most recently seen claimant. Identification needs the
+    /// count rather than a winner: an address claimed by two rows is ambiguous,
+    /// and an mDNS observation against it is dropped rather than attributed to
+    /// a guess (ADR 0025 — a wrong attribution puts a confident vendor name on
+    /// the wrong device).
+    ///
+    /// Defaulted so the hand-written mocks that never resolve by IP do not have
+    /// to grow a method they don't exercise; the `SQLite` implementation
+    /// overrides it with an indexed query.
+    async fn find_all_by_ip(&self, ip: &str) -> anyhow::Result<Vec<Device>> {
+        // `""` is the "no known address" sentinel `clear_last_ip` writes to
+        // departed devices, so every departed row shares it — same guard, same
+        // reason as `find_by_ip`.
+        if ip.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .find_all()
+            .await?
+            .into_iter()
+            .filter(|d| d.last_ip == ip)
+            .collect())
+    }
+
     /// Find a device by its primary key.
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Device>>;
 

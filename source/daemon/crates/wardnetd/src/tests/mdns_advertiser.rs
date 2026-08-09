@@ -15,9 +15,19 @@ fn config_defaults_enable_advertiser_with_built_in_hostname() {
 }
 
 #[test]
+fn config_defaults_enable_observation() {
+    // main.rs gates `MdnsObserver::start` on `config.mdns.observe`, which is
+    // deliberately independent of `enabled`: a LAN that already has a `.local`
+    // responder can turn advertising off and still identify its devices.
+    let cfg = MdnsConfig::default();
+    assert!(cfg.observe);
+}
+
+#[test]
 fn config_can_be_disabled_without_panicking() {
     let cfg = MdnsConfig {
         enabled: false,
+        observe: false,
         hostname: None,
     };
     // No multicast bind, no daemon thread, no work — the disabled path

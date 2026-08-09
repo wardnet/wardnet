@@ -122,6 +122,8 @@ struct RuleRow {
 // further down (JOIN/LIKE against routing_rules) keep their own literals.
 const FIND_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
      FROM devices WHERE last_ip = ? ORDER BY last_seen DESC LIMIT 1";
+const FIND_ALL_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+     FROM devices WHERE last_ip = ? ORDER BY last_seen DESC";
 const FIND_BY_ID_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
      FROM devices WHERE id = ?";
 const FIND_BY_MAC_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
@@ -154,6 +156,22 @@ impl DeviceRepository for SqliteDeviceRepository {
             .fetch_optional(&self.pools.read)
             .await?;
         row.map(DeviceRow::into_device).transpose()
+    }
+
+    async fn find_all_by_ip(&self, ip: &str) -> anyhow::Result<Vec<Device>> {
+        // Same empty-string guard as `find_by_ip`: `""` marks a departed
+        // device, so matching on it would return every departed row.
+        if ip.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Deliberately unbounded where `find_by_ip` takes `LIMIT 1`. The
+        // identification path needs to see the collision to skip it.
+        let rows = sqlx::query_as::<_, DeviceRow>(FIND_ALL_BY_IP_SQL)
+            .bind(ip)
+            .fetch_all(&self.pools.read)
+            .await?;
+        rows.into_iter().map(DeviceRow::into_device).collect()
     }
 
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Device>> {
