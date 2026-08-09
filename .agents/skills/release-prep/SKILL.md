@@ -15,7 +15,7 @@ End-to-end checklist for tagging a new versioned release. Two human
 gates: PR review (required before merge), then tag push (required
 after merge). Everything else is mechanical.
 
-## Versioning model — three independent tracks
+## Versioning model — four independent tracks
 
 - **`./CALVER`** — user-facing version, shape `YYYY.MM.NN`. Becomes
   the git tag (`v<CALVER>`), the release tarball / image filenames,
@@ -30,25 +30,52 @@ after merge). Everything else is mechanical.
   Cargo's strict parser; not surfaced to users. `make sync-version`
   propagates it to `source/daemon/Cargo.toml`,
   `source/web-ui/package.json`, and `source/site/package.json`.
-- **`./source/sdk/wardnet-js/VERSION`** — independent SemVer for the
-  npm package. Decoupled cadence — bump only when the SDK has
-  shipped real changes since its last release. Skip in a typical
-  daemon-only point release.
+- **`source/sdk/wardnet-js/package.json`** — SemVer for the npm
+  package `@wardnet/js`. **Owned by changesets** (`source/.changeset/`),
+  never by hand and never by `make sync-version`. Published by pushing
+  a `@wardnet/js@x.y.z` tag (`release-sdk.yml`), which is *not* the
+  daemon tag — so a JS SDK release is always a second, separate tag
+  push. There is no `source/sdk/wardnet-js/VERSION` file; an older
+  version of `sync-version` did write this `package.json`, which is
+  how it once drifted ahead of what npm actually had.
+- **`source/sdk/wardnet-go/VERSION`** — SemVer for the Go module
+  `wardnet.network/go`. Unlike the JS SDK, this one **publishes off
+  the daemon tag**: `release.yml` calls `release-go-sdk.yml` after
+  `release-daemon`, which mirrors `source/sdk/wardnet-go` to
+  `wardnet/wardnet-go` and tags it `v<that VERSION>`. Stable tags
+  only — prereleases and edge builds are skipped. If the version is
+  already published on the mirror the job no-ops, so a stale VERSION
+  means the release silently ships no new Go SDK.
 
 For a typical point release: bump `CALVER` to the next free counter
 slot in the current month (e.g. `2026.05.00` → `2026.05.01`) and
 patch-bump `VERSION` (`0.1.0` → `0.1.1`). Feature-heavy releases
 warrant a SemVer minor bump (`0.1.x` → `0.2.0`) — the daemon
 SemVer is invisible to users but signals API/build-graph changes
-to consumers of the workspace. Evaluate the SDK separately:
+to consumers of the workspace. Evaluate each SDK separately:
 
 ```sh
+git diff v<previous>..origin/main -- source/sdk/wardnet-go
 git diff v<previous>..origin/main -- source/sdk/wardnet-js
+ls source/.changeset/*.md                            # unconsumed JS bumps
+gh api repos/wardnet/wardnet-go/tags --jq '.[].name' # what Go actually published
+npm view @wardnet/js version                         # what npm actually has
 ```
 
-If the diff is empty or limited to comments / formatting, leave the
-SDK pinned. If the diff has user-visible changes, raise it with the
-user — SDK releases are decoupled and may not align with this PR.
+**Go SDK** — if the diff has user-visible changes, bump
+`source/sdk/wardnet-go/VERSION` *in this PR*. The daemon tag will
+publish whatever is in that file, so this is the last chance.
+
+**JS SDK** — if `source/.changeset/` holds unconsumed changesets, the
+package is due a release. Consuming them is `yarn changeset version`
+run from `source/`, which rewrites `package.json` and writes
+`CHANGELOG.md`. Check the committed `package.json` against
+`npm view @wardnet/js version` first: if it is already ahead of npm
+without a matching published tag, reset it to the published version
+before running `changeset version`, or the bump lands on top of a
+number that was never released and skips it. Either way, the publish
+is a separate `@wardnet/js@x.y.z` tag push — say so in the PR body
+rather than implying the daemon tag covers it.
 
 ## Step 1 — Draft the release notes
 
@@ -114,11 +141,19 @@ make sync-version    # CALVER does not propagate — build.rs reads it
 make check-version   # gate: every file agrees
 ```
 
-`make sync-version` also touches `source/sdk/wardnet-js/package.json`
-with the SDK VERSION file's value. If you intentionally did not bump
-the SDK, that's still a no-op (same value in, same value out).
+`make sync-version` touches **only** the daemon Cargo manifest and the
+web/site `package.json`s. It does not touch either SDK — the JS
+package version belongs to changesets and the Go one to its own
+`VERSION` file (see the versioning model above).
 
-## Step 3 — Regenerate the OpenAPI spec
+The `CALVER` value may already be correct: the release after a stable
+tag is sometimes pre-bumped on `main` (an explicit
+`chore(release): bump versions to v<CALVER>` commit) so edge builds
+carry the version they are heading towards. Check `git log -1 -- CALVER`
+before assuming a bump is owed; `make check-version` passing on an
+untouched tree is the tell.
+
+## Step 3 — Regenerate the OpenAPI spec and both generated clients
 
 `CALVER` flows into `docs/openapi.json` via the daemon's `build.rs`,
 not via `sync-version`:
@@ -127,9 +162,27 @@ not via `sync-version`:
 make openapi
 ```
 
-Expected diff: **only** the `info.version` field. Any other change
+Expected diff: **only** the `info.version` field, and nothing at all
+when `CALVER` was pre-bumped in an earlier PR. Any *other* change
 means `main` already drifted from the committed spec — investigate
 before continuing (probably a missed `make openapi` in a prior PR).
+
+`docs/openapi.json` is the input to two committed, generated REST
+clients, each with its own CI drift gate. Run both gates — they
+regenerate in place, so a clean run also proves there is nothing to
+commit:
+
+```sh
+make check-sdk-openapi   # JS:  yarn generate -> source/sdk/wardnet-js/src/internal/openapi-schema.ts
+make check-go-openapi    # Go:  go generate  -> source/sdk/wardnet-go/internal/rest/rest.gen.go
+```
+
+If either reports drift, commit the regenerated file with the rest of
+the release. The two gates are coupled to the spec, not to each other:
+a spec change that only *adds* a field can move one generator's output
+and not the other's, so never infer one from the other — run both.
+`info.version` alone does not appear in either generated client, so a
+pure CalVer bump normally leaves both untouched.
 
 ## Step 4 — Rebuild embedded web apps
 
@@ -155,10 +208,13 @@ tracked.
 ## Step 5 — Verify
 
 ```sh
-make check-version    # version pin agreement (also wired into CI)
-make check-daemon     # fmt + clippy -D warnings + workspace tests (embeds rebuilt dists)
-make check-openapi    # drift gate — fails if docs/openapi.json stale
-make check            # full belt-and-braces (SDK + web + site + daemon)
+make check-version       # version pin agreement (also wired into CI)
+make check-daemon        # fmt + clippy -D warnings + workspace tests (embeds rebuilt dists)
+make check-openapi       # drift gate — fails if docs/openapi.json stale
+make check-sdk-openapi   # drift gate — JS generated client
+make check-go-openapi    # drift gate — Go generated client
+make check-go            # Go SDK + wctl: vet, lint, tests
+make check               # full belt-and-braces (SDKs + web + site + daemon)
 ```
 
 `make check-daemon` will refresh `Cargo.lock` because the workspace
@@ -196,8 +252,13 @@ Files in the commit:
 - `source/web-ui/package.json`, `source/site/package.json`
 - `source/user-app/dist/` — all files (new bundles + deleted old hashes)
 - `source/admin-app/dist/` — all files (new bundles + deleted old hashes)
-- (only if the SDK is being bumped) `source/sdk/wardnet-js/VERSION`,
-  `source/sdk/wardnet-js/package.json`
+- (only if a generated client drifted)
+  `source/sdk/wardnet-js/src/internal/openapi-schema.ts`,
+  `source/sdk/wardnet-go/internal/rest/rest.gen.go`
+- (only if the Go SDK is being bumped) `source/sdk/wardnet-go/VERSION`
+- (only if the JS SDK is being bumped) `source/sdk/wardnet-js/package.json`,
+  `source/sdk/wardnet-js/CHANGELOG.md`, and the consumed
+  `source/.changeset/*.md` deletions
 
 Do not bundle unrelated changes.
 
@@ -208,8 +269,12 @@ PR body should:
   release-notes doc.
 - Surface any action-required upgrade note prominently, so reviewers
   don't miss it during review.
+- State what each SDK does on merge: the Go SDK version this tag will
+  publish (or that it will no-op), and whether a separate
+  `@wardnet/js@x.y.z` tag push is still owed.
 - List the test plan: `make check-version`, `make check-openapi`,
-  `make check-daemon` all green.
+  `make check-sdk-openapi`, `make check-go-openapi`, `make check-daemon`
+  all green.
 
 ## Step 7 — Tag (after merge)
 
@@ -239,10 +304,28 @@ What the tag triggers (`.github/workflows/release.yml` watches
 - `deploy-site.yml` regenerates `releases/stable.json` and
   `releases/beta.json` so auto-update clients pick up the new
   version on their next manifest poll.
+- `release-go-sdk.yml` (stable tags only, after `release-daemon`)
+  mirrors `source/sdk/wardnet-go` to `wardnet/wardnet-go` and tags it
+  `v<source/sdk/wardnet-go/VERSION>`. Mirror tags are immutable and
+  `main` there is force-pushed — never commit to the mirror.
 
 Watch the workflow run; if any step fails, do not retry blindly — a
 failed publish can land partial assets that auto-update will then
 try to verify and reject.
+
+### Step 7b — the JS SDK tag, if one is owed
+
+`@wardnet/js` is **not** published by the daemon tag. If this release
+consumed changesets, push its tag after the daemon release is green:
+
+```sh
+git tag -s '@wardnet/js@<x.y.z>' -m '@wardnet/js@<x.y.z>'
+git push origin '@wardnet/js@<x.y.z>'
+```
+
+The version in the tag must match `source/sdk/wardnet-js/package.json`
+on `main`. `release-sdk.yml` publishes to npmjs.org via OIDC trusted
+publishing — there is no token to supply.
 
 ## Common pitfalls
 
@@ -261,6 +344,17 @@ try to verify and reject.
 - **Auto-update assumes monotonic CalVer.** Don't reuse a CALVER for
   a re-tag; bump to the next free patch slot if you need to redo a
   release.
+- **Regenerating the spec but not the two clients that are generated
+  from it.** `check-sdk-openapi` and `check-go-openapi` are separate
+  CI gates on separate files, and each fails on its own.
+- **Assuming the daemon tag publishes both SDKs.** It publishes the Go
+  module and nothing else. `@wardnet/js` needs its own tag, and a
+  release PR that bumps it without saying so leaves the npm package
+  unpublished with no one tracking it.
+- **Hand-editing `source/sdk/wardnet-js/package.json`.** Changesets
+  owns it. A hand bump produces a version with no changelog entry and
+  no published tag behind it, and the *next* `changeset version` builds
+  on top of that phantom — skipping a version permanently.
 - **Trusting the targets table because it was already there.** Every
   other pitfall on this list is caught by a gate — `check-version`,
   `check-openapi`, CI. This one is caught by nothing. It is prose,

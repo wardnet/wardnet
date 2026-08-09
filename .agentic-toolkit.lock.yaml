@@ -5,7 +5,7 @@ sources:
   sha: 3a19c994319dd8a0d16db16629d19df46cd7e920
 - url: github.com/pedromvgomes/agentic-toolkit.git
   ref: main
-  sha: 13fbcd81632de892d516a451b64fa07197a93893
+  sha: 90f31c44829abbc52403ec681847679aa7c36910
 - url: github.com/anthropics/skills.git
   ref: main
-  sha: 1f630fdf9259cec4a14913127dfd7c3b69ef72eb
+  sha: f17010c9bb483898c1d9c9f42dde2b3a98889434
