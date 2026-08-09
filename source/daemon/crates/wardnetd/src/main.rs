@@ -525,6 +525,18 @@ async fn run(
     let diagnostics_listener =
         DiagnosticsListener::start(&services.event_publisher, diagnostics, &root_span);
 
+    // Keeps the device-keyed DNS upstream snapshot (#923) in step with
+    // persisted routing/tunnel/zone state. Subscribed BEFORE the routing
+    // reconcile below so an event published during startup is buffered, not
+    // lost; the snapshot's initial build runs inside
+    // `RoutingService::reconcile`.
+    let dns_device_snapshot_listener =
+        wardnetd::dns_device_snapshot_listener::DnsDeviceSnapshotListener::start(
+            &services.event_publisher,
+            services.routing.clone(),
+            &root_span,
+        );
+
     // Reconcile routing state with kernel on startup.
     auth_context::with_context(
         AuthContext::Admin {
@@ -1263,6 +1275,7 @@ async fn run(
     }
     health_runner.shutdown().await;
     routing_listener.shutdown().await;
+    dns_device_snapshot_listener.shutdown().await;
     device_snapshot_listener.shutdown().await;
     zone_enforcement_listener.shutdown().await;
     entitlement_listener.shutdown().await;

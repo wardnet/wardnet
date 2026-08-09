@@ -808,24 +808,29 @@ fn device_client(device_id: Uuid) -> ClientIdentity {
     }
 }
 
-/// The IP-keyed snapshot must be invisible to a device-authenticated
-/// client: even when the transport source IP maps to a (bogus) tunnel,
-/// a device with no device-keyed entry resolves via the default upstream.
+/// The device-keyed binding takes precedence over the transport IP's
+/// entry: a device whose own binding is `Default` resolves via the
+/// default upstream even when the source IP maps to a (bogus) tunnel
+/// that would fail closed.
 #[tokio::test]
-async fn device_authenticated_client_ignores_ip_keyed_routing_snapshot() {
+async fn device_authenticated_client_prefers_device_binding_over_ip_map() {
     let upstream = spawn_stub_upstream(StubAnswer::A(Ipv4Addr::new(93, 184, 216, 34))).await;
     let pipeline = build_pipeline(config_with_upstream(upstream), None);
-    // If this entry were consulted, the query would fail closed (ServFail):
-    // the stub tunnel repo cannot resolve a forwarder for any tunnel.
+    // If this entry won, the query would fail closed (ServFail): the stub
+    // tunnel repo cannot resolve a forwarder for any tunnel.
     pipeline.routing_snapshot.store(Arc::new(HashMap::from([(
         src().ip(),
         UpstreamId::Tunnel(Uuid::new_v4()),
     )])));
+    let device_id = Uuid::new_v4();
+    pipeline
+        .device_routing_snapshot
+        .store(Arc::new(HashMap::from([(device_id, UpstreamId::Default)])));
 
     let response = ask(
         &pipeline,
         &query_bytes(0x2923, "example.com.", RecordType::A),
-        device_client(Uuid::new_v4()),
+        device_client(device_id),
     )
     .await
     .expect("answer from the default upstream");
@@ -833,9 +838,41 @@ async fn device_authenticated_client_ignores_ip_keyed_routing_snapshot() {
     assert_eq!(
         response.metadata.response_code,
         ResponseCode::NoError,
-        "a device-authenticated client must not inherit the transport IP's tunnel binding"
+        "the device's own binding must outrank the transport IP's tunnel binding"
     );
     assert_eq!(response.answers.len(), 1);
+}
+
+/// On a device-map miss the pipeline falls back to the applied-state IP
+/// map, so an on-LAN `DoT` client keeps the binding the kernel is actually
+/// enforcing even while the device map is stale or still building. (A
+/// roaming client's src is the relay loopback, which always misses.)
+#[tokio::test]
+async fn device_authenticated_client_falls_back_to_ip_map_on_device_map_miss() {
+    let (sink, mut rx) = DnsLogSink::new();
+    // Would answer if the fallback failed to fire and the query went to
+    // the default path.
+    let upstream = spawn_stub_upstream(StubAnswer::A(Ipv4Addr::new(93, 184, 216, 34))).await;
+    let pipeline = build_pipeline(config_with_upstream(upstream), Some(sink));
+    pipeline.routing_snapshot.store(Arc::new(HashMap::from([(
+        src().ip(),
+        UpstreamId::Tunnel(Uuid::new_v4()),
+    )])));
+
+    let response = ask(
+        &pipeline,
+        &query_bytes(0x2924, "example.com.", RecordType::A),
+        device_client(Uuid::new_v4()),
+    )
+    .await
+    .expect("ServFail response");
+
+    assert_eq!(
+        response.metadata.response_code,
+        ResponseCode::ServFail,
+        "the IP-keyed tunnel binding must apply on a device-map miss (and fail closed here)"
+    );
+    assert_eq!(next_row(&mut rx).await.result, "upstream_error");
 }
 
 /// A device-keyed `Tunnel(_)` binding is honored — and fails closed like

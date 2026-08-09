@@ -173,9 +173,13 @@ impl DeviceRepository for MockDeviceRepo {
 
 // -- Mock TunnelRepository ----------------------------------------------------
 
-/// Mock tunnel repository that returns a configurable `TunnelConfig`.
+/// Mock tunnel repository that returns a configurable `Tunnel` row and
+/// `TunnelConfig`. `find_error` makes both lookups fail, for the
+/// snapshot-rebuild degradation tests.
 struct MockTunnelRepo {
+    tunnel: Option<Tunnel>,
     config: Option<TunnelConfig>,
+    find_error: Arc<Mutex<bool>>,
 }
 
 #[async_trait]
@@ -185,10 +189,16 @@ impl TunnelRepository for MockTunnelRepo {
     }
 
     async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<Tunnel>> {
-        Ok(None)
+        if *self.find_error.lock().await {
+            anyhow::bail!("mock: find_by_id forced error");
+        }
+        Ok(self.tunnel.clone())
     }
 
     async fn find_config_by_id(&self, _id: &str) -> anyhow::Result<Option<TunnelConfig>> {
+        if *self.find_error.lock().await {
+            anyhow::bail!("mock: find_config_by_id forced error");
+        }
         Ok(self.config.clone())
     }
 
@@ -239,6 +249,62 @@ impl TunnelRepository for MockTunnelRepo {
 
     async fn count_active(&self) -> anyhow::Result<i64> {
         Ok(0)
+    }
+}
+
+// -- Mock NetworkZoneRepository -----------------------------------------------
+
+/// Mock zone repository serving a fixed zone set; only the lookups the
+/// routing service's device-snapshot rebuild uses are implemented.
+struct MockZoneRepo {
+    zones: Vec<wardnet_common::network_zone::NetworkZone>,
+}
+
+#[async_trait]
+impl wardnetd_data::repository::NetworkZoneRepository for MockZoneRepo {
+    async fn find_all(&self) -> anyhow::Result<Vec<wardnet_common::network_zone::NetworkZone>> {
+        Ok(self.zones.clone())
+    }
+    async fn find_by_id(
+        &self,
+        id: &str,
+    ) -> anyhow::Result<Option<wardnet_common::network_zone::NetworkZone>> {
+        Ok(self.zones.iter().find(|z| z.id.to_string() == id).cloned())
+    }
+    async fn find_default(&self) -> anyhow::Result<wardnet_common::network_zone::NetworkZone> {
+        unimplemented!("not used in routing tests")
+    }
+    async fn find_default_for_new(
+        &self,
+    ) -> anyhow::Result<wardnet_common::network_zone::NetworkZone> {
+        unimplemented!("not used in routing tests")
+    }
+    async fn insert(
+        &self,
+        _zone: &wardnet_common::network_zone::NetworkZone,
+    ) -> anyhow::Result<()> {
+        unimplemented!("not used in routing tests")
+    }
+    async fn update(
+        &self,
+        _zone: &wardnet_common::network_zone::NetworkZone,
+    ) -> anyhow::Result<()> {
+        unimplemented!("not used in routing tests")
+    }
+    async fn delete(&self, _id: &str) -> anyhow::Result<()> {
+        unimplemented!("not used in routing tests")
+    }
+    async fn set_default(&self, _id: &str) -> anyhow::Result<()> {
+        unimplemented!("not used in routing tests")
+    }
+    async fn set_default_for_new(&self, _id: &str) -> anyhow::Result<()> {
+        unimplemented!("not used in routing tests")
+    }
+    async fn count_members(&self, _zone_id: &str) -> anyhow::Result<i64> {
+        unimplemented!("not used in routing tests")
+    }
+    async fn member_counts(&self) -> anyhow::Result<HashMap<String, i64>> {
+        unimplemented!("not used in routing tests")
     }
 }
 
@@ -855,6 +921,9 @@ struct TestSetup {
     netlink_rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>>,
     /// Exposed so tests can assert / pre-seed installed switchback carve-outs.
     netlink_switchback: Arc<Mutex<Vec<(String, String, u32)>>>,
+    /// Flip to make the tunnel repo's `find_by_id` / `find_config_by_id`
+    /// fail, for the device-snapshot degradation tests.
+    tunnel_find_error: Arc<Mutex<bool>>,
 }
 
 fn device_id_1() -> Uuid {
@@ -889,6 +958,32 @@ fn sample_device(id: Uuid, ip: &str) -> Device {
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
         connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
+    }
+}
+
+/// The zone `sample_device` assigns its devices to.
+fn zone_id_default() -> Uuid {
+    "00000000-0000-0000-0000-000000000201".parse().unwrap()
+}
+
+/// Create a sample zone with the given allowed target kinds.
+fn sample_zone(
+    id: Uuid,
+    allowed_targets: Vec<wardnet_common::network_zone::AllowedTargetKind>,
+) -> wardnet_common::network_zone::NetworkZone {
+    wardnet_common::network_zone::NetworkZone {
+        id,
+        name: "Test Zone".to_owned(),
+        provenance: wardnet_common::network_zone::ZoneProvenance::System,
+        isolation_stance: wardnet_common::network_zone::ZoneStance::SharedSubnet,
+        allowed_targets,
+        member_isolation: false,
+        subnet: None,
+        admin_ui_reachable: true,
+        is_default: true,
+        is_default_for_new: true,
+        created_at: chrono::Utc::now(),
+        updated_at: chrono::Utc::now(),
     }
 }
 
@@ -955,13 +1050,38 @@ fn setup_with_devices(devices: Vec<Device>, rules: HashMap<String, RoutingRule>)
     )
 }
 
-/// Full builder for `TestSetup` with all configurable parts.
+/// Builder for `TestSetup` with a permissive default zone.
 fn setup_with_devices_and_tunnel(
     devices: Vec<Device>,
     rules: HashMap<String, RoutingRule>,
     tunnel: Option<Tunnel>,
     tunnel_config: Option<TunnelConfig>,
     default_policy: String,
+) -> TestSetup {
+    setup_with_zones(
+        devices,
+        rules,
+        tunnel,
+        tunnel_config,
+        default_policy,
+        vec![sample_zone(
+            zone_id_default(),
+            vec![
+                wardnet_common::network_zone::AllowedTargetKind::Direct,
+                wardnet_common::network_zone::AllowedTargetKind::Tunnel,
+            ],
+        )],
+    )
+}
+
+/// Full builder for `TestSetup` with all configurable parts.
+fn setup_with_zones(
+    devices: Vec<Device>,
+    rules: HashMap<String, RoutingRule>,
+    tunnel: Option<Tunnel>,
+    tunnel_config: Option<TunnelConfig>,
+    default_policy: String,
+    zones: Vec<wardnet_common::network_zone::NetworkZone>,
 ) -> TestSetup {
     let netlink_calls = Arc::new(Mutex::new(Vec::new()));
     let nftables_calls = Arc::new(Mutex::new(Vec::new()));
@@ -970,16 +1090,21 @@ fn setup_with_devices_and_tunnel(
     let has_route_table_result = Arc::new(Mutex::new(true));
     let has_route_table_error = Arc::new(Mutex::new(false));
     let add_tcp_reset_reject_fail = Arc::new(Mutex::new(false));
+    let tunnel_find_error = Arc::new(Mutex::new(false));
 
     let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepo { devices, rules });
     let tunnel_repo: Arc<dyn TunnelRepository> = Arc::new(MockTunnelRepo {
+        tunnel: tunnel.clone(),
         config: tunnel_config,
+        find_error: tunnel_find_error.clone(),
     });
     let tunnel_svc: Arc<dyn TunnelService> = Arc::new(MockTunnelService {
         tunnel,
         bring_ups: bring_ups.clone(),
         tear_downs: tear_downs.clone(),
     });
+    let zone_repo: Arc<dyn wardnetd_data::repository::NetworkZoneRepository> =
+        Arc::new(MockZoneRepo { zones });
     let rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>> = Arc::new(Mutex::new(HashMap::new()));
     let switchback: Arc<Mutex<Vec<(String, String, u32)>>> = Arc::new(Mutex::new(Vec::new()));
     let netlink: Arc<dyn PolicyRouter> = Arc::new(MockNetlink {
@@ -1009,6 +1134,7 @@ fn setup_with_devices_and_tunnel(
         netlink,
         nftables,
         system_config.clone(),
+        zone_repo,
         Arc::new(crate::event::BroadcastEventBus::new(16)),
         default_policy,
         "eth0".to_owned(),
@@ -1026,6 +1152,7 @@ fn setup_with_devices_and_tunnel(
         add_tcp_reset_reject_fail,
         netlink_rule_counts: rule_counts,
         netlink_switchback: switchback,
+        tunnel_find_error,
     }
 }
 
@@ -1045,9 +1172,12 @@ fn setup_with_orphaned_rules(
     let has_route_table_error = Arc::new(Mutex::new(false));
     let add_tcp_reset_reject_fail = Arc::new(Mutex::new(false));
 
+    let tunnel_find_error = Arc::new(Mutex::new(false));
     let device_repo: Arc<dyn DeviceRepository> = Arc::new(MockDeviceRepo { devices, rules });
     let tunnel_repo: Arc<dyn TunnelRepository> = Arc::new(MockTunnelRepo {
+        tunnel: tunnel.clone(),
         config: tunnel_config,
+        find_error: tunnel_find_error.clone(),
     });
     let tunnel_svc: Arc<dyn TunnelService> = Arc::new(MockTunnelService {
         tunnel,
@@ -1087,6 +1217,15 @@ fn setup_with_orphaned_rules(
         netlink,
         nftables,
         system_config.clone(),
+        Arc::new(MockZoneRepo {
+            zones: vec![sample_zone(
+                zone_id_default(),
+                vec![
+                    wardnet_common::network_zone::AllowedTargetKind::Direct,
+                    wardnet_common::network_zone::AllowedTargetKind::Tunnel,
+                ],
+            )],
+        }),
         Arc::new(crate::event::BroadcastEventBus::new(16)),
         "direct".to_owned(),
         "eth0".to_owned(),
@@ -1104,6 +1243,7 @@ fn setup_with_orphaned_rules(
         add_tcp_reset_reject_fail,
         netlink_rule_counts: rule_counts,
         netlink_switchback: switchback,
+        tunnel_find_error,
     }
 }
 
@@ -1122,8 +1262,11 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         devices: vec![],
         rules: HashMap::new(),
     });
+    let tunnel_find_error = Arc::new(Mutex::new(false));
     let tunnel_repo: Arc<dyn TunnelRepository> = Arc::new(MockTunnelRepo {
+        tunnel: Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
         config: Some(sample_tunnel_config(vec!["1.1.1.1".to_owned()])),
+        find_error: tunnel_find_error.clone(),
     });
     let tunnel_svc: Arc<dyn TunnelService> = Arc::new(MockTunnelService {
         tunnel: Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
@@ -1156,6 +1299,15 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         netlink,
         nftables,
         system_config.clone(),
+        Arc::new(MockZoneRepo {
+            zones: vec![sample_zone(
+                zone_id_default(),
+                vec![
+                    wardnet_common::network_zone::AllowedTargetKind::Direct,
+                    wardnet_common::network_zone::AllowedTargetKind::Tunnel,
+                ],
+            )],
+        }),
         Arc::new(crate::event::BroadcastEventBus::new(16)),
         "direct".to_owned(),
         "eth0".to_owned(),
@@ -1173,6 +1325,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         add_tcp_reset_reject_fail,
         netlink_rule_counts: rule_counts,
         netlink_switchback: switchback,
+        tunnel_find_error,
     }
 }
 
@@ -1703,11 +1856,107 @@ async fn device_upstream_snapshot_skips_direct_rules() {
     assert_eq!(device_snapshot_entry(&ts), None);
 }
 
-/// The `TunnelDnsOverrideChanged` entry point rebuilds the device-keyed
-/// snapshot alongside the applied-state one, so one dispatch converges
-/// both maps.
+/// A `Default` rule whose resolved policy the device's zone forbids (while
+/// permitting direct) is clamped out of the snapshot — mirroring the zone
+/// enforcer, which clamps the *applied* binding to direct without ever
+/// rewriting the persisted rule.
 #[tokio::test]
-async fn rebuild_dns_upstream_snapshot_also_rebuilds_device_snapshot() {
+async fn device_upstream_snapshot_clamps_zone_forbidden_default_rule() {
+    let rules = HashMap::from([(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Default,
+            created_by: wardnet_common::routing::RuleCreator::User,
+        },
+    )]);
+    let ts = setup_with_zones(
+        vec![sample_device(device_id_1(), "192.168.1.10")],
+        rules,
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["9.9.9.9".to_owned()])),
+        TUNNEL_1_ID.to_owned(),
+        vec![sample_zone(
+            zone_id_default(),
+            vec![wardnet_common::network_zone::AllowedTargetKind::Direct],
+        )],
+    );
+
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        device_snapshot_entry(&ts),
+        None,
+        "a zone-forbidden Default binding must not surface as a DNS upstream"
+    );
+}
+
+/// A zone that forbids both kinds does NOT clamp — the enforcer leaves such
+/// a binding for the packet-layer drop, so applied state stays
+/// tunnel-bound and the snapshot stays in step with it.
+#[tokio::test]
+async fn device_upstream_snapshot_keeps_default_rule_when_zone_forbids_direct_too() {
+    let rules = HashMap::from([(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Default,
+            created_by: wardnet_common::routing::RuleCreator::User,
+        },
+    )]);
+    let ts = setup_with_zones(
+        vec![sample_device(device_id_1(), "192.168.1.10")],
+        rules,
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["9.9.9.9".to_owned()])),
+        TUNNEL_1_ID.to_owned(),
+        vec![sample_zone(zone_id_default(), vec![])],
+    );
+
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        device_snapshot_entry(&ts),
+        Some(wardnet_common::dns::UpstreamId::Tunnel(tunnel_id_1())),
+    );
+}
+
+/// An explicit tunnel rule passes the zone gate untouched: explicit rules
+/// are the #735 write gate's job, and the enforcer's clamp only covers
+/// `Default` bindings — the snapshot mirrors that split exactly.
+#[tokio::test]
+async fn device_upstream_snapshot_keeps_explicit_tunnel_rule_regardless_of_zone() {
+    let ts = setup_with_zones(
+        vec![sample_device(device_id_1(), "192.168.1.10")],
+        tunnel_rule_for_device_1(),
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["9.9.9.9".to_owned()])),
+        "direct".to_owned(),
+        vec![sample_zone(
+            zone_id_default(),
+            vec![wardnet_common::network_zone::AllowedTargetKind::Direct],
+        )],
+    );
+
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        device_snapshot_entry(&ts),
+        Some(wardnet_common::dns::UpstreamId::Tunnel(tunnel_id_1())),
+    );
+}
+
+/// A transient tunnel-lookup failure must not silently drop devices to the
+/// default upstream: the previous entries are carried over until a
+/// successful rebuild converges.
+#[tokio::test]
+async fn device_upstream_snapshot_retains_prior_entries_on_tunnel_lookup_error() {
     let ts = setup_with_devices_and_tunnel(
         vec![],
         tunnel_rule_for_device_1(),
@@ -1715,15 +1964,25 @@ async fn rebuild_dns_upstream_snapshot_also_rebuilds_device_snapshot() {
         Some(sample_tunnel_config(vec!["9.9.9.9".to_owned()])),
         "direct".to_owned(),
     );
-    assert_eq!(device_snapshot_entry(&ts), None, "starts empty");
 
-    as_admin(ts.routing.rebuild_dns_upstream_snapshot())
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+    assert_eq!(
+        device_snapshot_entry(&ts),
+        Some(wardnet_common::dns::UpstreamId::Tunnel(tunnel_id_1())),
+        "seed rebuild should map the device"
+    );
+
+    *ts.tunnel_find_error.lock().await = true;
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
         .await
         .unwrap();
 
     assert_eq!(
         device_snapshot_entry(&ts),
         Some(wardnet_common::dns::UpstreamId::Tunnel(tunnel_id_1())),
+        "a failed tunnel lookup must retain the prior entry, not fail open to Default"
     );
 }
 

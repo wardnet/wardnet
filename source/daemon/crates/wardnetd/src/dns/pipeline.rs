@@ -341,19 +341,21 @@ impl QueryPipeline {
         //    queries follow its tunnel binding — its `src` is the relay's
         //    loopback, which the IP-keyed map can never cover (#923).
         let upstream_id = match &client {
-            ClientIdentity::Ip(_) => self
-                .routing_snapshot
-                .load()
-                .get(&src.ip())
-                .copied()
-                .unwrap_or(UpstreamId::Default),
+            ClientIdentity::Ip(_) => self.routing_snapshot.load().get(&src.ip()).copied(),
             ClientIdentity::Device { device_id, .. } => self
                 .device_routing_snapshot
                 .load()
                 .get(device_id)
                 .copied()
-                .unwrap_or(UpstreamId::Default),
-        };
+                // On a device-map miss, fall back to the applied-state IP
+                // map: an on-LAN DoT client queries from its own address,
+                // so a stale or still-building device map must not cost it
+                // the binding the kernel is actually enforcing. A roaming
+                // client's `src` is the relay loopback, which always
+                // misses, so this can never mis-key a relayed query.
+                .or_else(|| self.routing_snapshot.load().get(&src.ip()).copied()),
+        }
+        .unwrap_or(UpstreamId::Default);
 
         let domain_lower = domain.trim_end_matches('.').to_ascii_lowercase();
         let view = self.authoritative_view.load();
