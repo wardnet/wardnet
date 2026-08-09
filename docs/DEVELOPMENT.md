@@ -187,7 +187,7 @@ root-path from the module path, so a module named `wardnet.network/go` has to
 sit at the *root* of the repository it is fetched from — a subdirectory of this
 monorepo cannot be named. So `release-go-sdk.yml` force-pushes
 `source/sdk/wardnet-go` to [wardnet/wardnet-go](https://github.com/wardnet/wardnet-go)
-with `git subtree split` on every stable release, and
+with `git subtree split` on every SDK release, and
 `source/marketing-site/public/go/index.html` serves the meta tag pointing there.
 
 That mirror is generated and read-only — issues, wiki, projects, discussions,
@@ -195,9 +195,14 @@ and pull requests are all disabled on it, and its `main` is overwritten on
 every release. Never commit to it; edit `source/sdk/wardnet-go` here.
 
 **The SDK carries its own version**, in `source/sdk/wardnet-go/VERSION`, and it
-is *not* the daemon's CalVer. Bump that file to cut an SDK release; a release
-whose VERSION is unchanged republishes `main` but publishes no new module
-version. This is not bookkeeping preference — Go's semantic import versioning
+is *not* the daemon's CalVer. It also releases on its own cadence: bump that
+file, merge, then push a `wardnet-go@x.y.z` tag matching it — the same shape as
+`@wardnet/js@x.y.z`. The daemon's `v<CalVer>` tag does not publish the SDK, so
+an SDK-only fix ships without waiting for a daemon release. The publish job
+fails if the tag and the VERSION file disagree, and fails if that version is
+already on the mirror.
+
+Keeping the SDK off CalVer is not bookkeeping preference — Go's semantic import versioning
 requires any module at major ≥ 2 to end its path in `/vN`, so a CalVer version
 like `2026.08.00` (major 2026) would demand `module wardnet.network/go/v2026`,
 an import path that changes every January. Staying on `0.x` keeps the path
