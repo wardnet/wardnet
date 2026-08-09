@@ -18,14 +18,13 @@ import {
 } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
-import {
-  useDnsRecords,
-  useDnsZones,
-  useCreateDnsRecord,
-  useUpdateDnsRecord,
-  useDeleteDnsRecord,
-} from "@wardnet/web";
-import type { CustomDnsRecord, DnsRecordType } from "@wardnet/js";
+import type {
+  CreateRecordRequest,
+  CustomDnsRecord,
+  DnsRecordType,
+  DnsZone,
+  UpdateRecordRequest,
+} from "@wardnet/js";
 
 const RECORD_TYPES: DnsRecordType[] = [
   "A",
@@ -39,32 +38,57 @@ const RECORD_TYPES: DnsRecordType[] = [
  *  empty string value, so we map this to `zone_id: null` on submit. */
 const NO_ZONE = "__none__";
 
+interface LocalRecordsCardProps {
+  /** All local records — the card shows only the editable `manual` ones. */
+  records: CustomDnsRecord[];
+  zones: DnsZone[];
+  /** True while the page's create or update mutation is in flight. */
+  isSaving: boolean;
+  /** True while the page's update mutation is in flight (gates the per-row
+   *  enable toggles without also locking them during a create). */
+  updatePending: boolean;
+  /** The optional callbacks match TanStack's `mutate` signature so the page
+   *  can pass the mutation's `mutate` straight through; the card uses
+   *  `onSuccess` to close its inline form. */
+  onCreateRecord: (
+    body: CreateRecordRequest,
+    callbacks?: { onSuccess?: () => void },
+  ) => void;
+  onUpdateRecord: (
+    change: { id: string; body: UpdateRecordRequest },
+    callbacks?: { onSuccess?: () => void },
+  ) => void;
+  onDeleteRecord: (id: string) => void;
+}
+
 /** Custom local DNS records — the manual CRUD surface. DHCP/system records
  *  are intentionally excluded here (they're surfaced in the DHCP `.lan`
- *  info card); only `source === "manual"` records are editable. */
-export function LocalRecordsCard() {
-  const { data: recordData } = useDnsRecords();
-  const { data: zoneData } = useDnsZones();
-  const createRecord = useCreateDnsRecord();
-  const updateRecord = useUpdateDnsRecord();
-  const deleteRecord = useDeleteDnsRecord();
-
+ *  info card); only `source === "manual"` records are editable. Pure
+ *  presentation — the owning page wires the query/mutation hooks and passes
+ *  data + callbacks in. */
+export function LocalRecordsCard({
+  records: allRecords,
+  zones,
+  isSaving,
+  updatePending,
+  onCreateRecord,
+  onUpdateRecord,
+  onDeleteRecord,
+}: LocalRecordsCardProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<CustomDnsRecord | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const zones = useMemo(() => zoneData?.zones ?? [], [zoneData]);
   const zoneName = useMemo(() => {
     const map = new Map(zones.map((z) => [z.id, z.name]));
     return (id?: string | null) => (id ? (map.get(id) ?? "-") : "-");
   }, [zones]);
 
   const records = useMemo(
-    () => (recordData?.records ?? []).filter((r) => r.source === "manual"),
-    [recordData],
+    () => allRecords.filter((r) => r.source === "manual"),
+    [allRecords],
   );
 
-  const isSaving = createRecord.isPending || updateRecord.isPending;
   const recordToDelete = records.find((r) => r.id === deleteId);
 
   function openCreate() {
@@ -137,14 +161,14 @@ export function LocalRecordsCard() {
             aria-label={`Toggle ${row.original.domain}`}
             checked={row.original.enabled}
             onCheckedChange={(enabled) =>
-              updateRecord.mutate({ id: row.original.id, body: { enabled } })
+              onUpdateRecord({ id: row.original.id, body: { enabled } })
             }
-            disabled={updateRecord.isPending}
+            disabled={updatePending}
           />
         ),
       },
     ],
-    [zoneName, updateRecord],
+    [zoneName, onUpdateRecord, updatePending],
   );
 
   return (
@@ -162,11 +186,9 @@ export function LocalRecordsCard() {
             zones={zones}
             isSaving={isSaving}
             onCancel={closeForm}
-            onCreate={(body) =>
-              createRecord.mutate(body, { onSuccess: closeForm })
-            }
+            onCreate={(body) => onCreateRecord(body, { onSuccess: closeForm })}
             onUpdate={(id, body) =>
-              updateRecord.mutate({ id, body }, { onSuccess: closeForm })
+              onUpdateRecord({ id, body }, { onSuccess: closeForm })
             }
           />
         )}
@@ -210,7 +232,7 @@ export function LocalRecordsCard() {
         description={`Delete ${recordToDelete?.record_type ?? ""} record for ${recordToDelete?.domain ?? "this name"}? Clients will stop resolving it locally.`}
         confirmLabel="Delete"
         onConfirm={() => {
-          if (deleteId) deleteRecord.mutate(deleteId);
+          if (deleteId) onDeleteRecord(deleteId);
           setDeleteId(null);
         }}
       />

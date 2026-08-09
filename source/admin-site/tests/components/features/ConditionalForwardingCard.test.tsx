@@ -1,14 +1,9 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  useForwardingRules,
-  useCreateForwardingRule,
-  useUpdateForwardingRule,
-  useDeleteForwardingRule,
-} from "@wardnet/web";
 import { ConditionalForwardingCard } from "@/components/features/ConditionalForwardingCard";
 import { renderWithProviders } from "../../test-utils";
+import type { ConditionalForwardingRule } from "@wardnet/js";
 
 Element.prototype.hasPointerCapture ??= () => false;
 Element.prototype.setPointerCapture ??= () => {};
@@ -23,66 +18,48 @@ vi.stubGlobal(
   },
 );
 
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useForwardingRules: vi.fn(),
-    useCreateForwardingRule: vi.fn(),
-    useUpdateForwardingRule: vi.fn(),
-    useDeleteForwardingRule: vi.fn(),
-  };
-});
+const onCreateRule = vi.fn();
+const onUpdateRule = vi.fn();
+const onDeleteRule = vi.fn();
 
-const createMutate = vi.fn();
-const updateMutate = vi.fn();
-const deleteMutate = vi.fn();
+const rules = [
+  {
+    id: "r1",
+    domain: "corp.internal",
+    upstream: "10.0.0.1",
+    enabled: true,
+  },
+] as ConditionalForwardingRule[];
 
-function mutation<T>(mutate: ReturnType<typeof vi.fn>): T {
-  return {
-    mutate,
-    mutateAsync: vi.fn(),
-    isPending: false,
-  } as unknown as T;
+function renderCard() {
+  return renderWithProviders(
+    <ConditionalForwardingCard
+      rules={rules}
+      isSaving={false}
+      updatePending={false}
+      onCreateRule={onCreateRule}
+      onUpdateRule={onUpdateRule}
+      onDeleteRule={onDeleteRule}
+    />,
+  );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(useForwardingRules).mockReturnValue({
-    data: {
-      rules: [
-        {
-          id: "r1",
-          domain: "corp.internal",
-          upstream: "10.0.0.1",
-          enabled: true,
-        },
-      ],
-    },
-  } as unknown as ReturnType<typeof useForwardingRules>);
-  vi.mocked(useCreateForwardingRule).mockReturnValue(
-    mutation<ReturnType<typeof useCreateForwardingRule>>(createMutate),
-  );
-  vi.mocked(useUpdateForwardingRule).mockReturnValue(
-    mutation<ReturnType<typeof useUpdateForwardingRule>>(updateMutate),
-  );
-  vi.mocked(useDeleteForwardingRule).mockReturnValue(
-    mutation<ReturnType<typeof useDeleteForwardingRule>>(deleteMutate),
-  );
 });
 
 describe("ConditionalForwardingCard", () => {
   it("renders existing rules", () => {
-    renderWithProviders(<ConditionalForwardingCard />);
+    renderCard();
     expect(screen.getByText("corp.internal")).toBeInTheDocument();
     expect(screen.getByText("10.0.0.1")).toBeInTheDocument();
   });
 
-  it("toggling a rule calls updateRule.mutate", async () => {
+  it("toggling a rule calls the update callback", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ConditionalForwardingCard />);
+    renderCard();
     await user.click(screen.getByLabelText("Toggle rule for corp.internal"));
-    expect(updateMutate).toHaveBeenCalledWith({
+    expect(onUpdateRule).toHaveBeenCalledWith({
       id: "r1",
       body: { enabled: false },
     });
@@ -90,12 +67,12 @@ describe("ConditionalForwardingCard", () => {
 
   it("creates a rule through the add form", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ConditionalForwardingCard />);
+    renderCard();
     await user.click(screen.getByTestId("fwd-add"));
     await user.type(screen.getByTestId("fwd-domain"), "lab.internal");
     await user.type(screen.getByTestId("fwd-upstream"), "10.1.1.1");
     await user.click(screen.getByTestId("fwd-submit"));
-    expect(createMutate).toHaveBeenCalledWith(
+    expect(onCreateRule).toHaveBeenCalledWith(
       { domain: "lab.internal", upstream: "10.1.1.1", enabled: true },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
@@ -103,7 +80,7 @@ describe("ConditionalForwardingCard", () => {
 
   it("cancelling closes the form", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ConditionalForwardingCard />);
+    renderCard();
     await user.click(screen.getByTestId("fwd-add"));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByTestId("fwd-domain")).not.toBeInTheDocument();
@@ -111,7 +88,7 @@ describe("ConditionalForwardingCard", () => {
 
   it("edits a rule via the row menu", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<ConditionalForwardingCard />);
+    renderCard();
     await user.click(screen.getByTestId("fwd-row-menu"));
     await user.click(await screen.findByTestId("fwd-edit"));
     const domain = screen.getByTestId("fwd-domain") as HTMLInputElement;
@@ -119,7 +96,7 @@ describe("ConditionalForwardingCard", () => {
     await user.clear(domain);
     await user.type(domain, "corp.local");
     await user.click(screen.getByTestId("fwd-submit"));
-    expect(updateMutate).toHaveBeenCalledWith(
+    expect(onUpdateRule).toHaveBeenCalledWith(
       { id: "r1", body: { domain: "corp.local", upstream: "10.0.0.1" } },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
@@ -127,10 +104,10 @@ describe("ConditionalForwardingCard", () => {
 
   it("deletes a rule after confirming", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<ConditionalForwardingCard />);
+    renderCard();
     await user.click(screen.getByTestId("fwd-row-menu"));
     await user.click(await screen.findByTestId("fwd-delete"));
     await user.click(await screen.findByTestId("confirm-dialog-confirm"));
-    expect(deleteMutate).toHaveBeenCalledWith("r1");
+    expect(onDeleteRule).toHaveBeenCalledWith("r1");
   });
 });

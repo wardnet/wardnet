@@ -1,15 +1,9 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  useDnsZones,
-  useDnsRecords,
-  useCreateDnsZone,
-  useUpdateDnsZone,
-  useDeleteDnsZone,
-} from "@wardnet/web";
 import { DnsZonesCard } from "@/components/features/DnsZonesCard";
 import { renderWithProviders } from "../../test-utils";
+import type { CustomDnsRecord, DnsZone } from "@wardnet/js";
 
 // Radix DropdownMenu / Toggle need these DOM APIs that jsdom lacks.
 Element.prototype.hasPointerCapture ??= () => false;
@@ -25,66 +19,53 @@ vi.stubGlobal(
   },
 );
 
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useDnsZones: vi.fn(),
-    useDnsRecords: vi.fn(),
-    useCreateDnsZone: vi.fn(),
-    useUpdateDnsZone: vi.fn(),
-    useDeleteDnsZone: vi.fn(),
-  };
-});
+const onCreateZone = vi.fn();
+const onUpdateZone = vi.fn();
+const onDeleteZone = vi.fn();
 
-const createMutate = vi.fn();
-const updateMutate = vi.fn();
-const deleteMutate = vi.fn();
+const zones = [
+  { id: "z1", name: "home", enabled: true, source: "user" },
+  { id: "z2", name: "lan", enabled: false, source: "system" },
+] as DnsZone[];
 
-function mutation<T>(mutate: ReturnType<typeof vi.fn>, isPending = false): T {
-  return { mutate, mutateAsync: vi.fn(), isPending } as unknown as T;
+const records = [
+  { zone_id: "z1" },
+  { zone_id: "z1" },
+  { zone_id: null },
+] as CustomDnsRecord[];
+
+function renderCard() {
+  return renderWithProviders(
+    <DnsZonesCard
+      zones={zones}
+      records={records}
+      isSaving={false}
+      updatePending={false}
+      onCreateZone={onCreateZone}
+      onUpdateZone={onUpdateZone}
+      onDeleteZone={onDeleteZone}
+    />,
+  );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(useDnsZones).mockReturnValue({
-    data: {
-      zones: [
-        { id: "z1", name: "home", enabled: true, source: "user" },
-        { id: "z2", name: "lan", enabled: false, source: "system" },
-      ],
-    },
-  } as unknown as ReturnType<typeof useDnsZones>);
-  vi.mocked(useDnsRecords).mockReturnValue({
-    data: {
-      records: [{ zone_id: "z1" }, { zone_id: "z1" }, { zone_id: null }],
-    },
-  } as unknown as ReturnType<typeof useDnsRecords>);
-  vi.mocked(useCreateDnsZone).mockReturnValue(
-    mutation<ReturnType<typeof useCreateDnsZone>>(createMutate),
-  );
-  vi.mocked(useUpdateDnsZone).mockReturnValue(
-    mutation<ReturnType<typeof useUpdateDnsZone>>(updateMutate),
-  );
-  vi.mocked(useDeleteDnsZone).mockReturnValue(
-    mutation<ReturnType<typeof useDeleteDnsZone>>(deleteMutate),
-  );
 });
 
 describe("DnsZonesCard", () => {
   it("renders zones with their derived record counts", () => {
-    renderWithProviders(<DnsZonesCard />);
+    renderCard();
     expect(screen.getByText("home")).toBeInTheDocument();
     expect(screen.getByText("lan")).toBeInTheDocument();
     // z1 has 2 records; z2 (lan) has 0.
     expect(screen.getByText("2")).toBeInTheDocument();
   });
 
-  it("toggling a zone's enabled switch calls updateZone.mutate", async () => {
+  it("toggling a zone's enabled switch calls the update callback", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DnsZonesCard />);
+    renderCard();
     await user.click(screen.getByLabelText("Toggle zone home"));
-    expect(updateMutate).toHaveBeenCalledWith({
+    expect(onUpdateZone).toHaveBeenCalledWith({
       id: "z1",
       body: { enabled: false },
     });
@@ -92,11 +73,11 @@ describe("DnsZonesCard", () => {
 
   it("creates a zone through the add form", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DnsZonesCard />);
+    renderCard();
     await user.click(screen.getByTestId("zone-add"));
     await user.type(screen.getByTestId("zone-name"), "office");
     await user.click(screen.getByTestId("zone-submit"));
-    expect(createMutate).toHaveBeenCalledWith(
+    expect(onCreateZone).toHaveBeenCalledWith(
       { name: "office", enabled: true },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
@@ -104,7 +85,7 @@ describe("DnsZonesCard", () => {
 
   it("warns when the zone name looks like a public domain", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DnsZonesCard />);
+    renderCard();
     await user.click(screen.getByTestId("zone-add"));
     await user.type(screen.getByTestId("zone-name"), "example.com");
     expect(screen.getByText(/looks like a public domain/i)).toBeInTheDocument();
@@ -112,7 +93,7 @@ describe("DnsZonesCard", () => {
 
   it("cancelling the form closes it", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DnsZonesCard />);
+    renderCard();
     await user.click(screen.getByTestId("zone-add"));
     expect(screen.getByTestId("zone-name")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -121,7 +102,7 @@ describe("DnsZonesCard", () => {
 
   it("edits an existing zone via the row menu", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<DnsZonesCard />);
+    renderCard();
     // The first row (home) is a non-system zone with edit + delete.
     const menus = screen.getAllByTestId("zone-row-menu");
     await user.click(menus[0]);
@@ -131,7 +112,7 @@ describe("DnsZonesCard", () => {
     await user.clear(input);
     await user.type(input, "casa");
     await user.click(screen.getByTestId("zone-submit"));
-    expect(updateMutate).toHaveBeenCalledWith(
+    expect(onUpdateZone).toHaveBeenCalledWith(
       { id: "z1", body: { name: "casa" } },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
@@ -139,17 +120,17 @@ describe("DnsZonesCard", () => {
 
   it("deletes a zone after confirming", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<DnsZonesCard />);
+    renderCard();
     const menus = screen.getAllByTestId("zone-row-menu");
     await user.click(menus[0]);
     await user.click(await screen.findByTestId("zone-delete"));
     await user.click(await screen.findByTestId("confirm-dialog-confirm"));
-    expect(deleteMutate).toHaveBeenCalledWith("z1");
+    expect(onDeleteZone).toHaveBeenCalledWith("z1");
   });
 
   it("hides the delete action for system zones", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<DnsZonesCard />);
+    renderCard();
     const menus = screen.getAllByTestId("zone-row-menu");
     // Second row is the system 'lan' zone — only Edit is offered.
     await user.click(menus[1]);

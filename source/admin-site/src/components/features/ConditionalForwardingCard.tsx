@@ -16,31 +16,51 @@ import { Input } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
-import {
-  useForwardingRules,
-  useCreateForwardingRule,
-  useUpdateForwardingRule,
-  useDeleteForwardingRule,
-} from "@wardnet/web";
-import type { ConditionalForwardingRule } from "@wardnet/js";
+import type {
+  ConditionalForwardingRule,
+  CreateForwardingRuleRequest,
+  UpdateForwardingRuleRequest,
+} from "@wardnet/js";
+
+interface ConditionalForwardingCardProps {
+  rules: ConditionalForwardingRule[];
+  /** True while the page's create or update mutation is in flight. */
+  isSaving: boolean;
+  /** True while the page's update mutation is in flight (gates the per-row
+   *  enable toggles without also locking them during a create). */
+  updatePending: boolean;
+  /** The optional callbacks match TanStack's `mutate` signature so the page
+   *  can pass the mutation's `mutate` straight through; the card uses
+   *  `onSuccess` to close its inline form. */
+  onCreateRule: (
+    body: CreateForwardingRuleRequest,
+    callbacks?: { onSuccess?: () => void },
+  ) => void;
+  onUpdateRule: (
+    change: { id: string; body: UpdateForwardingRuleRequest },
+    callbacks?: { onSuccess?: () => void },
+  ) => void;
+  onDeleteRule: (id: string) => void;
+}
 
 /** Conditional forwarding — send a specific domain to a chosen upstream
  *  resolver instead of the default. An explicit rule overrides authoritative
- *  zone handling for the same name. */
-export function ConditionalForwardingCard() {
-  const { data } = useForwardingRules();
-  const createRule = useCreateForwardingRule();
-  const updateRule = useUpdateForwardingRule();
-  const deleteRule = useDeleteForwardingRule();
-
+ *  zone handling for the same name. Pure presentation — the owning page wires
+ *  the query/mutation hooks and passes data + callbacks in. */
+export function ConditionalForwardingCard({
+  rules,
+  isSaving,
+  updatePending,
+  onCreateRule,
+  onUpdateRule,
+  onDeleteRule,
+}: ConditionalForwardingCardProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ConditionalForwardingRule | null>(
     null,
   );
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const rules = useMemo(() => data?.rules ?? [], [data]);
-  const isSaving = createRule.isPending || updateRule.isPending;
   const ruleToDelete = rules.find((r) => r.id === deleteId);
 
   function openCreate() {
@@ -85,14 +105,14 @@ export function ConditionalForwardingCard() {
             aria-label={`Toggle rule for ${row.original.domain}`}
             checked={row.original.enabled}
             onCheckedChange={(enabled) =>
-              updateRule.mutate({ id: row.original.id, body: { enabled } })
+              onUpdateRule({ id: row.original.id, body: { enabled } })
             }
-            disabled={updateRule.isPending}
+            disabled={updatePending}
           />
         ),
       },
     ],
-    [updateRule],
+    [onUpdateRule, updatePending],
   );
 
   return (
@@ -112,11 +132,9 @@ export function ConditionalForwardingCard() {
             rule={editing}
             isSaving={isSaving}
             onCancel={closeForm}
-            onCreate={(body) =>
-              createRule.mutate(body, { onSuccess: closeForm })
-            }
+            onCreate={(body) => onCreateRule(body, { onSuccess: closeForm })}
             onUpdate={(id, body) =>
-              updateRule.mutate({ id, body }, { onSuccess: closeForm })
+              onUpdateRule({ id, body }, { onSuccess: closeForm })
             }
           />
         )}
@@ -160,7 +178,7 @@ export function ConditionalForwardingCard() {
         description={`Delete the forwarding rule for ${ruleToDelete?.domain ?? "this domain"}? Queries will fall back to the default upstream.`}
         confirmLabel="Delete"
         onConfirm={() => {
-          if (deleteId) deleteRule.mutate(deleteId);
+          if (deleteId) onDeleteRule(deleteId);
           setDeleteId(null);
         }}
       />

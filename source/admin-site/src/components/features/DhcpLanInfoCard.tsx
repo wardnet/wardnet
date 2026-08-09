@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Link } from "react-router";
 import {
   Card,
@@ -10,19 +9,18 @@ import {
 import { Button } from "@wardnet/web";
 import { Text } from "@wardnet/web";
 import { Pill } from "@wardnet/web";
-import { useDnsRecords } from "@wardnet/web";
 
-/** Read-only explainer for the DHCP `.lan` integration. Owns its own data —
- *  counts the DHCP-sourced records ({hostname}.lan, auto-registered into the
- *  seeded `lan` zone). These are managed automatically and don't appear in the
- *  editable Records table. */
-export function DhcpLanInfoCard() {
-  const { data } = useDnsRecords();
-  const dhcpRecordCount = useMemo(
-    () => (data?.records ?? []).filter((r) => r.source === "dhcp").length,
-    [data],
-  );
+interface DhcpLanInfoCardProps {
+  /** Count of DHCP-sourced records ({hostname}.lan, auto-registered into the
+   *  seeded `lan` zone), derived by the owning page from the shared records
+   *  query. */
+  dhcpRecordCount: number;
+}
 
+/** Read-only explainer for the DHCP `.lan` integration. The auto-registered
+ *  records are managed automatically and don't appear in the editable Records
+ *  table. Pure presentation — the owning page passes the derived count in. */
+export function DhcpLanInfoCard({ dhcpRecordCount }: DhcpLanInfoCardProps) {
   return (
     <Card>
       <CardHeader>
