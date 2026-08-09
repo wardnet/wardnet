@@ -1524,6 +1524,209 @@ async fn apply_rule_tunnel_without_override_uses_default_upstream() {
     );
 }
 
+// -- Tests: device-keyed DNS upstream snapshot (#923) -------------------------
+//
+// Built from the *persisted* rules so roaming (DoT-authenticated) devices
+// keep their tunnel binding after `DeviceGone` removed their applied
+// kernel state. None of these tests call `apply_rule` — the absence of
+// applied state is the point.
+
+/// A persisted tunnel rule for device 1, keyed the way `MockDeviceRepo`
+/// stores rules.
+fn tunnel_rule_for_device_1() -> HashMap<String, RoutingRule> {
+    HashMap::from([(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Tunnel {
+                tunnel_id: tunnel_id_1(),
+            },
+            created_by: wardnet_common::routing::RuleCreator::User,
+        },
+    )])
+}
+
+fn device_snapshot_entry(ts: &TestSetup) -> Option<wardnet_common::dns::UpstreamId> {
+    ts.routing
+        .dns_device_upstream_snapshot()
+        .load()
+        .get(&device_id_1())
+        .copied()
+}
+
+#[tokio::test]
+async fn device_upstream_snapshot_maps_persisted_rule_without_applied_state() {
+    let ts = setup_with_devices_and_tunnel(
+        vec![], // no devices present on the LAN — the roaming case
+        tunnel_rule_for_device_1(),
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["9.9.9.9".to_owned()])),
+        "direct".to_owned(),
+    );
+
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        device_snapshot_entry(&ts),
+        Some(wardnet_common::dns::UpstreamId::Tunnel(tunnel_id_1())),
+        "a persisted tunnel binding must map the device even with no applied kernel state"
+    );
+}
+
+#[tokio::test]
+async fn device_upstream_snapshot_resolves_default_policy_to_tunnel() {
+    let rules = HashMap::from([(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Default,
+            created_by: wardnet_common::routing::RuleCreator::User,
+        },
+    )]);
+    let ts = setup_with_devices_and_tunnel(
+        vec![],
+        rules,
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["9.9.9.9".to_owned()])),
+        TUNNEL_1_ID.to_owned(), // global default policy points at the tunnel
+    );
+
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        device_snapshot_entry(&ts),
+        Some(wardnet_common::dns::UpstreamId::Tunnel(tunnel_id_1())),
+        "a Default rule must resolve through the global policy"
+    );
+}
+
+#[tokio::test]
+async fn device_upstream_snapshot_skips_down_tunnel() {
+    let ts = setup_with_devices_and_tunnel(
+        vec![],
+        tunnel_rule_for_device_1(),
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Down)),
+        Some(sample_tunnel_config(vec!["9.9.9.9".to_owned()])),
+        "direct".to_owned(),
+    );
+
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        device_snapshot_entry(&ts),
+        None,
+        "a Down tunnel must drop its devices to the default upstream (soft fallback)"
+    );
+}
+
+#[tokio::test]
+async fn device_upstream_snapshot_skips_when_override_disabled() {
+    let mut config = sample_tunnel_config(vec!["9.9.9.9".to_owned()]);
+    config.override_default_dns = false;
+    let ts = setup_with_devices_and_tunnel(
+        vec![],
+        tunnel_rule_for_device_1(),
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(config),
+        "direct".to_owned(),
+    );
+
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        device_snapshot_entry(&ts),
+        None,
+        "without override_default_dns the device stays on the default upstream"
+    );
+}
+
+#[tokio::test]
+async fn device_upstream_snapshot_skips_missing_tunnel() {
+    // The tunnel service knows no tunnels — e.g. the bound tunnel was
+    // deleted while its rule still references it.
+    let ts = setup_with_devices_and_tunnel(
+        vec![],
+        tunnel_rule_for_device_1(),
+        None,
+        Some(sample_tunnel_config(vec!["9.9.9.9".to_owned()])),
+        "direct".to_owned(),
+    );
+
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(device_snapshot_entry(&ts), None);
+}
+
+#[tokio::test]
+async fn device_upstream_snapshot_skips_tunnel_without_config() {
+    let ts = setup_with_devices_and_tunnel(
+        vec![],
+        tunnel_rule_for_device_1(),
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        None, // no stored TunnelConfig
+        "direct".to_owned(),
+    );
+
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(device_snapshot_entry(&ts), None);
+}
+
+#[tokio::test]
+async fn device_upstream_snapshot_skips_direct_rules() {
+    let rules = HashMap::from([(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Direct,
+            created_by: wardnet_common::routing::RuleCreator::User,
+        },
+    )]);
+    let ts = setup_with_devices(vec![], rules);
+
+    as_admin(ts.routing.rebuild_dns_device_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(device_snapshot_entry(&ts), None);
+}
+
+/// The `TunnelDnsOverrideChanged` entry point rebuilds the device-keyed
+/// snapshot alongside the applied-state one, so one dispatch converges
+/// both maps.
+#[tokio::test]
+async fn rebuild_dns_upstream_snapshot_also_rebuilds_device_snapshot() {
+    let ts = setup_with_devices_and_tunnel(
+        vec![],
+        tunnel_rule_for_device_1(),
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["9.9.9.9".to_owned()])),
+        "direct".to_owned(),
+    );
+    assert_eq!(device_snapshot_entry(&ts), None, "starts empty");
+
+    as_admin(ts.routing.rebuild_dns_upstream_snapshot())
+        .await
+        .unwrap();
+
+    assert_eq!(
+        device_snapshot_entry(&ts),
+        Some(wardnet_common::dns::UpstreamId::Tunnel(tunnel_id_1())),
+    );
+}
+
 #[tokio::test]
 async fn apply_rule_tunnel_not_found_falls_back_to_direct() {
     // No tunnel configured in the mock.

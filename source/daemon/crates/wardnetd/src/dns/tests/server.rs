@@ -56,6 +56,10 @@ fn empty_routing_snapshot() -> Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>> {
     Arc::new(ArcSwap::from_pointee(HashMap::new()))
 }
 
+fn empty_device_routing_snapshot() -> Arc<ArcSwap<HashMap<uuid::Uuid, UpstreamId>>> {
+    Arc::new(ArcSwap::from_pointee(HashMap::new()))
+}
+
 fn empty_device_snapshot() -> Arc<ArcSwap<HashMap<IpAddr, uuid::Uuid>>> {
     Arc::new(ArcSwap::from_pointee(HashMap::new()))
 }
@@ -345,6 +349,7 @@ fn build_test_server(config: DnsConfig, bind_addr: SocketAddr) -> UdpDnsServer {
         stub_filter(),
         None,
         empty_routing_snapshot(),
+        empty_device_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
         stub_events(),
@@ -698,6 +703,7 @@ async fn server_records_query_after_handling_it() {
         stub_filter(),
         None,
         empty_routing_snapshot(),
+        empty_device_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
         stub_events(),
@@ -972,6 +978,7 @@ fn build_with_filter(
         filter,
         None,
         empty_routing_snapshot(),
+        empty_device_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
         stub_events(),
@@ -1095,6 +1102,7 @@ async fn handle_query_tunnel_branch_records_upstream_error_when_forward_fails() 
         filter,
         None,
         snapshot,
+        empty_device_routing_snapshot(),
         empty_device_snapshot(),
         tunnel_repo,
         stub_events(),
@@ -1582,6 +1590,7 @@ async fn dns_filter_rebuilt_event_flushes_response_cache() {
         filter.clone() as Arc<dyn wardnetd_services::DnsFilterService>,
         None,
         empty_routing_snapshot(),
+        empty_device_routing_snapshot(),
         empty_device_snapshot(),
         stub_tunnel_repo(),
         bus.clone(),

@@ -778,6 +778,7 @@ async fn run(
             services.dns_filter.clone(),
             Some(services.routing_profile.clone()),
             services.routing.dns_upstream_snapshot(),
+            services.routing.dns_device_upstream_snapshot(),
             services.device_ip_snapshot.snapshot(),
             services.tunnel_repo.clone(),
             services.event_publisher.clone(),

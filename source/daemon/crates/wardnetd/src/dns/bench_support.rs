@@ -484,6 +484,7 @@ pub fn build_bench_pipeline(upstream: SocketAddr) -> BenchPipeline {
         None,
         Arc::new(ArcSwap::from_pointee(HashMap::new())),
         Arc::new(ArcSwap::from_pointee(HashMap::new())),
+        Arc::new(ArcSwap::from_pointee(HashMap::new())),
         stub_tunnel_repo(),
     );
 
