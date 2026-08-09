@@ -974,6 +974,76 @@ async fn apply_import_still_restores_ordinary_config_from_the_bundle() {
 }
 
 #[tokio::test]
+async fn apply_import_onto_a_box_with_no_config_file_falls_back_to_defaults() {
+    // A box that never had a config file has every deploy-time key at its
+    // compiled-in default, and those defaults are what the bundle must be
+    // held to — not the bundle's own values.
+    let h = build_harness(42);
+    let passphrase = "correct-horse-battery-staple";
+    tokio::fs::remove_file(&h.config_path).await.unwrap();
+
+    let bundle = bundle_with_config(
+        "[logging]\nlevel = \"debug\"\n\n[update]\nallow_edge_channel = true\n",
+        passphrase,
+        42,
+    )
+    .await;
+
+    let written: toml::Table = apply_and_read_config(&h, bundle, passphrase)
+        .await
+        .parse()
+        .unwrap();
+    assert!(
+        written.get("update").is_none(),
+        "the gate must stay at its default on a box that never opened it: {written:?}",
+    );
+    assert_eq!(
+        written["logging"]["level"].as_str(),
+        Some("debug"),
+        "ordinary settings should still restore",
+    );
+}
+
+#[tokio::test]
+async fn apply_import_fails_closed_when_the_live_config_is_unreadable() {
+    // With no live values to read, letting the bundle's copy through would
+    // hand it every deploy-time key. The machine is what is wrong here, not
+    // the bundle, so this is an internal error rather than a rejected upload.
+    let h = build_harness(42);
+    let passphrase = "correct-horse-battery-staple";
+    tokio::fs::write(&h.config_path, "this is not toml")
+        .await
+        .unwrap();
+
+    let bundle = bundle_with_config("[update]\nallow_edge_channel = true\n", passphrase, 42).await;
+    let preview = auth_context::with_context(
+        admin_ctx(),
+        h.svc.preview_import(bundle, passphrase.to_owned()),
+    )
+    .await
+    .unwrap();
+    let err = auth_context::with_context(
+        admin_ctx(),
+        h.svc.apply_import(ApplyImportRequest {
+            preview_token: preview.preview_token,
+        }),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(matches!(err, AppError::Internal(_)), "got {err:?}");
+    assert_eq!(
+        tokio::fs::read_to_string(&h.config_path).await.unwrap(),
+        "this is not toml",
+        "the live config should be untouched",
+    );
+    assert!(
+        h.dumper.restored.lock().unwrap().is_none(),
+        "the restore should have failed before touching the database",
+    );
+}
+
+#[tokio::test]
 async fn preview_import_reports_a_config_this_daemon_cannot_load() {
     // A restore is followed by a mandatory restart, so a bundle carrying a
     // config the daemon cannot parse would take the box down with no UI left
