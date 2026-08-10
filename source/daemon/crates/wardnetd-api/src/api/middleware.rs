@@ -6,7 +6,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::Next;
 use axum::response::Response;
 use uuid::Uuid;
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser};
 
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -34,6 +34,29 @@ impl FromRequestParts<AppState> for ClientIp {
     }
 }
 
+/// Lets a handler ask for `Option<ClientIp>` and get `None` instead of a `500`
+/// when `ConnectInfo` is absent.
+///
+/// `ConnectInfo` is missing on surfaces that were not built with
+/// `into_make_service_with_connect_info` — the mock/dev server and several
+/// handler tests. The login path wants the source address for per-IP rate
+/// limiting but must not *require* it: refusing to log anyone in because a test
+/// harness did not install `ConnectInfo` would be a far worse failure than
+/// degrading to identity-only throttling.
+impl axum::extract::OptionalFromRequestParts<AppState> for ClientIp {
+    type Rejection = std::convert::Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &AppState,
+    ) -> Result<Option<Self>, Self::Rejection> {
+        Ok(parts
+            .extensions
+            .get::<ConnectInfo<SocketAddr>>()
+            .map(|ci| Self(ci.0.ip())))
+    }
+}
+
 /// Per-listener marker inserted **only** on the TLS (`:443`) app by
 /// `guarded_https_app`. Its presence tells cookie-issuing handlers
 /// ([`auth::login`](crate::api::auth::login) / [`auth::refresh`](crate::api::auth::refresh))
@@ -49,14 +72,26 @@ impl FromRequestParts<AppState> for ClientIp {
 #[derive(Clone, Copy)]
 pub struct SecureTransport;
 
-/// Extractor that validates admin authentication.
+/// Extractor that validates that the caller holds a household-user session.
 ///
 /// Tries session cookie first, then `Authorization: Bearer <token>`
 /// (interpreted as either a session token or an API key). Delegates all
 /// cryptographic verification to [`AuthService`](wardnetd_services::AuthService) —
 /// no SQL or hashing happens here.
-pub struct AdminAuth {
-    pub admin_id: Uuid,
+///
+/// # Authentication, not authorization
+///
+/// Named `SessionAuth` rather than the former `AdminAuth` because it no longer
+/// implies anything about *role*: a `member` satisfies it exactly as an `admin`
+/// does.
+/// Authorization is the service layer's job, via
+/// `auth_context::require_admin()` (see `.agents/auth.md`). The old name
+/// promised a check this extractor never performed, which with only one
+/// principal was harmless and with two would be an escalation waiting for a
+/// reader to trust the type name.
+pub struct SessionAuth {
+    /// The authenticated user, carrying their live role.
+    pub user: AuthenticatedUser,
     /// The raw session token that authenticated this request — the cookie or
     /// Bearer value that `validate_session` actually accepted, never a
     /// credential that merely rode along in the headers. `None` when the
@@ -66,7 +101,7 @@ pub struct AdminAuth {
     pub session_token: Option<String>,
 }
 
-impl FromRequestParts<AppState> for AdminAuth {
+impl FromRequestParts<AppState> for SessionAuth {
     type Rejection = AppError;
 
     async fn from_request_parts(
@@ -78,10 +113,10 @@ impl FromRequestParts<AppState> for AdminAuth {
         // Cookie first. If the cookie validates, it is the authenticating
         // session token.
         if let Some(token) = extract_cookie_token(headers)
-            && let Some(admin_id) = state.auth_service().validate_session(&token).await?
+            && let Some(user) = state.auth_service().validate_session(&token).await?
         {
             return Ok(Self {
-                admin_id,
+                user,
                 session_token: Some(token),
             });
         }
@@ -93,15 +128,15 @@ impl FromRequestParts<AppState> for AdminAuth {
         // stale cookie alongside a valid bearer, and an API key is not a
         // session at all).
         if let Some(bearer) = extract_bearer_token(headers) {
-            if let Some(admin_id) = state.auth_service().validate_session(&bearer).await? {
+            if let Some(user) = state.auth_service().validate_session(&bearer).await? {
                 return Ok(Self {
-                    admin_id,
+                    user,
                     session_token: Some(bearer),
                 });
             }
-            if let Some(admin_id) = state.auth_service().validate_api_key(&bearer).await? {
+            if let Some(user) = state.auth_service().validate_api_key(&bearer).await? {
                 return Ok(Self {
-                    admin_id,
+                    user,
                     session_token: None,
                 });
             }
@@ -146,7 +181,7 @@ fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
 async fn try_session_cookie(
     headers: &HeaderMap,
     state: &AppState,
-) -> Result<Option<Uuid>, AppError> {
+) -> Result<Option<AuthenticatedUser>, AppError> {
     let Some(token) = extract_cookie_token(headers) else {
         return Ok(None);
     };
@@ -161,15 +196,18 @@ async fn try_session_cookie(
 /// integration tests — can authenticate without a cookie jar), and admins
 /// can also mint long-lived API keys validated through a separate code path.
 /// Try the session-token interpretation first, fall back to the API-key
-/// path if that fails. Returns the authenticated admin's id, or `None` if
-/// neither validator accepts the bearer.
-async fn try_bearer(headers: &HeaderMap, state: &AppState) -> Result<Option<Uuid>, AppError> {
+/// path if that fails. Returns the authenticated user, or `None` if neither
+/// validator accepts the bearer.
+async fn try_bearer(
+    headers: &HeaderMap,
+    state: &AppState,
+) -> Result<Option<AuthenticatedUser>, AppError> {
     let Some(bearer_token) = extract_bearer_token(headers) else {
         return Ok(None);
     };
 
-    if let Some(id) = state.auth_service().validate_session(&bearer_token).await? {
-        return Ok(Some(id));
+    if let Some(user) = state.auth_service().validate_session(&bearer_token).await? {
+        return Ok(Some(user));
     }
 
     state.auth_service().validate_api_key(&bearer_token).await
@@ -177,10 +215,15 @@ async fn try_bearer(headers: &HeaderMap, state: &AppState) -> Result<Option<Uuid
 
 /// Axum middleware that resolves the [`AuthContext`] for every request.
 ///
-/// If the request carries a valid admin session or API key the context is
-/// [`AuthContext::Admin`]. Otherwise, the caller's IP is looked up in the
-/// device repository to produce [`AuthContext::Device`] with the device's
-/// MAC address. If neither succeeds, [`AuthContext::Anonymous`] is used.
+/// If the request carries a valid household-user session or API key the context
+/// is [`AuthContext::User`], carrying the role the credential actually resolved
+/// to. Otherwise, the caller's IP is looked up in the device repository to
+/// produce [`AuthContext::Device`] with the device's MAC address. If neither
+/// succeeds, [`AuthContext::Anonymous`] is used.
+///
+/// Session/API-key resolution is tried **before** device-by-IP on purpose: a
+/// signed-in person using a known household device must be attributed to
+/// themselves, not demoted to the device principal they happen to be sitting at.
 ///
 /// The resolved context is inserted into the request extensions so that
 /// [`AuthContextLayer`](wardnetd_services::auth_context::AuthContextLayer) can propagate
@@ -192,15 +235,21 @@ pub async fn resolve_auth_context(
 ) -> Response {
     let headers = req.headers();
 
-    // Try admin auth first (session cookie, then API key).
-    let admin_id = try_session_cookie(headers, &state)
-        .await
-        .ok()
-        .flatten()
-        .or(try_bearer(headers, &state).await.ok().flatten());
+    // Try session auth first (session cookie, then bearer/API key).
+    let authenticated = match try_session_cookie(headers, &state).await {
+        Ok(Some(user)) => Some(user),
+        // A failed cookie must not skip the bearer path: `wctl` and integration
+        // tests replay the token as a bearer, and a browser can carry a stale
+        // cookie alongside a valid one.
+        _ => try_bearer(headers, &state).await.ok().flatten(),
+    };
 
-    let ctx = if let Some(id) = admin_id {
-        AuthContext::Admin { admin_id: id }
+    // The principal is used exactly as the credential resolved it. Constructing
+    // an `AuthenticatedUser` here instead — with a role this layer chose — is
+    // the escalation ADR-0031 §2 exists to prevent: it is what promoted every
+    // valid session to admin before household users existed.
+    let ctx = if let Some(user) = authenticated {
+        AuthContext::user(user)
     } else {
         // Try to identify the caller by client IP -> device MAC.
         let ip = req
