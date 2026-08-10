@@ -242,7 +242,7 @@ jobs:
           cp "${GITHUB_WORKSPACE}/source/wctl/scripts/install.sh" wctl-install.sh
 
       - name: Attest SLSA build provenance (wctl binaries)
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: release-staging/wctl_*
 
@@ -257,13 +257,13 @@ jobs:
         # Edge builds are attested too: they are unreviewed, but they are
         # not unauthentic — provenance is exactly what proves an edge
         # tarball came from this workflow and not from someone's laptop.
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: release-staging/*.tar.gz
 
       - name: Attest SLSA build provenance (OpenAPI spec)
         if: inputs.attach-openapi
-        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: release-staging/openapi.json
 
