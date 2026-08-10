@@ -11,6 +11,8 @@ import {
   Button,
   Text,
   useDevices,
+  useDeviceFilterSettingsList,
+  useDnsFilterProfiles,
 } from "@wardnet/web";
 import type { Device } from "@wardnet/js";
 
@@ -29,9 +31,13 @@ function isRecent(d: Device, now: number): boolean {
   return now - t < RECENT_WINDOW_MS;
 }
 
-/** Devices page with grouped, searchable device table. */
+/** Devices page with grouped, searchable device table. Owns the queries the
+ *  table's Filtering column needs, passing data down so the table stays pure
+ *  presentation. */
 export default function Devices() {
   const { data, isLoading, isError } = useDevices();
+  const { data: filterSettingsData } = useDeviceFilterSettingsList();
+  const { data: filterProfilesData } = useDnsFilterProfiles();
   const navigate = useNavigate();
   const allDevices = useMemo(() => data?.devices ?? [], [data]);
 
@@ -130,6 +136,8 @@ export default function Devices() {
         searchValue={query}
         onSearchChange={setQuery}
         searchPlaceholder="Search by name, MAC, hostname, manufacturer or IP"
+        filterSettings={filterSettingsData?.devices}
+        filterProfiles={filterProfilesData?.profiles}
         emptyMessage={
           <NoDevicesFound
             neighbours={neighbours}

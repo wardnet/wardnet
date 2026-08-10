@@ -9,6 +9,7 @@ const {
   useDhcpStatus,
   useRecentErrors,
   useDnsStatSummary,
+  useTlsStatus,
 } = vi.hoisted(() => ({
   useSystemStatus: vi.fn(),
   useDevices: vi.fn(),
@@ -16,6 +17,7 @@ const {
   useDhcpStatus: vi.fn(),
   useRecentErrors: vi.fn(),
   useDnsStatSummary: vi.fn(),
+  useTlsStatus: vi.fn(),
 }));
 
 vi.mock("@wardnet/web", async (importOriginal) => {
@@ -28,6 +30,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useDhcpStatus,
     useRecentErrors,
     useDnsStatSummary,
+    useTlsStatus,
   };
 });
 
@@ -97,6 +100,7 @@ beforeEach(() => {
   useTunnels.mockReturnValue({ data: undefined });
   useDhcpStatus.mockReturnValue({ data: undefined });
   useRecentErrors.mockReturnValue({ data: undefined });
+  useTlsStatus.mockReturnValue({ data: undefined });
   useDnsStatSummary.mockReturnValue({
     data: undefined,
     isError: false,

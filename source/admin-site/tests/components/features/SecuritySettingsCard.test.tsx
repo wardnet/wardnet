@@ -1,54 +1,37 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useDnsConfig, useUpdateDnsConfig } from "@wardnet/web";
 import { SecuritySettingsCard } from "@/components/features/SecuritySettingsCard";
 import { renderWithProviders } from "../../test-utils";
+import type { DnsConfig } from "@wardnet/js";
 
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useDnsConfig: vi.fn(),
-    useUpdateDnsConfig: vi.fn(),
-  };
-});
+const onUpdate = vi.fn();
 
-vi.mock("@wardnet/ui", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, toast: { success: vi.fn(), error: vi.fn() } };
-});
-
-const mockConfig = vi.mocked(useDnsConfig);
-const mockUpdate = vi.mocked(useUpdateDnsConfig);
-const mutate = vi.fn();
-
-function setConfig(
+function renderCard(
   config: Record<string, unknown> | undefined,
   isLoading = false,
 ) {
-  mockConfig.mockReturnValue({
-    data: config ? { config } : undefined,
-    isLoading,
-  } as unknown as ReturnType<typeof useDnsConfig>);
+  return renderWithProviders(
+    <SecuritySettingsCard
+      config={config as DnsConfig | undefined}
+      isLoading={isLoading}
+      onUpdate={onUpdate}
+      updatePending={false}
+    />,
+  );
 }
 
 describe("SecuritySettingsCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockUpdate.mockReturnValue({
-      mutate,
-      isPending: false,
-    } as unknown as ReturnType<typeof useUpdateDnsConfig>);
   });
 
   it("reflects the loaded config in the toggles", () => {
-    setConfig({
+    renderCard({
       dnssec_enabled: true,
       rebinding_protection: false,
       rate_limit_per_second: 50,
     });
-    renderWithProviders(<SecuritySettingsCard />);
 
     expect(screen.getByLabelText("Enable DNSSEC validation")).toBeChecked();
     expect(
@@ -57,22 +40,20 @@ describe("SecuritySettingsCard", () => {
     expect(screen.getByRole("spinbutton")).toHaveValue(50);
   });
 
-  it("mutates when DNSSEC and rebinding toggles change", async () => {
-    setConfig({ dnssec_enabled: false, rebinding_protection: true });
-    renderWithProviders(<SecuritySettingsCard />);
+  it("calls the update callback when DNSSEC and rebinding toggles change", async () => {
+    renderCard({ dnssec_enabled: false, rebinding_protection: true });
 
     await userEvent.click(screen.getByLabelText("Enable DNSSEC validation"));
-    expect(mutate).toHaveBeenCalledWith({ dnssec_enabled: true });
+    expect(onUpdate).toHaveBeenCalledWith({ dnssec_enabled: true });
 
     await userEvent.click(
       screen.getByLabelText("Enable DNS rebinding protection"),
     );
-    expect(mutate).toHaveBeenCalledWith({ rebinding_protection: false });
+    expect(onUpdate).toHaveBeenCalledWith({ rebinding_protection: false });
   });
 
   it("shows Save when the rate limit is dirty and saves the parsed value", async () => {
-    setConfig({ rate_limit_per_second: 0 });
-    renderWithProviders(<SecuritySettingsCard />);
+    renderCard({ rate_limit_per_second: 0 });
 
     // No Save button until the rate is edited to a new value.
     expect(
@@ -84,15 +65,14 @@ describe("SecuritySettingsCard", () => {
     await userEvent.type(input, "25");
 
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(mutate).toHaveBeenCalledWith(
+    expect(onUpdate).toHaveBeenCalledWith(
       { rate_limit_per_second: 25 },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
   });
 
   it("shows a validation error and disables Save for a bad value", async () => {
-    setConfig({ rate_limit_per_second: 0 });
-    renderWithProviders(<SecuritySettingsCard />);
+    renderCard({ rate_limit_per_second: 0 });
 
     const input = screen.getByRole("spinbutton");
     await userEvent.clear(input);
@@ -103,8 +83,7 @@ describe("SecuritySettingsCard", () => {
   });
 
   it("cancel resets the rate edit buffer", async () => {
-    setConfig({ rate_limit_per_second: 10 });
-    renderWithProviders(<SecuritySettingsCard />);
+    renderCard({ rate_limit_per_second: 10 });
 
     const input = screen.getByRole("spinbutton");
     await userEvent.clear(input);
@@ -116,5 +95,11 @@ describe("SecuritySettingsCard", () => {
     expect(
       screen.queryByRole("button", { name: "Save" }),
     ).not.toBeInTheDocument();
+  });
+
+  it("disables the controls while the config loads or an update is pending", () => {
+    renderCard({ rate_limit_per_second: 0 }, true);
+    expect(screen.getByLabelText("Enable DNSSEC validation")).toBeDisabled();
+    expect(screen.getByRole("spinbutton")).toBeDisabled();
   });
 });

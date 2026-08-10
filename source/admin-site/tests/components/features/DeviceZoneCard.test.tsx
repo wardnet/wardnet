@@ -3,14 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceZoneCard } from "@/components/features/DeviceZoneCard";
 import { makeDevice, renderWithProviders } from "../../test-utils";
-import type { NetworkZoneView } from "@wardnet/js";
-
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, useNetworkZones: vi.fn(), useAssignDeviceZone: vi.fn() };
-});
-
-import { useNetworkZones, useAssignDeviceZone } from "@wardnet/web";
+import type { Device, NetworkZoneView } from "@wardnet/js";
 
 const mutateAsync = vi.fn();
 const reset = vi.fn();
@@ -39,28 +32,30 @@ const zones = [
   makeZone({ id: "zone-2", name: "Guest", is_default: false }),
 ];
 
-function setup() {
-  vi.mocked(useNetworkZones).mockReturnValue({
-    data: { zones },
-  } as unknown as ReturnType<typeof useNetworkZones>);
-  vi.mocked(useAssignDeviceZone).mockReturnValue({
-    mutateAsync,
-    reset,
-    isPending: false,
-  } as unknown as ReturnType<typeof useAssignDeviceZone>);
+function renderCard(device: Device) {
+  return renderWithProviders(
+    <DeviceZoneCard
+      device={device}
+      zones={zones}
+      assignZone={{
+        mutateAsync,
+        reset,
+        isPending: false,
+        isError: false,
+        error: null,
+      }}
+    />,
+  );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mutateAsync.mockResolvedValue(undefined);
-  setup();
 });
 
 describe("DeviceZoneCard", () => {
   it("shows the device's current zone with a Home pill and the disclaimer", () => {
-    renderWithProviders(
-      <DeviceZoneCard device={makeDevice({ zone_id: "zone-1" })} />,
-    );
+    renderCard(makeDevice({ zone_id: "zone-1" }));
     expect(screen.getByTestId("device-zone-value")).toHaveTextContent(
       "Trusted",
     );
@@ -69,28 +64,20 @@ describe("DeviceZoneCard", () => {
   });
 
   it("shows a dash when the device's zone is not in the list", () => {
-    renderWithProviders(
-      <DeviceZoneCard device={makeDevice({ zone_id: "gone" })} />,
-    );
+    renderCard(makeDevice({ zone_id: "gone" }));
     expect(screen.getByTestId("device-zone-value")).toHaveTextContent("-");
     expect(screen.queryByText("Home")).not.toBeInTheDocument();
   });
 
   it("omits the Home pill for a non-default zone", () => {
-    renderWithProviders(
-      <DeviceZoneCard device={makeDevice({ zone_id: "zone-2" })} />,
-    );
+    renderCard(makeDevice({ zone_id: "zone-2" }));
     expect(screen.getByTestId("device-zone-value")).toHaveTextContent("Guest");
     expect(screen.queryByText("Home")).not.toBeInTheDocument();
   });
 
   it("enters edit mode and saves the (unchanged) zone", async () => {
     const user = userEvent.setup();
-    renderWithProviders(
-      <DeviceZoneCard
-        device={makeDevice({ id: "dev-1", zone_id: "zone-1" })}
-      />,
-    );
+    renderCard(makeDevice({ id: "dev-1", zone_id: "zone-1" }));
     await user.click(screen.getByTestId("device-zone-edit"));
     expect(reset).toHaveBeenCalled();
     await user.click(screen.getByTestId("device-zone-save"));

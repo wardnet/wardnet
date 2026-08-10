@@ -9,19 +9,32 @@ import {
   FormActions,
   Input,
   Toggle,
-  useDnsConfig,
-  useUpdateDnsConfig,
 } from "@wardnet/web";
+import type { MutateFn } from "@/lib/mutationHandle";
+import type { DnsConfig, UpdateDnsConfigRequest } from "@wardnet/js";
+
+interface SecuritySettingsCardProps {
+  /** The DNS config, or `undefined` while the page's query loads. */
+  config: DnsConfig | undefined;
+  isLoading: boolean;
+  onUpdate: MutateFn<UpdateDnsConfigRequest>;
+  /** True while the page's dedicated security-settings update mutation is in
+   *  flight — its own instance, so unrelated config saves elsewhere on the
+   *  page don't lock this card's controls. */
+  updatePending: boolean;
+}
 
 /** DNS security settings (Stage 4): DNSSEC validation, rebinding
  *  protection, and per-client rate limiting. Toggles save immediately;
  *  the rate limit uses an explicit Save so transient keystrokes don't
- *  thrash the config. */
-export function SecuritySettingsCard() {
-  const { data, isLoading } = useDnsConfig();
-  const update = useUpdateDnsConfig();
-  const config = data?.config;
-
+ *  thrash the config. Pure presentation — the owning page wires the
+ *  query/mutation hooks and passes data + callbacks in. */
+export function SecuritySettingsCard({
+  config,
+  isLoading,
+  onUpdate,
+  updatePending,
+}: SecuritySettingsCardProps) {
   const dnssec = config?.dnssec_enabled ?? false;
   const rebinding = config?.rebinding_protection ?? true;
   const currentRate = config?.rate_limit_per_second ?? 0;
@@ -34,7 +47,7 @@ export function SecuritySettingsCard() {
   const rateValid =
     rateValue.trim() !== "" && Number.isInteger(rateParsed) && rateParsed >= 0;
   const rateDirty = rate !== null && rateParsed !== currentRate;
-  const busy = isLoading || update.isPending;
+  const busy = isLoading || updatePending;
 
   return (
     <Card>
@@ -53,7 +66,7 @@ export function SecuritySettingsCard() {
             aria-label="Enable DNSSEC validation"
             checked={dnssec}
             disabled={busy}
-            onCheckedChange={(next) => update.mutate({ dnssec_enabled: next })}
+            onCheckedChange={(next) => onUpdate({ dnssec_enabled: next })}
           />
         </Field>
 
@@ -68,9 +81,7 @@ export function SecuritySettingsCard() {
             aria-label="Enable DNS rebinding protection"
             checked={rebinding}
             disabled={busy}
-            onCheckedChange={(next) =>
-              update.mutate({ rebinding_protection: next })
-            }
+            onCheckedChange={(next) => onUpdate({ rebinding_protection: next })}
           />
         </Field>
 
@@ -102,7 +113,7 @@ export function SecuritySettingsCard() {
           primaryProps={{
             disabled: busy || !rateValid,
             onClick: () =>
-              update.mutate(
+              onUpdate(
                 { rate_limit_per_second: rateParsed },
                 { onSuccess: () => setRate(null) },
               ),

@@ -29,14 +29,29 @@
   - `compound/` — compositions of core components, data via props only, no API calls
   - `features/` — use-case views, data via props + callbacks, no direct API/service calls
   - `layouts/` — page shells, navigation/routing, no business logic
-    - **Carve-out — shell-wide status/auth.** The `AppLayout` shells may call
-      `useDaemonStatus()` (admin-app, user-app) and `useAuth()` (admin-site)
-      directly. These two hooks feed the shell chrome itself — the header
-      version/connection pill and the admin-gated navigation — which live above
-      every route and have no owning `page` to hoist them into. The carve-out is
-      limited to these two read hooks; layouts still perform no mutations and
-      wire no other queries.
+    - **Carve-out — shell-wide status/auth.** The `AppLayout` shells wire the
+      hooks that feed the shell chrome itself — the header version/connection
+      pill, the admin-gated navigation, and the shell banners — which live
+      above every route and have no owning `page` to hoist them into. In the
+      admin-app and user-app that is `useDaemonStatus()`; in the admin-site
+      `AppLayout` additionally wires `useAuth()`, `useUpdateStatus()`,
+      `useSystemStatus()`, and the `useAcknowledgeShutdown()` mutation, and
+      passes data + callbacks down so the shell compounds (`Sidebar`,
+      `ConnectionStatus`, `ConnectionBanner`, `UncleanShutdownBanner`) stay
+      pure presentation. The carve-out is limited to these shell-chrome hooks;
+      layouts wire no other queries or mutations.
   - `pages/` — route-level, wire TanStack Query hooks → feature/compound components
+  - **Carve-out — self-contained creation flows.** The tunnel-creation flow
+    (`CreateTunnelInline` → `ManualTunnelTab` / `ProviderTunnelTab`) keeps its
+    `useCreateTunnel` / provider hooks (`useProviders`, `useValidateCredentials`,
+    `useProviderServers`, `useProviderCountries`, `useProviderSetup`) internal.
+    It is a multi-step wizard whose queries are parameterised on flow-internal
+    state (selected provider, entered credentials), it is mounted by two owners
+    (`pages/Tunnels.tsx` and the setup wizard's `StepTunnel`), and nothing
+    outside the flow shares its data or in-flight state — hoisting would
+    duplicate a large stateful wiring block in both owners for no
+    de-duplication or mutation-sharing benefit. Anything reusable outside the
+    flow (e.g. the tunnels list itself) still belongs to the page.
 - **All business logic in `@wardnet/js`** — components are pure presentation.
 - **Hooks** bridge SDK and React: wrap SDK service calls in TanStack Query for caching/loading/error.
 - **Dark/light mode**: System preference via `prefers-color-scheme`, toggles `.dark` class on `<html>`.

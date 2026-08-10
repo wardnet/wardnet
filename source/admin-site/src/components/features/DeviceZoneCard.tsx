@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Button } from "@wardnet/web";
 import { FormActions } from "@wardnet/web";
 import { Text } from "@wardnet/web";
@@ -18,25 +18,29 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/web";
-import { useNetworkZones, useAssignDeviceZone } from "@wardnet/web";
 import { IsolationDisclaimer } from "./IsolationDisclaimer";
-import type { Device } from "@wardnet/js";
+import type { MutationHandle } from "@/lib/mutationHandle";
+import type { Device, NetworkZoneView } from "@wardnet/js";
 
 interface DeviceZoneCardProps {
   device: Device;
+  zones: NetworkZoneView[];
+  /** The page's hoisted zone-assignment mutation. */
+  assignZone: MutationHandle<{ deviceId: string; zoneId: string }>;
 }
 
 /**
  * Zone selector card for the device editor. A device belongs to exactly one
  * Network Zone; changing it here re-runs the daemon's per-device egress /
  * admin-UI enforcement. The isolation disclaimer is mandatory wherever
- * isolation is implied (issue #739).
+ * isolation is implied (issue #739). Pure presentation — the owning page
+ * wires the query/mutation hooks and passes data + callbacks in.
  */
-export function DeviceZoneCard({ device }: DeviceZoneCardProps) {
-  const { data: zoneData } = useNetworkZones();
-  const assignZone = useAssignDeviceZone({ successMessage: "Zone updated" });
-  const zones = useMemo(() => zoneData?.zones ?? [], [zoneData]);
-
+export function DeviceZoneCard({
+  device,
+  zones,
+  assignZone,
+}: DeviceZoneCardProps) {
   const [editing, setEditing] = useState(false);
   const [zoneId, setZoneId] = useState(device.zone_id);
 

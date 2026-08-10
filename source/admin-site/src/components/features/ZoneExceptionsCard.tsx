@@ -18,17 +18,13 @@ import {
 } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
-import {
-  useDevices,
-  useNetworkZones,
-  useZoneExceptions,
-  useCreateZoneException,
-  useDeleteZoneException,
-  deviceDisplayName,
-} from "@wardnet/web";
+import type { MutateFn } from "@/lib/mutationHandle";
+import { deviceDisplayName } from "@wardnet/web";
 import type {
+  Device,
   ExceptionEndpoint,
   ExceptionEndpointKind,
+  NetworkZoneView,
   PortSpec,
   Proto,
   ServiceSpec,
@@ -54,28 +50,42 @@ function serviceLabel(service: ServiceSpec): string {
   return `${count} port${count === 1 ? "" : "s"}`;
 }
 
+/** The body the card's inline form submits when adding an exception. */
+interface ZoneExceptionBody {
+  from: ExceptionEndpoint;
+  to: ExceptionEndpoint;
+  service: ServiceSpec;
+  bidirectional: boolean;
+}
+
+interface ZoneExceptionsCardProps {
+  exceptions: ZoneException[];
+  zones: NetworkZoneView[];
+  devices: Device[];
+  /** True while the page's create mutation is in flight. */
+  isSaving: boolean;
+  onCreateException: MutateFn<ZoneExceptionBody>;
+  onDeleteException: (id: string) => void;
+}
+
 /**
  * Cross-zone exceptions manager (issue #737). Grants one endpoint access to
  * another across an otherwise-isolated zone boundary. The headline case is the
  * one-click **casting** preset (mDNS + SSDP/DLNA + Chromecast + AirPlay,
  * bidirectional), e.g. a phone in Trusted casting to a TV in IoT.
+ * Pure presentation — the owning page wires the query/mutation hooks and
+ * passes data + callbacks in.
  */
-export function ZoneExceptionsCard() {
-  const { data: exceptionData } = useZoneExceptions();
-  const { data: zoneData } = useNetworkZones();
-  const { data: deviceData } = useDevices();
-  const createException = useCreateZoneException();
-  const deleteException = useDeleteZoneException();
-
+export function ZoneExceptionsCard({
+  exceptions,
+  zones,
+  devices,
+  isSaving,
+  onCreateException,
+  onDeleteException,
+}: ZoneExceptionsCardProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
-
-  const zones = useMemo(() => zoneData?.zones ?? [], [zoneData]);
-  const devices = useMemo(() => deviceData?.devices ?? [], [deviceData]);
-  const exceptions = useMemo(
-    () => exceptionData?.exceptions ?? [],
-    [exceptionData],
-  );
 
   /** Resolve an endpoint to a display label. */
   const endpointLabel = useMemo(() => {
@@ -148,10 +158,10 @@ export function ZoneExceptionsCard() {
               id: d.id,
               name: deviceDisplayName(d),
             }))}
-            isSaving={createException.isPending}
+            isSaving={isSaving}
             onCancel={() => setFormOpen(false)}
             onCreate={(body) =>
-              createException.mutate(body, {
+              onCreateException(body, {
                 onSuccess: () => setFormOpen(false),
               })
             }
@@ -188,7 +198,7 @@ export function ZoneExceptionsCard() {
         description="Remove this cross-zone exception? The allowance is revoked immediately."
         confirmLabel="Remove"
         onConfirm={() => {
-          if (deleteId) deleteException.mutate(deleteId);
+          if (deleteId) onDeleteException(deleteId);
           setDeleteId(null);
         }}
       />

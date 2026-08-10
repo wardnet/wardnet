@@ -3,25 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { DeviceDnsCaptureCard } from "@/components/features/DeviceDnsCaptureCard";
 import { renderWithProviders } from "../../test-utils";
-
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useDnsCaptureSettings: vi.fn(),
-    useUpdateDnsCaptureSettings: vi.fn(),
-  };
-});
-
-import {
-  useDnsCaptureSettings,
-  useUpdateDnsCaptureSettings,
-} from "@wardnet/web";
+import type { DnsCaptureSettingsResponse } from "@wardnet/js";
 
 const mutateAsync = vi.fn();
 const reset = vi.fn();
 
-const defaultData = {
+const defaultData: DnsCaptureSettingsResponse = {
   enabled: true,
   cap_count: 1000,
   cap_days: 7,
@@ -29,58 +16,69 @@ const defaultData = {
   size_bytes: 4096,
 };
 
-function setup({
-  data = defaultData,
+function cardProps({
+  settings = defaultData,
   isLoading = false,
   update = {},
 }: {
-  data?: Record<string, unknown> | undefined;
+  settings?: DnsCaptureSettingsResponse | undefined;
   isLoading?: boolean;
-  update?: Record<string, unknown>;
+  update?: Partial<{
+    isPending: boolean;
+    isError: boolean;
+    error: Error | null;
+  }>;
 } = {}) {
-  vi.mocked(useDnsCaptureSettings).mockReturnValue({
-    data,
+  return {
+    settings,
     isLoading,
-  } as unknown as ReturnType<typeof useDnsCaptureSettings>);
-  vi.mocked(useUpdateDnsCaptureSettings).mockReturnValue({
-    mutateAsync,
-    reset,
-    isPending: false,
-    isError: false,
-    error: null,
-    ...update,
-  } as unknown as ReturnType<typeof useUpdateDnsCaptureSettings>);
+    update: {
+      mutateAsync,
+      reset,
+      isPending: false,
+      isError: false,
+      error: null,
+      ...update,
+    },
+  };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   mutateAsync.mockResolvedValue(undefined);
-  setup();
 });
 
 describe("DeviceDnsCaptureCard", () => {
   it("shows the loading placeholder", () => {
-    setup({ data: undefined, isLoading: true });
-    renderWithProviders(<DeviceDnsCaptureCard deviceId="dev-1" />);
+    renderWithProviders(
+      <DeviceDnsCaptureCard
+        {...cardProps({ settings: undefined, isLoading: true })}
+      />,
+    );
     expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 
   it("renders the read-only summary (near-full storage bar branch)", () => {
-    renderWithProviders(<DeviceDnsCaptureCard deviceId="dev-1" />);
+    renderWithProviders(<DeviceDnsCaptureCard {...cardProps()} />);
     expect(screen.getByText("Enabled")).toBeInTheDocument();
     expect(screen.getByText(/1,000 records · 7 days/)).toBeInTheDocument();
     expect(screen.getByText(/950 records/)).toBeInTheDocument();
   });
 
   it("shows Disabled when capture is off", () => {
-    setup({ data: { ...defaultData, enabled: false, row_count: 10 } });
-    renderWithProviders(<DeviceDnsCaptureCard deviceId="dev-1" />);
+    renderWithProviders(
+      <DeviceDnsCaptureCard
+        {...cardProps({
+          settings: { ...defaultData, enabled: false, row_count: 10 },
+        })}
+      />,
+    );
     expect(screen.getByText("Disabled")).toBeInTheDocument();
   });
 
   it("enters edit mode, edits fields, and saves", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DeviceDnsCaptureCard deviceId="dev-1" />);
+    renderWithProviders(<DeviceDnsCaptureCard {...cardProps()} />);
     await user.click(screen.getByRole("button", { name: "Edit" }));
 
     const numbers = screen.getAllByRole("spinbutton");
@@ -100,7 +98,7 @@ describe("DeviceDnsCaptureCard", () => {
 
   it("cancels editing", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DeviceDnsCaptureCard deviceId="dev-1" />);
+    renderWithProviders(<DeviceDnsCaptureCard {...cardProps()} />);
     await user.click(screen.getByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
@@ -109,13 +107,17 @@ describe("DeviceDnsCaptureCard", () => {
 
   it("shows a saving label and error alert while updating", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<DeviceDnsCaptureCard deviceId="dev-1" />);
+    const { rerender } = renderWithProviders(
+      <DeviceDnsCaptureCard {...cardProps()} />,
+    );
     await user.click(screen.getByRole("button", { name: "Edit" }));
-    setup({
-      update: { isPending: true, isError: true, error: new Error("x") },
-    });
-    // re-render by toggling the enable switch which triggers state update
-    await user.click(screen.getByRole("switch"));
+    rerender(
+      <DeviceDnsCaptureCard
+        {...cardProps({
+          update: { isPending: true, isError: true, error: new Error("x") },
+        })}
+      />,
+    );
     expect(screen.getByRole("button", { name: "Saving…" })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toBeInTheDocument();
   });

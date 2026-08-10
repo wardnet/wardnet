@@ -22,12 +22,22 @@ const {
   useToggleDns,
   useFlushDnsCache,
   useUpdateDnsConfig,
+  useDevices,
+  useDnsStatsDashboard,
+  useDnsPeriodComparison,
+  useDnsTopTrackers,
+  useDnsPerDeviceStats,
 } = vi.hoisted(() => ({
   useDnsStatus: vi.fn(),
   useDnsConfig: vi.fn(),
   useToggleDns: vi.fn(),
   useFlushDnsCache: vi.fn(),
   useUpdateDnsConfig: vi.fn(),
+  useDevices: vi.fn(),
+  useDnsStatsDashboard: vi.fn(),
+  useDnsPeriodComparison: vi.fn(),
+  useDnsTopTrackers: vi.fn(),
+  useDnsPerDeviceStats: vi.fn(),
 }));
 
 vi.mock("@wardnet/web", async (importOriginal) => {
@@ -39,6 +49,11 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useToggleDns,
     useFlushDnsCache,
     useUpdateDnsConfig,
+    useDevices,
+    useDnsStatsDashboard,
+    useDnsPeriodComparison,
+    useDnsTopTrackers,
+    useDnsPerDeviceStats,
   };
 });
 
@@ -71,7 +86,46 @@ vi.mock("@/components/features/SecuritySettingsCard", () => ({
   SecuritySettingsCard: () => <div>security-card</div>,
 }));
 vi.mock("@/components/features/DnsStatsSection", () => ({
-  DnsStatsSection: ({ range }: { range: string }) => <div>stats:{range}</div>,
+  DnsStatsSection: ({
+    range,
+    zoom,
+    onZoomChange,
+    data,
+  }: {
+    range: string;
+    zoom: { start: number; end: number } | null;
+    onZoomChange: (z: { start: number; end: number } | null) => void;
+    data?: { total: number };
+  }) => (
+    <div>
+      <div>stats:{range}</div>
+      <div data-testid="stats-zoom">{zoom ? "zoomed" : "full"}</div>
+      <div data-testid="stats-total">{data?.total ?? "-"}</div>
+      <button onClick={() => onZoomChange({ start: 0, end: 3_600_000 })}>
+        commit-zoom
+      </button>
+    </div>
+  ),
+}));
+vi.mock("@/components/features/DnsAnalyticsSection", () => ({
+  DnsAnalyticsSection: ({
+    range,
+    selectedDeviceId,
+    onSelectDevice,
+    devices,
+  }: {
+    range: string;
+    selectedDeviceId: string;
+    onSelectDevice: (id: string) => void;
+    devices: Array<{ id: string }>;
+  }) => (
+    <div>
+      <div>analytics:{range}</div>
+      <div data-testid="analytics-selected">{selectedDeviceId || "-"}</div>
+      <div data-testid="analytics-devices">{devices.length}</div>
+      <button onClick={() => onSelectDevice("dev-2")}>pick-device</button>
+    </div>
+  ),
 }));
 
 import Dns from "@/pages/Dns";
@@ -104,6 +158,18 @@ beforeEach(() => {
     mutate: updateMutate,
     isPending: false,
   });
+  useDevices.mockReturnValue({
+    data: { devices: [{ id: "dev-1" }, { id: "dev-2" }] },
+  });
+  useDnsStatsDashboard.mockReturnValue({
+    data: { total: 300 },
+    isLoading: false,
+    isError: false,
+    error: null,
+  });
+  useDnsPeriodComparison.mockReturnValue({ data: undefined });
+  useDnsTopTrackers.mockReturnValue({ data: undefined });
+  useDnsPerDeviceStats.mockReturnValue({ data: undefined, isLoading: false });
   useDnsStatus.mockReturnValue({
     data: {
       running: true,
@@ -123,6 +189,18 @@ describe("Dns", () => {
     useDnsConfig.mockReturnValue({ data: undefined });
     renderWithProviders(<Dns />);
     expect(screen.getByText("Loading DNS status...")).toBeInTheDocument();
+  });
+
+  it("does not mount the stats queries while the status/config gate is closed", () => {
+    useDnsStatus.mockReturnValue({ data: undefined, isLoading: true });
+    useDnsConfig.mockReturnValue({ data: undefined });
+    renderWithProviders(<Dns />);
+    // The insights block owns these hooks and only mounts inside the gate,
+    // so no stats request fires while the resolver status is unresolved.
+    expect(useDnsStatsDashboard).not.toHaveBeenCalled();
+    expect(useDnsPeriodComparison).not.toHaveBeenCalled();
+    expect(useDnsTopTrackers).not.toHaveBeenCalled();
+    expect(useDnsPerDeviceStats).not.toHaveBeenCalled();
   });
 
   it("renders the populated resolver page", () => {
@@ -212,6 +290,41 @@ describe("Dns", () => {
     const sevenDay = screen.getByRole("tab", { name: "7d" });
     await user.click(sevenDay);
     expect(screen.getByText("stats:7d")).toBeInTheDocument();
+    expect(screen.getByText("analytics:7d")).toBeInTheDocument();
+  });
+
+  it("passes the hoisted dashboard data and device list to the sections", () => {
+    renderWithProviders(<Dns />);
+    expect(screen.getByTestId("stats-total")).toHaveTextContent("300");
+    expect(screen.getByTestId("analytics-devices")).toHaveTextContent("2");
+    // The per-device selection defaults to the first device.
+    expect(screen.getByTestId("analytics-selected")).toHaveTextContent("dev-1");
+  });
+
+  it("owns the committed zoom, narrows the dashboard window, and invalidates it on range change", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Dns />);
+    expect(screen.getByTestId("stats-zoom")).toHaveTextContent("full");
+    await user.click(screen.getByText("commit-zoom"));
+    expect(screen.getByTestId("stats-zoom")).toHaveTextContent("zoomed");
+    // The dashboard's top-N window now follows the zoom.
+    expect(useDnsStatsDashboard).toHaveBeenLastCalledWith(
+      "24h",
+      expect.objectContaining({ from: expect.any(String) }),
+    );
+    // Switching range drops the stale zoom rather than applying it to the
+    // new window.
+    await user.click(screen.getByRole("tab", { name: "7d" }));
+    expect(screen.getByTestId("stats-zoom")).toHaveTextContent("full");
+    expect(useDnsStatsDashboard).toHaveBeenLastCalledWith("7d", undefined);
+  });
+
+  it("switches the per-device series to a user-picked device", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<Dns />);
+    await user.click(screen.getByText("pick-device"));
+    expect(screen.getByTestId("analytics-selected")).toHaveTextContent("dev-2");
+    expect(useDnsPerDeviceStats).toHaveBeenLastCalledWith("dev-2", "24h");
   });
 
   it("shows a Stopped pill when the resolver is down", () => {

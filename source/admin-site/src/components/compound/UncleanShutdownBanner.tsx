@@ -2,8 +2,17 @@ import { CircleAlertIcon, X } from "lucide-react";
 import { Banner } from "@wardnet/web";
 import { Button } from "@wardnet/web";
 import { Text } from "@wardnet/web";
-import { useAcknowledgeShutdown, useSystemStatus } from "@wardnet/web";
 import { timeAgo } from "@wardnet/web";
+import type { SystemStatusResponse } from "@wardnet/js";
+
+interface UncleanShutdownBannerProps {
+  /** The system status, from the shell layout's `useSystemStatus()`. */
+  status: SystemStatusResponse | undefined;
+  /** Acknowledge the shutdown (records `acknowledged_at` server-side). */
+  onDismiss: () => void;
+  /** True while the acknowledgement mutation is in flight. */
+  dismissPending: boolean;
+}
 
 /**
  * Full-width banner that calls out the previous unclean daemon
@@ -17,15 +26,17 @@ import { timeAgo } from "@wardnet/web";
  * the new event timestamp is newer than the stored ack — no explicit
  * "reset on event" coupling is required.
  *
- * Thin data-coupled wrapper over the Forge `<Banner>` primitive — visual
- * shape (full-width danger-soft strip) lives in the `.banner` recipe
+ * Thin wrapper over the Forge `<Banner>` primitive — visual shape
+ * (full-width danger-soft strip) lives in the `.banner` recipe
  * (styles.css §05); this component owns the visibility predicate and the
- * Dismiss action.
+ * Dismiss action. Pure presentation — the shell layout wires the
+ * query/mutation hooks and passes data + callbacks in.
  */
-export function UncleanShutdownBanner() {
-  const { data: status } = useSystemStatus();
-  const ack = useAcknowledgeShutdown();
-
+export function UncleanShutdownBanner({
+  status,
+  onDismiss,
+  dismissPending,
+}: UncleanShutdownBannerProps) {
   if (!status) return null;
 
   const { last_shutdown: shutdown } = status;
@@ -45,8 +56,8 @@ export function UncleanShutdownBanner() {
         <Button
           size="sm"
           variant="ghost"
-          onClick={() => ack.mutate()}
-          disabled={ack.isPending}
+          onClick={onDismiss}
+          disabled={dismissPending}
           aria-label="Dismiss unclean shutdown banner"
         >
           <X className="mr-1 size-3.5" />

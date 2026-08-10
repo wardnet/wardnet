@@ -1,16 +1,9 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  useDevices,
-  usePrivateDnsStatus,
-  useSetPrivateDnsEnabled,
-  useGrantPrivateDnsDevice,
-  useRevokePrivateDnsDevice,
-  useSendPrivateDnsToDevice,
-} from "@wardnet/web";
 import { PrivateDnsCard } from "@/components/features/PrivateDnsCard";
 import { makeDevice, renderWithProviders } from "../../test-utils";
+import type { PrivateDnsStatusResponse } from "@wardnet/js";
 
 // The grant panel's DeviceSelect is a Radix Select, which measures its trigger
 // in a layout effect; jsdom has no ResizeObserver / pointer-capture, so stub
@@ -28,23 +21,10 @@ vi.stubGlobal(
   },
 );
 
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useDevices: vi.fn(),
-    usePrivateDnsStatus: vi.fn(),
-    useSetPrivateDnsEnabled: vi.fn(),
-    useGrantPrivateDnsDevice: vi.fn(),
-    useRevokePrivateDnsDevice: vi.fn(),
-    useSendPrivateDnsToDevice: vi.fn(),
-  };
-});
-
-const setEnabledMutate = vi.fn();
+const onSetEnabled = vi.fn();
 const grantMutateAsync = vi.fn();
-const revokeMutate = vi.fn();
-const sendMutate = vi.fn();
+const onRevokeDevice = vi.fn();
+const onSendToDevice = vi.fn();
 
 type Prereqs = {
   wardnet_provider: boolean;
@@ -59,7 +39,7 @@ type Grant = {
   created_at: string;
 };
 
-function setup({
+function renderCard({
   enabled = false,
   prerequisites,
   grants = [] as Grant[],
@@ -70,27 +50,31 @@ function setup({
   grants?: Grant[];
   devices?: ReturnType<typeof makeDevice>[];
 }) {
-  vi.mocked(usePrivateDnsStatus).mockReturnValue({
-    data: { enabled, domain: "abc.my.wardnet.services", prerequisites, grants },
-    isLoading: false,
-  } as never);
-  vi.mocked(useDevices).mockReturnValue({ data: { devices } } as never);
-  vi.mocked(useSetPrivateDnsEnabled).mockReturnValue({
-    mutate: setEnabledMutate,
-    isPending: false,
-  } as never);
-  vi.mocked(useGrantPrivateDnsDevice).mockReturnValue({
-    mutateAsync: grantMutateAsync,
-    isPending: false,
-  } as never);
-  vi.mocked(useRevokePrivateDnsDevice).mockReturnValue({
-    mutate: revokeMutate,
-    isPending: false,
-  } as never);
-  vi.mocked(useSendPrivateDnsToDevice).mockReturnValue({
-    mutate: sendMutate,
-    isPending: false,
-  } as never);
+  const status = {
+    enabled,
+    domain: "abc.my.wardnet.services",
+    prerequisites,
+    grants,
+  } as unknown as PrivateDnsStatusResponse;
+  return renderWithProviders(
+    <PrivateDnsCard
+      status={status}
+      isLoading={false}
+      devices={devices}
+      onSetEnabled={onSetEnabled}
+      setEnabledPending={false}
+      grantDevice={{
+        mutateAsync: grantMutateAsync,
+        reset: vi.fn(),
+        isPending: false,
+        isError: false,
+        error: null,
+      }}
+      onRevokeDevice={onRevokeDevice}
+      onSendToDevice={onSendToDevice}
+      sendPending={false}
+    />,
+  );
 }
 
 const ALL_MET: Prereqs = {
@@ -110,8 +94,7 @@ describe("PrivateDnsCard", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("renders the prerequisite checklist and disables the toggle when a hard gate is unmet", () => {
-    setup({ prerequisites: { ...ALL_MET, entitled: false } });
-    renderWithProviders(<PrivateDnsCard />);
+    renderCard({ prerequisites: { ...ALL_MET, entitled: false } });
 
     expect(screen.getByTestId("private-dns-prerequisites")).toBeInTheDocument();
     expect(screen.getByText(/Premium feature/)).toBeInTheDocument();
@@ -121,23 +104,21 @@ describe("PrivateDnsCard", () => {
   });
 
   it("allows enabling once every hard gate is met", async () => {
-    setup({ prerequisites: ALL_MET });
-    renderWithProviders(<PrivateDnsCard />);
+    renderCard({ prerequisites: ALL_MET });
 
     const toggle = screen.getByRole("switch", { name: "Enable Private DNS" });
     expect(toggle).toBeEnabled();
     await userEvent.click(toggle);
-    expect(setEnabledMutate).toHaveBeenCalledWith(true);
+    expect(onSetEnabled).toHaveBeenCalledWith(true);
   });
 
   it("lists granted devices with their hostname once enabled", () => {
-    setup({
+    renderCard({
       enabled: true,
       prerequisites: ALL_MET,
       devices: [makeDevice({ id: "d1", name: "Alice phone" })],
       grants: [GRANT],
     });
-    renderWithProviders(<PrivateDnsCard />);
 
     expect(screen.getByText("Alice phone")).toBeInTheDocument();
     expect(screen.getByText("tok.abc.my.wardnet.services")).toBeInTheDocument();
@@ -148,13 +129,12 @@ describe("PrivateDnsCard", () => {
   it("grants a device, then the granted modal wires send + dismiss", async () => {
     const user = userEvent.setup();
     grantMutateAsync.mockResolvedValue(GRANT);
-    setup({
+    renderCard({
       enabled: true,
       prerequisites: ALL_MET,
       devices: [makeDevice({ id: "d1", name: "Alice phone" })],
       grants: [],
     });
-    renderWithProviders(<PrivateDnsCard />);
 
     await user.click(screen.getByRole("button", { name: "Grant access" }));
     // Choose the device in the DeviceSelect combobox, then grant.
@@ -165,18 +145,17 @@ describe("PrivateDnsCard", () => {
     await waitFor(() => expect(grantMutateAsync).toHaveBeenCalledWith("d1"));
     // The granted modal opens; its actions route through the card.
     await user.click(await screen.findByTestId("private-dns-modal-send"));
-    expect(sendMutate).toHaveBeenCalledWith("d1");
+    expect(onSendToDevice).toHaveBeenCalledWith("d1");
     await user.click(screen.getByRole("button", { name: "Done" }));
   });
 
   it("cancels the grant panel", async () => {
     const user = userEvent.setup();
-    setup({
+    renderCard({
       enabled: true,
       prerequisites: ALL_MET,
       devices: [makeDevice({ id: "d1", name: "Alice phone" })],
     });
-    renderWithProviders(<PrivateDnsCard />);
 
     await user.click(screen.getByRole("button", { name: "Grant access" }));
     await user.click(screen.getByRole("button", { name: "Cancel" }));
@@ -187,33 +166,31 @@ describe("PrivateDnsCard", () => {
 
   it("sends to a granted device from the table row", async () => {
     const user = userEvent.setup();
-    setup({
+    renderCard({
       enabled: true,
       prerequisites: ALL_MET,
       devices: [makeDevice({ id: "d1", name: "Alice phone" })],
       grants: [GRANT],
     });
-    renderWithProviders(<PrivateDnsCard />);
 
     await user.click(screen.getByTestId("private-dns-grant-menu"));
     await user.click(await screen.findByTestId("private-dns-grant-send"));
-    expect(sendMutate).toHaveBeenCalledWith("d1");
+    expect(onSendToDevice).toHaveBeenCalledWith("d1");
   });
 
   it("revokes a granted device after confirmation", async () => {
     const user = userEvent.setup();
-    setup({
+    renderCard({
       enabled: true,
       prerequisites: ALL_MET,
       devices: [makeDevice({ id: "d1", name: "Alice phone" })],
       grants: [GRANT],
     });
-    renderWithProviders(<PrivateDnsCard />);
 
     await user.click(screen.getByTestId("private-dns-grant-menu"));
     await user.click(await screen.findByTestId("private-dns-grant-revoke"));
     // ConfirmDialog opens — confirm the revoke.
     await user.click(await screen.findByRole("button", { name: "Revoke" }));
-    expect(revokeMutate).toHaveBeenCalledWith("d1");
+    expect(onRevokeDevice).toHaveBeenCalledWith("d1");
   });
 });

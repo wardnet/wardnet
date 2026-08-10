@@ -11,16 +11,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@wardnet/web";
-import {
-  usePendingDevices,
-  useUpdateNetworkZone,
-  useAssignDeviceZone,
-  useQuarantineNewDevices,
-  useSetQuarantineNewDevices,
-  deviceDisplayName,
-  timeAgo,
-} from "@wardnet/web";
+import { deviceDisplayName, timeAgo } from "@wardnet/web";
 import type { Device, NetworkZoneView } from "@wardnet/js";
+
+interface QuarantineSettingsCardProps {
+  /** Whether new-device notifications are enabled. */
+  notifyEnabled: boolean;
+  /** True while the page's notify-toggle mutation is in flight. */
+  notifyPending: boolean;
+  onSetNotify: (enabled: boolean) => void;
+  /** Flag a zone as the landing spot for newly-discovered devices. */
+  onSetDefaultForNew: (id: string) => void;
+  /** Devices sitting in the default-for-new zone, most-recent-first. */
+  pending: Device[];
+  /** The zone new devices land in, if one is flagged. */
+  defaultForNew: NetworkZoneView | undefined;
+  /** The anchor "home" zone (the usual approve target). */
+  homeZone: NetworkZoneView | undefined;
+  zones: NetworkZoneView[];
+  /** Approve a pending device into a zone. */
+  onApprove: (deviceId: string, zoneId: string) => void;
+  /** Device ids whose approvals are mid-flight. A list, not the shared
+   *  mutation's latest `variables`: with concurrent approvals every
+   *  in-flight row must stay disabled, not just the most recent one. */
+  approvingDeviceIds: string[];
+}
 
 /**
  * New-device quarantine settings (issue #738). Quarantine is **notification
@@ -28,16 +43,21 @@ import type { Device, NetworkZoneView } from "@wardnet/js";
  * the toggle just controls whether admins get a push when one appears. The
  * "pending approvals" list is derived — devices currently sitting in the
  * default-for-new zone, most-recent-first — and "Approve" simply reassigns the
- * device to a real zone.
+ * device to a real zone. Pure presentation — the owning page wires the
+ * query/mutation hooks and passes data + callbacks in.
  */
-export function QuarantineSettingsCard() {
-  const { data: quarantine } = useQuarantineNewDevices();
-  const setQuarantine = useSetQuarantineNewDevices();
-  const setDefaultForNew = useUpdateNetworkZone({
-    successMessage: "Default-for-new zone updated",
-  });
-  const { pending, defaultForNew, homeZone, zones } = usePendingDevices();
-
+export function QuarantineSettingsCard({
+  notifyEnabled,
+  notifyPending,
+  onSetNotify,
+  onSetDefaultForNew,
+  pending,
+  defaultForNew,
+  homeZone,
+  zones,
+  onApprove,
+  approvingDeviceIds,
+}: QuarantineSettingsCardProps) {
   return (
     <Card>
       <CardHeader>
@@ -56,9 +76,9 @@ export function QuarantineSettingsCard() {
           <Toggle
             aria-label="Notify admins about new devices"
             data-testid="quarantine-toggle"
-            checked={quarantine?.enabled ?? false}
-            onCheckedChange={(enabled) => setQuarantine.mutate(enabled)}
-            disabled={setQuarantine.isPending}
+            checked={notifyEnabled}
+            onCheckedChange={onSetNotify}
+            disabled={notifyPending}
           />
         </label>
 
@@ -69,12 +89,7 @@ export function QuarantineSettingsCard() {
         >
           <Select
             value={defaultForNew?.id ?? ""}
-            onValueChange={(id) =>
-              setDefaultForNew.mutate({
-                id,
-                body: { is_default_for_new: true },
-              })
-            }
+            onValueChange={onSetDefaultForNew}
           >
             <SelectTrigger
               id="default-for-new"
@@ -109,6 +124,8 @@ export function QuarantineSettingsCard() {
                   device={device}
                   zones={zones}
                   defaultTargetZoneId={homeZone?.id}
+                  onApprove={onApprove}
+                  approving={approvingDeviceIds.includes(device.id)}
                 />
               ))}
             </div>
@@ -123,14 +140,18 @@ interface PendingDeviceRowProps {
   device: Device;
   zones: NetworkZoneView[];
   defaultTargetZoneId: string | undefined;
+  onApprove: (deviceId: string, zoneId: string) => void;
+  /** Whether this row's approval is mid-flight. */
+  approving: boolean;
 }
 
 function PendingDeviceRow({
   device,
   zones,
   defaultTargetZoneId,
+  onApprove,
+  approving,
 }: PendingDeviceRowProps) {
-  const assignZone = useAssignDeviceZone({ successMessage: "Device approved" });
   // Default the approve target to the home zone; fall back to the first zone.
   const [targetZoneId, setTargetZoneId] = useState(
     defaultTargetZoneId ?? zones[0]?.id ?? "",
@@ -165,10 +186,8 @@ function PendingDeviceRow({
         <Button
           size="sm"
           data-testid="quarantine-approve"
-          disabled={assignZone.isPending || !targetZoneId}
-          onClick={() =>
-            assignZone.mutate({ deviceId: device.id, zoneId: targetZoneId })
-          }
+          disabled={approving || !targetZoneId}
+          onClick={() => onApprove(device.id, targetZoneId)}
         >
           Approve
         </Button>

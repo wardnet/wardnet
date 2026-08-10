@@ -19,12 +19,7 @@ import {
 } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
-import {
-  useNetworkZones,
-  useCreateNetworkZone,
-  useUpdateNetworkZone,
-  useDeleteNetworkZone,
-} from "@wardnet/web";
+import type { MutateFn } from "@/lib/mutationHandle";
 import type {
   AllowedTargetKind,
   NetworkZoneView,
@@ -37,23 +32,46 @@ const STANCE_LABEL: Record<ZoneStance, string> = {
   isolate_members: "Isolate members",
 };
 
-/** The Network Zones management surface: full lifecycle + promotion. */
-export function ZonesCard() {
-  const { data } = useNetworkZones();
-  const createZone = useCreateNetworkZone();
-  const updateZone = useUpdateNetworkZone();
-  const setHome = useUpdateNetworkZone({ successMessage: "Home zone updated" });
-  const setDefaultForNew = useUpdateNetworkZone({
-    successMessage: "Default-for-new zone updated",
-  });
-  const deleteZone = useDeleteNetworkZone();
+/** The full zone shape the card's form submits. Assignable to the SDK's
+ *  create/update request bodies. */
+interface ZoneFormBody {
+  name: string;
+  isolation_stance: ZoneStance;
+  allowed_targets: AllowedTargetKind[];
+  member_isolation: boolean;
+  admin_ui_reachable: boolean;
+  subnet: { cidr: string } | null;
+}
 
+interface ZonesCardProps {
+  zones: NetworkZoneView[];
+  /** True while the page's create or update mutation is in flight. */
+  isSaving: boolean;
+  onCreateZone: MutateFn<ZoneFormBody>;
+  onUpdateZone: MutateFn<{ id: string; body: ZoneFormBody }>;
+  /** Promote a zone to the home (default) zone. */
+  onSetHome: (id: string) => void;
+  /** Flag a zone as the landing spot for newly-discovered devices. */
+  onSetDefaultForNew: (id: string) => void;
+  onDeleteZone: (id: string) => void;
+}
+
+/** The Network Zones management surface: full lifecycle + promotion. Pure
+ *  presentation — the owning page wires the query/mutation hooks and passes
+ *  data + callbacks in. */
+export function ZonesCard({
+  zones,
+  isSaving,
+  onCreateZone,
+  onUpdateZone,
+  onSetHome,
+  onSetDefaultForNew,
+  onDeleteZone,
+}: ZonesCardProps) {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<NetworkZoneView | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
-  const zones = useMemo(() => data?.zones ?? [], [data]);
-  const isSaving = createZone.isPending || updateZone.isPending;
   const zoneToDelete = zones.find((z) => z.id === deleteId);
 
   function openCreate() {
@@ -159,11 +177,9 @@ export function ZonesCard() {
             zone={editing}
             isSaving={isSaving}
             onCancel={closeForm}
-            onCreate={(body) =>
-              createZone.mutate(body, { onSuccess: closeForm })
-            }
+            onCreate={(body) => onCreateZone(body, { onSuccess: closeForm })}
             onUpdate={(id, body) =>
-              updateZone.mutate({ id, body }, { onSuccess: closeForm })
+              onUpdateZone({ id, body }, { onSuccess: closeForm })
             }
           />
         )}
@@ -187,9 +203,7 @@ export function ZonesCard() {
               </RowAction>
               {!row.is_default && (
                 <RowAction
-                  onSelect={() =>
-                    setHome.mutate({ id: row.id, body: { is_default: true } })
-                  }
+                  onSelect={() => onSetHome(row.id)}
                   icon={<Home aria-hidden />}
                   testId="zone-set-home"
                 >
@@ -198,12 +212,7 @@ export function ZonesCard() {
               )}
               {!row.is_default_for_new && (
                 <RowAction
-                  onSelect={() =>
-                    setDefaultForNew.mutate({
-                      id: row.id,
-                      body: { is_default_for_new: true },
-                    })
-                  }
+                  onSelect={() => onSetDefaultForNew(row.id)}
                   icon={<UserPlus aria-hidden />}
                   testId="zone-set-default-for-new"
                 >
@@ -236,21 +245,12 @@ export function ZonesCard() {
         description={`Delete the "${zoneToDelete?.name ?? "this"}" zone? This can't be undone.`}
         confirmLabel="Delete"
         onConfirm={() => {
-          if (deleteId) deleteZone.mutate(deleteId);
+          if (deleteId) onDeleteZone(deleteId);
           setDeleteId(null);
         }}
       />
     </Card>
   );
-}
-
-interface ZoneFormBody {
-  name: string;
-  isolation_stance: ZoneStance;
-  allowed_targets: AllowedTargetKind[];
-  member_isolation: boolean;
-  admin_ui_reachable: boolean;
-  subnet: { cidr: string } | null;
 }
 
 interface ZoneFormProps {

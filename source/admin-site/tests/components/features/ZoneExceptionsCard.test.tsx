@@ -1,13 +1,6 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  useZoneExceptions,
-  useNetworkZones,
-  useDevices,
-  useCreateZoneException,
-  useDeleteZoneException,
-} from "@wardnet/web";
 import { ZoneExceptionsCard } from "@/components/features/ZoneExceptionsCard";
 import { makeDevice, renderWithProviders } from "../../test-utils";
 import type { NetworkZoneView, ZoneException } from "@wardnet/js";
@@ -26,24 +19,8 @@ vi.stubGlobal(
   },
 );
 
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useZoneExceptions: vi.fn(),
-    useNetworkZones: vi.fn(),
-    useDevices: vi.fn(),
-    useCreateZoneException: vi.fn(),
-    useDeleteZoneException: vi.fn(),
-  };
-});
-
-const createMutate = vi.fn();
-const deleteMutate = vi.fn();
-
-function mutation<T>(mutate: ReturnType<typeof vi.fn>): T {
-  return { mutate, mutateAsync: vi.fn(), isPending: false } as unknown as T;
-}
+const onCreateException = vi.fn();
+const onDeleteException = vi.fn();
 
 function makeZone(over: Partial<NetworkZoneView> = {}): NetworkZoneView {
   return {
@@ -74,33 +51,26 @@ const casting: ZoneException = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
-function setup({ exceptions = [] as ZoneException[] } = {}) {
-  vi.mocked(useZoneExceptions).mockReturnValue({
-    data: { exceptions },
-  } as unknown as ReturnType<typeof useZoneExceptions>);
-  vi.mocked(useNetworkZones).mockReturnValue({
-    data: { zones: [makeZone()] },
-  } as unknown as ReturnType<typeof useNetworkZones>);
-  vi.mocked(useDevices).mockReturnValue({
-    data: { devices: [makeDevice({ id: "d1", name: "Phone" })] },
-  } as unknown as ReturnType<typeof useDevices>);
-  vi.mocked(useCreateZoneException).mockReturnValue(
-    mutation<ReturnType<typeof useCreateZoneException>>(createMutate),
-  );
-  vi.mocked(useDeleteZoneException).mockReturnValue(
-    mutation<ReturnType<typeof useDeleteZoneException>>(deleteMutate),
+function renderCard({ exceptions = [] as ZoneException[] } = {}) {
+  return renderWithProviders(
+    <ZoneExceptionsCard
+      exceptions={exceptions}
+      zones={[makeZone()]}
+      devices={[makeDevice({ id: "d1", name: "Phone" })]}
+      isSaving={false}
+      onCreateException={onCreateException}
+      onDeleteException={onDeleteException}
+    />,
   );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  setup();
 });
 
 describe("ZoneExceptionsCard", () => {
   it("resolves endpoint labels and the casting service for an exception", () => {
-    setup({ exceptions: [casting] });
-    renderWithProviders(<ZoneExceptionsCard />);
+    renderCard({ exceptions: [casting] });
     expect(screen.getByText("Phone")).toBeInTheDocument();
     expect(screen.getByText("Guest")).toBeInTheDocument();
     expect(screen.getByText("Casting")).toBeInTheDocument();
@@ -110,7 +80,7 @@ describe("ZoneExceptionsCard", () => {
 
   it("shows the empty state and opens the add-exception form", async () => {
     const user = userEvent.setup();
-    renderWithProviders(<ZoneExceptionsCard />);
+    renderCard();
     expect(
       screen.getByText(/No cross-zone exceptions yet/i),
     ).toBeInTheDocument();
@@ -121,7 +91,7 @@ describe("ZoneExceptionsCard", () => {
   });
 
   it("labels a custom-port service by its port count", () => {
-    setup({
+    renderCard({
       exceptions: [
         {
           ...casting,
@@ -137,7 +107,6 @@ describe("ZoneExceptionsCard", () => {
         },
       ],
     });
-    renderWithProviders(<ZoneExceptionsCard />);
     expect(screen.getByText("2 ports")).toBeInTheDocument();
     // one-directional renders the → glyph.
     expect(screen.getByText("→")).toBeInTheDocument();
@@ -145,7 +114,7 @@ describe("ZoneExceptionsCard", () => {
 
   it("creates a casting exception between two chosen endpoints", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<ZoneExceptionsCard />);
+    renderCard();
     await user.click(screen.getByTestId("exception-add"));
 
     const combos = screen.getAllByRole("combobox");
@@ -161,7 +130,7 @@ describe("ZoneExceptionsCard", () => {
     const submit = screen.getByTestId("exception-submit");
     expect(submit).toBeEnabled();
     await user.click(submit);
-    expect(createMutate).toHaveBeenCalledWith(
+    expect(onCreateException).toHaveBeenCalledWith(
       {
         from: { kind: "device", id: "d1" },
         to: { kind: "zone", id: "z-guest" },
@@ -176,7 +145,7 @@ describe("ZoneExceptionsCard", () => {
     // The preset the casting one was silently failing to cover: it must reach
     // the daemon as a real backend preset, not as an expanded port list.
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<ZoneExceptionsCard />);
+    renderCard();
     await user.click(screen.getByTestId("exception-add"));
     const combos = screen.getAllByRole("combobox");
     await user.click(combos[0]);
@@ -190,7 +159,7 @@ describe("ZoneExceptionsCard", () => {
     await user.click(screen.getByTestId("exception-service"));
     await user.click(await screen.findByRole("option", { name: /Smart home/ }));
     await user.click(screen.getByTestId("exception-submit"));
-    expect(createMutate).toHaveBeenCalledWith(
+    expect(onCreateException).toHaveBeenCalledWith(
       expect.objectContaining({
         service: { type: "preset", set: "smart_home" },
         // The device->client leg is a fresh flow, so this must be bidirectional.
@@ -202,7 +171,7 @@ describe("ZoneExceptionsCard", () => {
 
   it("creates an exception for a curated service bundle (SSH)", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<ZoneExceptionsCard />);
+    renderCard();
     await user.click(screen.getByTestId("exception-add"));
     const combos = screen.getAllByRole("combobox");
     await user.click(combos[0]);
@@ -216,7 +185,7 @@ describe("ZoneExceptionsCard", () => {
     await user.click(screen.getByTestId("exception-service"));
     await user.click(await screen.findByRole("option", { name: "SSH" }));
     await user.click(screen.getByTestId("exception-submit"));
-    expect(createMutate).toHaveBeenCalledWith(
+    expect(onCreateException).toHaveBeenCalledWith(
       expect.objectContaining({
         service: { type: "ports", ports: [{ proto: "tcp", from: 22, to: 22 }] },
         bidirectional: true,
@@ -227,7 +196,7 @@ describe("ZoneExceptionsCard", () => {
 
   it("creates a custom-ports exception", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<ZoneExceptionsCard />);
+    renderCard();
     await user.click(screen.getByTestId("exception-add"));
     const combos = screen.getAllByRole("combobox");
     await user.click(combos[0]);
@@ -246,7 +215,7 @@ describe("ZoneExceptionsCard", () => {
     expect(screen.getByTestId("exception-submit")).toBeDisabled();
     await user.type(screen.getByTestId("exception-port-from-0"), "8080");
     await user.click(screen.getByTestId("exception-submit"));
-    expect(createMutate).toHaveBeenCalledWith(
+    expect(onCreateException).toHaveBeenCalledWith(
       expect.objectContaining({
         service: {
           type: "ports",
@@ -258,7 +227,7 @@ describe("ZoneExceptionsCard", () => {
   });
 
   it("labels a known service bundle by name in the list", () => {
-    setup({
+    renderCard({
       exceptions: [
         {
           ...casting,
@@ -270,13 +239,12 @@ describe("ZoneExceptionsCard", () => {
         },
       ],
     });
-    renderWithProviders(<ZoneExceptionsCard />);
     expect(screen.getByText("SSH")).toBeInTheDocument();
   });
 
   it("shows an error and blocks submit for an out-of-range custom port", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<ZoneExceptionsCard />);
+    renderCard();
     await user.click(screen.getByTestId("exception-add"));
     await user.click(screen.getByTestId("exception-service"));
     await user.click(
@@ -292,7 +260,7 @@ describe("ZoneExceptionsCard", () => {
 
   it("adds and removes custom port rows", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<ZoneExceptionsCard />);
+    renderCard();
     await user.click(screen.getByTestId("exception-add"));
     await user.click(screen.getByTestId("exception-service"));
     await user.click(
@@ -313,7 +281,7 @@ describe("ZoneExceptionsCard", () => {
 
   it("rejects picking the same endpoint for both sides", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    renderWithProviders(<ZoneExceptionsCard />);
+    renderCard();
     await user.click(screen.getByTestId("exception-add"));
 
     const combos = screen.getAllByRole("combobox");
@@ -336,11 +304,10 @@ describe("ZoneExceptionsCard", () => {
 
   it("deletes an exception after confirming", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
-    setup({ exceptions: [casting] });
-    renderWithProviders(<ZoneExceptionsCard />);
+    renderCard({ exceptions: [casting] });
     await user.click(screen.getByTestId("exception-row-menu"));
     await user.click(await screen.findByTestId("exception-delete"));
     await user.click(await screen.findByTestId("confirm-dialog-confirm"));
-    expect(deleteMutate).toHaveBeenCalledWith("e1");
+    expect(onDeleteException).toHaveBeenCalledWith("e1");
   });
 });

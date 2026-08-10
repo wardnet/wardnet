@@ -4,7 +4,7 @@ import { DhcpSummaryCard } from "@/components/compound/DhcpSummaryCard";
 import { RecentErrorsCard } from "@/components/compound/RecentErrorsCard";
 import { DashboardLogWidget } from "@/components/features/DashboardLogWidget";
 import { DashboardRemoteAccessBanner } from "@/components/features/DashboardRemoteAccessBanner";
-import { useSystemStatus, useRecentErrors } from "@wardnet/web";
+import { useSystemStatus, useRecentErrors, useTlsStatus } from "@wardnet/web";
 import { useDevices } from "@wardnet/web";
 import { useTunnels } from "@wardnet/web";
 import { useDhcpStatus } from "@wardnet/web";
@@ -14,6 +14,7 @@ import { formatBytes, formatUptime } from "@wardnet/web";
 /** Admin dashboard with system overview stats. */
 export default function Dashboard() {
   const { data: status } = useSystemStatus();
+  const { data: tlsStatus } = useTlsStatus();
   const { data: devicesData } = useDevices();
   const { data: tunnelsData } = useTunnels();
   const { data: dhcpStatus } = useDhcpStatus();
@@ -44,7 +45,7 @@ export default function Dashboard() {
       <PageHeader title="Dashboard" description="Live overview" />
 
       <div className="col gap-20">
-        <DashboardRemoteAccessBanner />
+        <DashboardRemoteAccessBanner status={tlsStatus} />
 
         {/* Stat cards */}
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">

@@ -22,11 +22,16 @@ import { Toggle } from "@wardnet/web";
 import { ApiErrorAlert } from "@wardnet/web";
 import { DeviceIcon } from "@wardnet/web";
 import { RoutingSelector } from "@wardnet/web";
-import { useUpdateDevice } from "@wardnet/web";
-import { useTunnels } from "@wardnet/web";
 import { countryFlag } from "@wardnet/web";
 import { DEVICE_TYPE_OPTIONS, deviceTypeLabel } from "@wardnet/web";
-import type { Device, DeviceType, RoutingTarget, Tunnel } from "@wardnet/js";
+import type { MutationHandle } from "@/lib/mutationHandle";
+import type {
+  Device,
+  DeviceType,
+  RoutingTarget,
+  Tunnel,
+  UpdateDeviceRequest,
+} from "@wardnet/js";
 
 function routingLabel(
   target: RoutingTarget | null,
@@ -52,17 +57,21 @@ function routingLabel(
 interface DeviceSettingsCardProps {
   device: Device;
   currentRule: RoutingTarget | null;
+  tunnels: Tunnel[];
+  /** The page's hoisted device-update mutation. */
+  updateDevice: MutationHandle<{ id: string; body: UpdateDeviceRequest }>;
 }
 
-/** Editable settings card: friendly name, type, routing, admin lock. */
+/** Editable settings card: friendly name, type, routing, admin lock. Pure
+ *  presentation — the owning page wires the query/mutation hooks and passes
+ *  data + callbacks in. */
 export function DeviceSettingsCard({
   device,
   currentRule,
+  tunnels,
+  updateDevice,
 }: DeviceSettingsCardProps) {
   const isManaged = device.name != null;
-  const { data: tunnelData } = useTunnels();
-  const tunnels = tunnelData?.tunnels ?? [];
-  const updateDevice = useUpdateDevice();
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(device.name ?? "");

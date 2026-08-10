@@ -17,9 +17,14 @@ import { Ipv4Input } from "@wardnet/web";
 import { isPrivateIpv4 } from "@wardnet/web";
 import { isCompleteIpv4, ipv4ToInt } from "@wardnet/js";
 import { ApiErrorAlert } from "@wardnet/web";
-import { useUpdateDhcpConfig, usePreviewDhcpConfig } from "@wardnet/web";
-import { useDnsConfig } from "@wardnet/web";
-import type { DhcpConfig, DhcpLease } from "@wardnet/js";
+import type {
+  DhcpConfig,
+  DhcpLease,
+  PreviewDhcpConfigRequest,
+  PreviewDhcpConfigResponse,
+  UpdateDhcpConfigRequest,
+} from "@wardnet/js";
+import type { MutationHandle } from "@/lib/mutationHandle";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 
 function formatDuration(secs: number): string {
@@ -44,23 +49,35 @@ function affectedDescription(leases: DhcpLease[]): string {
 
 interface DhcpConfigCardProps {
   config: DhcpConfig;
+  /** Whether the Wardnet DNS server is enabled. Tri-state on purpose:
+   *  `undefined` means the page's DNS query hasn't resolved (loading or
+   *  errored). Falling back to `false` would show the raw upstream list as
+   *  the effective client DNS while the daemon is actually advertising the
+   *  Pi — the exact misread this card exists to prevent. */
+  dnsEnabled: boolean | undefined;
+  /** The page's hoisted config-update mutation. */
+  updateConfig: MutationHandle<UpdateDhcpConfigRequest>;
+  /** The page's hoisted pool-change dry-run mutation; the card consumes its
+   *  resolved value (the affected leases). */
+  previewConfig: MutationHandle<
+    PreviewDhcpConfigRequest,
+    PreviewDhcpConfigResponse
+  >;
 }
 
 /** Card displaying the DHCP pool configuration with inline edit-mode.
  *  When the Wardnet DNS server is enabled, the upstream-DNS field
  *  collapses: the daemon will advertise Wardnet's own IP to clients
  *  regardless of what's saved here, so we hide the field in edit mode
- *  and show "Wardnet DNS" in the read view to match reality. */
-export function DhcpConfigCard({ config }: DhcpConfigCardProps) {
-  const updateConfig = useUpdateDhcpConfig();
-  const previewConfig = usePreviewDhcpConfig();
-  const { data: dnsConfigData } = useDnsConfig();
-  // Tri-state on purpose: `undefined` means the DNS query hasn't resolved
-  // (loading or errored). Falling back to `false` here would show the raw
-  // upstream list as the effective client DNS while the daemon is actually
-  // advertising the Pi — the exact misread this card exists to prevent.
-  const dnsEnabled: boolean | undefined = dnsConfigData?.config.enabled;
-
+ *  and show "Wardnet DNS" in the read view to match reality.
+ *  Pure presentation — the owning page wires the query/mutation hooks and
+ *  passes data + callbacks in. */
+export function DhcpConfigCard({
+  config,
+  dnsEnabled,
+  updateConfig,
+  previewConfig,
+}: DhcpConfigCardProps) {
   const [editing, setEditing] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [affected, setAffected] = useState<DhcpLease[]>([]);

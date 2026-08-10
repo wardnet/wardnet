@@ -11,10 +11,28 @@ import { DeviceNetworkCard } from "@/components/features/DeviceNetworkCard";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
 import { DeviceRoutingProfilesCard } from "@/components/features/DeviceRoutingProfilesCard";
 import { DeviceZoneCard } from "@/components/features/DeviceZoneCard";
-import { useDevice } from "@wardnet/web";
+import {
+  useDevice,
+  useTunnels,
+  useUpdateDevice,
+  useRoutingProfiles,
+  useDeviceRoutingProfiles,
+  useSetDeviceRoutingProfiles,
+  useNetworkZones,
+  useAssignDeviceZone,
+  useDeviceFilterSettings,
+  useDnsFilterProfiles,
+  useDnsFilterConfig,
+  useUpdateDeviceFilterSettings,
+  useDnsCaptureSettings,
+  useUpdateDnsCaptureSettings,
+  useDhcpReservations,
+  useCreateReservation,
+  useDeleteReservation,
+} from "@wardnet/web";
 import { deviceTypeLabel } from "@wardnet/web";
 import { timeAgo } from "@wardnet/web";
-import type { Device } from "@wardnet/js";
+import type { Device, DeviceSignal, RoutingTarget } from "@wardnet/js";
 
 const ONLINE_THRESHOLD_MS = 5 * 60 * 1000;
 
@@ -68,7 +86,63 @@ export default function DeviceDetail() {
     );
   }
 
-  const device = data.device;
+  return (
+    <DeviceDetailLoaded
+      device={data.device}
+      // `?? []` guards a browser holding a cached bundle newer than the
+      // daemon it is talking to: a missing field must render the empty
+      // state, not throw out the whole detail page.
+      signals={data.signals ?? []}
+      currentRule={data.current_rule}
+    />
+  );
+}
+
+interface DeviceDetailLoadedProps {
+  device: Device;
+  signals: DeviceSignal[];
+  currentRule: RoutingTarget | null;
+}
+
+/** The loaded detail view. Split from the route component so the card
+ *  queries/mutations mount only once the device itself has resolved — this
+ *  is still the pages layer, and it owns every hook the cards need, passing
+ *  data + callbacks down so the cards stay pure presentation. */
+function DeviceDetailLoaded({
+  device,
+  signals,
+  currentRule,
+}: DeviceDetailLoadedProps) {
+  // Settings card.
+  const { data: tunnelData } = useTunnels();
+  const updateDevice = useUpdateDevice();
+
+  // Routing profiles card.
+  const { data: profilesData } = useRoutingProfiles();
+  const { data: assignedData } = useDeviceRoutingProfiles(device.id);
+  const saveRoutingProfiles = useSetDeviceRoutingProfiles();
+
+  // Zone card.
+  const { data: zoneData } = useNetworkZones();
+  const assignZone = useAssignDeviceZone({ successMessage: "Zone updated" });
+
+  // DNS filter card.
+  const { data: filterSettingsData } = useDeviceFilterSettings(device.id);
+  const { data: filterProfilesData } = useDnsFilterProfiles();
+  const { data: filterConfigData } = useDnsFilterConfig();
+  const updateFilterSettings = useUpdateDeviceFilterSettings();
+
+  // DNS capture card.
+  const { data: captureSettings, isLoading: captureLoading } =
+    useDnsCaptureSettings(device.id);
+  const updateCaptureSettings = useUpdateDnsCaptureSettings(device.id);
+
+  // Network card.
+  const { data: reservationsData } = useDhcpReservations();
+  const createReservation = useCreateReservation();
+  const restoreReservation = useCreateReservation({ silent: true });
+  const deleteReservation = useDeleteReservation();
+
   const managed = device.name != null;
   const online = managed && isOnline(device.last_seen);
 
@@ -99,16 +173,43 @@ export default function DeviceDetail() {
       />
 
       <DeviceIdentityCard device={device} />
-      {/* `?? []` guards a browser holding a cached bundle newer than the
-          daemon it is talking to: a missing field must render the empty
-          state, not throw out the whole detail page. */}
-      <DeviceIdentificationCard signals={data.signals ?? []} />
-      <DeviceSettingsCard device={device} currentRule={data.current_rule} />
-      <DeviceRoutingProfilesCard device={device} />
-      <DeviceZoneCard device={device} />
-      <DeviceDnsFilterCard device={device} />
-      <DeviceDnsCaptureCard deviceId={device.id} />
-      <DeviceNetworkCard device={device} />
+      <DeviceIdentificationCard signals={signals} />
+      <DeviceSettingsCard
+        device={device}
+        currentRule={currentRule}
+        tunnels={tunnelData?.tunnels ?? []}
+        updateDevice={updateDevice}
+      />
+      <DeviceRoutingProfilesCard
+        device={device}
+        allProfiles={profilesData?.profiles ?? []}
+        assignedIds={assignedData?.profile_ids ?? []}
+        save={saveRoutingProfiles}
+      />
+      <DeviceZoneCard
+        device={device}
+        zones={zoneData?.zones ?? []}
+        assignZone={assignZone}
+      />
+      <DeviceDnsFilterCard
+        device={device}
+        settings={filterSettingsData?.settings}
+        profiles={filterProfilesData?.profiles}
+        config={filterConfigData?.config}
+        update={updateFilterSettings}
+      />
+      <DeviceDnsCaptureCard
+        settings={captureSettings}
+        isLoading={captureLoading}
+        update={updateCaptureSettings}
+      />
+      <DeviceNetworkCard
+        device={device}
+        reservations={reservationsData?.reservations}
+        createReservation={createReservation}
+        restoreReservation={restoreReservation}
+        deleteReservation={deleteReservation}
+      />
     </div>
   );
 }

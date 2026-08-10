@@ -8,10 +8,6 @@ import {
 import { DeviceIcon } from "@wardnet/web";
 import { HostCell } from "@/components/compound/HostCell";
 import { StatusBadge } from "@/components/compound/StatusBadge";
-import {
-  useDeviceFilterSettingsList,
-  useDnsFilterProfiles,
-} from "@wardnet/web";
 import { deviceTypeLabel, manufacturerDisplay } from "@wardnet/web";
 import { timeAgo } from "@wardnet/web";
 import type {
@@ -146,9 +142,17 @@ interface DeviceTableProps {
   action?: ReactNode;
   /** Shown when the table has no rows; a node so callers can explain why. */
   emptyMessage?: ReactNode;
+  /** Per-device DNS filter settings for the Filtering column, from the
+   *  owning page's `useDeviceFilterSettingsList()`. */
+  filterSettings: DeviceDnsFilterSettings[] | undefined;
+  /** All DNS filter profiles, for resolving profile names, from the owning
+   *  page's `useDnsFilterProfiles()`. */
+  filterProfiles: DnsFilterProfile[] | undefined;
 }
 
-/** Table listing network devices. Receives pre-filtered, pre-sorted data. */
+/** Table listing network devices. Receives pre-filtered, pre-sorted data.
+ *  Pure presentation — the owning page wires the query hooks and passes
+ *  data + callbacks in. */
 export function DeviceTable({
   devices,
   onDeviceClick,
@@ -160,21 +164,20 @@ export function DeviceTable({
   searchPlaceholder,
   action,
   emptyMessage,
+  filterSettings,
+  filterProfiles,
 }: DeviceTableProps) {
-  const { data: settingsData } = useDeviceFilterSettingsList();
-  const { data: profilesData } = useDnsFilterProfiles();
-
   const settingsByDevice = useMemo(() => {
     const map = new Map<string, DeviceDnsFilterSettings>();
-    for (const s of settingsData?.devices ?? []) map.set(s.device_id, s);
+    for (const s of filterSettings ?? []) map.set(s.device_id, s);
     return map;
-  }, [settingsData]);
+  }, [filterSettings]);
 
   const profilesById = useMemo(() => {
     const map = new Map<string, DnsFilterProfile>();
-    for (const p of profilesData?.profiles ?? []) map.set(p.id, p);
+    for (const p of filterProfiles ?? []) map.set(p.id, p);
     return map;
-  }, [profilesData]);
+  }, [filterProfiles]);
 
   const columns = useMemo(
     () => buildColumns(settingsByDevice, profilesById),

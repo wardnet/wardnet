@@ -6,10 +6,14 @@ import {
   DrawerTitle,
   DrawerTrigger,
 } from "@wardnet/web";
-import { Sidebar } from "./Sidebar";
+import { Sidebar, type SidebarProps } from "./Sidebar";
+
+/** The sidebar's data props, forwarded verbatim — the drawer only adds the
+ *  open/close state and the on-navigate auto-close. */
+type MobileMenuProps = Omit<SidebarProps, "onNavigate">;
 
 /** Hamburger menu with slide-in sidebar for mobile viewports. */
-export function MobileMenu() {
+export function MobileMenu(props: MobileMenuProps) {
   const [open, setOpen] = useState(false);
 
   return (
@@ -41,7 +45,7 @@ export function MobileMenu() {
       </DrawerTrigger>
       <DrawerContent side="left">
         <DrawerTitle className="sr-only">Navigation</DrawerTitle>
-        <Sidebar onNavigate={() => setOpen(false)} />
+        <Sidebar {...props} onNavigate={() => setOpen(false)} />
       </DrawerContent>
     </Drawer>
   );

@@ -10,21 +10,35 @@ import {
   Text,
   Toggle,
   deviceDisplayName,
-  useDevices,
-  usePrivateDnsStatus,
-  useSetPrivateDnsEnabled,
-  useGrantPrivateDnsDevice,
-  useRevokePrivateDnsDevice,
-  useSendPrivateDnsToDevice,
 } from "@wardnet/web";
 import type {
+  Device,
   PrivateDnsGrantSummary,
   PrivateDnsPrerequisites,
+  PrivateDnsStatusResponse,
 } from "@wardnet/js";
+import type { MutationHandle } from "@/lib/mutationHandle";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import { DeviceSelect } from "@/components/compound/DeviceSelect";
 import { PrivateDnsGrantsTable } from "@/components/compound/PrivateDnsGrantsTable";
 import { PrivateDnsGrantedModal } from "@/components/features/PrivateDnsGrantedModal";
+
+interface PrivateDnsCardProps {
+  /** The Private DNS status, or `undefined` while the page's query loads. */
+  status: PrivateDnsStatusResponse | undefined;
+  isLoading: boolean;
+  devices: Device[];
+  onSetEnabled: (enabled: boolean) => void;
+  /** True while the page's enable/disable mutation is in flight. */
+  setEnabledPending: boolean;
+  /** The page's hoisted grant mutation. The card consumes the resolved grant
+   *  to open the setup-link modal. */
+  grantDevice: MutationHandle<string, PrivateDnsGrantSummary>;
+  onRevokeDevice: (deviceId: string) => void;
+  onSendToDevice: (deviceId: string) => void;
+  /** True while the page's send-to-device mutation is in flight. */
+  sendPending: boolean;
+}
 
 /**
  * Private DNS (issue #915) — always mounted on the Remote Access page so the
@@ -32,20 +46,20 @@ import { PrivateDnsGrantedModal } from "@/components/features/PrivateDnsGrantedM
  * exists. Enabling is gated on three hard prerequisites (wardnet provider, live
  * certificate, Premium entitlement); the reverse tunnel is informational only.
  * Once enabled the admin grants managed devices and can push a setup link to
- * each granted device.
+ * each granted device. Pure presentation — the owning page wires the
+ * query/mutation hooks and passes data + callbacks in.
  */
-export function PrivateDnsCard() {
-  const { data: status, isLoading } = usePrivateDnsStatus();
-  const setEnabled = useSetPrivateDnsEnabled();
-  const grantDevice = useGrantPrivateDnsDevice();
-  const revokeDevice = useRevokePrivateDnsDevice();
-  const sendToDevice = useSendPrivateDnsToDevice();
-  const { data: devicesData } = useDevices();
-
-  const devices = useMemo(
-    () => devicesData?.devices ?? [],
-    [devicesData?.devices],
-  );
+export function PrivateDnsCard({
+  status,
+  isLoading,
+  devices,
+  onSetEnabled,
+  setEnabledPending,
+  grantDevice,
+  onRevokeDevice,
+  onSendToDevice,
+  sendPending,
+}: PrivateDnsCardProps) {
   const deviceById = useMemo(
     () => new Map(devices.map((d) => [d.id, d])),
     [devices],
@@ -107,10 +121,8 @@ export function PrivateDnsCard() {
             checked={enabled}
             // Enabling needs every hard prerequisite; disabling is always
             // allowed.
-            disabled={
-              isLoading || setEnabled.isPending || (!enabled && !hardMet)
-            }
-            onCheckedChange={(next) => setEnabled.mutate(next)}
+            disabled={isLoading || setEnabledPending || (!enabled && !hardMet)}
+            onCheckedChange={onSetEnabled}
           />
         </CardAction>
       </CardHeader>
@@ -190,7 +202,7 @@ export function PrivateDnsCard() {
             <PrivateDnsGrantsTable
               grants={grants}
               deviceName={deviceName}
-              onSendToDevice={(grant) => sendToDevice.mutate(grant.device_id)}
+              onSendToDevice={(grant) => onSendToDevice(grant.device_id)}
               onRevoke={setRevokeTarget}
             />
           </div>
@@ -200,8 +212,8 @@ export function PrivateDnsCard() {
       <PrivateDnsGrantedModal
         grant={granted}
         deviceName={granted ? deviceName(granted.device_id) : ""}
-        onSendToDevice={(grant) => sendToDevice.mutate(grant.device_id)}
-        sending={sendToDevice.isPending}
+        onSendToDevice={(grant) => onSendToDevice(grant.device_id)}
+        sending={sendPending}
         onDismiss={() => setGranted(null)}
       />
 
@@ -216,7 +228,7 @@ export function PrivateDnsCard() {
         } and deletes its hostname. Re-granting later mints a new one.`}
         confirmLabel="Revoke"
         onConfirm={() => {
-          if (revokeTarget) revokeDevice.mutate(revokeTarget.device_id);
+          if (revokeTarget) onRevokeDevice(revokeTarget.device_id);
           setRevokeTarget(null);
         }}
       />

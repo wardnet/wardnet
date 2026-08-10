@@ -1,12 +1,20 @@
-import { useDaemonStatus, Text } from "@wardnet/web";
+import { Text } from "@wardnet/web";
+
+interface ConnectionStatusProps {
+  /** True while the daemon status is still being fetched. */
+  isLoading: boolean;
+  /** Whether the daemon answered the last status probe. */
+  reachable: boolean;
+}
 
 /** Traffic-light status indicator shown in the sidebar footer. The
  *  daemon version is rendered separately under the brand mark (see
- *  Sidebar), so this row stays a single line. */
-export function ConnectionStatus() {
-  const { data, isLoading } = useDaemonStatus();
-
-  const reachable = data?.reachable ?? false;
+ *  Sidebar), so this row stays a single line. Pure presentation — the
+ *  shell layout wires the status hook and passes the state in. */
+export function ConnectionStatus({
+  isLoading,
+  reachable,
+}: ConnectionStatusProps) {
   const color = isLoading ? "bg-warn" : reachable ? "bg-accent" : "bg-danger";
   const label = isLoading
     ? "Connecting…"

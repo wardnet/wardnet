@@ -8,6 +8,12 @@ const {
   useTlsStatus,
   useResolutionCheck,
   useDeleteDdns,
+  useDevices,
+  usePrivateDnsStatus,
+  useSetPrivateDnsEnabled,
+  useGrantPrivateDnsDevice,
+  useRevokePrivateDnsDevice,
+  useSendPrivateDnsToDevice,
   useWardnetEnrollment,
   toast,
 } = vi.hoisted(() => ({
@@ -15,6 +21,12 @@ const {
   useTlsStatus: vi.fn(),
   useResolutionCheck: vi.fn(),
   useDeleteDdns: vi.fn(),
+  useDevices: vi.fn(),
+  usePrivateDnsStatus: vi.fn(),
+  useSetPrivateDnsEnabled: vi.fn(),
+  useGrantPrivateDnsDevice: vi.fn(),
+  useRevokePrivateDnsDevice: vi.fn(),
+  useSendPrivateDnsToDevice: vi.fn(),
   useWardnetEnrollment: vi.fn(),
   toast: Object.assign(vi.fn(), {
     success: vi.fn(),
@@ -31,8 +43,36 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useTlsStatus,
     useResolutionCheck,
     useDeleteDdns,
+    useDevices,
+    usePrivateDnsStatus,
+    useSetPrivateDnsEnabled,
+    useGrantPrivateDnsDevice,
+    useRevokePrivateDnsDevice,
+    useSendPrivateDnsToDevice,
   };
 });
+
+// Mocked to a harness that surfaces the page's wiring: the card's own
+// behaviour is covered by its prop-driven component test.
+vi.mock("@/components/features/PrivateDnsCard", () => ({
+  PrivateDnsCard: ({
+    status,
+    devices,
+    onSetEnabled,
+  }: {
+    status?: { enabled: boolean };
+    devices: Array<{ id: string }>;
+    onSetEnabled: (enabled: boolean) => void;
+  }) => (
+    <div
+      data-testid="private-dns-card"
+      data-enabled={String(status?.enabled)}
+      data-devices={devices.length}
+    >
+      <button onClick={() => onSetEnabled(true)}>pdns-enable</button>
+    </div>
+  ),
+}));
 
 vi.mock("@wardnet/ui", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
@@ -126,6 +166,21 @@ beforeEach(() => {
   refetch.mockResolvedValue({ data: { verdict: "match" } });
   useDdnsStatus.mockReturnValue({ data: undefined });
   useTlsStatus.mockReturnValue({ data: undefined });
+  useDevices.mockReturnValue({ data: undefined });
+  usePrivateDnsStatus.mockReturnValue({ data: undefined, isLoading: false });
+  useSetPrivateDnsEnabled.mockReturnValue({
+    mutate: vi.fn(),
+    isPending: false,
+  });
+  useGrantPrivateDnsDevice.mockReturnValue({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  });
+  useRevokePrivateDnsDevice.mockReturnValue({ mutate: vi.fn() });
+  useSendPrivateDnsToDevice.mockReturnValue({
+    mutate: vi.fn(),
+    isPending: false,
+  });
   useResolutionCheck.mockReturnValue({
     data: undefined,
     isFetching: false,

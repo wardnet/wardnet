@@ -13,6 +13,7 @@ import { TunnelThroughputChart } from "@/components/features/TunnelThroughputCha
 import { TunnelLatencyChart } from "@/components/features/TunnelLatencyChart";
 import {
   useTunnel,
+  useTunnelDevices,
   useDeleteTunnel,
   useSetTunnelDnsOverride,
   useRebuildTunnel,
@@ -121,6 +122,14 @@ export default function TunnelDetail() {
     isLoading: statsLoading,
     isError: statsError,
   } = useTunnelStats(id, range);
+  // Gate the devices query (30s poll) on the tunnel itself having resolved:
+  // an empty id disables the query, so a deleted/bad tunnel URL renders the
+  // not-found branch without endlessly re-polling /tunnels/:id/devices.
+  const {
+    data: tunnelDevicesData,
+    isLoading: tunnelDevicesLoading,
+    isError: tunnelDevicesError,
+  } = useTunnelDevices(data?.tunnel ? id : "");
 
   if (isLoading) {
     return (
@@ -273,7 +282,11 @@ export default function TunnelDetail() {
         />
       </div>
 
-      <TunnelDevicesTable tunnelId={tunnel.id} />
+      <TunnelDevicesTable
+        devices={tunnelDevicesData?.devices}
+        isLoading={tunnelDevicesLoading}
+        isError={tunnelDevicesError}
+      />
 
       <SpeedTestHistory tunnelId={tunnel.id} />
 

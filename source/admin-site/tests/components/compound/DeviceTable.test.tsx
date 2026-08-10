@@ -1,30 +1,9 @@
 import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DeviceTable } from "@/components/compound/DeviceTable";
 import { makeDevice, renderWithProviders } from "../../test-utils";
-
-vi.mock("@wardnet/web", async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    useDeviceFilterSettingsList: vi.fn(),
-    useDnsFilterProfiles: vi.fn(),
-  };
-});
-
-import {
-  useDeviceFilterSettingsList,
-  useDnsFilterProfiles,
-} from "@wardnet/web";
-
-const mockSettings = vi.mocked(useDeviceFilterSettingsList);
-const mockProfiles = vi.mocked(useDnsFilterProfiles);
-
-beforeEach(() => {
-  mockSettings.mockReturnValue({ data: undefined } as never);
-  mockProfiles.mockReturnValue({ data: undefined } as never);
-});
+import type { DeviceDnsFilterSettings, DnsFilterProfile } from "@wardnet/js";
 
 describe("DeviceTable", () => {
   it("renders device rows with name, IP, type, and manufacturer fallback", () => {
@@ -47,6 +26,8 @@ describe("DeviceTable", () => {
           }),
         ]}
         onDeviceClick={vi.fn()}
+        filterSettings={undefined}
+        filterProfiles={undefined}
       />,
     );
     expect(screen.getByText("Laptop")).toBeInTheDocument();
@@ -64,30 +45,24 @@ describe("DeviceTable", () => {
       <DeviceTable
         devices={[makeDevice({ id: "d1", dhcp_status: "external" })]}
         onDeviceClick={vi.fn()}
+        filterSettings={undefined}
+        filterProfiles={undefined}
       />,
     );
     expect(screen.getByText("External")).toBeInTheDocument();
   });
 
   it("renders the DNS-filter column across its branches", () => {
-    mockProfiles.mockReturnValue({
-      data: {
-        profiles: [
-          { id: "p1", name: "Ads" },
-          { id: "p2", name: "Malware" },
-        ],
-      },
-    } as never);
-    mockSettings.mockReturnValue({
-      data: {
-        devices: [
-          { device_id: "d-off", enabled: false, profile_ids: [] },
-          { device_id: "d-empty", enabled: true, profile_ids: [] },
-          { device_id: "d-named", enabled: true, profile_ids: ["p1", "p2"] },
-          { device_id: "d-unknown", enabled: true, profile_ids: ["nope"] },
-        ],
-      },
-    } as never);
+    const filterProfiles = [
+      { id: "p1", name: "Ads" },
+      { id: "p2", name: "Malware" },
+    ] as DnsFilterProfile[];
+    const filterSettings = [
+      { device_id: "d-off", enabled: false, profile_ids: [] },
+      { device_id: "d-empty", enabled: true, profile_ids: [] },
+      { device_id: "d-named", enabled: true, profile_ids: ["p1", "p2"] },
+      { device_id: "d-unknown", enabled: true, profile_ids: ["nope"] },
+    ] as DeviceDnsFilterSettings[];
 
     renderWithProviders(
       <DeviceTable
@@ -99,6 +74,8 @@ describe("DeviceTable", () => {
           makeDevice({ id: "d-default", name: "NoRow" }),
         ]}
         onDeviceClick={vi.fn()}
+        filterSettings={filterSettings}
+        filterProfiles={filterProfiles}
       />,
     );
     expect(screen.getByText("Filtering off")).toBeInTheDocument();
@@ -117,6 +94,8 @@ describe("DeviceTable", () => {
       <DeviceTable
         devices={[makeDevice({ id: "d1", name: "Laptop" })]}
         onDeviceClick={onDeviceClick}
+        filterSettings={undefined}
+        filterProfiles={undefined}
       />,
     );
     await user.click(screen.getByText("Laptop"));

@@ -13,35 +13,43 @@ import { Field } from "@wardnet/web";
 import { Toggle } from "@wardnet/web";
 import { ApiErrorAlert } from "@wardnet/web";
 import { ProfileToggleList } from "@/components/compound/ProfileToggleList";
-import {
-  useDeviceFilterSettings,
-  useDnsFilterConfig,
-  useDnsFilterProfiles,
-  useUpdateDeviceFilterSettings,
-} from "@wardnet/web";
-import type { Device, DnsFilterProfile } from "@wardnet/js";
+import type { MutationHandle } from "@/lib/mutationHandle";
+import type {
+  Device,
+  DeviceDnsFilterSettings,
+  DnsFilterConfig,
+  DnsFilterProfile,
+  UpdateDeviceFilterSettingsRequest,
+} from "@wardnet/js";
 
 interface DeviceDnsFilterCardProps {
   device: Device;
+  /** The device's filter settings, or `undefined` while loading. */
+  settings: DeviceDnsFilterSettings | undefined;
+  /** All filter profiles, or `undefined` while loading. */
+  profiles: DnsFilterProfile[] | undefined;
+  /** The global filter config, or `undefined` while loading. */
+  config: DnsFilterConfig | undefined;
+  /** The page's hoisted filter-settings update mutation. */
+  update: MutationHandle<{
+    id: string;
+    body: UpdateDeviceFilterSettingsRequest;
+  }>;
 }
 
 const PROFILES_LABEL_ID = "device-dns-filter-profiles-label";
 
 /** Editable DNS filter settings card for the device detail page —
  *  edit-mode card protocol per DhcpConfigCard / DeviceSettingsCard
- *  (folded edit form, hook-coupled via `useUpdateDeviceFilterSettings`). */
-export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
-  const { data: settingsData, isLoading: settingsLoading } =
-    useDeviceFilterSettings(device.id);
-  const { data: profilesData, isLoading: profilesLoading } =
-    useDnsFilterProfiles();
-  const { data: configData, isLoading: configLoading } = useDnsFilterConfig();
-  const update = useUpdateDeviceFilterSettings();
-
-  const profiles = profilesData?.profiles;
-  const settings = settingsData?.settings;
-  const config = configData?.config;
-
+ *  (folded edit form). Pure presentation — the owning page wires the
+ *  query/mutation hooks and passes data + callbacks in. */
+export function DeviceDnsFilterCard({
+  device,
+  settings,
+  profiles,
+  config,
+  update,
+}: DeviceDnsFilterCardProps) {
   const [editing, setEditing] = useState(false);
   const [enabled, setEnabled] = useState(true);
   const [profileIds, setProfileIds] = useState<string[]>([]);
@@ -69,14 +77,10 @@ export function DeviceDnsFilterCard({ device }: DeviceDnsFilterCardProps) {
 
   // All three queries must settle before rendering — otherwise the
   // read-only summary line resolves `defaultProfiles`/`assignedProfiles`
-  // against an empty profiles cache and falsely reports "None".
-  const ready =
-    !settingsLoading &&
-    !profilesLoading &&
-    !configLoading &&
-    settings &&
-    profiles &&
-    config;
+  // against an empty profiles cache and falsely reports "None". Defined
+  // data implies the query is no longer loading, so the data props are the
+  // whole predicate.
+  const ready = settings && profiles && config;
 
   if (!ready) {
     return (

@@ -10,6 +10,7 @@ const {
   useRebuildTunnel,
   useSpeedTestResults,
   useTunnelStats,
+  useTunnelDevices,
   navigate,
 } = vi.hoisted(() => ({
   useTunnel: vi.fn(),
@@ -18,6 +19,7 @@ const {
   useRebuildTunnel: vi.fn(),
   useSpeedTestResults: vi.fn(),
   useTunnelStats: vi.fn(),
+  useTunnelDevices: vi.fn(),
   navigate: vi.fn(),
 }));
 
@@ -40,6 +42,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useRebuildTunnel,
     useSpeedTestResults,
     useTunnelStats,
+    useTunnelDevices,
   };
 });
 
@@ -122,6 +125,11 @@ beforeEach(() => {
   });
   useSpeedTestResults.mockReturnValue({ data: { results: [] } });
   useTunnelStats.mockReturnValue({
+    data: undefined,
+    isLoading: false,
+    isError: false,
+  });
+  useTunnelDevices.mockReturnValue({
     data: undefined,
     isLoading: false,
     isError: false,
