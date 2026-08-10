@@ -721,11 +721,15 @@ async fn run(
         None
     };
 
-    // Start the mDNS observer alongside the advertiser: it browses the LAN for
-    // catalogued service advertisements and records them as device
-    // identification signals (issue #1115). Passive and non-fatal — a failure
-    // here just drops one identification signal, so we log and continue.
-    let mdns_observer = if config.mdns.enabled {
+    // Start the mDNS observer: it browses the LAN for catalogued service
+    // advertisements and records them as device identification signals (issue
+    // #1115). It is gated on `detection.enabled`, not `mdns.enabled`: the mDNS
+    // flag governs whether the daemon *advertises* its own hostname, an
+    // independent concern from passively *observing* other devices. Observation
+    // is an identification signal source alongside the packet-capture detector,
+    // so it lives and dies with device detection. Passive and non-fatal — a
+    // failure here just drops one identification signal, so we log and continue.
+    let mdns_observer = if config.detection.enabled {
         match MdnsObserver::start(
             services.device_identification.clone(),
             &config.network.lan_interface,
@@ -738,7 +742,7 @@ async fn run(
             }
         }
     } else {
-        tracing::info!("mDNS observer disabled");
+        tracing::info!("mDNS observer disabled (device detection off)");
         None
     };
 

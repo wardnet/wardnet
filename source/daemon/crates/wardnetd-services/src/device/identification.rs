@@ -210,24 +210,22 @@ impl DeviceIdentificationService for DeviceIdentificationServiceImpl {
         // path, but the wrong call here. An mDNS advertisement that names a
         // vendor would stamp that name on whichever device won the tie, and a
         // confident-but-wrong manufacturer is the exact failure #1099 was filed
-        // about. So resolve the full set and attribute only when exactly one
-        // device claims the address; zero or many is ambiguous and skipped.
-        let matches: Vec<_> = self
+        // about. So resolve the full set (an indexed `last_ip` lookup) and
+        // attribute only when exactly one device claims the address; zero or
+        // many is ambiguous and skipped.
+        let matches = self
             .devices
-            .find_all()
+            .find_all_by_ip(&ip.to_string())
             .await
-            .map_err(AppError::Internal)?
-            .into_iter()
-            .filter(|d| d.last_ip.parse::<IpAddr>().is_ok_and(|parsed| parsed == ip))
-            .collect();
+            .map_err(AppError::Internal)?;
 
         let [device] = matches.as_slice() else {
+            let match_count = matches.len();
             tracing::debug!(
                 %ip,
                 ?kind,
-                match_count = matches.len(),
-                "identification: IP maps to {} devices, skipping ambiguous mDNS attribution",
-                matches.len()
+                match_count,
+                "identification: IP {ip} maps to {match_count} devices, skipping ambiguous mDNS {kind:?} attribution",
             );
             return Ok(());
         };

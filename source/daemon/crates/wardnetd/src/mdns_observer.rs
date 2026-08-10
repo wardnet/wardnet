@@ -134,6 +134,14 @@ impl MdnsObserver {
                             // SearchStopped carry no address to attribute.
                             Some(_) => {}
                             None => {
+                                // Every browse stream ended without a shutdown
+                                // request — the daemon's channels closed under us
+                                // (internal failure, all senders dropped). No more
+                                // observations will arrive; surface it rather than
+                                // parking indistinguishably from a healthy idle.
+                                tracing::warn!(
+                                    "mDNS observer: all browse streams ended unexpectedly; no further service advertisements will be observed"
+                                );
                                 cancel_clone.cancelled().await;
                                 break;
                             }
@@ -192,7 +200,16 @@ async fn record_resolved(identification: &dyn DeviceIdentificationService, info:
         )
         .await;
         if let Err(error) = result {
-            tracing::debug!(%ip, service_type = %info.ty_domain, %error, "mDNS observer: failed to record signal");
+            // The service returns Ok for the ambiguous/zero-match skips, so an
+            // Err here is a genuine backend failure (e.g. a write error), not a
+            // dropped attribution — warn so a sustained outage is visible.
+            let service_type = &info.ty_domain;
+            tracing::warn!(
+                %ip,
+                %service_type,
+                %error,
+                "mDNS observer: failed to record {service_type} signal for {ip}: {error}"
+            );
         }
     }
 }
