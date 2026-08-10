@@ -1,4 +1,4 @@
-//! Google and GitHub sign-in (ADR-0031 §2).
+//! Google and `GitHub` sign-in (ADR-0031 §2).
 //!
 //! # Each household registers its own app
 //!
@@ -24,10 +24,10 @@
 //!
 //! # The subject is the provider's immutable id
 //!
-//! Google's `sub`, GitHub's **numeric** `id` — never the email, and never the
-//! GitHub login. Emails get reassigned and GitHub logins can be renamed and
+//! Google's `sub`, `GitHub`'s **numeric** `id` — never the email, and never the
+//! `GitHub` login. Emails get reassigned and `GitHub` logins can be renamed and
 //! reused, so either would let a later holder of a name inherit an account.
-//! GitHub's primary email may also be private, so email cannot be assumed
+//! `GitHub`'s primary email may also be private, so email cannot be assumed
 //! present at all.
 
 use std::sync::Arc;
@@ -181,7 +181,7 @@ pub struct PendingOauth {
 /// Who the provider says signed in.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderIdentity {
-    /// The provider's immutable subject: Google `sub`, GitHub numeric id.
+    /// The provider's immutable subject: Google `sub`, `GitHub` numeric id.
     pub subject: String,
     /// Email, when the provider discloses one. Never used as the join key.
     pub email: Option<String>,
@@ -217,7 +217,7 @@ struct GoogleUserinfo {
     email: Option<String>,
 }
 
-/// GitHub's `/user` response. `id` is numeric on the wire.
+/// `GitHub`'s `/user` response. `id` is numeric on the wire.
 #[derive(Debug, Deserialize)]
 struct GithubUser {
     id: i64,
@@ -227,7 +227,7 @@ struct GithubUser {
 
 /// A provider's token response.
 ///
-/// GitHub returns form-encoded by default, which is why the caller sends
+/// `GitHub` returns form-encoded by default, which is why the caller sends
 /// `Accept: application/json`.
 #[derive(Debug, Deserialize)]
 struct TokenResponse {

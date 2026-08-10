@@ -158,7 +158,7 @@ impl FromRequestParts<AppState> for SessionAuth {
 /// `auth_context::require_admin()`.
 ///
 /// This exists for the handful of routes that have **no service call to put a
-/// guard in** — the OpenAPI spec endpoint and the Scalar docs shell, which are
+/// guard in** — the `OpenAPI` spec endpoint and the Scalar docs shell, which are
 /// closures over embedded assets. Before household users those were gated by
 /// `AdminAuth` being the only session extractor, so renaming it to `SessionAuth`
 /// silently opened them to `member` callers. `/api/openapi.json` in particular

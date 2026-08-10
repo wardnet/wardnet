@@ -2,7 +2,7 @@
 //!
 //! # The RP ID is pinned, and that has a visible consequence
 //!
-//! WebAuthn binds a credential to a **Relying Party ID** — a domain. A passkey
+//! `WebAuthn` binds a credential to a **Relying Party ID** — a domain. A passkey
 //! registered for `happy-einstein.wardnet.app` is unusable at any other origin,
 //! by design and enforced by the browser. So the RP ID is pinned into
 //! `system_config` at first registration and never silently changed: if it were,
@@ -15,7 +15,7 @@
 //!
 //! # Why `:7411` cannot have passkeys, and why that is fine
 //!
-//! WebAuthn requires a secure context and a real domain. The plain-HTTP
+//! `WebAuthn` requires a secure context and a real domain. The plain-HTTP
 //! pre-provisioning surface on `:7411`, and any bare-LAN-IP access, cannot
 //! satisfy that — so passkey ceremonies return `412 Precondition Failed` there
 //! rather than half-working. This is exactly why the local password can never be
@@ -65,7 +65,7 @@ pub struct PasskeyMetadata {
     /// filled in from the `AuthenticationResult` on first sign-in.
     ///
     /// They must not be *guessed*. Recording `false` at registration, as an
-    /// earlier version did, tells a person that a synced iCloud or Google
+    /// earlier version did, tells a person that a synced `iCloud` or Google
     /// passkey is hardware-bound — the exact opposite of what they need to know
     /// when deciding whether losing the device loses the credential.
     pub backup_eligible: Option<bool>,

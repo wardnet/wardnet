@@ -1659,7 +1659,7 @@ impl UserService for UserServiceImpl {
     }
 }
 
-/// Base64url-encode without padding — how a WebAuthn credential id is written.
+/// Base64url-encode without padding — how a `WebAuthn` credential id is written.
 fn base64_url(bytes: &[u8]) -> String {
     use base64::Engine;
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)

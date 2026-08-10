@@ -7,7 +7,7 @@ use super::super::DeviceRepository;
 use super::super::device::{DeviceRow as InsertDeviceRow, PrunedDevice};
 use crate::db::DbPools;
 
-/// SQLite-backed implementation of [`DeviceRepository`].
+/// `SQLite`-backed implementation of [`DeviceRepository`].
 pub struct SqliteDeviceRepository {
     pools: DbPools,
 }

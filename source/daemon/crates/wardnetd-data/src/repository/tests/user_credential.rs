@@ -102,7 +102,7 @@ async fn the_same_google_account_cannot_be_linked_twice() {
     );
 }
 
-/// `(kind, subject)` is scoped by kind, so a Google `sub` and a GitHub id that
+/// `(kind, subject)` is scoped by kind, so a Google `sub` and a `GitHub` id that
 /// happen to be the same string are unrelated credentials.
 #[tokio::test]
 async fn the_same_subject_under_a_different_kind_is_allowed() {

@@ -1,7 +1,7 @@
 //! Upgrade tests for `20260810000000_household_identity.sql`.
 //!
 //! The plan calls this migration the highest-risk item in the epic, and it is:
-//! SQLite cannot alter a foreign key in place, so `sessions` is rebuilt, and a
+//! `SQLite` cannot alter a foreign key in place, so `sessions` is rebuilt, and a
 //! mistake leaves a daemon that will not start and cannot roll back.
 //!
 //! These tests seed a **pre-upgrade** database — the schema as it stood before

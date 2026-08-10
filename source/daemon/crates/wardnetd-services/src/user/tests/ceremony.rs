@@ -1,5 +1,5 @@
 //! Tests for [`CeremonyStore`] — the single-use, expiring nonce store both
-//! OAuth and WebAuthn hang their round-trips on.
+//! OAuth and `WebAuthn` hang their round-trips on.
 
 use std::time::Duration;
 

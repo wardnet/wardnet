@@ -1,6 +1,6 @@
 //! Short-lived, in-memory state for multi-step sign-in ceremonies.
 //!
-//! Both OAuth (`state` + PKCE verifier) and WebAuthn (the registration or
+//! Both OAuth (`state` + PKCE verifier) and `WebAuthn` (the registration or
 //! authentication challenge) issue a nonce in step one and must see it back,
 //! exactly once, in step two.
 //!

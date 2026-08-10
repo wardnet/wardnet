@@ -41,14 +41,14 @@ impl std::error::Error for UserAlreadyHasPasswordError {}
 /// The kind of credential a `user_credentials` row holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CredentialKind {
-    /// Argon2id password. The floor — works with no WAN, no certificate and
+    /// `Argon2id` password. The floor — works with no WAN, no certificate and
     /// no provider, and is never removable.
     Password,
     /// Google, verified against the provider's userinfo endpoint.
     Google,
-    /// GitHub, verified against the provider's userinfo endpoint.
+    /// `GitHub`, verified against the provider's userinfo endpoint.
     Github,
-    /// WebAuthn passkey.
+    /// `WebAuthn` passkey.
     Passkey,
 }
 
@@ -92,10 +92,10 @@ pub struct CredentialRow {
     /// What sort of credential this is.
     pub kind: CredentialKind,
     /// The login identifier: username (backfilled local admin), email (new
-    /// local user), Google `sub`, GitHub **numeric id**, or the base64url
+    /// local user), Google `sub`, `GitHub` **numeric id**, or the base64url
     /// passkey credential id.
     pub subject: String,
-    /// Argon2id PHC string, or the passkey COSE public key.
+    /// `Argon2id` PHC string, or the passkey COSE public key.
     ///
     /// **Must never leave the repository layer.** Nothing that returns this
     /// type may be handed to a serializer.

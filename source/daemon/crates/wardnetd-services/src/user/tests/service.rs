@@ -73,7 +73,7 @@ fn build(users: MockUserRepo) -> Fixture {
     }
 }
 
-/// Argon2id-hash a password with a fixed salt.
+/// `Argon2id`-hash a password with a fixed salt.
 fn argon2_hash(password: &str) -> String {
     use argon2::PasswordHasher;
     let salt = argon2::password_hash::SaltString::from_b64("dGVzdHNhbHR2YWx1ZTEyMw").unwrap();

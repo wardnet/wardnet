@@ -28,7 +28,7 @@ const MEMBER_ID: &str = "00000000-0000-0000-0000-000000000002";
 const SESSION_HOURS: u64 = 24;
 const REMEMBER_HOURS: u64 = 720;
 
-/// Argon2id-hash a password with a fixed salt, so tests are deterministic.
+/// `Argon2id`-hash a password with a fixed salt, so tests are deterministic.
 fn argon2_hash(password: &str) -> String {
     use argon2::PasswordHasher;
     let salt = argon2::password_hash::SaltString::from_b64("dGVzdHNhbHR2YWx1ZTEyMw").unwrap();

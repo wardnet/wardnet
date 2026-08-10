@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 /// Access role for API requests.
 ///
-/// This is the **OpenAPI security scope** vocabulary, not the household-user
+/// This is the **`OpenAPI` security scope** vocabulary, not the household-user
 /// role — see [`UserRole`] for that. The two read confusingly side by side;
 /// ADR-0031 flags this deliberately rather than renaming, because renaming
 /// churns every `#[utoipa::path]` annotation in the tree for a cosmetic gain.

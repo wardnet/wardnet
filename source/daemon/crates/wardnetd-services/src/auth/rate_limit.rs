@@ -18,7 +18,7 @@
 //! failed logins against the household's only admin would survive a reboot,
 //! which is a denial-of-service primitive against the break-glass credential.
 //! The threat model here is online guessing, which a restarting daemon
-//! interrupts anyway; offline resistance is Argon2id's job, not this module's.
+//! interrupts anyway; offline resistance is `Argon2id`'s job, not this module's.
 //!
 //! # Failure direction
 //!

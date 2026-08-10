@@ -21,7 +21,7 @@ use crate::error::AppError;
 
 /// Derive the storage key for a raw session token.
 ///
-/// SHA-256 rather than Argon2id on purpose, and the difference from
+/// SHA-256 rather than `Argon2id` on purpose, and the difference from
 /// [`hash_password`] is deliberate: a session token is 32 bytes of CSPRNG
 /// output, so it has no guessable structure for a slow hash to protect, and
 /// this runs on **every authenticated request**. Passwords are low-entropy and
@@ -34,7 +34,7 @@ pub fn hash_token(token: &str) -> String {
 /// Fixed decoy password hash verified on a login path when the subject is
 /// unknown.
 ///
-/// It uses the same default Argon2id parameters as a real credential, so a
+/// It uses the same default `Argon2id` parameters as a real credential, so a
 /// failed verify against it costs the same as a failed verify against a genuine
 /// record — closing the timing side channel an attacker could otherwise use to
 /// tell which usernames or email addresses exist. Computed once on first use.
@@ -67,7 +67,7 @@ pub fn verify_decoy(password: &str) {
     );
 }
 
-/// Hash a plaintext password with Argon2id and a fresh random salt.
+/// Hash a plaintext password with `Argon2id` and a fresh random salt.
 pub fn hash_password(password: &str) -> Result<String, AppError> {
     // `OsRng` comes from the `password_hash` crate (re-exported via `argon2`)
     // to avoid the `rand_core` version conflict between `rand 0.10` and
@@ -79,7 +79,7 @@ pub fn hash_password(password: &str) -> Result<String, AppError> {
         .to_string())
 }
 
-/// Verify a plaintext password against a stored Argon2id PHC string.
+/// Verify a plaintext password against a stored `Argon2id` PHC string.
 ///
 /// A malformed stored hash is [`AppError::Internal`], not a failed login: it
 /// means the row is corrupt, and reporting "invalid credentials" would send the

@@ -1,5 +1,5 @@
 //! Tests for the DNS runner: `build_authoritative_view` against a real
-//! SQLite-backed `DnsLocalServiceImpl` (the `.lan` zone is migration-seeded),
+//! `SQLite`-backed `DnsLocalServiceImpl` (the `.lan` zone is migration-seeded),
 //! and the start → event → shutdown lifecycle with mock `DnsService` /
 //! `DnsServer`.
 

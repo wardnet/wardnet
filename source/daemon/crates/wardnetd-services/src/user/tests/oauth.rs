@@ -46,7 +46,7 @@ struct Fixture {
 
 /// A household with an admin and a member, and a canonical public hostname.
 ///
-/// `google` points at `mock_base` so the exchange is testable; GitHub keeps its
+/// `google` points at `mock_base` so the exchange is testable; `GitHub` keeps its
 /// production endpoints, which no test here calls.
 fn fixture(mock_base: Option<&str>) -> Fixture {
     let users = Arc::new(MockUserRepo::with_rows(vec![

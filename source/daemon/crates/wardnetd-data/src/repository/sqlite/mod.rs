@@ -1,4 +1,4 @@
-//! SQLite-backed repository implementations.
+//! `SQLite`-backed repository implementations.
 //!
 //! Each module provides a concrete `Sqlite*Repository` struct that implements
 //! the corresponding trait from the parent [`repository`](super) module.

@@ -136,7 +136,7 @@ pub async fn bootstrap_system_config(
     Ok(())
 }
 
-/// Hash a plaintext password using Argon2id with a random salt.
+/// Hash a plaintext password using `Argon2id` with a random salt.
 fn hash_password(password: &str) -> anyhow::Result<String> {
     // Use `OsRng` from the `password_hash` crate (re-exported via `argon2`)
     // to avoid `rand_core` version conflicts between `rand 0.10` and

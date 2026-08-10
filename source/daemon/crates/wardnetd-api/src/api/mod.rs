@@ -101,7 +101,7 @@ pub fn catch_panic_layer() -> CatchPanicLayer<fn(Box<dyn Any + Send + 'static>) 
     CatchPanicLayer::custom(handle_panic as fn(Box<dyn Any + Send + 'static>) -> Response)
 }
 
-/// Build the OpenAPI-aware router by letting each module register its own
+/// Build the `OpenAPI`-aware router by letting each module register its own
 /// handlers. Order is purely cosmetic — it controls the grouping in the
 /// generated docs. Seeded with [`crate::openapi::ApiDoc`] so the merged
 /// document carries the shared metadata (title, tags, security schemes).

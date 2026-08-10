@@ -131,7 +131,7 @@ pub trait AuthService: Send + Sync {
     /// Create the first admin account during initial setup.
     ///
     /// Validates the username (3–32 alphanumeric chars) and password, hashes the
-    /// password with Argon2id, creates an `admin`-role household user with a
+    /// password with `Argon2id`, creates an `admin`-role household user with a
     /// `password` credential, and advances the wizard. Returns
     /// [`AppError::Conflict`] if setup has already been completed.
     async fn setup_admin(&self, username: &str, password: &str) -> Result<(), AppError>;
