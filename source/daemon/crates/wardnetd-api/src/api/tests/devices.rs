@@ -9,7 +9,7 @@ use axum::Router;
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
-use axum::routing::{get, put};
+use axum::routing::{get, post, put};
 use tower::ServiceExt;
 use uuid::Uuid;
 use wardnet_common::api::{DeviceMeResponse, SetMyRuleResponse};
@@ -24,7 +24,7 @@ use crate::tests::stubs::{
 };
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
-use wardnetd_services::device::identification::DeviceIdentificationService;
+use wardnetd_services::device::identification::{DeviceIdentificationService, ProbeOutcome};
 use wardnetd_services::error::AppError;
 use wardnetd_services::{
     AuthService, DeviceDiscoveryService, DeviceService, DhcpService, TunnelService,
@@ -608,18 +608,38 @@ fn build_state_with_tunnel_svc(
 /// failure on the signals table.
 struct MockIdentificationService {
     signals_for: Result<Vec<DeviceSignal>, &'static str>,
+    /// What `probe_device` returns. `Err` stands in for the daemon's
+    /// online-only refusal (issue #1116).
+    probe: Result<ProbeOutcome, &'static str>,
 }
 
 impl MockIdentificationService {
     fn returning(signals: Vec<DeviceSignal>) -> Self {
         Self {
             signals_for: Ok(signals),
+            probe: Ok(ProbeOutcome {
+                ports_probed: vec![4003, 6668],
+                answering_ports: vec![6668],
+            }),
         }
     }
 
     fn failing() -> Self {
         Self {
             signals_for: Err("signals table is gone"),
+            probe: Ok(ProbeOutcome {
+                ports_probed: Vec::new(),
+                answering_ports: Vec::new(),
+            }),
+        }
+    }
+
+    /// A service that refuses every probe, as the daemon does for a device
+    /// that has left the network.
+    fn refusing_probe() -> Self {
+        Self {
+            signals_for: Ok(Vec::new()),
+            probe: Err("device is not currently on the network"),
         }
     }
 }
@@ -649,6 +669,11 @@ impl DeviceIdentificationService for MockIdentificationService {
     }
     async fn reconcile_from_catalog(&self) -> Result<usize, AppError> {
         Ok(0)
+    }
+    async fn probe_device(&self, _device_id: &str) -> Result<ProbeOutcome, AppError> {
+        self.probe
+            .clone()
+            .map_err(|e| AppError::Conflict(e.to_owned()))
     }
 }
 
@@ -682,6 +707,10 @@ fn device_router(state: AppState) -> Router {
         .route(
             "/api/devices/{id}/zone",
             put(crate::api::devices::assign_device_zone),
+        )
+        .route(
+            "/api/devices/{id}/identify",
+            post(crate::api::devices::identify_device),
         )
         .with_state(state)
 }
@@ -1495,4 +1524,79 @@ async fn get_device_by_id_includes_dhcp_status() {
     let (status, json) = get_json(app, "/api/devices/00000000-0000-0000-0000-000000000001").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["device"]["dhcp_status"], "lease");
+}
+
+/// Send an authenticated POST with no body, for the identification probe.
+async fn post_json(app: Router, uri: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("Cookie", "wardnet_session=valid-token")
+                .extension(connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
+#[tokio::test]
+async fn identify_returns_what_was_probed_alongside_what_answered() {
+    // `ports_probed` is what lets a client distinguish "we contacted these and
+    // none answered" from "nothing happened" (issue #1116).
+    let device = sample_device();
+    let state =
+        build_state_with_identification(device, MockIdentificationService::returning(Vec::new()));
+    let app = device_router(state);
+
+    let (status, json) = post_json(
+        app,
+        "/api/devices/00000000-0000-0000-0000-000000000001/identify",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["ports_probed"], serde_json::json!([4003, 6668]));
+    assert_eq!(json["answering_ports"], serde_json::json!([6668]));
+    // The refreshed detail rides along so a caller sees new signals without a
+    // second round trip.
+    assert!(json["device"]["device"].is_object());
+}
+
+#[tokio::test]
+async fn identify_surfaces_the_online_only_refusal_as_409() {
+    // The daemon refuses a probe for a departed device — its last known address
+    // may since have been handed to someone else. The status has to be
+    // distinguishable so the UI can explain rather than say "failed".
+    let device = sample_device();
+    let state =
+        build_state_with_identification(device, MockIdentificationService::refusing_probe());
+    let app = device_router(state);
+
+    let (status, _) = post_json(
+        app,
+        "/api/devices/00000000-0000-0000-0000-000000000001/identify",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn identify_rejects_a_malformed_device_id() {
+    let device = sample_device();
+    let state =
+        build_state_with_identification(device, MockIdentificationService::returning(Vec::new()));
+    let app = device_router(state);
+
+    let (status, _) = post_json(app, "/api/devices/not-a-uuid/identify").await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }

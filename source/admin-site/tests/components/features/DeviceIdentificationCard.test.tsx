@@ -103,7 +103,9 @@ describe("DeviceIdentificationCard", () => {
     // The probe is the one identification mechanism that sends traffic to the
     // admin's own device (ADR 0025 §5), so the consent has to be informed.
     renderCard();
-    expect(screen.getByText(/contacts this device directly/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/contacts this device directly/),
+    ).toBeInTheDocument();
     expect(screen.getByText(/never does this on its own/)).toBeInTheDocument();
   });
 
@@ -142,14 +144,14 @@ describe("DeviceIdentificationCard", () => {
     );
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
-    expect(screen.queryByText(/No known ports answered/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(/No known ports answered/),
+    ).not.toBeInTheDocument();
   });
 
   it("shows the pending label while probing", () => {
     renderCard({ isPending: true });
-    expect(
-      screen.getByRole("button", { name: "Identifying…" }),
-    ).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Identifying…" })).toBeDisabled();
   });
 
   it("disables the action with an explanation when the device is off the network", async () => {
@@ -160,7 +162,9 @@ describe("DeviceIdentificationCard", () => {
 
     const button = screen.getByRole("button", { name: "Identify this device" });
     expect(button).toBeDisabled();
-    expect(button.getAttribute("title")).toMatch(/not currently on the network/);
+    expect(button.getAttribute("title")).toMatch(
+      /not currently on the network/,
+    );
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 });

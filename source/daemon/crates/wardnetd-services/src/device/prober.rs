@@ -16,7 +16,7 @@ use async_trait::async_trait;
 use tokio::net::TcpStream;
 
 /// How long a single port is given to complete its TCP handshake. A LAN
-/// handshake is sub-millisecond; a second is generous enough that a busy IoT
+/// handshake is sub-millisecond; a second is generous enough that a busy smart-home
 /// device still answers and short enough that a silently-dropped SYN (the
 /// normal case for a filtered port) does not stall the request.
 const PORT_CONNECT_TIMEOUT: Duration = Duration::from_secs(1);

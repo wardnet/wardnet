@@ -31,7 +31,7 @@ const ZONE: &str = "00000000-0000-0000-0000-000000000201";
 
 /// Departure timeout used by the test harness — the production default from
 /// `detection.departure_timeout_secs`.
-const DEPARTURE_TIMEOUT: Duration = Duration::from_secs(300);
+const DEPARTURE_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Hand-written [`DeviceProber`] recording what it was asked to contact, per
 /// `.agents/code-conventions.md` (no mocking libraries).
