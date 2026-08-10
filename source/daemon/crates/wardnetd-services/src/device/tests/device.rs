@@ -1461,3 +1461,58 @@ async fn clear_rule_publishes_the_global_default_as_the_new_target() {
         other => panic!("expected RoutingRuleChanged, got {other:?}"),
     }
 }
+
+// ── mark_managed / clear_managed (issue #1181) ───────────────────────────────
+
+#[tokio::test]
+async fn mark_and_clear_managed_require_admin() {
+    let (svc, _events) = make_svc_recording(None);
+
+    assert!(matches!(
+        svc.mark_managed(CLEAR_RULE_DEVICE).await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(matches!(
+        svc.clear_managed(CLEAR_RULE_DEVICE).await,
+        Err(AppError::Forbidden(_))
+    ));
+
+    // The device path is a caller, not an admin: a device must never be able to
+    // exempt itself from retention, nor release itself.
+    assert!(matches!(
+        auth_context::with_context(
+            device_ctx("aa:bb:cc:dd:ee:01"),
+            svc.mark_managed(CLEAR_RULE_DEVICE)
+        )
+        .await,
+        Err(AppError::Forbidden(_))
+    ));
+}
+
+#[tokio::test]
+async fn mark_managed_is_idempotent_and_tolerates_a_missing_device() {
+    let (svc, _events) = make_svc_recording(None);
+
+    // Promotion is called from every admin configuration act, so it must never
+    // be the thing that fails an otherwise-successful change — including for a
+    // device that no longer exists.
+    auth_context::with_context(admin_ctx(), svc.mark_managed(CLEAR_RULE_DEVICE))
+        .await
+        .unwrap();
+    auth_context::with_context(admin_ctx(), svc.mark_managed(CLEAR_RULE_DEVICE))
+        .await
+        .unwrap();
+    auth_context::with_context(admin_ctx(), svc.clear_managed(CLEAR_RULE_DEVICE))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn clear_rule_rejects_a_malformed_device_id() {
+    let (svc, _events) = make_svc_recording(None);
+
+    assert!(matches!(
+        auth_context::with_context(admin_ctx(), svc.clear_rule("not-a-uuid")).await,
+        Err(AppError::NotFound(_))
+    ));
+}

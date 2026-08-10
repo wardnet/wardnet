@@ -981,3 +981,25 @@ async fn pruning_cascades_child_rows_and_nulls_the_lease_link() {
         "the lease survives with a null device_id"
     );
 }
+
+#[tokio::test]
+async fn delete_rule_for_device_removes_the_rule_and_tolerates_a_missing_one() {
+    // The release's revert-to-default. Deleting is used rather than writing a
+    // `Direct` rule because "no rule" is the state a never-configured device is
+    // in, and because a `Direct` write is zone-validated (issue #1181).
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    repo.upsert_user_rule(DEV1, r#"{"type":"direct"}"#, "2026-03-07T00:00:00Z")
+        .await
+        .unwrap();
+    assert!(repo.find_rule_for_device(DEV1).await.unwrap().is_some());
+
+    repo.delete_rule_for_device(DEV1).await.unwrap();
+    assert!(repo.find_rule_for_device(DEV1).await.unwrap().is_none());
+
+    // The release calls this unconditionally, so a second delete must be a
+    // no-op rather than an error.
+    repo.delete_rule_for_device(DEV1).await.unwrap();
+}

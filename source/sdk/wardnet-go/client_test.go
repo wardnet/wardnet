@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	wardnet "wardnet.network/go"
@@ -20,7 +21,7 @@ const deviceJSON = `{
   "last_ip":"192.168.1.42","admin_locked":false,
   "zone_id":"00000000-0000-0000-0000-000000000001",
   "dns_capture_enabled":false,"dns_capture_cap_count":0,"dns_capture_cap_days":0,
-  "connection_mode":"lan","dhcp_status":"lease",
+  "connection_mode":"lan","dhcp_status":"lease","managed":true,
   "current_rule":{"type":"tunnel","tunnel_id":"d4681478-8a90-4ce6-b220-0650a333d73c"}
 }`
 
@@ -89,6 +90,9 @@ func TestDevicesList(t *testing.T) {
 	}
 	if d.ConnectionMode != "lan" || d.DHCPStatus != "lease" {
 		t.Errorf("connection_mode=%q dhcp_status=%q", d.ConnectionMode, d.DHCPStatus)
+	}
+	if !d.Managed {
+		t.Error("managed = false, want true")
 	}
 	if d.Rule == nil || d.Rule.Kind != wardnet.RoutingTunnel {
 		t.Fatalf("rule = %+v, want tunnel", d.Rule)
@@ -222,5 +226,48 @@ func TestSystemRestartError(t *testing.T) {
 	var apiErr *wardnet.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
 		t.Fatalf("error = %v, want a 403 APIError", err)
+	}
+}
+
+// Release is destructive — it revokes the device's Private-DNS grant and
+// Remote peer credential — so this pins the method, verb and path rather than
+// leaving a mis-wired route to be discovered against a live daemon.
+func TestDevicesRelease(t *testing.T) {
+	const id = "6e05df45-1fa4-4327-8c1e-218c79b253ba"
+	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if want := "/api/devices/" + id + "/release"; r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		// A released device comes back unmanaged and unnamed.
+		writeJSON(w, `{"device":`+strings.Replace(
+			strings.Replace(deviceJSON, `"managed":true`, `"managed":false`, 1),
+			`"name":"alice-phone"`, `"name":null`, 1)+`,"current_rule":null,"signals":[]}`)
+	}))
+
+	d, err := c.Devices.Release(context.Background(), id)
+	if err != nil {
+		t.Fatalf("Release: %v", err)
+	}
+	if d.Managed {
+		t.Error("managed = true, want false after release")
+	}
+	if d.Name != "" {
+		t.Errorf("name = %q, want empty after release", d.Name)
+	}
+	if d.Rule != nil {
+		t.Errorf("rule = %+v, want nil after release", d.Rule)
+	}
+}
+
+func TestDevicesReleaseRejectsBadID(t *testing.T) {
+	c := newClient(t, http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		t.Error("no request should be sent for a malformed id")
+	}))
+
+	if _, err := c.Devices.Release(context.Background(), "not-a-uuid"); err == nil {
+		t.Fatal("Release: expected an error for a malformed device id")
 	}
 }

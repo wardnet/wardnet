@@ -826,7 +826,7 @@ pub struct StubNetworkZoneService;
 impl StubNetworkZoneService {
     /// A Trusted-like zone used to satisfy the return types of the create /
     /// update / get stubs.
-    fn stub_zone() -> NetworkZone {
+    pub(crate) fn stub_zone() -> NetworkZone {
         NetworkZone {
             id: Uuid::parse_str("00000000-0000-0000-0000-000000000201").unwrap(),
             name: "Trusted".to_owned(),

@@ -373,6 +373,7 @@ impl DeviceService for MockDeviceService {
 struct MockDhcpService {
     leases: Vec<wardnet_common::dhcp::DhcpLease>,
     reservations: Vec<wardnet_common::dhcp::DhcpReservation>,
+    audit: AuditLog,
 }
 
 impl MockDhcpService {
@@ -380,6 +381,28 @@ impl MockDhcpService {
         Self {
             leases: vec![],
             reservations: vec![],
+            audit: AuditLog::default(),
+        }
+    }
+
+    /// One reservation pinned to `mac`, so the release's MAC-keyed lookup has
+    /// something to find (#1181).
+    fn with_reservation_for(mac: &str, audit: AuditLog) -> Self {
+        let now = chrono::Utc::now();
+        Self {
+            leases: vec![],
+            reservations: vec![wardnet_common::dhcp::DhcpReservation {
+                id: Uuid::parse_str("00000000-0000-0000-0000-0000000000d1").unwrap(),
+                // Deliberately uppercase: the handler matches case-insensitively
+                // because reservation MACs are not guaranteed canonical.
+                mac_address: mac.to_uppercase(),
+                ip_address: "192.168.1.42".parse().unwrap(),
+                hostname: None,
+                description: None,
+                created_at: now,
+                updated_at: now,
+            }],
+            audit,
         }
     }
 }
@@ -437,7 +460,10 @@ impl DhcpService for MockDhcpService {
         &self,
         _id: Uuid,
     ) -> Result<wardnet_common::api::DeleteDhcpReservationResponse, AppError> {
-        unimplemented!()
+        self.audit.lock().unwrap().push("delete_reservation");
+        Ok(wardnet_common::api::DeleteDhcpReservationResponse {
+            message: "reservation deleted".to_owned(),
+        })
     }
     async fn status(&self) -> Result<wardnet_common::api::DhcpStatusResponse, AppError> {
         unimplemented!()
@@ -1510,6 +1536,7 @@ async fn list_devices_with_dhcp_lease_shows_lease_status() {
     let dhcp = MockDhcpService {
         leases: vec![lease],
         reservations: vec![],
+        audit: AuditLog::default(),
     };
 
     let state = build_state_with_dhcp(
@@ -1543,6 +1570,7 @@ async fn list_devices_with_dhcp_reservation_shows_reservation_status() {
     let dhcp = MockDhcpService {
         leases: vec![],
         reservations: vec![reservation],
+        audit: AuditLog::default(),
     };
 
     let state = build_state_with_dhcp(
@@ -1589,6 +1617,7 @@ async fn list_devices_reservation_overrides_lease() {
     let dhcp = MockDhcpService {
         leases: vec![lease],
         reservations: vec![reservation],
+        audit: AuditLog::default(),
     };
 
     let state = build_state_with_dhcp(
@@ -1628,6 +1657,7 @@ async fn get_device_by_id_includes_dhcp_status() {
     let dhcp = MockDhcpService {
         leases: vec![lease],
         reservations: vec![],
+        audit: AuditLog::default(),
     };
 
     let state = build_state_with_dhcp(
@@ -1777,4 +1807,353 @@ async fn release_rejects_a_malformed_device_id() {
 
     let (status, _json) = post_json(app, "/api/devices/not-a-uuid/release").await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+// ---------------------------------------------------------------------------
+// Release with artefacts actually present (issue #1181)
+// ---------------------------------------------------------------------------
+//
+// The release tests above run against empty collections, which proves the
+// ordering but never executes a single revoke. These populate every artefact
+// the release is supposed to tear down, so the destructive path — the one that
+// disconnects a device — is actually exercised.
+
+const RELEASE_DEVICE_ID: &str = "00000000-0000-0000-0000-000000000001";
+const RELEASE_MAC: &str = "aa:bb:cc:dd:ee:01";
+
+/// `PrivateDnsService` holding one grant for the device under test.
+struct GrantingPrivateDns {
+    audit: AuditLog,
+}
+
+#[async_trait]
+impl wardnetd_services::private_dns::PrivateDnsService for GrantingPrivateDns {
+    async fn list_grants(
+        &self,
+    ) -> Result<Vec<wardnetd_services::private_dns::PrivateDnsGrant>, AppError> {
+        // `device_grant` is a provided method over this one, so seeding here is
+        // enough to drive the handler's lookup.
+        Ok(vec![wardnetd_services::private_dns::PrivateDnsGrant {
+            id: Uuid::parse_str("00000000-0000-0000-0000-0000000000a1").unwrap(),
+            device_id: Uuid::parse_str(RELEASE_DEVICE_ID).unwrap(),
+            token: "secrettoken".to_owned(),
+            created_at: "2026-01-01T00:00:00Z".to_owned(),
+        }])
+    }
+    /// Overridden, not inherited: the trait's default `device_grant` returns
+    /// `Ok(None)` unconditionally and is meant to be replaced by the impl (as
+    /// `PrivateDnsServiceImpl` does). A double that inherited it would report
+    /// "no grant" and quietly skip the revoke this test exists to check.
+    async fn device_grant(
+        &self,
+        device_id: Uuid,
+    ) -> Result<Option<wardnetd_services::private_dns::PrivateDnsGrant>, AppError> {
+        Ok(self
+            .list_grants()
+            .await?
+            .into_iter()
+            .find(|g| g.device_id == device_id))
+    }
+
+    async fn revoke_grant(&self, _grant_id: Uuid) -> Result<(), AppError> {
+        self.audit.lock().unwrap().push("revoke_grant");
+        Ok(())
+    }
+    async fn status(&self) -> Result<wardnetd_services::private_dns::PrivateDnsStatus, AppError> {
+        unimplemented!()
+    }
+    async fn is_enabled(&self) -> Result<bool, AppError> {
+        Ok(true)
+    }
+    async fn set_enabled(
+        &self,
+        _enabled: bool,
+    ) -> Result<wardnetd_services::private_dns::PrivateDnsStatus, AppError> {
+        unimplemented!()
+    }
+    async fn grant_device(
+        &self,
+        _device_id: Uuid,
+    ) -> Result<wardnetd_services::private_dns::PrivateDnsGrant, AppError> {
+        unimplemented!()
+    }
+    async fn resolve_token(
+        &self,
+        _token: &str,
+    ) -> Result<Option<wardnetd_services::private_dns::PrivateDnsGrant>, AppError> {
+        unimplemented!()
+    }
+    async fn reconcile(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
+/// `InboundWgService` holding one peer bound to the device under test.
+struct PeeredInboundWg {
+    audit: AuditLog,
+}
+
+#[async_trait]
+impl wardnetd_services::InboundWgService for PeeredInboundWg {
+    async fn list_peers(&self) -> Result<Vec<wardnet_common::api::InboundWgPeerSummary>, AppError> {
+        Ok(vec![wardnet_common::api::InboundWgPeerSummary {
+            id: Uuid::parse_str("00000000-0000-0000-0000-0000000000b1").unwrap(),
+            name: "alice-phone".to_owned(),
+            public_key: "pk".to_owned(),
+            allowed_ip: "10.100.64.2/32".to_owned(),
+            enabled: true,
+            created_at: chrono::Utc::now(),
+            device_id: Some(Uuid::parse_str(RELEASE_DEVICE_ID).unwrap()),
+        }])
+    }
+    async fn remove_peer(&self, _id: Uuid) -> Result<(), AppError> {
+        self.audit.lock().unwrap().push("remove_peer");
+        Ok(())
+    }
+    async fn get_config(&self) -> Result<wardnet_common::api::InboundWgConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn set_config(
+        &self,
+        _enabled: bool,
+        _listen_port: u16,
+    ) -> Result<wardnet_common::api::InboundWgConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn add_peer(
+        &self,
+        _device_id: Uuid,
+        _endpoint: Option<String>,
+    ) -> Result<wardnet_common::api::AddInboundWgPeerResponse, AppError> {
+        unimplemented!()
+    }
+    async fn set_peer_enabled(
+        &self,
+        _id: Uuid,
+        _enabled: bool,
+    ) -> Result<wardnet_common::api::InboundWgPeerSummary, AppError> {
+        unimplemented!()
+    }
+    async fn list_peers_for_monitor(
+        &self,
+    ) -> Result<Vec<wardnetd_services::inbound_wg::InboundWgMonitorPeer>, AppError> {
+        unimplemented!()
+    }
+    async fn reconcile(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
+/// `ZoneExceptionService` holding one exception naming the device.
+struct ExceptioningZones {
+    audit: AuditLog,
+}
+
+impl ExceptioningZones {
+    fn exception() -> wardnet_common::zone_exception::ZoneException {
+        use wardnet_common::zone_exception::{
+            ExceptionEndpoint, ExceptionEndpointKind, ServiceSet, ServiceSpec, ZoneException,
+        };
+        let now = chrono::Utc::now();
+        ZoneException {
+            id: Uuid::parse_str("00000000-0000-0000-0000-0000000000c1").unwrap(),
+            // Device on the `to` side, so the handler's both-endpoints check is
+            // exercised rather than only its first arm.
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: Uuid::parse_str("00000000-0000-0000-0000-000000000202").unwrap(),
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Device,
+                id: Uuid::parse_str(RELEASE_DEVICE_ID).unwrap(),
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[async_trait]
+impl wardnetd_services::ZoneExceptionService for ExceptioningZones {
+    async fn list_exceptions(
+        &self,
+    ) -> Result<Vec<wardnet_common::zone_exception::ZoneException>, AppError> {
+        Ok(vec![Self::exception()])
+    }
+    async fn delete_exception(&self, _id: Uuid) -> Result<(), AppError> {
+        self.audit.lock().unwrap().push("delete_exception");
+        Ok(())
+    }
+    async fn get_exception(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        unimplemented!()
+    }
+    async fn create_exception(
+        &self,
+        _req: wardnet_common::api::CreateZoneExceptionRequest,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        unimplemented!()
+    }
+    async fn update_exception(
+        &self,
+        _id: Uuid,
+        _req: wardnet_common::api::UpdateZoneExceptionRequest,
+    ) -> Result<wardnet_common::zone_exception::ZoneException, AppError> {
+        unimplemented!()
+    }
+}
+
+/// A zone catalogue whose default-for-new zone is NOT the device's, so the
+/// release's zone-reset step actually fires.
+struct RezoningNetworkZones {
+    audit: AuditLog,
+}
+
+const RELEASE_DEFAULT_ZONE: &str = "00000000-0000-0000-0000-0000000000e1";
+
+#[async_trait]
+impl wardnetd_services::NetworkZoneService for RezoningNetworkZones {
+    async fn list_zones(&self) -> Result<Vec<wardnet_common::api::NetworkZoneView>, AppError> {
+        let mut zone = crate::tests::stubs::StubNetworkZoneService::stub_zone();
+        zone.id = Uuid::parse_str(RELEASE_DEFAULT_ZONE).unwrap();
+        zone.is_default_for_new = true;
+        Ok(vec![wardnet_common::api::NetworkZoneView {
+            zone,
+            member_count: 0,
+        }])
+    }
+    async fn assign_device(&self, _device_id: Uuid, _zone_id: Uuid) -> Result<(), AppError> {
+        self.audit.lock().unwrap().push("assign_device");
+        Ok(())
+    }
+    async fn get_zone(&self, _id: Uuid) -> Result<wardnet_common::api::NetworkZoneView, AppError> {
+        unimplemented!()
+    }
+    async fn create_zone(
+        &self,
+        _req: wardnet_common::api::CreateNetworkZoneRequest,
+    ) -> Result<wardnet_common::network_zone::NetworkZone, AppError> {
+        unimplemented!()
+    }
+    async fn update_zone(
+        &self,
+        _id: Uuid,
+        _req: wardnet_common::api::UpdateNetworkZoneRequest,
+    ) -> Result<wardnet_common::network_zone::NetworkZone, AppError> {
+        unimplemented!()
+    }
+    async fn delete_zone(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn set_default(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn set_default_for_new(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn get_quarantine_new_devices(&self) -> Result<bool, AppError> {
+        Ok(false)
+    }
+    async fn set_quarantine_new_devices(&self, _enabled: bool) -> Result<(), AppError> {
+        unimplemented!()
+    }
+}
+
+#[tokio::test]
+async fn release_revokes_every_artefact_the_device_actually_has() {
+    // The load-bearing release test. Every prior one runs against empty
+    // collections, so the four revoke paths — the ones that disconnect a
+    // device — never execute. This seeds a Private-DNS grant, a Remote peer,
+    // a DHCP reservation, a zone exception and a differing default-for-new
+    // zone, and asserts each is torn down, in order, with `clear_managed` last.
+    let mut device = sample_device();
+    device.managed = true;
+    device.name = Some("Living Room TV".to_owned());
+
+    let audit = AuditLog::default();
+    let mut device_svc = MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct));
+    device_svc.audit = audit.clone();
+
+    // `zone_exception` and `network_zone` are constructor params, not `with_`
+    // builders, so this test assembles the state directly.
+    let state = AppState::new(
+        Arc::new(MockAuthService),
+        Arc::new(crate::tests::stubs::StubBackupService),
+        Arc::new(device_svc),
+        Arc::new(MockDhcpService::with_reservation_for(
+            RELEASE_MAC,
+            audit.clone(),
+        )),
+        Arc::new(StubDnsService),
+        Arc::new(StubDnsFilterService),
+        Arc::new(StubDnsLocalService),
+        Arc::new(crate::tests::stubs::StubDdnsService),
+        Arc::new(crate::tests::stubs::StubTlsService),
+        Arc::new(MockDiscoveryService {
+            devices: vec![device],
+            audit: audit.clone(),
+        }),
+        Arc::new(StubLogService) as Arc<dyn LogService>,
+        Arc::new(StubProviderService),
+        Arc::new(StubRoutingService),
+        Arc::new(RezoningNetworkZones {
+            audit: audit.clone(),
+        }),
+        Arc::new(StubSystemService),
+        Arc::new(StubTunnelService),
+        Arc::new(crate::tests::stubs::StubUpdateService),
+        Arc::new(StubDhcpServer),
+        Arc::new(StubDnsServer),
+        Arc::new(StubEventPublisher),
+        crate::tests::stubs::StubJobService::new_arc(),
+        Arc::new(crate::tests::stubs::StubStatsService),
+        Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(ExceptioningZones {
+            audit: audit.clone(),
+        }),
+    )
+    .with_routing_profile_service(Arc::new(crate::tests::stubs::StubRoutingProfileService))
+    .with_private_dns_service(Arc::new(GrantingPrivateDns {
+        audit: audit.clone(),
+    }))
+    .with_inbound_wg_service(Arc::new(PeeredInboundWg {
+        audit: audit.clone(),
+    }));
+    let app = device_router(state);
+
+    let (status, _json) =
+        post_json(app, &format!("/api/devices/{RELEASE_DEVICE_ID}/release")).await;
+    assert_eq!(status, StatusCode::OK);
+
+    let calls = audit.lock().unwrap().clone();
+    for expected in [
+        "revoke_grant",
+        "remove_peer",
+        "delete_reservation",
+        "delete_exception",
+        "clear_rule",
+        "update_dns_capture_settings",
+        "update_admin_locked",
+        "update_device",
+        "assign_device",
+        "clear_managed",
+    ] {
+        assert!(
+            calls.contains(&expected),
+            "release did not perform '{expected}'; calls={calls:?}"
+        );
+    }
+
+    // The grant is revoked FIRST — it publishes `PrivateDnsGrantRevoked`, which
+    // tears down the device's live DoT sessions.
+    assert_eq!(calls.first(), Some(&"revoke_grant"), "calls={calls:?}");
+    // And `clear_managed` is LAST, so the "no admin artefacts exist" invariant
+    // is only asserted once every artefact above is actually gone.
+    assert_eq!(calls.last(), Some(&"clear_managed"), "calls={calls:?}");
 }
