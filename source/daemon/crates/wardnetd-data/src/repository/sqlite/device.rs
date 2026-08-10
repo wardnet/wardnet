@@ -4,7 +4,7 @@ use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType, Manufactu
 use wardnet_common::routing::{RoutingRule, RoutingTarget, RuleCreator};
 
 use super::super::DeviceRepository;
-use super::super::device::DeviceRow as InsertDeviceRow;
+use super::super::device::{DeviceRow as InsertDeviceRow, PrunedDevice};
 use crate::db::DbPools;
 
 /// SQLite-backed implementation of [`DeviceRepository`].
@@ -132,6 +132,8 @@ const FIND_BY_MAC_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, man
      FROM devices WHERE mac = ?";
 const FIND_ALL_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices ORDER BY last_seen DESC";
+const DELETE_UNMANAGED_BEFORE_SQL: &str =
+    "DELETE FROM devices WHERE managed = 0 AND last_seen < ? RETURNING id, mac, last_seen";
 const FIND_STALE_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE last_seen < ?";
 
@@ -509,5 +511,26 @@ impl DeviceRepository for SqliteDeviceRepository {
             .execute(&self.pools.write)
             .await?;
         Ok(())
+    }
+
+    async fn delete_unmanaged_before(&self, cutoff: &str) -> anyhow::Result<Vec<PrunedDevice>> {
+        // `managed = 0` is the whole safety argument: an unmanaged device has
+        // no admin artefacts, so this DELETE cannot orphan anything. The
+        // per-device rows that do exist are either ON DELETE CASCADE
+        // (dns_events, device_signals, …), ON DELETE SET NULL (dhcp_leases),
+        // self-expiring (dns_query_log), or retained as historical truth
+        // (stats_*, notifications).
+        //
+        // RETURNING (precedent: sqlite/dns_local.rs) makes the delete and the
+        // "what was deleted" read one atomic statement — a separate SELECT
+        // could race a concurrent observation and report a row that survived.
+        let rows = sqlx::query_as::<_, (String, String, String)>(DELETE_UNMANAGED_BEFORE_SQL)
+            .bind(cutoff)
+            .fetch_all(&self.pools.write)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, mac, last_seen)| PrunedDevice { id, mac, last_seen })
+            .collect())
     }
 }

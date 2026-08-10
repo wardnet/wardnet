@@ -770,7 +770,29 @@ async fn provenance_without_a_manufacturer_is_dropped_on_read() {
     assert_eq!(device.manufacturer_source, None);
 }
 
-// ── managed (issue #1181) ────────────────────────────────────────────────────
+// ── managed + retention (issue #1181) ────────────────────────────────────────
+
+/// Enable foreign-key enforcement, matching production (`db.rs` sets this
+/// PRAGMA on both pools).
+///
+/// It is off by default in `SQLite` and `test_pool` does not set it, so without
+/// this a cascade test would pass by never cascading — and the orphaned rows
+/// would only ever appear in production. The tests below assert the PRAGMA is
+/// actually on before relying on it.
+async fn enable_foreign_keys(pool: &sqlx::SqlitePool) {
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(pool)
+        .await
+        .unwrap();
+    let on: i64 = sqlx::query_scalar("PRAGMA foreign_keys")
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        on, 1,
+        "foreign keys must be enforced for the cascade to bite"
+    );
+}
 
 async fn set_managed_flag(pool: &sqlx::SqlitePool, id: &str, managed: bool) {
     sqlx::query("UPDATE devices SET managed = ? WHERE id = ?")
@@ -780,6 +802,17 @@ async fn set_managed_flag(pool: &sqlx::SqlitePool, id: &str, managed: bool) {
         .await
         .unwrap();
 }
+
+async fn device_ids(pool: &sqlx::SqlitePool) -> Vec<String> {
+    sqlx::query_scalar::<_, String>("SELECT id FROM devices ORDER BY id")
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+const STALE: &str = "2026-01-01T00:00:00Z";
+const RECENT: &str = "2026-06-01T00:00:00Z";
+const CUTOFF: &str = "2026-03-01T00:00:00Z";
 
 #[tokio::test]
 async fn insert_leaves_new_device_unmanaged() {
@@ -825,4 +858,126 @@ async fn set_managed_on_missing_device_is_a_no_op() {
     // A promotion must never be the thing that fails an otherwise-successful
     // configuration change (e.g. a DHCP reservation for a not-yet-seen MAC).
     repo.set_managed(DEV1, true).await.unwrap();
+}
+
+#[tokio::test]
+async fn delete_unmanaged_before_prunes_only_unmanaged_and_stale() {
+    let pool = test_pool().await;
+    // DEV1: unmanaged + stale  -> pruned
+    // DEV2: unmanaged + recent -> kept (still around, just quiet)
+    // DEV3: managed  + stale   -> kept (never auto-deleted at any age)
+    insert_device_seen_at(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10", STALE).await;
+    insert_device_seen_at(&pool, DEV2, "aa:bb:cc:dd:ee:02", "192.168.1.11", RECENT).await;
+    insert_device_seen_at(&pool, DEV3, "aa:bb:cc:dd:ee:03", "192.168.1.12", STALE).await;
+    set_managed_flag(&pool, DEV3, true).await;
+
+    let repo = SqliteDeviceRepository::new(pool.clone());
+    let pruned = repo.delete_unmanaged_before(CUTOFF).await.unwrap();
+
+    assert_eq!(pruned.len(), 1);
+    assert_eq!(pruned[0].id, DEV1);
+    assert_eq!(pruned[0].mac, "aa:bb:cc:dd:ee:01");
+    assert_eq!(pruned[0].last_seen, STALE);
+    assert_eq!(
+        device_ids(&pool).await,
+        vec![DEV2.to_owned(), DEV3.to_owned()]
+    );
+}
+
+#[tokio::test]
+async fn delete_unmanaged_before_prunes_a_departed_device_with_a_cleared_ip() {
+    // A departed device has its `last_ip` emptied by `clear_last_ip`, not its
+    // row deleted. The prune predicate keys on `last_seen` only, so the empty
+    // sentinel must not exempt it — these are precisely the rows that
+    // accumulate.
+    let pool = test_pool().await;
+    insert_device_seen_at(&pool, DEV1, "aa:bb:cc:dd:ee:01", "", STALE).await;
+    insert_device_seen_at(&pool, DEV2, "aa:bb:cc:dd:ee:02", "192.168.1.11", STALE).await;
+
+    let repo = SqliteDeviceRepository::new(pool.clone());
+    let pruned = repo.delete_unmanaged_before(CUTOFF).await.unwrap();
+
+    assert_eq!(pruned.len(), 2, "a cleared last_ip must not exempt a row");
+    assert!(device_ids(&pool).await.is_empty());
+}
+
+#[tokio::test]
+async fn delete_unmanaged_before_returns_empty_when_nothing_matches() {
+    let pool = test_pool().await;
+    insert_device_seen_at(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10", RECENT).await;
+
+    let repo = SqliteDeviceRepository::new(pool.clone());
+    assert!(
+        repo.delete_unmanaged_before(CUTOFF)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(device_ids(&pool).await, vec![DEV1.to_owned()]);
+}
+
+#[tokio::test]
+async fn pruning_cascades_child_rows_and_nulls_the_lease_link() {
+    // The safety argument for deleting an unmanaged row is that nothing admin
+    // -authored references it, and that the machine-authored children clean
+    // themselves up. This pins that second half: CASCADE children go, the
+    // SET NULL lease link is nulled rather than deleting the lease.
+    let pool = test_pool().await;
+    enable_foreign_keys(&pool).await;
+    insert_device_seen_at(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10", STALE).await;
+
+    sqlx::query(
+        "INSERT INTO dns_events (device_id, domain, status, captured_at) \
+         VALUES (?, 'example.com', 'allowed', ?)",
+    )
+    .bind(DEV1)
+    .bind(STALE)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO device_signals (device_id, kind, value) \
+         VALUES (?, 'dhcp_hostname', 'my-host')",
+    )
+    .bind(DEV1)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(
+        "INSERT INTO dhcp_leases (id, mac_address, ip_address, lease_start, lease_end, device_id) \
+         VALUES ('lease-1', 'aa:bb:cc:dd:ee:01', '192.168.1.10', ?, ?, ?)",
+    )
+    .bind(STALE)
+    .bind(RECENT)
+    .bind(DEV1)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let repo = SqliteDeviceRepository::new(pool.clone());
+    assert_eq!(repo.delete_unmanaged_before(CUTOFF).await.unwrap().len(), 1);
+
+    let events: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM dns_events")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(events, 0, "dns_events should cascade away");
+
+    let signals: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM device_signals")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(signals, 0, "device_signals should cascade away");
+
+    let lease_device: Option<String> =
+        sqlx::query_scalar("SELECT device_id FROM dhcp_leases WHERE id = 'lease-1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        lease_device, None,
+        "the lease survives with a null device_id"
+    );
 }

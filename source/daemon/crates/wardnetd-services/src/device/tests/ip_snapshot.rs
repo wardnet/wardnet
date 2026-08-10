@@ -44,6 +44,13 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(())
     }
 
+    async fn delete_unmanaged_before(
+        &self,
+        _cutoff: &str,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
+        Ok(Vec::new())
+    }
+
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
         unimplemented!("not exercised by DeviceIpSnapshot")
     }

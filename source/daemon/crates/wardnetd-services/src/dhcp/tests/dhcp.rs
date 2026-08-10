@@ -394,6 +394,13 @@ impl DeviceRepository for MockDeviceRepository {
         Ok(())
     }
 
+    async fn delete_unmanaged_before(
+        &self,
+        _cutoff: &str,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
+        Ok(Vec::new())
+    }
+
     async fn find_by_mac(&self, mac: &str) -> anyhow::Result<Option<Device>> {
         Ok(self
             .by_mac

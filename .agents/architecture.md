@@ -164,7 +164,8 @@ Eviction is **subtree-scoped**, not exact-name (issue #1184). Every form of loca
 ### Background runners call auth-gated services, never repositories
 
 Background runners (`DnsRunner`, `DnsFilterRunner`, `DnsQueryLogRunner`,
-`DbMaintenanceRunner`, `DhcpLanRunner`) hold `Arc<dyn *Service>` trait
+`DbMaintenanceRunner`, `DeviceRetentionRunner`, `DhcpLanRunner`) hold
+`Arc<dyn *Service>` trait
 objects, **not** repository handles. Each runs its service calls under an
 admin auth context:
 
@@ -448,7 +449,7 @@ path — so idempotent by construction) publishes a dedicated
 existing `PUT /api/devices/{id}/zone`. Note `DeviceDiscovered` is **not** a
 valid first-ever signal (it also fires on every reconnect).
 
-## Managed devices subsystem (issue #1181)
+## Managed devices + retention subsystem (issue #1181)
 
 See [ADR 0032](../docs/adr/0032-managed-devices-and-retention.md) for the
 reasoning; this is the shape.
@@ -459,8 +460,8 @@ explicit release. That gives the invariant everything else rests on:
 
 > `managed = 0` implies no admin artefacts exist for this device.
 
-which is what a future retention prune will rely on to delete an unmanaged
-row without checking anything else.
+which is why `DeviceRetentionRunner` can delete an unmanaged row without
+checking anything else.
 
 ### Promotion
 
@@ -479,8 +480,8 @@ the auth context, not on the write succeeding:
 would make every guest device permanently exempt from retention.
 
 **Adding a new per-device table? Decide whether it promotes.** If an admin
-creates the row, it must — otherwise device retention will cascade it away 30
-days after the device was last seen, silently.
+creates the row, it must — otherwise the prune will cascade it away 30 days
+after the device was last seen, silently.
 
 ### Release (`POST /api/devices/{id}/release`)
 
@@ -494,5 +495,17 @@ leaves the device still managed — never half-released with a live credential i
 is no longer recorded as owning. Every step is idempotent, so a retry
 completes.
 
+### Prune (`DeviceDiscoveryService::prune_unmanaged_devices`)
+
+Lives on the *discovery* service because deleting the row is only half the job.
+**Delete first, then evict from memory, holding `lock_for_mac(mac)` across
+both.** Skipping the eviction leaves the pruned MAC in `state` with
+`gone = true`, so the next observation takes the `Reappear` arm with a dangling
+`device_id`; `update_last_seen_and_ip` then matches zero rows and returns
+`Ok(())` silently, `handle_unknown_mac` is never reached, and the device is
+invisible in the UI while its traffic flows unattributed until restart.
+Evicting first is wrong the other way — an observation in the window re-inserts
+from the not-yet-deleted row. Also evicts `ip_history` and `device_locks`,
+which nothing bounded before.
 
 [`NetworkZone`]: ../source/daemon/crates/wardnet-common/src/network_zone.rs

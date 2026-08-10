@@ -60,6 +60,13 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(())
     }
 
+    async fn delete_unmanaged_before(
+        &self,
+        _cutoff: &str,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
+        Ok(Vec::new())
+    }
+
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
         Ok(self.devices.iter().find(|d| d.last_ip == ip).cloned())
     }

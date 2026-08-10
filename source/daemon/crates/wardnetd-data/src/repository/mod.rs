@@ -26,7 +26,7 @@ pub mod zone_exception;
 
 pub use admin::AdminRepository;
 pub use api_key::ApiKeyRepository;
-pub use device::{DeviceRepository, DeviceRow};
+pub use device::{DeviceRepository, DeviceRow, PrunedDevice};
 pub use device_identification::{DeviceIdentificationRepository, DeviceSignalRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
 pub use dns::{DnsRepository, QueryLogFilter, QueryLogRow};

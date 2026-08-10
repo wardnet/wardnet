@@ -25,6 +25,19 @@ pub struct DeviceRow {
     pub connection_mode: DeviceConnectionMode,
 }
 
+/// A device row removed by the retention prune.
+///
+/// Carries just enough to log the deletion and to evict the device from the
+/// discovery service's in-memory maps — which the caller *must* do, keyed by
+/// `mac`, or the next observation of that MAC resolves to a dangling
+/// `device_id` (issue #1181).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrunedDevice {
+    pub id: String,
+    pub mac: String,
+    pub last_seen: String,
+}
+
 /// Data access for devices and their routing rules.
 ///
 /// Provides lookups by IP and ID, routing rule queries, and upserts.
@@ -208,4 +221,15 @@ pub trait DeviceRepository: Send + Sync {
     /// demotion is reached only through an explicit release, which first
     /// reverts all managed configuration to default. See issue #1181.
     async fn set_managed(&self, id: &str, managed: bool) -> anyhow::Result<()>;
+
+    /// Delete unmanaged devices last seen before the given ISO timestamp,
+    /// returning the rows that were removed.
+    ///
+    /// Only unmanaged devices are eligible: `managed = 0` implies no admin
+    /// artefact references the device, so the delete cannot orphan a row.
+    /// Managed devices are never auto-deleted at any age.
+    ///
+    /// The caller is responsible for evicting each returned `mac` from the
+    /// discovery service's in-memory state — see [`PrunedDevice`].
+    async fn delete_unmanaged_before(&self, cutoff: &str) -> anyhow::Result<Vec<PrunedDevice>>;
 }

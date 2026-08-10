@@ -48,3 +48,6 @@ UPDATE devices SET managed = 1 WHERE
     OR EXISTS (SELECT 1 FROM zone_exceptions t
                WHERE (t.from_kind = 'device' AND t.from_id = devices.id)
                   OR (t.to_kind   = 'device' AND t.to_id   = devices.id));
+
+-- The retention prune scans by `last_seen`.
+CREATE INDEX IF NOT EXISTS idx_devices_last_seen ON devices(last_seen);
