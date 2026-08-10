@@ -5115,12 +5115,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/react@npm:*, @types/react@npm:19.2.17":
+"@types/react@npm:*":
   version: 19.2.17
   resolution: "@types/react@npm:19.2.17"
   dependencies:
     csstype: "npm:^3.2.2"
   checksum: 10c0/bc2c4af96b3e480604424de70d5ebda90c5f4b485df471858c0bc2d7d70364b606ec3c4d8579f94f01aa0c6c0591f56bcf14cba5689f5eea4b74250ccdc3a232
+  languageName: node
+  linkType: hard
+
+"@types/react@npm:19.2.18":
+  version: 19.2.18
+  resolution: "@types/react@npm:19.2.18"
+  dependencies:
+    csstype: "npm:^3.2.2"
+  checksum: 10c0/d04216172b4b4362b310017c210dfbe019fb4f4e7dffd0313e70b3acb3051d5c3e76e7e84e3cf4c6a3c824993ffadfe3949e589a6398a09d4200e7670e2962de
   languageName: node
   linkType: hard
 
@@ -5445,7 +5454,7 @@ __metadata:
     "@testing-library/react": "npm:16.3.2"
     "@testing-library/user-event": "npm:14.6.1"
     "@types/node": "npm:26.1.1"
-    "@types/react": "npm:19.2.17"
+    "@types/react": "npm:19.2.18"
     "@types/react-dom": "npm:19.2.3"
     "@vitejs/plugin-react": "npm:6.0.5"
     "@vitest/coverage-v8": "npm:4.1.10"
@@ -5456,7 +5465,7 @@ __metadata:
     jsdom: "npm:30.0.1"
     lucide-react: "npm:1.24.0"
     prettier: "npm:3.9.6"
-    react: "npm:19.2.7"
+    react: "npm:19.2.8"
     react-dom: "npm:19.2.7"
     react-router: "npm:8.3.0"
     tailwindcss: "npm:4.3.3"
@@ -5485,7 +5494,7 @@ __metadata:
     "@testing-library/react": "npm:16.3.2"
     "@testing-library/user-event": "npm:14.6.1"
     "@types/node": "npm:26.1.1"
-    "@types/react": "npm:19.2.17"
+    "@types/react": "npm:19.2.18"
     "@types/react-dom": "npm:19.2.3"
     "@types/react-is": "npm:^19.2.0"
     "@vitejs/plugin-react": "npm:6.0.5"
@@ -5509,7 +5518,7 @@ __metadata:
     lucide-react: "npm:1.24.0"
     next-themes: "npm:0.4.6"
     prettier: "npm:3.9.6"
-    react: "npm:19.2.7"
+    react: "npm:19.2.8"
     react-dom: "npm:19.2.7"
     react-is: "npm:^19.2.8"
     react-router: "npm:8.3.0"
@@ -5578,7 +5587,7 @@ __metadata:
     "@testing-library/react": "npm:16.3.2"
     "@testing-library/user-event": "npm:14.6.1"
     "@types/node": "npm:26.1.1"
-    "@types/react": "npm:19.2.17"
+    "@types/react": "npm:19.2.18"
     "@types/react-dom": "npm:19.2.3"
     "@types/semver": "npm:7.7.1"
     "@vitejs/plugin-react": "npm:6.0.5"
@@ -5595,7 +5604,7 @@ __metadata:
     jsdom: "npm:30.0.1"
     lucide-react: "npm:1.24.0"
     prettier: "npm:3.9.6"
-    react: "npm:19.2.7"
+    react: "npm:19.2.8"
     react-dom: "npm:19.2.7"
     react-markdown: "npm:10.1.0"
     react-router: "npm:8.3.0"
@@ -5654,7 +5663,7 @@ __metadata:
     "@testing-library/user-event": "npm:14.6.1"
     "@types/leaflet": "npm:^1.9.22"
     "@types/node": "npm:26.1.1"
-    "@types/react": "npm:19.2.17"
+    "@types/react": "npm:19.2.18"
     "@types/react-dom": "npm:19.2.3"
     "@vitejs/plugin-react": "npm:6.0.5"
     "@vitest/coverage-v8": "npm:4.1.10"
@@ -5667,7 +5676,7 @@ __metadata:
     leaflet: "npm:^1.9.4"
     lucide-react: "npm:1.24.0"
     prettier: "npm:3.9.6"
-    react: "npm:19.2.7"
+    react: "npm:19.2.8"
     react-dom: "npm:19.2.7"
     react-leaflet: "npm:^5.0.0"
     react-router: "npm:8.3.0"
@@ -10343,10 +10352,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react@npm:19.2.7":
-  version: 19.2.7
-  resolution: "react@npm:19.2.7"
-  checksum: 10c0/0bd0e2f1bbd4ba97561c6597bf8a5fec05e6476fe61e165c1065598d16668efc6715205599c94d3ddd49d36cb0f21cbf1b9bcc18ee840b805ce222c3e8d558ac
+"react@npm:19.2.8":
+  version: 19.2.8
+  resolution: "react@npm:19.2.8"
+  checksum: 10c0/5f86bdb56426652fd6d989d30a6f2e603c057272c47c9ca3a3fbe190a3a39ee9ccce937d63cfc039717abed1b8891d6a499134bc35311acc07eafdacd86537cd
   languageName: node
   linkType: hard
 
