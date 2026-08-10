@@ -49,7 +49,7 @@ pub trait DeviceRepository: Send + Sync {
     /// an empty set, never the departed rows that share it.
     ///
     /// The default implementation filters [`find_all`](Self::find_all); the
-    /// SQLite implementation overrides it with an indexed `last_ip` lookup.
+    /// `SQLite` implementation overrides it with an indexed `last_ip` lookup.
     async fn find_all_by_ip(&self, ip: &str) -> anyhow::Result<Vec<Device>> {
         if ip.is_empty() {
             return Ok(Vec::new());

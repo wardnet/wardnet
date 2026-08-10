@@ -163,6 +163,34 @@ fn sample_device(id: &str, ip: &str, last_seen: &str) -> Device {
 
 // -- Tests --------------------------------------------------------------
 
+// Exercises the `DeviceRepository::find_all_by_ip` *default* implementation
+// (issue #1115). `MockDeviceRepo` does not override it, so it runs the trait's
+// find_all-and-filter fallback — the path the SQLite repository overrides for
+// production and that its own tests therefore never touch.
+#[tokio::test]
+async fn find_all_by_ip_default_filters_and_skips_the_empty_sentinel() {
+    let a = Uuid::new_v4();
+    let b = Uuid::new_v4();
+    let repo = MockDeviceRepo::new(vec![
+        sample_device(&a.to_string(), "192.168.1.50", "2026-03-07T00:00:00Z"),
+        sample_device(&b.to_string(), "192.168.1.50", "2026-03-08T00:00:00Z"),
+        sample_device(
+            &Uuid::new_v4().to_string(),
+            "192.168.1.60",
+            "2026-03-07T00:00:00Z",
+        ),
+        // A departed device carrying the empty sentinel must never match.
+        sample_device(&Uuid::new_v4().to_string(), "", "2026-03-07T00:00:00Z"),
+    ]);
+
+    assert_eq!(repo.find_all_by_ip("192.168.1.50").await.unwrap().len(), 2);
+    assert_eq!(repo.find_all_by_ip("192.168.1.60").await.unwrap().len(), 1);
+    assert!(repo.find_all_by_ip("10.0.0.1").await.unwrap().is_empty());
+    // The empty-string guard returns before scanning, so it never matches the
+    // departed row above.
+    assert!(repo.find_all_by_ip("").await.unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn new_snapshot_is_empty_before_rebuild() {
     let repo = Arc::new(MockDeviceRepo::new(vec![]));
