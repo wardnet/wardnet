@@ -116,7 +116,7 @@ anyhow = "1"
 # https://crates.io/crates/rand
 rand = "0.10"
 # https://crates.io/crates/base64
-base64 = "0.22"
+base64 = "0.23"
 
 # https://crates.io/crates/sha2
 sha2 = "0.11"
