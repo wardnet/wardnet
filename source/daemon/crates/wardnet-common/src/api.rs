@@ -533,6 +533,25 @@ pub struct DeviceDetailResponse {
     pub signals: Vec<DeviceSignal>,
 }
 
+/// Response for POST /api/devices/:id/identify (admin, issue #1116).
+///
+/// Carries what the probe *contacted* as well as what answered, so the UI can
+/// say "we tried these four ports and none answered" rather than leaving the
+/// identification card visually unchanged and the button looking broken. An
+/// empty `answering_ports` is a real, informative result.
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct DeviceProbeResponse {
+    /// Every TCP port the probe contacted — the vendor catalog's full probe
+    /// surface, and by construction its upper bound.
+    pub ports_probed: Vec<u16>,
+    /// The subset that answered. Each was recorded as a `probed_port`
+    /// identification signal and may have named the device.
+    pub answering_ports: Vec<u16>,
+    /// The device re-read after the probe, so the caller sees any manufacturer
+    /// and signals the probe just produced without a second round trip.
+    pub device: DeviceDetailResponse,
+}
+
 /// Request body for PUT /api/devices/:id (admin).
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateDeviceRequest {

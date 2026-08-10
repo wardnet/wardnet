@@ -94,6 +94,32 @@ bounded by the catalog and asserted small by test.
 
 **Invariant: no code path probes a device without a direct admin action.**
 
+The invariant is **doc-enforced, not machine-enforced.** `auth_context::require_admin()`
+does not hold it: a background runner can mint
+`AuthContext::Admin { admin_id: Uuid::nil() }` — exactly what the DHCP server
+does today to record signals — so the auth gate waves such a caller straight
+through. What holds the line is the `# Invariant` doc comment on the
+`DeviceProber` trait and review against it. Rejected: a CI grep over callers
+(brittle against any indirection, and it would pass a runner that reached the
+service through one more hop) and a runtime nil-admin refusal (it would break
+the legitimate background signal recorders that already use that context).
+
+**Online-only.** A probe is refused with `409` unless the device has been seen
+within `detection.departure_timeout_secs` (300 s), and unless its `last_ip`
+parses and is non-globally-routable. The reason is **misattribution, not
+privacy**: `last_ip` is last-observation-wins, so probing a departed device
+contacts whoever holds that address now, and `set_manufacturer_if_absent` would
+write that stranger's vendor onto this device's row permanently — a wrong name
+that no later signal can correct, since naming is first-writer-wins. Reusing
+the existing departure timeout rather than inventing a second threshold keeps
+"present" meaning one thing across the daemon. Remote WireGuard peers on
+`10.100.64.0/24` are private, so roaming devices stay probeable.
+
+The probe result is **not persisted**: there is no `last_probed_at` column and
+no migration. A reload therefore loses the "we probed and found nothing" fact.
+Accepted — the response carries `ports_probed` alongside `answering_ports` so
+the admin sees that outcome stated plainly at the moment they ask for it.
+
 ### 6. Neighbour matching is ±4 over the full 48-bit MAC
 
 On an exact-MAC miss, devices within ±4 of the searched address are offered as
@@ -121,3 +147,10 @@ unrelated addresses sharing a trailing byte as identical.
   alternative is the dead end that motivated the issue.
 - mDNS observation maps an **IP** to a device, not a MAC. Ambiguous mappings are
   skipped rather than guessed — a wrong attribution is worse than no signal.
+- The no-background-scanning invariant survives only as long as reviewers hold
+  it. A future runner could call `probe_device` with a nil-admin context and
+  nothing in CI or at runtime would stop it. The mitigation is that the trait
+  carries the rule where a caller cannot miss it.
+- A device that is asleep or has just roamed off the LAN cannot be identified
+  at all, and the admin has to wake it and retry. Accepted: a probe of a
+  reassigned address is worse than a probe that has to wait.

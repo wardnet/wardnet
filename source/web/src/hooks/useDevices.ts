@@ -84,6 +84,31 @@ export function useUpdateDevice(options?: { successMessage?: string }) {
   });
 }
 
+/**
+ * Admin-triggered identification probe for one device (issue #1116).
+ *
+ * The success toast reports what the probe found, including the empty case:
+ * "no known ports answered" is a real result, and a silent success would make
+ * a probe that found nothing look like a broken button.
+ */
+export function useIdentifyDevice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deviceService.identify(id),
+    onSuccess: (data, id) => {
+      const answered = data.answering_ports.length;
+      toast.success(
+        answered === 0
+          ? `No known ports answered (tried ${data.ports_probed.length})`
+          : `Identified: ${answered === 1 ? "1 port" : `${answered} ports`} answered`,
+      );
+      qc.invalidateQueries({ queryKey: ["devices"], exact: true });
+      qc.invalidateQueries({ queryKey: ["devices", id], exact: true });
+    },
+    onError: () => toast.error("Failed to identify device"),
+  });
+}
+
 export function useDnsCaptureSettings(id: string) {
   return useQuery({
     queryKey: ["devices", id, "dns-capture"],

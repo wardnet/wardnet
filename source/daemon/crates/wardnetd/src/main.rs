@@ -442,6 +442,7 @@ async fn run(
         firewall: firewall.clone(),
         packet_capture: packet_capture.clone(),
         hostname_resolver: Arc::new(SystemHostnameResolver),
+        device_prober: Arc::new(wardnetd_services::device::TcpDeviceProber),
         secret_store: secret_store.clone(),
         web_push_sender: Arc::new(wardnetd_services::push::sender::ReqwestWebPushSender::new(
             reqwest::Client::new(),

@@ -6,6 +6,7 @@ const {
   useDevice,
   useTunnels,
   useUpdateDevice,
+  useIdentifyDevice,
   useRoutingProfiles,
   useDeviceRoutingProfiles,
   useSetDeviceRoutingProfiles,
@@ -24,6 +25,7 @@ const {
   useDevice: vi.fn(),
   useTunnels: vi.fn(),
   useUpdateDevice: vi.fn(),
+  useIdentifyDevice: vi.fn(),
   useRoutingProfiles: vi.fn(),
   useDeviceRoutingProfiles: vi.fn(),
   useSetDeviceRoutingProfiles: vi.fn(),
@@ -52,6 +54,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useDevice,
     useTunnels,
     useUpdateDevice,
+    useIdentifyDevice,
     useRoutingProfiles,
     useDeviceRoutingProfiles,
     useSetDeviceRoutingProfiles,
@@ -132,8 +135,21 @@ vi.mock("@/components/features/DeviceIdentityCard", () => ({
   DeviceIdentityCard: () => <div data-testid="identity-card" />,
 }));
 vi.mock("@/components/features/DeviceIdentificationCard", () => ({
-  DeviceIdentificationCard: ({ signals }: { signals: unknown[] }) => (
-    <div data-testid="identification-card" data-count={signals.length} />
+  DeviceIdentificationCard: ({
+    signals,
+    online,
+    deviceId,
+  }: {
+    signals: unknown[];
+    online: boolean;
+    deviceId: string;
+  }) => (
+    <div
+      data-testid="identification-card"
+      data-count={signals.length}
+      data-online={String(online)}
+      data-device-id={deviceId}
+    />
   ),
 }));
 vi.mock("@/components/features/DeviceNetworkCard", () => ({
@@ -191,6 +207,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useTunnels.mockReturnValue({ data: { tunnels: [{ id: "tun-1" }] } });
   useUpdateDevice.mockReturnValue(mutationHandle());
+  useIdentifyDevice.mockReturnValue(mutationHandle());
   useRoutingProfiles.mockReturnValue({ data: { profiles: [{ id: "p1" }] } });
   useDeviceRoutingProfiles.mockReturnValue({
     data: { profile_ids: ["p1"] },
@@ -342,6 +359,28 @@ describe("DeviceDetail", () => {
     expect(screen.getByTestId("identification-card")).toHaveAttribute(
       "data-count",
       "1",
+    );
+  });
+
+  it("lets an unmanaged but present device be identified", () => {
+    // An unnamed device is precisely the one worth probing, so the card's
+    // `online` prop must be raw presence rather than the header's
+    // managed-and-online status.
+    loadDevice({ name: null, last_seen: new Date().toISOString() });
+    renderWithProviders(<DeviceDetail />);
+    const card = screen.getByTestId("identification-card");
+    expect(card).toHaveAttribute("data-online", "true");
+    expect(card).toHaveAttribute("data-device-id", "dev-1");
+  });
+
+  it("marks a departed device as unprobeable", () => {
+    // The daemon refuses the probe anyway; disabling it up front is what keeps
+    // the button from looking broken.
+    loadDevice({ name: "Old Device", last_seen: "2000-01-01T00:00:00Z" });
+    renderWithProviders(<DeviceDetail />);
+    expect(screen.getByTestId("identification-card")).toHaveAttribute(
+      "data-online",
+      "false",
     );
   });
 

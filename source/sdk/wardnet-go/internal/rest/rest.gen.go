@@ -2156,6 +2156,26 @@ type DeviceMeResponse struct {
 	Zone            *ZoneSummary             `json:"zone,omitempty"`
 }
 
+// DeviceProbeResponse Response for POST /api/devices/:id/identify (admin, issue #1116).
+//
+// Carries what the probe *contacted* as well as what answered, so the UI can
+// say "we tried these four ports and none answered" rather than leaving the
+// identification card visually unchanged and the button looking broken. An
+// empty `answering_ports` is a real, informative result.
+type DeviceProbeResponse struct {
+	// AnsweringPorts The subset that answered. Each was recorded as a `probed_port`
+	// identification signal and may have named the device.
+	AnsweringPorts []int32 `json:"answering_ports"`
+
+	// Device The device re-read after the probe, so the caller sees any manufacturer
+	// and signals the probe just produced without a second round trip.
+	Device DeviceDetailResponse `json:"device"`
+
+	// PortsProbed Every TCP port the probe contacted — the vendor catalog's full probe
+	// surface, and by construction its upper bound.
+	PortsProbed []int32 `json:"ports_probed"`
+}
+
 // DeviceRuleRequest A single rule request row.
 type DeviceRuleRequest struct {
 	CreatedAt string  `json:"created_at"`
@@ -6061,6 +6081,11 @@ type ClientInterface interface {
 	// Update DNS capture settings for a device. Omitted fields are left unchanged.
 	UpdateDnsCaptureSettings(ctx context.Context, id string, body UpdateDnsCaptureSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// IdentifyDevice performs a POST /api/devices/{id}/identify (the `IdentifyDevice` operationId) request.
+	//
+	// Probe a device on the vendor catalog's TCP ports and record whichever answered as identification signals, naming the device if one resolves to a vendor (issue #1116). This is the only identification signal that sends unsolicited traffic to a device, so per ADR 0025 §5 it happens only on this explicit per-device admin action — there is no background scan and no global toggle. Synchronous: the probe surface is a handful of ports contacted concurrently, so it completes in about a second. Refused with 409 when the device is not currently on the network, because its last known address may since have been handed to someone else and the resulting vendor would be recorded against the wrong device. Admin only.
+	IdentifyDevice(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// AssignDeviceZoneWithBody performs a PUT /api/devices/{id}/zone (the `AssignDeviceZone` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -7763,6 +7788,21 @@ func (c *Client) UpdateDnsCaptureSettingsWithBody(ctx context.Context, id string
 // Update DNS capture settings for a device. Omitted fields are left unchanged.
 func (c *Client) UpdateDnsCaptureSettings(ctx context.Context, id string, body UpdateDnsCaptureSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateDnsCaptureSettingsRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// IdentifyDevice performs a POST /api/devices/{id}/identify (the `IdentifyDevice` operationId) request.
+//
+// Probe a device on the vendor catalog's TCP ports and record whichever answered as identification signals, naming the device if one resolves to a vendor (issue #1116). This is the only identification signal that sends unsolicited traffic to a device, so per ADR 0025 §5 it happens only on this explicit per-device admin action — there is no background scan and no global toggle. Synchronous: the probe surface is a handful of ports contacted concurrently, so it completes in about a second. Refused with 409 when the device is not currently on the network, because its last known address may since have been handed to someone else and the resulting vendor would be recorded against the wrong device. Admin only.
+func (c *Client) IdentifyDevice(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewIdentifyDeviceRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -11736,6 +11776,40 @@ func NewUpdateDnsCaptureSettingsRequestWithBody(server string, id string, conten
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewIdentifyDeviceRequest constructs an http.Request for the IdentifyDevice method
+func NewIdentifyDeviceRequest(server string, id openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/devices/%s/identify", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -17422,6 +17496,13 @@ type ClientWithResponsesInterface interface {
 	// Update DNS capture settings for a device. Omitted fields are left unchanged.
 	UpdateDnsCaptureSettingsWithResponse(ctx context.Context, id string, body UpdateDnsCaptureSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateDnsCaptureSettingsResp, error)
 
+	// IdentifyDeviceWithResponse performs a POST /api/devices/{id}/identify (the `IdentifyDevice` operationId) request.
+	//
+	// Probe a device on the vendor catalog's TCP ports and record whichever answered as identification signals, naming the device if one resolves to a vendor (issue #1116). This is the only identification signal that sends unsolicited traffic to a device, so per ADR 0025 §5 it happens only on this explicit per-device admin action — there is no background scan and no global toggle. Synchronous: the probe surface is a handful of ports contacted concurrently, so it completes in about a second. Refused with 409 when the device is not currently on the network, because its last known address may since have been handed to someone else and the resulting vendor would be recorded against the wrong device. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	IdentifyDeviceWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*IdentifyDeviceResp, error)
+
 	// AssignDeviceZoneWithBodyWithResponse performs a PUT /api/devices/{id}/zone (the `AssignDeviceZone` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -21214,6 +21295,161 @@ func (r UpdateDnsCaptureSettingsResp) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateDnsCaptureSettingsResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type IdentifyDeviceResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DeviceProbeResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r IdentifyDeviceResp) GetJSON200() *DeviceProbeResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r IdentifyDeviceResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r IdentifyDeviceResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r IdentifyDeviceResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r IdentifyDeviceResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r IdentifyDeviceResp) GetJSON409() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r IdentifyDeviceResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r IdentifyDeviceResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r IdentifyDeviceResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r IdentifyDeviceResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r IdentifyDeviceResp) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -37392,6 +37628,19 @@ func (c *ClientWithResponses) UpdateDnsCaptureSettingsWithResponse(ctx context.C
 	return ParseUpdateDnsCaptureSettingsResp(rsp)
 }
 
+// IdentifyDeviceWithResponse performs a POST /api/devices/{id}/identify (the `IdentifyDevice` operationId) request.
+//
+// Probe a device on the vendor catalog's TCP ports and record whichever answered as identification signals, naming the device if one resolves to a vendor (issue #1116). This is the only identification signal that sends unsolicited traffic to a device, so per ADR 0025 §5 it happens only on this explicit per-device admin action — there is no background scan and no global toggle. Synchronous: the probe surface is a handful of ports contacted concurrently, so it completes in about a second. Refused with 409 when the device is not currently on the network, because its last known address may since have been handed to someone else and the resulting vendor would be recorded against the wrong device. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) IdentifyDeviceWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*IdentifyDeviceResp, error) {
+	rsp, err := c.IdentifyDevice(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseIdentifyDeviceResp(rsp)
+}
+
 // AssignDeviceZoneWithBodyWithResponse performs a PUT /api/devices/{id}/zone (the `AssignDeviceZone` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -41578,6 +41827,110 @@ func ParseUpdateDnsCaptureSettingsResp(rsp *http.Response) (*UpdateDnsCaptureSet
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseIdentifyDeviceResp parses an HTTP response from a IdentifyDeviceWithResponse call
+func ParseIdentifyDeviceResp(rsp *http.Response) (*IdentifyDeviceResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &IdentifyDeviceResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeviceProbeResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

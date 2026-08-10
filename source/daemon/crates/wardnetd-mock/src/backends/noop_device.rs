@@ -1,10 +1,12 @@
-//! No-op [`PacketCapture`] and [`HostnameResolver`] implementations for the
-//! mock server.
+//! No-op [`PacketCapture`], [`HostnameResolver`] and [`DeviceProber`]
+//! implementations for the mock server.
+
+use std::net::IpAddr;
 
 use async_trait::async_trait;
 use tokio::sync::mpsc::Sender;
 use tokio_util::sync::CancellationToken;
-use wardnetd_services::device::{HostnameResolver, ObservedDevice, PacketCapture};
+use wardnetd_services::device::{DeviceProber, HostnameResolver, ObservedDevice, PacketCapture};
 
 /// A packet capture backend that captures nothing.
 ///
@@ -36,6 +38,38 @@ impl PacketCapture for NoopPacketCapture {
     async fn arp_scan(&self, interface: &str) -> anyhow::Result<()> {
         tracing::debug!(interface, "mock arp_scan: interface={interface}");
         Ok(())
+    }
+}
+
+/// A prober that contacts nothing and answers from the address alone.
+///
+/// Deterministic so `make run-dev` exercises *both* outcomes without any real
+/// traffic: a device whose last address octet is odd reports one answering
+/// port (picked from the catalog list by that octet, so different seeded
+/// devices resolve to different vendors), and an even one reports none — which
+/// is the "No known ports answered" path the UI has to say out loud.
+#[derive(Debug, Default, Clone)]
+pub struct NoopDeviceProber;
+
+#[async_trait]
+impl DeviceProber for NoopDeviceProber {
+    async fn probe(&self, ip: IpAddr, ports: &[u16]) -> Vec<u16> {
+        let octet = match ip {
+            IpAddr::V4(v4) => v4.octets()[3],
+            IpAddr::V6(v6) => v6.octets()[15],
+        };
+        let answering = if octet % 2 == 1 && !ports.is_empty() {
+            vec![ports[usize::from(octet) % ports.len()]]
+        } else {
+            Vec::new()
+        };
+        tracing::debug!(
+            %ip,
+            probed = ports.len(),
+            ?answering,
+            "mock device probe (no traffic sent): ip={ip}"
+        );
+        answering
     }
 }
 

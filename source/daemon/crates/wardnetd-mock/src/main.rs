@@ -21,7 +21,9 @@ use wardnet_common::config::ApplicationConfiguration;
 use wardnetd_api::state::AppState;
 use wardnetd_data::create_repository_factory;
 use wardnetd_mock::backends::noop_cert_activator::NoopCertActivator;
-use wardnetd_mock::backends::noop_device::{NoopHostnameResolver, NoopPacketCapture};
+use wardnetd_mock::backends::noop_device::{
+    NoopDeviceProber, NoopHostnameResolver, NoopPacketCapture,
+};
 use wardnetd_mock::backends::noop_dhcp::NoopDhcpServer;
 use wardnetd_mock::backends::noop_dns::NoopDnsServer;
 use wardnetd_mock::backends::noop_exit_probe::NoopExitProbe;
@@ -288,6 +290,7 @@ async fn run(
         firewall: Arc::new(NoopFirewallManager),
         packet_capture: Arc::new(NoopPacketCapture),
         hostname_resolver: Arc::new(NoopHostnameResolver),
+        device_prober: Arc::new(NoopDeviceProber),
         secret_store,
         web_push_sender,
         blocklist_fetcher: Arc::new(HttpBlocklistFetcher::new()),

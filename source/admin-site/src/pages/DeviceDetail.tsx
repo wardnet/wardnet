@@ -15,6 +15,7 @@ import {
   useDevice,
   useTunnels,
   useUpdateDevice,
+  useIdentifyDevice,
   useRoutingProfiles,
   useDeviceRoutingProfiles,
   useSetDeviceRoutingProfiles,
@@ -116,6 +117,9 @@ function DeviceDetailLoaded({
   // Settings card.
   const { data: tunnelData } = useTunnels();
   const updateDevice = useUpdateDevice();
+  // Hoisted here rather than in the card: cards under `components/features/`
+  // stay presentational (commit ce601207).
+  const identifyDevice = useIdentifyDevice();
 
   // Routing profiles card.
   const { data: profilesData } = useRoutingProfiles();
@@ -144,7 +148,12 @@ function DeviceDetailLoaded({
   const deleteReservation = useDeleteReservation();
 
   const managed = device.name != null;
-  const online = managed && isOnline(device.last_seen);
+  // Raw presence, deliberately not gated on `managed`: an unnamed device is
+  // precisely the one worth identifying, and the daemon's probe guard is about
+  // whether the address is still this device's, not whether an admin has
+  // adopted it.
+  const present = isOnline(device.last_seen);
+  const online = managed && present;
 
   const status = managed ? (
     <StatusBadge tone={online ? "success" : "neutral"}>
@@ -173,7 +182,12 @@ function DeviceDetailLoaded({
       />
 
       <DeviceIdentityCard device={device} />
-      <DeviceIdentificationCard signals={signals} />
+      <DeviceIdentificationCard
+        deviceId={device.id}
+        signals={signals}
+        online={present}
+        identify={identifyDevice}
+      />
       <DeviceSettingsCard
         device={device}
         currentRule={currentRule}
