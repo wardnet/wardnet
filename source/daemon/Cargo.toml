@@ -291,7 +291,7 @@ p256 = { version = "0.13", features = ["ecdsa", "pem", "pkcs8"] }
 der = { version = "0.7", features = ["oid"] }
 # https://crates.io/crates/const-oid — the id-data / SHA-256 OIDs the CMS
 # structure references.
-const-oid = "0.9"
+const-oid = "0.10"
 # https://crates.io/crates/spki — the SHA-256 AlgorithmIdentifier for the CMS
 # digest algorithms set.
 spki = "0.7"

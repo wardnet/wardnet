@@ -6319,7 +6319,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "cms",
- "const-oid 0.9.6",
+ "const-oid 0.10.2",
  "criterion",
  "cron",
  "der",
