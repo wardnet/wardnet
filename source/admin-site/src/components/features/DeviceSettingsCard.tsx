@@ -71,7 +71,8 @@ export function DeviceSettingsCard({
   tunnels,
   updateDevice,
 }: DeviceSettingsCardProps) {
-  const isManaged = device.name != null;
+  // Server-owned flag (#1181), not inferred from the name.
+  const isManaged = device.managed;
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(device.name ?? "");
@@ -113,12 +114,9 @@ export function DeviceSettingsCard({
     setEditing(false);
   }
 
-  // Only claim "To Managed Device" when a name will actually make it managed;
-  // otherwise the save just persists settings (the old label promised a
-  // promotion an empty name never delivered).
-  const willPromote = !isManaged && trimmedName !== "";
-  const saveLabel = willPromote ? "To Managed Device" : "Save";
-  const savingLabel = willPromote ? "Promoting…" : "Saving…";
+  // Always just "Save". Since #1181, saving ANY admin setting here promotes
+  // the device to managed — not only a name — so a label that singled out
+  // naming would be describing the wrong thing on most of these saves.
 
   return (
     <Card>
@@ -145,7 +143,9 @@ export function DeviceSettingsCard({
               label="Friendly name"
               htmlFor="device-name"
               help={
-                isManaged ? undefined : "Give the device a name to manage it."
+                isManaged
+                  ? undefined
+                  : "Optional. Saving any setting here will manage this device."
               }
             >
               <Input
@@ -215,7 +215,7 @@ export function DeviceSettingsCard({
               onClick: cancelEdit,
               disabled: updateDevice.isPending,
             }}
-            primaryLabel={updateDevice.isPending ? savingLabel : saveLabel}
+            primaryLabel={updateDevice.isPending ? "Saving…" : "Save"}
             primaryProps={{
               onClick: handleSave,
               disabled: updateDevice.isPending,

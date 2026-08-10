@@ -10,6 +10,7 @@ use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone, ZoneProvenanc
 use wardnet_common::routing::{RoutingRule, RoutingTarget, RuleCreator};
 
 use crate::auth_context;
+use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::{DeviceService, DeviceServiceImpl};
 use wardnetd_data::repository::device::DeviceRow;
@@ -27,6 +28,14 @@ struct MockDeviceRepo {
 
 #[async_trait]
 impl DeviceRepository for MockDeviceRepo {
+    async fn delete_rule_for_device(&self, _device_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn set_managed(&self, _id: &str, _managed: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
         Ok(self.device.clone())
     }
@@ -171,11 +180,16 @@ impl DnsEventsRepository for MockDnsEventsRepo {
 
 // -- Mock event publisher -------------------------------------------------
 
-/// Stub event publisher that discards all events.
-struct MockEventPublisher;
+/// Stub event publisher that records what was published.
+#[derive(Default)]
+struct MockEventPublisher {
+    published: std::sync::Mutex<Vec<WardnetEvent>>,
+}
 
 impl EventPublisher for MockEventPublisher {
-    fn publish(&self, _event: WardnetEvent) {}
+    fn publish(&self, event: WardnetEvent) {
+        self.published.lock().unwrap().push(event);
+    }
     fn subscribe(&self) -> broadcast::Receiver<WardnetEvent> {
         let (tx, rx) = broadcast::channel(1);
         drop(tx);
@@ -299,6 +313,7 @@ fn sample_device(locked: bool) -> Device {
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
         connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
+        managed: false,
     }
 }
 
@@ -332,7 +347,7 @@ fn make_svc(locked: bool, rule: Option<RoutingRule>) -> DeviceServiceImpl {
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     )
 }
 
@@ -346,7 +361,7 @@ fn make_svc_no_device() -> DeviceServiceImpl {
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     )
 }
 
@@ -360,7 +375,7 @@ fn make_svc_with_rules(all_rules: Vec<RoutingRule>) -> DeviceServiceImpl {
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     )
 }
 
@@ -864,6 +879,14 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
 
     #[async_trait]
     impl DeviceRepository for NotFoundDeviceRepo {
+        async fn delete_rule_for_device(&self, _device_id: &str) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn set_managed(&self, _id: &str, _managed: bool) -> anyhow::Result<()> {
+            Ok(())
+        }
+
         async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
             Ok(None)
         }
@@ -965,7 +988,7 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     );
     let unknown_id = "00000000-0000-0000-0000-000000000099";
 
@@ -1094,7 +1117,7 @@ async fn fetch_pending_maps_rows_to_items() {
         Arc::new(RowsDnsEventsRepo { rows }),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     );
 
     crate::auth_context::with_context(
@@ -1127,7 +1150,7 @@ async fn ack_dns_events_delegates_to_repo() {
         Arc::new(RowsDnsEventsRepo { rows: vec![] }),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     );
 
     crate::auth_context::with_context(
@@ -1154,7 +1177,7 @@ async fn list_capture_enabled_device_ids_delegates_to_repo() {
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     );
     let ids = auth_context::with_context(admin_ctx(), svc.list_capture_enabled_device_ids())
         .await
@@ -1176,7 +1199,7 @@ async fn get_device_capture_settings_returns_settings_when_device_found() {
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     );
     let result = auth_context::with_context(admin_ctx(), svc.get_device_capture_settings("any-id"))
         .await
@@ -1198,7 +1221,7 @@ async fn get_device_capture_settings_returns_none_for_unknown_device() {
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     );
     let result =
         auth_context::with_context(admin_ctx(), svc.get_device_capture_settings("unknown-id"))
@@ -1222,7 +1245,7 @@ fn svc_with_device() -> DeviceServiceImpl {
         Arc::new(RowsDnsEventsRepo { rows: vec![] }),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     )
 }
 
@@ -1237,7 +1260,7 @@ fn svc_without_device() -> DeviceServiceImpl {
         Arc::new(RowsDnsEventsRepo { rows: vec![] }),
         Arc::new(MockNetworkZoneRepo),
         Arc::new(MockSystemConfigRepo),
-        Arc::new(MockEventPublisher),
+        Arc::new(MockEventPublisher::default()),
     )
 }
 
@@ -1341,4 +1364,86 @@ async fn get_device_capture_settings_rejects_anonymous() {
     )
     .await;
     assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
+}
+
+// ── clear_rule (issue #1181) ─────────────────────────────────────────────────
+
+/// Build a service whose device has the given rule, returning the event
+/// publisher so a test can inspect what was emitted.
+fn make_svc_recording(rule: Option<RoutingRule>) -> (DeviceServiceImpl, Arc<MockEventPublisher>) {
+    let events = Arc::new(MockEventPublisher::default());
+    let svc = DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: Some(sample_device(false)),
+            rule,
+            all_rules: vec![],
+        }),
+        Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
+        events.clone(),
+    );
+    (svc, events)
+}
+
+const CLEAR_RULE_DEVICE: &str = "00000000-0000-0000-0000-000000000001";
+
+#[tokio::test]
+async fn clear_rule_requires_admin() {
+    let (svc, _events) = make_svc_recording(None);
+    assert!(matches!(
+        svc.clear_rule(CLEAR_RULE_DEVICE).await,
+        Err(AppError::Forbidden(_))
+    ));
+}
+
+#[tokio::test]
+async fn clear_rule_publishes_nothing_when_there_was_no_rule() {
+    // The release flow calls this unconditionally, so the no-rule case must be
+    // silent rather than asking the routing listener to re-apply something.
+    let (svc, events) = make_svc_recording(None);
+
+    auth_context::with_context(admin_ctx(), svc.clear_rule(CLEAR_RULE_DEVICE))
+        .await
+        .unwrap();
+
+    assert!(events.published.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn clear_rule_publishes_the_global_default_as_the_new_target() {
+    // The listener applies whatever target the event carries, so publishing the
+    // rule we just deleted would re-install it. What the device now follows is
+    // the gateway's global default policy.
+    let previous = RoutingRule {
+        device_id: CLEAR_RULE_DEVICE.parse().unwrap(),
+        target: RoutingTarget::Tunnel {
+            tunnel_id: Uuid::new_v4(),
+        },
+        created_by: RuleCreator::Admin,
+    };
+    let (svc, events) = make_svc_recording(Some(previous.clone()));
+
+    auth_context::with_context(admin_ctx(), svc.clear_rule(CLEAR_RULE_DEVICE))
+        .await
+        .unwrap();
+
+    let published = events.published.lock().unwrap();
+    assert_eq!(published.len(), 1);
+    match &published[0] {
+        WardnetEvent::RoutingRuleChanged {
+            device_id,
+            target,
+            previous_target,
+            ..
+        } => {
+            assert_eq!(device_id.to_string(), CLEAR_RULE_DEVICE);
+            assert!(
+                !matches!(target, RoutingTarget::Tunnel { .. }),
+                "must not re-publish the tunnel rule it just deleted"
+            );
+            assert_eq!(previous_target.as_ref(), Some(&previous.target));
+        }
+        other => panic!("expected RoutingRuleChanged, got {other:?}"),
+    }
 }

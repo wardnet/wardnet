@@ -448,4 +448,51 @@ path — so idempotent by construction) publishes a dedicated
 existing `PUT /api/devices/{id}/zone`. Note `DeviceDiscovered` is **not** a
 valid first-ever signal (it also fires on every reconnect).
 
+## Managed devices subsystem (issue #1181)
+
+See [ADR 0032](../docs/adr/0032-managed-devices-and-retention.md) for the
+reasoning; this is the shape.
+
+`devices.managed` is an explicit, latching column — **never** derived from
+`name`. It is promoted by any *admin* configuration act and cleared only by an
+explicit release. That gives the invariant everything else rests on:
+
+> `managed = 0` implies no admin artefacts exist for this device.
+
+which is what a future retention prune will rely on to delete an unmanaged
+row without checking anything else.
+
+### Promotion
+
+Routed through `DeviceService::mark_managed` (per the
+single-service-per-repository rule) from `PrivateDnsService::grant_device`,
+`InboundWgService::add_peer`, and `RoutingProfileService::set_device_profiles`.
+Services that already hold `DeviceRepository` directly — `dhcp`,
+`network_zone`, `zone_exception`, `dns_filter` — call `set_managed` on it
+rather than acquiring a second handle; do not extend those holdings to new
+services.
+
+Two call sites are reachable by a **non-admin** caller and gate promotion on
+the auth context, not on the write succeeding:
+`DeviceDiscoveryService::update_device` (a device may rename itself) and
+`DeviceService::set_rule` (a device may set its own routing). Promoting there
+would make every guest device permanently exempt from retention.
+
+**Adding a new per-device table? Decide whether it promotes.** If an admin
+creates the row, it must — otherwise device retention will cascade it away 30
+days after the device was last seen, silently.
+
+### Release (`POST /api/devices/{id}/release`)
+
+Lives in `wardnetd-api/src/api/devices.rs`, **not** in `DeviceService`, and
+that is forced: `InboundWgServiceImpl` and `PrivateDnsServiceImpl` both hold
+`Arc<dyn DeviceService>`, so the reverse edge would be an `Arc` cycle and a
+construction-order deadlock.
+
+It reverts every artefact and sets `managed = 0` **last**, so a partial failure
+leaves the device still managed — never half-released with a live credential it
+is no longer recorded as owning. Every step is idempotent, so a retry
+completes.
+
+
 [`NetworkZone`]: ../source/daemon/crates/wardnet-common/src/network_zone.rs

@@ -738,6 +738,14 @@ impl MockDeviceRepoWithSwitchedDevices {
 
 #[async_trait]
 impl DeviceRepository for MockDeviceRepoForTunnel {
+    async fn delete_rule_for_device(&self, _device_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn set_managed(&self, _id: &str, _managed: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
         Ok(None)
     }
@@ -837,6 +845,14 @@ impl DeviceRepository for MockDeviceRepoForTunnel {
 
 #[async_trait]
 impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
+    async fn delete_rule_for_device(&self, _device_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn set_managed(&self, _id: &str, _managed: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
         Ok(None)
     }

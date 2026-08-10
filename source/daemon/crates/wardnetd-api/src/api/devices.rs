@@ -26,6 +26,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(set_my_rule))
         .routes(routes!(get_device, update_device))
         .routes(routes!(assign_device_zone))
+        .routes(routes!(release_device))
 }
 
 const TAG: &str = "devices";
@@ -413,6 +414,240 @@ pub async fn assign_device_zone(
         .network_zone_service()
         .assign_device(uuid, body.zone_id)
         .await?;
+
+    let device = state.discovery_service().get_device_by_id(uuid).await?;
+    // Mutation path — see `device_detail`.
+    Ok(Json(device_detail(&state, device, false).await?))
+}
+
+/// Run one step of the release sequence, tagging any failure with the step's
+/// name so a 500 says which revert did not land.
+///
+/// The device is left **managed** on any failure — `clear_managed` is the last
+/// step and never runs — so a partial release is always recoverable by
+/// retrying, never a half-released device carrying live credentials it is no
+/// longer recorded as owning.
+fn releasing(step: &'static str, result: Result<(), AppError>) -> Result<(), AppError> {
+    result.map_err(|e| match e {
+        // A guard rejection is about the caller, not the step; keep its status.
+        e @ (AppError::Unauthorized(_) | AppError::Forbidden(_)) => e,
+        e => AppError::Internal(anyhow::anyhow!("release failed at step '{step}': {e}")),
+    })
+}
+
+/// Revoke the release steps that live in collections which must be scanned for
+/// the device: its Private-DNS grant, Remote peer credential, DHCP reservation,
+/// and zone exceptions.
+///
+/// Split out of [`release_device`] for length only; it is the first half of
+/// that function's ordered sequence and must not be reordered against it.
+///
+/// The Private-DNS grant goes first because revoking publishes
+/// `PrivateDnsGrantRevoked`, which tears down the device's already-established
+/// `DoT` sessions — the token is otherwise only checked at handshake, so a
+/// revoked device would keep resolving until it happened to reconnect.
+async fn release_credentials_and_scoped_rules(
+    state: &AppState,
+    device_id: Uuid,
+    mac: &str,
+) -> Result<(), AppError> {
+    if let Some(grant) = state.private_dns_service().device_grant(device_id).await? {
+        releasing(
+            "revoke private-DNS grant",
+            state.private_dns_service().revoke_grant(grant.id).await,
+        )?;
+    }
+
+    let peers = state.inbound_wg_service().list_peers().await?;
+    for peer in peers.iter().filter(|p| p.device_id == Some(device_id)) {
+        releasing(
+            "remove remote peer",
+            state.inbound_wg_service().remove_peer(peer.id).await,
+        )?;
+    }
+
+    // Reservations are keyed by MAC, not device id — the one artefact that
+    // would otherwise survive the device row entirely.
+    let reservations = state.dhcp_service().list_reservations().await?;
+    for reservation in reservations
+        .reservations
+        .iter()
+        .filter(|r| r.mac_address.eq_ignore_ascii_case(mac))
+    {
+        releasing(
+            "delete DHCP reservation",
+            state
+                .dhcp_service()
+                .delete_reservation(reservation.id)
+                .await
+                .map(|_| ()),
+        )?;
+    }
+
+    // Exceptions naming this device on either side.
+    let exceptions = state.zone_exception_service().list_exceptions().await?;
+    for exception in exceptions.iter().filter(|e| {
+        [&e.from, &e.to].iter().any(|endpoint| {
+            endpoint.kind == wardnet_common::zone_exception::ExceptionEndpointKind::Device
+                && endpoint.id == device_id
+        })
+    }) {
+        releasing(
+            "delete zone exception",
+            state
+                .zone_exception_service()
+                .delete_exception(exception.id)
+                .await,
+        )?;
+    }
+
+    Ok(())
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/devices/{id}/release",
+    tag = TAG,
+    description = "Stop managing a device (issue #1181). Reverts every \
+                   admin-set configuration to default and returns the device to \
+                   unmanaged, after which it becomes subject to device \
+                   retention and is deleted once it has been absent for 30 \
+                   days. Destructive: this revokes the device's Private-DNS \
+                   grant and its Remote peer credential, disconnecting it. \
+                   Idempotent — each step is a no-op when there is nothing to \
+                   revert, so a retry after a partial failure completes. \
+                   Admin only.",
+    params(("id" = Uuid, Path, description = "Device ID")),
+    responses(
+        (status = 200, description = "Updated device detail", body = DeviceDetailResponse),
+        AuthErrors,
+        NotFound,
+        BadRequest,
+    ),
+)]
+pub async fn release_device(
+    State(state): State<AppState>,
+    _auth: AdminAuth,
+    Path(id): Path<String>,
+) -> Result<Json<DeviceDetailResponse>, AppError> {
+    let uuid: Uuid = id
+        .parse()
+        .map_err(|_| AppError::BadRequest("invalid device ID".to_owned()))?;
+    let device_id = uuid.to_string();
+
+    // 404 up front rather than silently "releasing" a device that isn't there:
+    // every step below is individually tolerant of a missing device, so without
+    // this the whole sequence would succeed against nothing.
+    let device = state.discovery_service().get_device_by_id(uuid).await?;
+
+    // This orchestration lives in the handler, not in `DeviceService`, and that
+    // is forced rather than stylistic: `InboundWgServiceImpl` and
+    // `PrivateDnsServiceImpl` both hold `Arc<dyn DeviceService>` (they call
+    // `mark_managed`), so a `DeviceService` that reached back into them would
+    // be an `Arc` cycle and a construction-order deadlock. This handler already
+    // orchestrates several services, so it is the established home.
+    //
+    // Order matters. `clear_managed` is LAST, so the invariant device retention
+    // depends on — `managed = false` implies no admin artefacts exist — is only
+    // asserted once every artefact is actually gone. Reversed, a failure
+    // midway would leave an unmanaged device still holding a live Private-DNS
+    // grant, which the prune would then delete 30 days later with nothing but a
+    // log line to show for it.
+
+    // 1-4. The artefacts held in collections that have to be scanned for this
+    //      device. Split out only to keep this function readable — the ordering
+    //      inside it is part of the same sequence.
+    release_credentials_and_scoped_rules(&state, uuid, &device.mac).await?;
+
+    // 5. Routing rule + routing-profile assignments. The rule is *deleted*, not
+    //    set to `Direct`: "no rule" is the state a never-configured device is
+    //    in (it follows the gateway's global default policy), whereas a
+    //    `Direct` rule is an explicit choice that overrides that default — and
+    //    is validated against the device's zone, so a tunnel-only zone would
+    //    reject it and make such a device impossible to release.
+    releasing(
+        "clear routing rule",
+        state.device_service().clear_rule(&device_id).await,
+    )?;
+    releasing(
+        "clear routing profiles",
+        state
+            .routing_profile_service()
+            .set_device_profiles(uuid, &[])
+            .await,
+    )?;
+
+    // 6. DNS-filter settings and profile assignments, back to `default_for`:
+    //    filtering enabled, no profiles.
+    releasing(
+        "reset DNS filter settings",
+        state
+            .dns_filter_service()
+            .update_device_settings(
+                uuid,
+                wardnet_common::api::UpdateDeviceFilterSettingsRequest {
+                    enabled: true,
+                    profile_ids: Vec::new(),
+                },
+            )
+            .await
+            .map(|_| ()),
+    )?;
+
+    // 7. DNS capture off, admin lock cleared, name cleared.
+    releasing(
+        "disable DNS capture",
+        state
+            .device_service()
+            .update_dns_capture_settings(&device_id, Some(false), None, None)
+            .await,
+    )?;
+    releasing(
+        "clear admin lock",
+        state
+            .device_service()
+            .update_admin_locked(&device_id, false)
+            .await,
+    )?;
+    releasing(
+        "clear device name",
+        state
+            .discovery_service()
+            .update_device(uuid, Some(""), None)
+            .await
+            .map(|_| ()),
+    )?;
+
+    // 8. Zone back to the current default-for-new — the zone a freshly
+    //    discovered device would land in. Membership is sticky, so nothing else
+    //    would ever move it back.
+    let zones = state.network_zone_service().list_zones().await?;
+    if let Some(default_zone) = zones.iter().find(|z| z.zone.is_default_for_new)
+        && default_zone.zone.id != device.zone_id
+    {
+        releasing(
+            "reset network zone",
+            state
+                .network_zone_service()
+                .assign_device(uuid, default_zone.zone.id)
+                .await,
+        )?;
+    }
+
+    // 9. Finally unmanaged. Every step above that promotes on write (the
+    //    routing rule, the filter settings, the zone) has already run, so this
+    //    lands last and stays.
+    releasing(
+        "clear managed flag",
+        state.device_service().clear_managed(&device_id).await,
+    )?;
+
+    tracing::info!(
+        device_id = %uuid,
+        mac = %device.mac,
+        "released device {uuid} (mac {mac}): configuration reverted to default, now unmanaged",
+        mac = device.mac,
+    );
 
     let device = state.discovery_service().get_device_by_id(uuid).await?;
     // Mutation path — see `device_detail`.

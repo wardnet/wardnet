@@ -334,6 +334,23 @@ export interface paths {
         patch: operations["patch_api_devices_id_dns_capture"];
         trace?: never;
     };
+    "/api/devices/{id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Stop managing a device (issue #1181). Reverts every admin-set configuration to default and returns the device to unmanaged, after which it becomes subject to device retention and is deleted once it has been absent for 30 days. Destructive: this revokes the device's Private-DNS grant and its Remote peer credential, disconnecting it. Idempotent — each step is a no-op when there is nothing to revert, so a retry after a partial failure completes. Admin only. */
+        post: operations["post_api_devices_id_release"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/{id}/zone": {
         parameters: {
             query?: never;
@@ -2770,6 +2787,22 @@ export interface components {
             /** Format: date-time */
             last_seen: string;
             mac: string;
+            /** @description Whether an admin has decided to control this device's configuration.
+             *
+             *     Set by *any* admin configuration act (naming, locking, a routing rule or
+             *     profile, DNS filter settings, DNS capture, a Private-DNS grant, a Remote
+             *     peer credential, a DHCP reservation, a zone exception, an explicit zone
+             *     reassignment) and deliberately **not** inferred from `name` — a device
+             *     can be configured without ever being named, and clearing a name must not
+             *     silently revoke its remote access.
+             *
+             *     Latching: never demotes automatically, only through an explicit release
+             *     (`POST /api/devices/{id}/release`), which first reverts every managed
+             *     setting to default. That upholds the invariant device retention depends
+             *     on — `managed = false` implies no admin artefacts exist — so pruning a
+             *     long-absent unmanaged device can never orphan a row. See issue #1181 and
+             *     `docs/adr/0032-managed-devices-and-retention.md`. */
+            managed: boolean;
             manufacturer?: string | null;
             manufacturer_source?: null | components["schemas"]["ManufacturerSource"];
             name?: string | null;
@@ -6285,6 +6318,99 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    post_api_devices_id_release: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated device detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceDetailResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
                 };
             };
         };

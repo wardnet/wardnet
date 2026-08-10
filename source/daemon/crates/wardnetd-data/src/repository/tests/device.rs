@@ -769,3 +769,60 @@ async fn provenance_without_a_manufacturer_is_dropped_on_read() {
     assert_eq!(device.manufacturer, None);
     assert_eq!(device.manufacturer_source, None);
 }
+
+// ── managed (issue #1181) ────────────────────────────────────────────────────
+
+async fn set_managed_flag(pool: &sqlx::SqlitePool, id: &str, managed: bool) {
+    sqlx::query("UPDATE devices SET managed = ? WHERE id = ?")
+        .bind(i32::from(managed))
+        .bind(id)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn insert_leaves_new_device_unmanaged() {
+    // A freshly discovered device is never managed — `insert` omits the column
+    // and takes the schema DEFAULT 0. This is what makes discovery-inserted
+    // devices eligible for retention at all.
+    let pool = test_pool().await;
+    let repo = SqliteDeviceRepository::new(pool);
+    repo.insert(&sample_device_row(
+        DEV1,
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.10",
+    ))
+    .await
+    .unwrap();
+
+    let device = repo.find_by_id(DEV1).await.unwrap().unwrap();
+    assert!(!device.managed);
+}
+
+#[tokio::test]
+async fn set_managed_round_trips_and_is_idempotent() {
+    let pool = test_pool().await;
+    insert_device(&pool, DEV1, "aa:bb:cc:dd:ee:01", "192.168.1.10").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    repo.set_managed(DEV1, true).await.unwrap();
+    assert!(repo.find_by_id(DEV1).await.unwrap().unwrap().managed);
+
+    // Promotion is called from every admin config act, so re-promoting an
+    // already-managed device must be a no-op rather than an error.
+    repo.set_managed(DEV1, true).await.unwrap();
+    assert!(repo.find_by_id(DEV1).await.unwrap().unwrap().managed);
+
+    repo.set_managed(DEV1, false).await.unwrap();
+    assert!(!repo.find_by_id(DEV1).await.unwrap().unwrap().managed);
+}
+
+#[tokio::test]
+async fn set_managed_on_missing_device_is_a_no_op() {
+    let pool = test_pool().await;
+    let repo = SqliteDeviceRepository::new(pool);
+    // A promotion must never be the thing that fails an otherwise-successful
+    // configuration change (e.g. a DHCP reservation for a not-yet-seen MAC).
+    repo.set_managed(DEV1, true).await.unwrap();
+}

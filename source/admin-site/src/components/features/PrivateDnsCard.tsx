@@ -45,8 +45,10 @@ interface PrivateDnsCardProps {
  * prerequisite checklist explains what's missing even before a Wardnet hostname
  * exists. Enabling is gated on three hard prerequisites (wardnet provider, live
  * certificate, Premium entitlement); the reverse tunnel is informational only.
- * Once enabled the admin grants managed devices and can push a setup link to
- * each granted device. Pure presentation — the owning page wires the
+ * Once enabled the admin grants named devices and can push a setup link to
+ * each granted device. Granting makes a device managed (#1181), so it is no
+ * longer forgotten after 30 days away — which is what keeps a roaming phone's
+ * grant alive while it is off the LAN. Pure presentation — the owning page wires the
  * query/mutation hooks and passes data + callbacks in.
  */
 export function PrivateDnsCard({
@@ -79,8 +81,12 @@ export function PrivateDnsCard({
   const grants = useMemo(() => status?.grants ?? [], [status?.grants]);
   const enabled = status?.enabled ?? false;
 
-  // Only managed (admin-named) devices can be granted; a granted device drops
-  // out of the picker so the one-grant-per-device guard is never hit.
+  // Only NAMED devices are offered: a grant is listed and pushed to by the
+  // device's name, so an unnamed one has nothing to identify it by. This is a
+  // naming requirement, not a managed-state one — since #1181 those are
+  // separate, and granting is itself one of the acts that MAKES a device
+  // managed, so gating on `managed` here would be circular. A granted device
+  // drops out of the picker so the one-grant-per-device guard is never hit.
   const grantable = useMemo(() => {
     const grantedIds = new Set(grants.map((g) => g.device_id));
     return devices.filter((d) => d.name != null && !grantedIds.has(d.id));
@@ -152,8 +158,8 @@ export function PrivateDnsCard({
 
             {devices.every((d) => d.name == null) && (
               <Text as="p" size="sm" className="text-ink-3">
-                Only managed devices can be granted. Name a device on the
-                Devices page, then grant it access here.
+                Only named devices can be granted. Name a device on the Devices
+                page, then grant it access here.
               </Text>
             )}
 
@@ -196,6 +202,10 @@ export function PrivateDnsCard({
                     {grantDevice.isPending ? "Granting…" : "Grant"}
                   </Button>
                 </div>
+                <Text as="p" size="xs" className="text-ink-3">
+                  Granting makes this device managed, so it won't be forgotten
+                  while it's away.
+                </Text>
               </div>
             )}
 

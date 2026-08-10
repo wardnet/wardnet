@@ -6,6 +6,7 @@
 //! unknown-tunnel rejection. CRUD happy paths and conflicts are covered by the
 //! API-layer tests, which drive the same service.
 
+use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::Arc;
 
@@ -14,14 +15,20 @@ use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
 use tokio::sync::mpsc;
 use uuid::Uuid;
-use wardnet_common::api::CreateTunnelRequest;
+use wardnet_common::api::{
+    CreateTunnelRequest, DeviceMeResponse, DnsCaptureSettingsResponse, DnsEventItem,
+    SetMyRuleResponse,
+};
 use wardnet_common::auth::AuthContext;
+use wardnet_common::device::Device;
+use wardnet_common::routing::RoutingTarget;
 use wardnet_common::routing_profile::DomainRoutingTarget;
 use wardnet_common::tunnel::Tunnel;
 use wardnetd_data::repository::SqliteRoutingProfileRepository;
 
 use crate::TunnelService;
 use crate::auth_context;
+use crate::device::service::DeviceService;
 use crate::error::AppError;
 use crate::routing_profile::service::{
     DomainRouteRequest, RoutingProfileService, RoutingProfileServiceImpl,
@@ -61,6 +68,108 @@ async fn insert_device(pool: &SqlitePool, id: Uuid, last_ip: &str) {
     .execute(pool)
     .await
     .unwrap();
+}
+
+/// A `DeviceService` that records the ids passed to `mark_managed` and panics
+/// on anything else.
+///
+/// `RoutingProfileServiceImpl` holds a `DeviceService` for exactly one reason —
+/// promoting a device to managed when a profile is assigned to it (#1181) — so
+/// every other method being `unimplemented!()` is the assertion that the
+/// dependency stays that narrow.
+#[derive(Default)]
+struct RecordingDeviceService {
+    marked: std::sync::Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl DeviceService for RecordingDeviceService {
+    async fn clear_rule(&self, _device_id: &str) -> Result<(), crate::error::AppError> {
+        Ok(())
+    }
+
+    async fn mark_managed(&self, device_id: &str) -> Result<(), AppError> {
+        self.marked.lock().unwrap().push(device_id.to_owned());
+        Ok(())
+    }
+
+    async fn clear_managed(&self, _device_id: &str) -> Result<(), AppError> {
+        unimplemented!("routing profiles never release a device")
+    }
+
+    async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
+        unimplemented!()
+    }
+    async fn set_rule_for_ip(
+        &self,
+        _ip: &str,
+        _target: RoutingTarget,
+    ) -> Result<SetMyRuleResponse, AppError> {
+        unimplemented!()
+    }
+    async fn set_rule(&self, _device_id: &str, _target: RoutingTarget) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn current_rules(&self) -> Result<HashMap<Uuid, RoutingTarget>, AppError> {
+        unimplemented!()
+    }
+    async fn get_rule_for_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<RoutingTarget>, AppError> {
+        unimplemented!()
+    }
+    async fn update_admin_locked(&self, _device_id: &str, _locked: bool) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn get_dns_capture_settings(
+        &self,
+        _device_id: &str,
+    ) -> Result<DnsCaptureSettingsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_dns_capture_settings(
+        &self,
+        _device_id: &str,
+        _enabled: Option<bool>,
+        _cap_count: Option<i64>,
+        _cap_days: Option<i64>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn set_my_capture_enabled(
+        &self,
+        _ip: &str,
+        _enabled: bool,
+    ) -> Result<DnsCaptureSettingsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn fetch_pending_dns_events(
+        &self,
+        _device_id: &str,
+        _after_id: i64,
+        _limit: i64,
+    ) -> Result<Vec<DnsEventItem>, AppError> {
+        unimplemented!()
+    }
+    async fn ack_dns_events(&self, _device_id: &str, _up_to_id: i64) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn list_capture_enabled_device_ids(&self) -> Result<Vec<String>, AppError> {
+        unimplemented!()
+    }
+    async fn get_device_capture_settings(
+        &self,
+        _device_id: &str,
+    ) -> Result<Option<(bool, i64, i64)>, AppError> {
+        unimplemented!()
+    }
+    async fn get_device(&self, _device_id: &str) -> Result<Option<Device>, AppError> {
+        unimplemented!()
+    }
+    async fn clear_remote_connection_mode(&self, _device_id: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
 }
 
 /// A `TunnelService` whose `get_tunnel` always reports "not found" (so
@@ -160,6 +269,7 @@ async fn setup() -> (
     let svc = Arc::new(RoutingProfileServiceImpl::new(
         repo,
         Arc::new(MissingTunnelService),
+        Arc::new(RecordingDeviceService::default()),
         tx,
     ));
 

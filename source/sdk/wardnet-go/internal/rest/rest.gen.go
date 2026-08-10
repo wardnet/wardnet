@@ -2071,10 +2071,27 @@ type Device struct {
 	// IsRandomized Whether `mac` is locally administered (a privacy/randomized address).
 	// Deliberately separate from `manufacturer`: it says how the device
 	// presents itself, not who built it.
-	IsRandomized       bool                `json:"is_randomized"`
-	LastIp             string              `json:"last_ip"`
-	LastSeen           time.Time           `json:"last_seen"`
-	Mac                string              `json:"mac"`
+	IsRandomized bool      `json:"is_randomized"`
+	LastIp       string    `json:"last_ip"`
+	LastSeen     time.Time `json:"last_seen"`
+	Mac          string    `json:"mac"`
+
+	// Managed Whether an admin has decided to control this device's configuration.
+	//
+	// Set by *any* admin configuration act (naming, locking, a routing rule or
+	// profile, DNS filter settings, DNS capture, a Private-DNS grant, a Remote
+	// peer credential, a DHCP reservation, a zone exception, an explicit zone
+	// reassignment) and deliberately **not** inferred from `name` — a device
+	// can be configured without ever being named, and clearing a name must not
+	// silently revoke its remote access.
+	//
+	// Latching: never demotes automatically, only through an explicit release
+	// (`POST /api/devices/{id}/release`), which first reverts every managed
+	// setting to default. That upholds the invariant device retention depends
+	// on — `managed = false` implies no admin artefacts exist — so pruning a
+	// long-absent unmanaged device can never orphan a row. See issue #1181 and
+	// `docs/adr/0032-managed-devices-and-retention.md`.
+	Managed            bool                `json:"managed"`
 	Manufacturer       *string             `json:"manufacturer,omitempty"`
 	ManufacturerSource *ManufacturerSource `json:"manufacturer_source,omitempty"`
 	Name               *string             `json:"name,omitempty"`
@@ -2234,10 +2251,27 @@ type DeviceWithStatus struct {
 	// IsRandomized Whether `mac` is locally administered (a privacy/randomized address).
 	// Deliberately separate from `manufacturer`: it says how the device
 	// presents itself, not who built it.
-	IsRandomized       bool                `json:"is_randomized"`
-	LastIp             string              `json:"last_ip"`
-	LastSeen           time.Time           `json:"last_seen"`
-	Mac                string              `json:"mac"`
+	IsRandomized bool      `json:"is_randomized"`
+	LastIp       string    `json:"last_ip"`
+	LastSeen     time.Time `json:"last_seen"`
+	Mac          string    `json:"mac"`
+
+	// Managed Whether an admin has decided to control this device's configuration.
+	//
+	// Set by *any* admin configuration act (naming, locking, a routing rule or
+	// profile, DNS filter settings, DNS capture, a Private-DNS grant, a Remote
+	// peer credential, a DHCP reservation, a zone exception, an explicit zone
+	// reassignment) and deliberately **not** inferred from `name` — a device
+	// can be configured without ever being named, and clearing a name must not
+	// silently revoke its remote access.
+	//
+	// Latching: never demotes automatically, only through an explicit release
+	// (`POST /api/devices/{id}/release`), which first reverts every managed
+	// setting to default. That upholds the invariant device retention depends
+	// on — `managed = false` implies no admin artefacts exist — so pruning a
+	// long-absent unmanaged device can never orphan a row. See issue #1181 and
+	// `docs/adr/0032-managed-devices-and-retention.md`.
+	Managed            bool                `json:"managed"`
 	Manufacturer       *string             `json:"manufacturer,omitempty"`
 	ManufacturerSource *ManufacturerSource `json:"manufacturer_source,omitempty"`
 	Name               *string             `json:"name,omitempty"`
@@ -6061,6 +6095,11 @@ type ClientInterface interface {
 	// Update DNS capture settings for a device. Omitted fields are left unchanged.
 	UpdateDnsCaptureSettings(ctx context.Context, id string, body UpdateDnsCaptureSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ReleaseDevice performs a POST /api/devices/{id}/release (the `ReleaseDevice` operationId) request.
+	//
+	// Stop managing a device (issue #1181). Reverts every admin-set configuration to default and returns the device to unmanaged, after which it becomes subject to device retention and is deleted once it has been absent for 30 days. Destructive: this revokes the device's Private-DNS grant and its Remote peer credential, disconnecting it. Idempotent — each step is a no-op when there is nothing to revert, so a retry after a partial failure completes. Admin only.
+	ReleaseDevice(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// AssignDeviceZoneWithBody performs a PUT /api/devices/{id}/zone (the `AssignDeviceZone` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -7763,6 +7802,21 @@ func (c *Client) UpdateDnsCaptureSettingsWithBody(ctx context.Context, id string
 // Update DNS capture settings for a device. Omitted fields are left unchanged.
 func (c *Client) UpdateDnsCaptureSettings(ctx context.Context, id string, body UpdateDnsCaptureSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewUpdateDnsCaptureSettingsRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReleaseDevice performs a POST /api/devices/{id}/release (the `ReleaseDevice` operationId) request.
+//
+// Stop managing a device (issue #1181). Reverts every admin-set configuration to default and returns the device to unmanaged, after which it becomes subject to device retention and is deleted once it has been absent for 30 days. Destructive: this revokes the device's Private-DNS grant and its Remote peer credential, disconnecting it. Idempotent — each step is a no-op when there is nothing to revert, so a retry after a partial failure completes. Admin only.
+func (c *Client) ReleaseDevice(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReleaseDeviceRequest(c.Server, id)
 	if err != nil {
 		return nil, err
 	}
@@ -11736,6 +11790,40 @@ func NewUpdateDnsCaptureSettingsRequestWithBody(server string, id string, conten
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewReleaseDeviceRequest constructs an http.Request for the ReleaseDevice method
+func NewReleaseDeviceRequest(server string, id openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/devices/%s/release", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -17422,6 +17510,13 @@ type ClientWithResponsesInterface interface {
 	// Update DNS capture settings for a device. Omitted fields are left unchanged.
 	UpdateDnsCaptureSettingsWithResponse(ctx context.Context, id string, body UpdateDnsCaptureSettingsJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateDnsCaptureSettingsResp, error)
 
+	// ReleaseDeviceWithResponse performs a POST /api/devices/{id}/release (the `ReleaseDevice` operationId) request.
+	//
+	// Stop managing a device (issue #1181). Reverts every admin-set configuration to default and returns the device to unmanaged, after which it becomes subject to device retention and is deleted once it has been absent for 30 days. Destructive: this revokes the device's Private-DNS grant and its Remote peer credential, disconnecting it. Idempotent — each step is a no-op when there is nothing to revert, so a retry after a partial failure completes. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ReleaseDeviceWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*ReleaseDeviceResp, error)
+
 	// AssignDeviceZoneWithBodyWithResponse performs a PUT /api/devices/{id}/zone (the `AssignDeviceZone` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -21214,6 +21309,142 @@ func (r UpdateDnsCaptureSettingsResp) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r UpdateDnsCaptureSettingsResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReleaseDeviceResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DeviceDetailResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReleaseDeviceResp) GetJSON200() *DeviceDetailResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ReleaseDeviceResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ReleaseDeviceResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ReleaseDeviceResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ReleaseDeviceResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ReleaseDeviceResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ReleaseDeviceResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReleaseDeviceResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReleaseDeviceResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReleaseDeviceResp) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -37392,6 +37623,19 @@ func (c *ClientWithResponses) UpdateDnsCaptureSettingsWithResponse(ctx context.C
 	return ParseUpdateDnsCaptureSettingsResp(rsp)
 }
 
+// ReleaseDeviceWithResponse performs a POST /api/devices/{id}/release (the `ReleaseDevice` operationId) request.
+//
+// Stop managing a device (issue #1181). Reverts every admin-set configuration to default and returns the device to unmanaged, after which it becomes subject to device retention and is deleted once it has been absent for 30 days. Destructive: this revokes the device's Private-DNS grant and its Remote peer credential, disconnecting it. Idempotent — each step is a no-op when there is nothing to revert, so a retry after a partial failure completes. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ReleaseDeviceWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*ReleaseDeviceResp, error) {
+	rsp, err := c.ReleaseDevice(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReleaseDeviceResp(rsp)
+}
+
 // AssignDeviceZoneWithBodyWithResponse performs a PUT /api/devices/{id}/zone (the `AssignDeviceZone` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -41578,6 +41822,97 @@ func ParseUpdateDnsCaptureSettingsResp(rsp *http.Response) (*UpdateDnsCaptureSet
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReleaseDeviceResp parses an HTTP response from a ReleaseDeviceWithResponse call
+func ParseReleaseDeviceResp(rsp *http.Response) (*ReleaseDeviceResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReleaseDeviceResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeviceDetailResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

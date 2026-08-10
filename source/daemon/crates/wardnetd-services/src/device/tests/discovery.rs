@@ -82,6 +82,18 @@ impl MockDeviceRepo {
 
 #[async_trait]
 impl DeviceRepository for MockDeviceRepo {
+    async fn delete_rule_for_device(&self, _device_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn set_managed(&self, id: &str, managed: bool) -> anyhow::Result<()> {
+        let mut devices = self.devices.lock().unwrap();
+        if let Some(d) = devices.iter_mut().find(|d| d.id.to_string() == id) {
+            d.managed = managed;
+        }
+        Ok(())
+    }
+
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
         let devices = self.devices.lock().unwrap();
         Ok(devices.iter().find(|d| d.last_ip == ip).cloned())
@@ -143,6 +155,9 @@ impl DeviceRepository for MockDeviceRepo {
             dns_capture_cap_count: 1000,
             dns_capture_cap_days: 7,
             connection_mode: device.connection_mode,
+            // Mirrors the SQLite repo: `insert` omits `managed`, so a freshly
+            // discovered device always starts unmanaged (#1181).
+            managed: false,
         });
         Ok(())
     }
@@ -228,9 +243,12 @@ impl DeviceRepository for MockDeviceRepo {
         // Update the in-memory device so subsequent find_by_id returns updated data.
         let mut devices = self.devices.lock().unwrap();
         if let Some(d) = devices.iter_mut().find(|d| d.id.to_string() == id) {
-            if let Some(n) = name {
-                d.name = Some(n.to_owned());
-            }
+            // Assigned unconditionally, mirroring the real repo's
+            // `SET name = ?`: a `None` here means "write NULL" (the caller has
+            // already resolved partial-update semantics), not "leave it alone".
+            // The mock used to skip `None`, which made clearing a name silently
+            // untestable.
+            d.name = name.map(str::to_owned);
             if let Ok(dt) = serde_json::from_str(&format!("\"{device_type}\"")) {
                 d.device_type = dt;
             }
@@ -593,6 +611,7 @@ fn sample_device(id: &str, mac: &str, ip: &str) -> Device {
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
         connection_mode: DeviceConnectionMode::Lan,
+        managed: false,
     }
 }
 
@@ -2264,4 +2283,105 @@ async fn new_device_with_a_public_oui_is_named_from_the_ieee_table() {
         }
         other => panic!("expected NewDevice, got {other:?}"),
     }
+}
+
+// ── Managed promotion (issue #1181) ──────────────────────────────────────────
+
+const DEVICE_ID_1: &str = "00000000-0000-0000-0000-0000000f0001";
+const MAC_1: &str = "aa:bb:cc:dd:ef:01";
+
+#[tokio::test]
+async fn admin_rename_promotes_the_device_to_managed() {
+    let device = sample_device(DEVICE_ID_1, MAC_1, "192.168.1.10");
+    let id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+    assert!(
+        !h.repo
+            .find_by_id(&id.to_string())
+            .await
+            .unwrap()
+            .unwrap()
+            .managed
+    );
+
+    auth_context::with_context(
+        admin_ctx(),
+        h.svc.update_device(id, Some("Living Room TV"), None),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        h.repo
+            .find_by_id(&id.to_string())
+            .await
+            .unwrap()
+            .unwrap()
+            .managed
+    );
+}
+
+#[tokio::test]
+async fn a_device_renaming_itself_does_not_promote_it() {
+    // The exclusion the whole feature depends on. `update_device` is
+    // `require_authenticated`, so a device may rename itself — and a guest
+    // doing that is the device asking, not the admin deciding. Promoting here
+    // would make every guest phone permanently exempt from retention.
+    let device = sample_device(DEVICE_ID_1, MAC_1, "192.168.1.10");
+    let id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    auth_context::with_context(
+        device_ctx(MAC_1),
+        h.svc.update_device(id, Some("My Phone"), None),
+    )
+    .await
+    .unwrap();
+
+    let stored = h.repo.find_by_id(&id.to_string()).await.unwrap().unwrap();
+    assert_eq!(
+        stored.name,
+        Some("My Phone".to_owned()),
+        "the rename lands..."
+    );
+    assert!(!stored.managed, "...but it does not promote");
+}
+
+#[tokio::test]
+async fn a_blank_name_clears_the_name_to_null() {
+    // An empty string would persist as a name that renders as no label while
+    // still counting as named — the ambiguity `managed` exists to remove — and
+    // the release handler needs a way to genuinely unname a device.
+    let mut device = sample_device(DEVICE_ID_1, MAC_1, "192.168.1.10");
+    device.name = Some("Living Room TV".to_owned());
+    let id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    auth_context::with_context(admin_ctx(), h.svc.update_device(id, Some("   "), None))
+        .await
+        .unwrap();
+
+    let stored = h.repo.find_by_id(&id.to_string()).await.unwrap().unwrap();
+    assert_eq!(stored.name, None);
+}
+
+#[tokio::test]
+async fn omitting_the_name_still_preserves_it() {
+    // Guard against the blank-clears-it rule above swallowing the existing
+    // partial-update contract: `None` means "leave the name alone", and is
+    // distinct from `Some("")`.
+    let mut device = sample_device(DEVICE_ID_1, MAC_1, "192.168.1.10");
+    device.name = Some("Living Room TV".to_owned());
+    let id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    auth_context::with_context(
+        admin_ctx(),
+        h.svc.update_device(id, None, Some(DeviceType::Tv)),
+    )
+    .await
+    .unwrap();
+
+    let stored = h.repo.find_by_id(&id.to_string()).await.unwrap().unwrap();
+    assert_eq!(stored.name, Some("Living Room TV".to_owned()));
 }

@@ -86,6 +86,13 @@ impl AuthService for MockAuthService {
 }
 
 /// Mock `DeviceService` returning configurable responses.
+/// Ordered record of the service calls a request made, shared between the
+/// device and discovery mocks so a test can assert *sequence*, not just
+/// occurrence. The release handler's correctness is an ordering property —
+/// `clear_managed` must be last — so occurrence alone would not catch the bug
+/// that matters (issue #1181).
+type AuditLog = Arc<std::sync::Mutex<Vec<&'static str>>>;
+
 struct MockDeviceService {
     device: Option<Device>,
     rule: Option<RoutingTarget>,
@@ -93,6 +100,10 @@ struct MockDeviceService {
     set_rule_error: Option<String>,
     /// Batched routing rules returned by `current_rules` (used by the list path).
     current_rules: std::collections::HashMap<Uuid, RoutingTarget>,
+    audit: AuditLog,
+    /// When set, `update_admin_locked` fails — standing in for any mid-sequence
+    /// step of the release blowing up.
+    fail_admin_locked: bool,
 }
 
 impl MockDeviceService {
@@ -104,6 +115,8 @@ impl MockDeviceService {
             admin_locked,
             set_rule_error: None,
             current_rules: std::collections::HashMap::new(),
+            audit: AuditLog::default(),
+            fail_admin_locked: false,
         }
     }
 
@@ -114,6 +127,8 @@ impl MockDeviceService {
             admin_locked: false,
             set_rule_error: Some("not_found".to_owned()),
             current_rules: std::collections::HashMap::new(),
+            audit: AuditLog::default(),
+            fail_admin_locked: false,
         }
     }
 
@@ -124,6 +139,8 @@ impl MockDeviceService {
             admin_locked: true,
             set_rule_error: Some("forbidden".to_owned()),
             current_rules: std::collections::HashMap::new(),
+            audit: AuditLog::default(),
+            fail_admin_locked: false,
         }
     }
 
@@ -223,6 +240,21 @@ impl TunnelService for MockTunnelService {
 
 #[async_trait]
 impl DeviceService for MockDeviceService {
+    async fn clear_rule(&self, _device_id: &str) -> Result<(), AppError> {
+        self.audit.lock().unwrap().push("clear_rule");
+        Ok(())
+    }
+
+    async fn mark_managed(&self, _device_id: &str) -> Result<(), AppError> {
+        self.audit.lock().unwrap().push("mark_managed");
+        Ok(())
+    }
+
+    async fn clear_managed(&self, _device_id: &str) -> Result<(), AppError> {
+        self.audit.lock().unwrap().push("clear_managed");
+        Ok(())
+    }
+
     async fn get_device(
         &self,
         _device_id: &str,
@@ -278,6 +310,12 @@ impl DeviceService for MockDeviceService {
     }
 
     async fn update_admin_locked(&self, _id: &str, _locked: bool) -> Result<(), AppError> {
+        self.audit.lock().unwrap().push("update_admin_locked");
+        if self.fail_admin_locked {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "synthetic lock failure"
+            )));
+        }
         Ok(())
     }
     async fn get_dns_capture_settings(
@@ -293,7 +331,11 @@ impl DeviceService for MockDeviceService {
         _cap_count: Option<i64>,
         _cap_days: Option<i64>,
     ) -> Result<(), AppError> {
-        unimplemented!()
+        self.audit
+            .lock()
+            .unwrap()
+            .push("update_dns_capture_settings");
+        Ok(())
     }
     async fn set_my_capture_enabled(
         &self,
@@ -431,6 +473,7 @@ impl DhcpService for MockDhcpService {
 /// Mock `DeviceDiscoveryService` for admin device endpoints.
 struct MockDiscoveryService {
     devices: Vec<Device>,
+    audit: AuditLog,
 }
 
 #[async_trait]
@@ -489,10 +532,15 @@ impl DeviceDiscoveryService for MockDiscoveryService {
         name: Option<&str>,
         _device_type: Option<DeviceType>,
     ) -> Result<Device, AppError> {
+        self.audit.lock().unwrap().push("update_device");
         let mut device = self.get_device_by_id(id).await?;
-        if let Some(n) = name {
-            device.name = Some(n.to_owned());
-        }
+        // Mirrors the service: a blank name clears it to `None` rather than
+        // storing an empty string (#1181).
+        device.name = name
+            .map(str::trim)
+            .filter(|n| !n.is_empty())
+            .map(str::to_owned)
+            .or(if name.is_some() { None } else { device.name });
         Ok(device)
     }
 }
@@ -520,6 +568,7 @@ fn sample_device() -> Device {
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
         connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
+        managed: false,
     }
 }
 
@@ -669,6 +718,7 @@ fn build_state_with_identification(
         MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct)),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         MockDhcpService::empty(),
     )
@@ -690,6 +740,10 @@ fn device_router(state: AppState) -> Router {
         .route(
             "/api/devices/{id}/zone",
             put(crate::api::devices::assign_device_zone),
+        )
+        .route(
+            "/api/devices/{id}/release",
+            axum::routing::post(crate::api::devices::release_device),
         )
         .with_state(state)
 }
@@ -736,6 +790,27 @@ async fn put_json(app: Router, uri: &str, json_body: &str) -> (StatusCode, serde
     (status, json)
 }
 
+/// Send an authenticated POST with no body.
+async fn post_json(app: Router, uri: &str) -> (StatusCode, serde_json::Value) {
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header("Cookie", "wardnet_session=valid-token")
+                .extension(connect_info())
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let status = resp.status();
+    let body = axum::body::to_bytes(resp.into_body(), 16384).await.unwrap();
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null);
+    (status, json)
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/devices/me
 // ---------------------------------------------------------------------------
@@ -745,7 +820,10 @@ async fn get_me_returns_device_when_found() {
     let device = sample_device();
     let state = build_state(
         MockDeviceService::found(device, Some(RoutingTarget::Direct)),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
     );
     let app = device_router(state);
 
@@ -764,7 +842,10 @@ async fn get_me_returns_device_when_found() {
 async fn get_me_returns_null_device_when_unknown_ip() {
     let state = build_state(
         MockDeviceService::not_found(),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
     );
     let app = device_router(state);
 
@@ -819,12 +900,16 @@ async fn get_me_includes_assigned_routing_profiles() {
     let routing_svc = Arc::new(RoutingProfileServiceImpl::new(
         repo,
         Arc::new(StubTunnelService),
+        Arc::new(crate::tests::stubs::StubDeviceService),
         tx,
     ));
 
     let state = build_state(
         MockDeviceService::found(device, None),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
     )
     .with_routing_profile_service(routing_svc);
     let app = device_router(state);
@@ -858,7 +943,10 @@ async fn get_me_includes_tunnel_status_and_last_handshake() {
     };
     let state = build_state_with_tunnel_svc(
         MockDeviceService::found(sample_device(), None),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
         MockTunnelService {
             tunnels: vec![tunnel],
         },
@@ -879,7 +967,10 @@ async fn get_me_includes_tunnel_status_and_last_handshake() {
 async fn set_my_rule_success() {
     let state = build_state(
         MockDeviceService::found(sample_device(), None),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
     );
     let app = device_router(state);
 
@@ -899,7 +990,10 @@ async fn set_my_rule_with_tunnel_target() {
     let tunnel_id = "00000000-0000-0000-0000-000000000010";
     let state = build_state(
         MockDeviceService::found(sample_device(), None),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
     );
     let app = device_router(state);
 
@@ -914,7 +1008,10 @@ async fn set_my_rule_with_tunnel_target() {
 async fn set_my_rule_device_not_found() {
     let state = build_state(
         MockDeviceService::not_found(),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
     );
     let app = device_router(state);
 
@@ -934,7 +1031,13 @@ async fn set_my_rule_forbidden_when_locked() {
     device.admin_locked = true;
 
     let svc = MockDeviceService::forbidden(device);
-    let state = build_state(svc, MockDiscoveryService { devices: vec![] });
+    let state = build_state(
+        svc,
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
+    );
     let app = device_router(state);
 
     let (status, json) = put_json(
@@ -951,7 +1054,10 @@ async fn set_my_rule_forbidden_when_locked() {
 async fn set_my_rule_bad_json_returns_error() {
     let state = build_state(
         MockDeviceService::found(sample_device(), None),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
     );
     let app = device_router(state);
 
@@ -988,6 +1094,7 @@ async fn list_devices_returns_all() {
         MockDeviceService::not_found(),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         MockDhcpService::empty(),
     );
@@ -1023,6 +1130,7 @@ async fn list_devices_includes_routing_target() {
         MockDeviceService::not_found().with_current_rules(rules),
         MockDiscoveryService {
             devices: vec![tunnel_device, default_device],
+            audit: AuditLog::default(),
         },
         MockDhcpService::empty(),
     );
@@ -1055,7 +1163,10 @@ async fn list_devices_includes_routing_target() {
 async fn list_devices_returns_empty() {
     let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
         MockDhcpService::empty(),
     );
     let app = device_router(state);
@@ -1069,7 +1180,10 @@ async fn list_devices_returns_empty() {
 async fn list_devices_unauthorized_without_session() {
     let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
         MockDhcpService::empty(),
     );
     let app = device_router(state);
@@ -1099,6 +1213,7 @@ async fn get_device_by_id_success() {
         MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct)),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         MockDhcpService::empty(),
     );
@@ -1174,7 +1289,10 @@ async fn update_device_degrades_when_signals_cannot_be_read() {
 async fn get_device_by_id_not_found() {
     let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
         MockDhcpService::empty(),
     );
     let app = device_router(state);
@@ -1188,7 +1306,10 @@ async fn get_device_by_id_not_found() {
 async fn get_device_by_id_invalid_uuid() {
     let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
         MockDhcpService::empty(),
     );
     let app = device_router(state);
@@ -1209,6 +1330,7 @@ async fn assign_device_zone_success() {
         MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct)),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         MockDhcpService::empty(),
     );
@@ -1235,6 +1357,7 @@ async fn update_device_success() {
         MockDeviceService::found(device.clone(), None),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         MockDhcpService::empty(),
     );
@@ -1257,6 +1380,7 @@ async fn update_device_with_type() {
         MockDeviceService::found(device.clone(), None),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         MockDhcpService::empty(),
     );
@@ -1276,7 +1400,10 @@ async fn update_device_with_type() {
 async fn update_device_invalid_uuid() {
     let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
         MockDhcpService::empty(),
     );
     let app = device_router(state);
@@ -1290,7 +1417,10 @@ async fn update_device_invalid_uuid() {
 async fn update_device_not_found() {
     let state = build_state_with_dhcp(
         MockDeviceService::not_found(),
-        MockDiscoveryService { devices: vec![] },
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
         MockDhcpService::empty(),
     );
     let app = device_router(state);
@@ -1316,6 +1446,7 @@ async fn update_device_with_routing_target() {
         MockDeviceService::found(device.clone(), None),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         MockDhcpService::empty(),
     );
@@ -1337,6 +1468,7 @@ async fn update_device_with_admin_locked() {
         MockDeviceService::found(device.clone(), None),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         MockDhcpService::empty(),
     );
@@ -1380,6 +1512,7 @@ async fn list_devices_with_dhcp_lease_shows_lease_status() {
         MockDeviceService::not_found(),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         dhcp,
     );
@@ -1412,6 +1545,7 @@ async fn list_devices_with_dhcp_reservation_shows_reservation_status() {
         MockDeviceService::not_found(),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         dhcp,
     );
@@ -1457,6 +1591,7 @@ async fn list_devices_reservation_overrides_lease() {
         MockDeviceService::not_found(),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         dhcp,
     );
@@ -1495,6 +1630,7 @@ async fn get_device_by_id_includes_dhcp_status() {
         MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct)),
         MockDiscoveryService {
             devices: vec![device],
+            audit: AuditLog::default(),
         },
         dhcp,
     );
@@ -1503,4 +1639,138 @@ async fn get_device_by_id_includes_dhcp_status() {
     let (status, json) = get_json(app, "/api/devices/00000000-0000-0000-0000-000000000001").await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["device"]["dhcp_status"], "lease");
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/devices/{id}/release  (issue #1181)
+// ---------------------------------------------------------------------------
+
+/// Build a state for the release path, returning the shared audit log so the
+/// test can assert the *order* the handler called things in.
+fn build_release_state_with(
+    device_svc: MockDeviceService,
+    device: Device,
+    audit: AuditLog,
+) -> AppState {
+    build_state_with_dhcp(
+        device_svc,
+        MockDiscoveryService {
+            devices: vec![device],
+            audit,
+        },
+        MockDhcpService::empty(),
+    )
+    .with_routing_profile_service(Arc::new(crate::tests::stubs::StubRoutingProfileService))
+}
+
+fn build_release_state(managed: bool) -> (AppState, AuditLog) {
+    let mut device = sample_device();
+    device.managed = managed;
+    device.name = Some("Living Room TV".to_owned());
+
+    let audit = AuditLog::default();
+    let mut device_svc = MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct));
+    device_svc.audit = audit.clone();
+
+    let state = build_release_state_with(device_svc, device, audit.clone());
+    (state, audit)
+}
+
+#[tokio::test]
+async fn release_clears_managed_last() {
+    // The ordering IS the safety property: `clear_managed` asserts the
+    // invariant "no admin artefacts exist", so it must only run once every
+    // revert has landed. If it moved earlier, a later failure would leave an
+    // unmanaged device still holding a live credential — which the retention
+    // prune would then delete 30 days later.
+    let (state, audit) = build_release_state(true);
+    let app = device_router(state);
+
+    let (status, _json) = post_json(
+        app,
+        "/api/devices/00000000-0000-0000-0000-000000000001/release",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    let calls = audit.lock().unwrap().clone();
+    assert!(
+        calls.contains(&"clear_managed"),
+        "release must clear the managed flag; calls={calls:?}"
+    );
+    assert_eq!(
+        calls.last(),
+        Some(&"clear_managed"),
+        "clear_managed must be the LAST call; calls={calls:?}"
+    );
+    // And it really did revert things on the way — not just flip the flag.
+    assert!(
+        calls.contains(&"update_admin_locked") && calls.contains(&"update_device"),
+        "release must revert configuration, not merely unmanage; calls={calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn release_leaves_the_device_managed_when_a_step_fails() {
+    // A partial release must be recoverable by retrying, never a half-released
+    // device carrying a credential it is no longer recorded as owning.
+    let mut device = sample_device();
+    device.managed = true;
+
+    let audit = AuditLog::default();
+    let mut device_svc = MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct));
+    device_svc.audit = audit.clone();
+    device_svc.fail_admin_locked = true;
+
+    let state = build_release_state_with(device_svc, device, audit.clone());
+    let app = device_router(state);
+
+    let (status, json) = post_json(
+        app,
+        "/api/devices/00000000-0000-0000-0000-000000000001/release",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    // The response body is deliberately generic — the step name goes to the
+    // log, not to the client.
+    assert_eq!(json["error"], "internal server error");
+
+    let calls = audit.lock().unwrap().clone();
+    assert!(
+        !calls.contains(&"clear_managed"),
+        "a failed release must leave the device managed; calls={calls:?}"
+    );
+}
+
+#[tokio::test]
+async fn release_is_404_for_an_unknown_device() {
+    // Every step below is individually tolerant of a missing device, so without
+    // an up-front lookup the whole sequence would "succeed" against nothing.
+    let state = build_state_with_dhcp(
+        MockDeviceService::not_found(),
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
+        MockDhcpService::empty(),
+    )
+    .with_routing_profile_service(Arc::new(crate::tests::stubs::StubRoutingProfileService));
+    let app = device_router(state);
+
+    let (status, _json) = post_json(
+        app,
+        "/api/devices/00000000-0000-0000-0000-000000000099/release",
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn release_rejects_a_malformed_device_id() {
+    let (state, _audit) = build_release_state(true);
+    let app = device_router(state);
+
+    let (status, _json) = post_json(app, "/api/devices/not-a-uuid/release").await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }

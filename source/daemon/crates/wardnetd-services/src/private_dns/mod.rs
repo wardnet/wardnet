@@ -513,6 +513,16 @@ impl PrivateDnsService for PrivateDnsServiceImpl {
             return Err(AppError::Internal(e));
         }
 
+        // A grant is an admin configuration act, so the device becomes managed
+        // and thereby exempt from the retention prune (issue #1181). This is
+        // the case that most needs it: the grant's secret hostname is what a
+        // roaming phone resolves through, and that phone can easily be absent
+        // from the LAN for well over 30 days. Under the old
+        // `managed = name IS NOT NULL` inference, an unnamed device would have
+        // had its row — and, by cascade, its live grant — deleted underneath a
+        // working configuration.
+        self.devices.mark_managed(&row.device_id).await?;
+
         // Grant mutations re-emit the change event (enabled is true here —
         // granting requires it) so listeners holding token state refresh.
         self.publish_changed(true);

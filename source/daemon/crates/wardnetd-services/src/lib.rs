@@ -752,6 +752,7 @@ fn create_services(
         Arc::new(RoutingProfileServiceImpl::new(
             repo_factory.routing_profile(),
             tunnel_service.clone(),
+            device_service.clone(),
             domain_route_tx,
         ));
 

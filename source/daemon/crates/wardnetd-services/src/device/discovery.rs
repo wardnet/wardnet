@@ -1055,6 +1055,13 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             .to_owned();
 
         let name_to_write = match name {
+            // An explicitly blank name means "clear it", stored as NULL. An
+            // empty string would otherwise persist as a name that renders as no
+            // label at all while still counting as named — the ambiguity the
+            // `managed` column was introduced to remove (#1181), and the state
+            // the release handler needs in order to actually unname a device.
+            // Distinct from `None`, which means "leave the name alone".
+            Some(n) if n.trim().is_empty() => None,
             Some(n) => Some(n),
             None => current
                 .as_ref()
@@ -1067,6 +1074,18 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             .update_name_and_type(&id.to_string(), name_to_write, &type_str)
             .await
             .map_err(AppError::Internal)?;
+
+        // Promote to managed — but only for an ADMIN rename. This method is
+        // also the self-service path (`require_authenticated`, above, admits an
+        // `AuthContext::Device` renaming itself); a device naming itself is the
+        // device asking, not the admin deciding, and promoting on it would make
+        // every guest device permanently exempt from retention.
+        if matches!(ctx, AuthContext::Admin { .. }) {
+            self.devices
+                .set_managed(&id.to_string(), true)
+                .await
+                .map_err(AppError::Internal)?;
+        }
 
         self.devices
             .find_by_id(&id.to_string())

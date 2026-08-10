@@ -108,6 +108,11 @@ pub enum DeviceSignalKind {
 }
 
 /// A discovered network device.
+// The bools are independent, orthogonal facts about one device — randomized
+// MAC, admin lock, DNS capture, managed — not a state machine hiding in a
+// struct. Grouping them into sub-structs would change the wire format for no
+// gain, since this type is serialized straight onto the API.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Device {
     pub id: Uuid,
@@ -137,4 +142,20 @@ pub struct Device {
     /// How the device is currently reachable (LAN vs. inbound `WireGuard`).
     /// Live status, last-observation-wins — see [`DeviceConnectionMode`].
     pub connection_mode: DeviceConnectionMode,
+    /// Whether an admin has decided to control this device's configuration.
+    ///
+    /// Set by *any* admin configuration act (naming, locking, a routing rule or
+    /// profile, DNS filter settings, DNS capture, a Private-DNS grant, a Remote
+    /// peer credential, a DHCP reservation, a zone exception, an explicit zone
+    /// reassignment) and deliberately **not** inferred from `name` — a device
+    /// can be configured without ever being named, and clearing a name must not
+    /// silently revoke its remote access.
+    ///
+    /// Latching: never demotes automatically, only through an explicit release
+    /// (`POST /api/devices/{id}/release`), which first reverts every managed
+    /// setting to default. That upholds the invariant device retention depends
+    /// on — `managed = false` implies no admin artefacts exist — so pruning a
+    /// long-absent unmanaged device can never orphan a row. See issue #1181 and
+    /// `docs/adr/0032-managed-devices-and-retention.md`.
+    pub managed: bool,
 }

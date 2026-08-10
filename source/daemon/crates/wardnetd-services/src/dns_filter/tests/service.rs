@@ -107,6 +107,7 @@ impl MemoryDeviceRepository {
                 dns_capture_cap_count: 1000,
                 dns_capture_cap_days: 7,
                 connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
+                managed: false,
             },
         );
     }
@@ -118,6 +119,14 @@ impl MemoryDeviceRepository {
 // returning empty data.
 #[async_trait]
 impl DeviceRepository for MemoryDeviceRepository {
+    async fn delete_rule_for_device(&self, _device_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn set_managed(&self, _id: &str, _managed: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
         unimplemented!()
     }

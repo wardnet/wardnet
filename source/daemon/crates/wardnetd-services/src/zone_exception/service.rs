@@ -204,6 +204,22 @@ impl ZoneExceptionService for ZoneExceptionServiceImpl {
             .insert(&exception)
             .await
             .map_err(AppError::Internal)?;
+
+        // An exception naming a device is an admin configuration act on that
+        // device, so it promotes to managed (issue #1181). Without this the
+        // retention prune could delete a device 30 days after it was last seen
+        // while this MAC-independent, FK-less exception row still referenced
+        // it — leaving a rule that grants cross-zone reach to whatever device
+        // next claims that id. Zone endpoints promote nothing.
+        for endpoint in [&exception.from, &exception.to] {
+            if endpoint.kind == ExceptionEndpointKind::Device {
+                self.devices
+                    .set_managed(&endpoint.id.to_string(), true)
+                    .await
+                    .map_err(AppError::Internal)?;
+            }
+        }
+
         self.emit_changed();
         Ok(exception)
     }

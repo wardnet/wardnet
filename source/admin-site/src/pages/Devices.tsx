@@ -20,8 +20,13 @@ type GroupId = "all" | "managed" | "unmanaged" | "recent";
 
 const RECENT_WINDOW_MS = 60 * 60 * 1000; // 1 hour
 
+// Managed is an explicit, server-owned flag (issue #1181), not something the
+// UI infers. It used to be `d.name != null`, which was wrong in both
+// directions: a device granted Private DNS or a Remote peer credential without
+// ever being named rendered as "Discovered", while a bare name alone made a
+// device look configured.
 function isManaged(d: Device): boolean {
-  return d.name != null;
+  return d.managed;
 }
 
 function isRecent(d: Device, now: number): boolean {

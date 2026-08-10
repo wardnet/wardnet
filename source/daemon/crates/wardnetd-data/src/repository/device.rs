@@ -140,6 +140,18 @@ pub trait DeviceRepository: Send + Sync {
     /// device appears at most once; devices with no rule are simply absent.
     async fn find_all_rules(&self) -> anyhow::Result<Vec<RoutingRule>>;
 
+    /// Delete a device's routing rule, returning to "no rule" — which means
+    /// the device follows the gateway's global default policy.
+    ///
+    /// Distinct from writing a `Direct` rule: that is an explicit persisted
+    /// choice that *overrides* the default policy, and it is also subject to
+    /// the device's zone allow-list, so it can be rejected outright by a
+    /// tunnel-only zone. Deleting is the true revert-to-default and cannot
+    /// conflict with a zone. Used by the release flow (issue #1181).
+    ///
+    /// No-op if the device has no rule.
+    async fn delete_rule_for_device(&self, device_id: &str) -> anyhow::Result<()>;
+
     /// Insert or update a user-created routing rule for a device.
     async fn upsert_user_rule(
         &self,
@@ -188,4 +200,12 @@ pub trait DeviceRepository: Send + Sync {
 
     /// Return IDs of all devices that have DNS capture enabled.
     async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>>;
+
+    /// Set the `managed` flag for a device.
+    ///
+    /// Idempotent, and a no-op if the device does not exist. Promotion
+    /// (`managed = true`) is called from every admin configuration act;
+    /// demotion is reached only through an explicit release, which first
+    /// reverts all managed configuration to default. See issue #1181.
+    async fn set_managed(&self, id: &str, managed: bool) -> anyhow::Result<()>;
 }

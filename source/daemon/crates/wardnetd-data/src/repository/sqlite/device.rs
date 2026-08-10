@@ -46,6 +46,7 @@ struct DeviceRow {
     dns_capture_cap_count: i64,
     dns_capture_cap_days: i64,
     connection_mode: String,
+    managed: i32,
 }
 
 impl DeviceRow {
@@ -80,6 +81,7 @@ impl DeviceRow {
             dns_capture_cap_count: self.dns_capture_cap_count,
             dns_capture_cap_days: self.dns_capture_cap_days,
             connection_mode,
+            managed: self.managed != 0,
         })
     }
 }
@@ -120,17 +122,17 @@ struct RuleRow {
 // Static SQL strings — every column list is inlined so no runtime format!()
 // allocation is needed for these fixed SELECTs. The genuinely dynamic queries
 // further down (JOIN/LIKE against routing_rules) keep their own literals.
-const FIND_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE last_ip = ? ORDER BY last_seen DESC LIMIT 1";
-const FIND_ALL_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_ALL_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE last_ip = ? ORDER BY last_seen DESC";
-const FIND_BY_ID_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_BY_ID_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE id = ?";
-const FIND_BY_MAC_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_BY_MAC_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE mac = ?";
-const FIND_ALL_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_ALL_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices ORDER BY last_seen DESC";
-const FIND_STALE_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode \
+const FIND_STALE_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE last_seen < ?";
 
 #[async_trait]
@@ -201,6 +203,10 @@ impl DeviceRepository for SqliteDeviceRepository {
     }
 
     async fn insert(&self, device: &InsertDeviceRow) -> anyhow::Result<()> {
+        // `managed` is deliberately absent from the column list: discovery is
+        // the only path that inserts, and a freshly discovered device is never
+        // managed. It takes the schema DEFAULT 0 and is promoted later, only by
+        // an explicit admin configuration act (`set_managed`).
         sqlx::query(
             "INSERT INTO devices (id, mac, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, zone_id, connection_mode) \
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -358,6 +364,14 @@ impl DeviceRepository for SqliteDeviceRepository {
             .collect()
     }
 
+    async fn delete_rule_for_device(&self, device_id: &str) -> anyhow::Result<()> {
+        sqlx::query("DELETE FROM routing_rules WHERE device_id = ?")
+            .bind(device_id)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(())
+    }
+
     async fn upsert_user_rule(
         &self,
         device_id: &str,
@@ -390,7 +404,7 @@ impl DeviceRepository for SqliteDeviceRepository {
              d.manufacturer_source, d.is_randomized, d.device_type, \
              d.first_seen, d.last_seen, d.last_ip, d.admin_locked, d.zone_id, \
              d.dns_capture_enabled, d.dns_capture_cap_count, d.dns_capture_cap_days, \
-             d.connection_mode \
+             d.connection_mode, d.managed \
              FROM devices d \
              JOIN routing_rules r ON r.device_id = d.id \
              WHERE r.target_json LIKE ? \
@@ -486,5 +500,14 @@ impl DeviceRepository for SqliteDeviceRepository {
                 .fetch_all(&self.pools.read)
                 .await?;
         Ok(ids)
+    }
+
+    async fn set_managed(&self, id: &str, managed: bool) -> anyhow::Result<()> {
+        sqlx::query("UPDATE devices SET managed = ? WHERE id = ?")
+            .bind(i32::from(managed))
+            .bind(id)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(())
     }
 }

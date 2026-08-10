@@ -123,6 +123,24 @@ impl MockDnsDeviceService {
 
 #[async_trait]
 impl DeviceService for MockDnsDeviceService {
+    async fn clear_rule(&self, _device_id: &str) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn mark_managed(
+        &self,
+        _device_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn clear_managed(
+        &self,
+        _device_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
     async fn get_device(
         &self,
         _device_id: &str,
