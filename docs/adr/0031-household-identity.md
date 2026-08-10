@@ -68,3 +68,147 @@ The term **"master account" is deliberately not used** — it is vague about wha
 - **Being an IdP is worth it for a reason unrelated to protocol support.** Authelia and Pocket ID implement OIDC fine; what they cannot obtain on a home network is a stable public FQDN with a trusted certificate and knowledge of which device is asking. Wardnet has both already.
 - **A forward-auth gate and a native mobile app remain mutually exclusive** — the Bitwarden client has no browser to complete an interactive login. App-native OIDC is *more* mobile-compatible than a gate, because the app opens its own SSO webview. This is why the IdP exists and why an ambient gate does not.
 - **Reversibility.** Adding groups or roles later is additive. Adding a cloud-vouches-for-box path later would be easy mechanically and irreversible in trust terms — which is precisely why the refusal is recorded here rather than left as an unstated default.
+
+---
+
+## Implementation decisions (#1147)
+
+The sections above settle the *model*. Building it settled a further set of
+decisions that are not derivable from the model and are easy to get wrong, so
+they are recorded here rather than left in commit messages.
+
+### 4. One credential table, and `(kind, subject)` uniqueness is a security invariant
+
+All four credential kinds live in one `user_credentials` table — `kind` ∈
+`password | google | github | passkey`, plus a `subject` and an optional
+`secret`. `subject` is the login identifier: the username for a backfilled local
+admin, the email for a new local user, Google's `sub`, GitHub's **numeric id**
+(never the login — renameable and reusable), or the base64url passkey credential
+id.
+
+`UNIQUE(kind, subject)` is not tidiness, it is the **anti-hijack invariant**: one
+provider account links to at most one household user. Without it, two people
+could link the same Google account and each become the other. The refusal
+deliberately does not disclose *which* user holds an existing link, because that
+would turn an authenticated link attempt into a directory-enumeration oracle.
+
+`UNIQUE(user_id) WHERE kind='password'` makes "one password per user" a database
+fact rather than a convention. `secret` — the Argon2id PHC string or the passkey
+COSE public key — must never leave the repository layer, which is enforced by
+type: listing methods return a `CredentialSummary` that structurally has no
+`secret` field.
+
+### 5. `AuthContext` collapses to `User { user_id, role }`, not a separate `Admin`
+
+Decision 3 above says signing in as an `admin`-role user "yields the same
+`AuthContext::Admin`". In implementation that is one variant too many: keeping an
+`Admin` variant alongside a `User` variant means two ways to say the same thing
+and a conversion between them. The enum is
+`User { user_id, role } | Device | Anonymous`, and `require_admin()` is a single
+honest predicate — `role == Admin` — at every call site.
+
+The escalation this closes was live before the change: `resolve_auth_context`
+promoted **any** valid session to admin, which was true by construction when a
+session could only belong to the single admin and is a privilege escalation the
+moment a second role exists. `validate_session` therefore returns a typed
+`AuthenticatedUser` carrying the role read live from `users`, so a demotion takes
+effect on the next request rather than the next login.
+
+Three mechanisms keep it closed, because documentation is not enforcement:
+`AuthenticatedUser`'s fields are private so a context cannot be built from a
+`user_id` somebody had lying around; `build-support/check-auth-constructors.sh`
+fails CI if the one constructor is called outside the code that has just verified
+a credential; and a guard × principal truth table
+(`wardnetd-services/src/tests/auth_context.rs`) asserts every cell, with a
+companion test that the table is *complete* so adding a principal forces an edit
+there.
+
+### 6. Federated login verifies against **userinfo**, and each household registers its own app
+
+The authorization code is exchanged for an access token and the access token is
+spent on the provider's userinfo endpoint. Verifying an `id_token` instead would
+mean a JOSE stack — JWKS fetching, key rotation, algorithm confusion — which this
+repository deliberately does not have (push VAPID is hand-signed with `p256`).
+Userinfo over TLS gets the same answer from the same authority with none of that
+surface, and needs no new dependency.
+
+Wardnet ships **no client credentials** and hosts **no callback**. The admin
+registers an app with the provider and Wardnet shows the exact redirect URI to
+paste. A Wardnet-hosted callback would put a third party on the critical path of
+logging into your own house and route every household's sign-ins through
+infrastructure we run — the same one-way-trust argument as decision 1.
+
+An unknown provider subject is **refused**: Wardnet never auto-creates a
+household user from a federated login, or anyone with a Google account could
+create an account on somebody else's home network. An admin links first.
+
+`state` and the PKCE verifier live in memory with a five-minute TTL and are never
+persisted. A single-use nonce in a table is only single-use if the delete
+succeeds; a row that fails to delete is a replay primitive. PKCE is used even
+though the client secret is server-side, because it binds the code to *this*
+ceremony. A link ceremony records **who started it** and refuses a mismatch —
+otherwise an attacker could consent with their own account and have a signed-in
+admin's browser redeem the result.
+
+### 7. The passkey RP ID is pinned, and `:7411` therefore cannot have passkeys
+
+WebAuthn binds a credential to a Relying Party ID. The RP ID is pinned into
+`system_config` at first registration and never silently changed, because
+re-pinning would break every existing passkey in the household with no
+explanation. Divergence from the live canonical FQDN fails loudly with a `412`
+naming the hostname to use, and the recovery is an explicit admin "reset
+passkeys" that clears the credentials *and* the pin. `allow_subdomains(true)`, so
+one passkey covers the published-app subdomains #1149 adds.
+
+The honest consequence: the plain-HTTP pre-provisioning surface on `:7411`, and
+any bare-LAN-IP access, cannot do passkeys at all. **This is why the local
+password can never be removed** — it is the only credential that works on a box
+with no certificate and no public hostname, and it is the floor that makes the
+WAN-down guarantee true by construction.
+
+### 8. Enrolment sets a *first* credential and never replaces one
+
+An admin issues a one-time, hashed, expiring token; the member redeems it and
+sets their own password, so the admin never learns it. That property only holds
+if redemption **refuses an account that already has a password** — otherwise an
+admin could issue a second token against a member, redeem it themselves, and sign
+in as them, which is exactly what decision 3's "one authority" is not supposed to
+mean. The token is claimed only after every other check passes, so a refusal
+leaves the invitation spendable rather than burning it.
+
+Because the email *is* the password login identifier, changing a user's email
+moves the credential's `subject` with it. Letting them diverge leaves a profile
+showing an address that cannot sign in, and frees an address that becomes a
+uniqueness landmine for the next user given it.
+
+### 9. The `admins` → `users` backfill, and the one case it cannot satisfy
+
+`admins` rows are backfilled into `users` **preserving their ids**, which turns
+the `sessions` rebuild into a column rename and lets live sessions survive the
+upgrade. SQLite cannot alter a foreign key in place, so the table is rebuilt; a
+mistake here leaves a daemon that will not start and cannot roll back.
+
+Subjects are lowercased unconditionally, because the login path lowercases what
+the operator types and matches the column exactly — a subject preserved in its
+original casing would be unreachable, locking that admin out with no recovery.
+Two usernames differing only in case are therefore **one login** under the new
+scheme. That is a genuine data conflict, so the oldest admin in a colliding group
+keeps the credential and the others arrive credential-less, keeping their id and
+their `admin` role, to be re-enrolled. Aborting instead would be unbootable;
+inventing an unreachable row would be worse than either.
+
+`push_subscriptions.owner_kind` moves `admin` → `user` in the same migration.
+Because the ids were preserved, that is a lossless rename of the discriminator —
+and leaving the old value would make every upgraded box's admin subscriptions
+present but unreachable, since the live `AuthContext` no longer has an `Admin`
+variant.
+
+### 10. Login rate limiting is in memory, per identity **and** per source IP
+
+Both counters are required: per-identity stops one known account being ground
+from a botnet where every request has a different source, and per-IP stops one
+host walking the directory with a couple of guesses per account so no identity
+counter trips. State is process-local and lost on restart, deliberately —
+persisting it would turn a lockout into something an attacker can induce and
+leave behind against the household's only admin, which is a denial-of-service
+primitive aimed at the break-glass credential.
