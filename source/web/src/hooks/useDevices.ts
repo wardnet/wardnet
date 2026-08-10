@@ -8,6 +8,11 @@ import type {
 } from "@wardnet/js";
 import { deviceService } from "../lib/sdk";
 
+/** HTTP status carried by a `WardnetApiError`, if the rejection has one. */
+function httpStatus(err: unknown): number | undefined {
+  return (err as { status?: number } | null)?.status;
+}
+
 export function useDevices() {
   return useQuery({
     queryKey: ["devices"],
@@ -105,7 +110,17 @@ export function useIdentifyDevice() {
       qc.invalidateQueries({ queryKey: ["devices"], exact: true });
       qc.invalidateQueries({ queryKey: ["devices", id], exact: true });
     },
-    onError: () => toast.error("Failed to identify device"),
+    // A 409 is the daemon refusing because the device left the network. It is
+    // reachable in normal use — the button's own enabled/disabled state is
+    // computed from `last_seen` at render time and the device detail query does
+    // not poll — so name the actual reason rather than reporting a bare
+    // failure for something the admin can act on by waking the device.
+    onError: (error: unknown) =>
+      toast.error(
+        httpStatus(error) === 409
+          ? "This device is no longer on the network, so Wardnet did not contact it"
+          : "Failed to identify device",
+      ),
   });
 }
 

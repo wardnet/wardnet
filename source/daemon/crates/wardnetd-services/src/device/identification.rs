@@ -292,9 +292,18 @@ impl DeviceIdentificationService for DeviceIdentificationServiceImpl {
         // Remote WireGuard peers live on 10.100.64.0/24, so they stay probeable;
         // a globally-routable address means the record has drifted into
         // something we have no business contacting.
-        if !is_private_ip(ip) {
+        //
+        // Loopback and the unspecified address are excluded explicitly:
+        // `is_private_ip` counts them as private (it exists for the DDNS/rebind
+        // guards, where "not publishable" is the question), but here they mean
+        // the Pi would probe *itself*. Unreachable today — a departed device's
+        // address is blanked and no catalog port collides with a daemon
+        // listener — but the guard should not read as stricter than it is, and
+        // the first catalog port that overlaps `:853` or `:7411` would make it
+        // matter.
+        if !is_private_ip(ip) || ip.is_loopback() || ip.is_unspecified() {
             return Err(AppError::Conflict(
-                "device's last known address is not on a private network".to_owned(),
+                "device's last known address is not one we will contact".to_owned(),
             ));
         }
 

@@ -183,6 +183,11 @@ function DeviceDetailLoaded({
 
       <DeviceIdentityCard device={device} />
       <DeviceIdentificationCard
+        // Keyed so the card's transient "nothing answered" state cannot follow
+        // the admin to another device: navigating between two already-cached
+        // devices reconciles this element in place rather than remounting, and
+        // the note would then make a claim about a device never probed.
+        key={device.id}
         deviceId={device.id}
         signals={signals}
         online={present}

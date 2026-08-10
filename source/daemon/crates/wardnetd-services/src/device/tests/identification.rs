@@ -598,3 +598,24 @@ async fn probing_an_unknown_device_is_a_not_found() {
 
     assert!(matches!(err, AppError::NotFound(_)), "got {err:?}");
 }
+
+#[tokio::test]
+async fn the_daemon_will_not_probe_itself() {
+    // `is_private_ip` counts loopback as private — it exists for the DDNS and
+    // rebinding guards, where the question is "is this publishable". Here a
+    // loopback `last_ip` would mean probing the Pi's own listeners.
+    for address in ["127.0.0.1", "0.0.0.0", "::1"] {
+        let prober = MockDeviceProber::answering(&[6668]);
+        let h = build_with_prober(prober.clone()).await;
+        let id =
+            insert_device_at(&h.devices, "aa:bb:cc:dd:ee:01", address, chrono::Utc::now()).await;
+
+        let err = as_admin(h.svc.probe_device(&id)).await.unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Conflict(_)),
+            "{address} should be refused, got {err:?}"
+        );
+        assert!(prober.calls().is_empty(), "{address} must not be contacted");
+    }
+}

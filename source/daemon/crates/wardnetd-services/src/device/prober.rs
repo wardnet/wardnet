@@ -13,6 +13,8 @@ use std::net::IpAddr;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream::FuturesUnordered;
 use tokio::net::TcpStream;
 
 /// How long a single port is given to complete its TCP handshake. A LAN
@@ -58,29 +60,79 @@ pub trait DeviceProber: Send + Sync {
 }
 
 /// Default [`DeviceProber`]: one bounded TCP connect per port, all concurrent.
-pub struct TcpDeviceProber;
+pub struct TcpDeviceProber {
+    port_timeout: Duration,
+    total_timeout: Duration,
+}
+
+impl Default for TcpDeviceProber {
+    fn default() -> Self {
+        Self {
+            port_timeout: PORT_CONNECT_TIMEOUT,
+            total_timeout: TOTAL_PROBE_TIMEOUT,
+        }
+    }
+}
+
+impl TcpDeviceProber {
+    /// Build a prober with explicit bounds. Production uses [`Default`]; the
+    /// timeouts are injectable so a test can drive the wall-clock cap without
+    /// sleeping for [`TOTAL_PROBE_TIMEOUT`].
+    #[must_use]
+    pub fn with_timeouts(port_timeout: Duration, total_timeout: Duration) -> Self {
+        Self {
+            port_timeout,
+            total_timeout,
+        }
+    }
+}
 
 #[async_trait]
 impl DeviceProber for TcpDeviceProber {
     async fn probe(&self, ip: IpAddr, ports: &[u16]) -> Vec<u16> {
-        let attempts = ports.iter().map(|&port| async move {
-            let connected =
-                tokio::time::timeout(PORT_CONNECT_TIMEOUT, TcpStream::connect((ip, port)))
-                    .await
-                    .is_ok_and(|result| result.is_ok());
-            connected.then_some(port)
-        });
+        let mut attempts: FuturesUnordered<_> = ports
+            .iter()
+            .map(|&port| async move {
+                let connected =
+                    tokio::time::timeout(self.port_timeout, TcpStream::connect((ip, port)))
+                        .await
+                        .is_ok_and(|result| result.is_ok());
+                connected.then_some(port)
+            })
+            .collect();
 
-        // The outer cap can only truncate the *slowest* attempts, which are by
-        // construction the ones still waiting on a dropped SYN — i.e. ports
-        // that were never going to answer. Losing them costs no information.
-        let answering =
-            tokio::time::timeout(TOTAL_PROBE_TIMEOUT, futures::future::join_all(attempts))
-                .await
-                .unwrap_or_default();
+        let mut answering = collect_until(
+            tokio::time::Instant::now() + self.total_timeout,
+            &mut attempts,
+        )
+        .await;
 
-        let mut answering: Vec<u16> = answering.into_iter().flatten().collect();
         answering.sort_unstable();
         answering
     }
+}
+
+/// Drain `attempts` until it is exhausted or `deadline` passes, keeping every
+/// port that answered before the cut-off.
+///
+/// Deliberately one completion at a time rather than `join_all` under a single
+/// `timeout`: `join_all` is all-or-nothing, so a cap that fired would drop the
+/// whole future and discard ports that had *already* answered — reporting "no
+/// known ports answered" for a device that answered, indistinguishably from a
+/// genuine negative. Draining means the cap can only cut off attempts still in
+/// flight, which are by construction the ones waiting on a dropped SYN.
+///
+/// Split out from [`TcpDeviceProber::probe`] so this property is testable
+/// without a socket that can be made to hang on demand.
+pub(crate) async fn collect_until(
+    deadline: tokio::time::Instant,
+    attempts: &mut (impl futures::Stream<Item = Option<u16>> + Unpin),
+) -> Vec<u16> {
+    let mut answering = Vec::new();
+    while let Ok(Some(result)) = tokio::time::timeout_at(deadline, attempts.next()).await {
+        if let Some(port) = result {
+            answering.push(port);
+        }
+    }
+    answering
 }

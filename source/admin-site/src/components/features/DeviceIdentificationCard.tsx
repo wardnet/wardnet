@@ -48,10 +48,17 @@ export function DeviceIdentificationCard({
 
   async function runProbe() {
     setEmptyProbe(null);
-    const result = await identify.mutateAsync(deviceId);
-    setEmptyProbe(
-      result.answering_ports.length === 0 ? result.ports_probed.length : null,
-    );
+    try {
+      const result = await identify.mutateAsync(deviceId);
+      setEmptyProbe(
+        result.answering_ports.length === 0 ? result.ports_probed.length : null,
+      );
+    } catch {
+      // `mutateAsync` rethrows, and the hook's `onError` has already surfaced a
+      // toast; swallow the rejection so a refused probe does not become an
+      // unhandled promise rejection. Reachable in normal use: the daemon
+      // returns 409 for a device that left the network after this page loaded.
+    }
   }
 
   return (

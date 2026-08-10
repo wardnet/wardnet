@@ -154,6 +154,31 @@ describe("DeviceIdentificationCard", () => {
     expect(screen.getByRole("button", { name: "Identifying…" })).toBeDisabled();
   });
 
+  it("claims no result when the probe is refused", async () => {
+    // The daemon returns 409 for a device that left the network after this page
+    // loaded — reachable in normal use, since the button's enabled state comes
+    // from `last_seen` at render time and the detail query does not poll. The
+    // card must not then assert anything about what answered.
+    //
+    // The other half of that path — `runProbe` swallowing the rethrow so it is
+    // not an unhandled rejection — is not assertable here: jsdom does not fire
+    // `unhandledrejection` for it. It follows the same try/catch convention as
+    // `PrivateDnsCard.handleGrant`.
+    mutateAsync.mockRejectedValue(
+      Object.assign(new Error("conflict"), { status: 409 }),
+    );
+    renderCard();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Identify this device" }),
+    );
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(
+      screen.queryByText(/No known ports answered/),
+    ).not.toBeInTheDocument();
+  });
+
   it("disables the action with an explanation when the device is off the network", async () => {
     // The daemon refuses a probe for a departed device — its last known address
     // may since have been handed to someone else, and the vendor would be

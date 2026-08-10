@@ -384,6 +384,23 @@ describe("DeviceDetail", () => {
     );
   });
 
+  it("keys the identification card by device so its probe note cannot follow the admin", () => {
+    // The card holds the transient "nothing answered" result (it is not
+    // persisted by design). Without a key, navigating between two already-
+    // cached devices reconciles the same element and the note would make a
+    // claim about a device that was never probed.
+    loadDevice({ id: "dev-1", last_seen: new Date().toISOString() });
+    const { rerender } = renderWithProviders(<DeviceDetail />);
+    const first = screen.getByTestId("identification-card");
+
+    loadDevice({ id: "dev-2", last_seen: new Date().toISOString() });
+    rerender(<DeviceDetail />);
+    const second = screen.getByTestId("identification-card");
+
+    expect(second).toHaveAttribute("data-device-id", "dev-2");
+    expect(second).not.toBe(first);
+  });
+
   it("renders an offline managed device", () => {
     loadDevice({ name: "Old Device", last_seen: "2000-01-01T00:00:00Z" });
     renderWithProviders(<DeviceDetail />);
