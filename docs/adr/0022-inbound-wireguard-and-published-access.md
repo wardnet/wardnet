@@ -1,10 +1,19 @@
 ---
 status: accepted
+superseded_in_part_by: "ADR-0030 (decision #2 only)"
 date: 2026-07-07
 issue: "#266 (epic — Remote access: inbound WireGuard + published access)"
 ---
 
 # ADR: Inbound WireGuard peers are Devices; published access defaults to tunnel-only, public is an explicit opt-in
+
+> **Decision #2 is superseded by [0030-published-apps.md](0030-published-apps.md) (2026-08-10).** The
+> mechanism/visibility split described below did not survive the design of epic #1146: *mechanism* is
+> derived from the transport rather than chosen, and *visibility* became a three-rung reach ladder
+> (LAN always on; Remote peer and Public as widening opt-ins) defaulting to LAN, not tunnel-only. The
+> `AddressForward` DNAT primitive named in the Consequences was never built — v1 raw-L4 publishing is
+> a DNS record plus a Network Zone exception. **Decision #1 (inbound peers are `Device` rows) still
+> stands** and remains the foundation of epic #266.
 
 ## Context
 
@@ -38,4 +47,4 @@ This mirrors how Tailscale splits private `Serve` from public `Funnel` (an expli
 - **A new reverse-proxy layer is needed.** `:443` today only ever serves the daemon's own Axum router (`wardnetd/src/tls_server.rs`); App forward needs Host-header-based routing to internal `ip:port` targets, which doesn't exist anywhere in the daemon.
 - **A new DNAT-equivalent firewall primitive is needed** for Address forward; `FirewallManager` (`wardnetd-services/src/routing/firewall.rs`) today only has masquerade (SNAT) and zone accept/drop rules.
 - **Reversibility:** both decisions are additive on top of the existing device/routing/zone and TLS/DDNS subsystems — nothing existing is restructured, and turning a published item back to tunnel-only or deleting it removes the corresponding firewall/proxy rule live.
-- **WAN reachability for the inbound WireGuard server goes through the Tunneller, not a LAN port-forward.** The Tunneller has no UDP/WireGuard support as of #809's planning (it's a TCP-stream multiplexer routed by TLS SNI, which has no analogue for WireGuard's SNI-less UDP handshake), so a new cloud-side UDP relay is part of #809's scope — see wardnet-cloud ADR-0015 for the design (stable per-network UDP port, reused frame protocol).
+- **WAN reachability for the inbound WireGuard server goes through the Tunneller, not a LAN port-forward.** The Tunneller has no UDP/WireGuard support as of #809's planning (it's a TCP-stream multiplexer routed by TLS SNI, which has no analogue for WireGuard's SNI-less UDP handshake), so a new cloud-side UDP relay is part of #809's scope — see wardnet-cloud ADR-0017 for the design (stable per-network UDP port, reused frame protocol). *(That ADR was originally numbered 0015, colliding with the prefix-free-resource-paths ADR; it was renumbered to 0017.)*

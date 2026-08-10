@@ -36,7 +36,7 @@ edge-release-channel one.
 | [0019](0019-network-zone-enforcement.md) | Network Zone packet enforcement — a decoupled nftables enforcer | 2026-07-01 | Accepted |
 | [0020](0020-push-notifications.md) | Push notifications — VAPID + Web Push delivery | 2026-07-01 | Accepted |
 | [0021](0021-network-zone-deep-isolation.md) | Network Zone deep isolation — per-zone subnets, whole-chain L3 enforcer | 2026-07-02 | Accepted |
-| [0022](0022-inbound-wireguard-and-published-access.md) | Inbound WireGuard peers are Devices; published access defaults to tunnel-only | 2026-07-07 | Accepted |
+| [0022](0022-inbound-wireguard-and-published-access.md) | Inbound WireGuard peers are Devices; published access defaults to tunnel-only | 2026-07-07 | Accepted — decision #2 superseded by [ADR-0030](0030-published-apps.md) |
 | [0023](0023-edge-release-channel.md) | An edge release channel for unvetted, on-demand builds | 2026-07-14 | Accepted |
 | [0024](0024-domain-routing-profiles.md) | Domain-based routing via routing profiles | 2026-07-20 | Accepted |
 | [0025](0025-device-identification.md) | Device identification — a shared vendor catalog, hedged guesses, and no background probing | 2026-08-03 | Accepted |
@@ -44,3 +44,5 @@ edge-release-channel one.
 | [0027](0027-e2e-auto-update-version-skew.md) | The auto-update e2e synthesises its version skew from one source tree | 2026-08-08 | Accepted |
 | [0028](0028-shutdown-teardown-and-uninstall.md) | Runtime-state teardown on shutdown, gated on stop vs restart; `wardnetd uninstall` | 2026-08-08 | Accepted |
 | [0029](0029-private-dns-dot.md) | Private DNS is a closed `DoT` resolver keyed by a per-device secret hostname | 2026-08-09 | Accepted |
+| [0030](0030-published-apps.md) | A published app is a name, a reach ladder, and a policy — not a port forward | 2026-08-10 | Accepted — supersedes §2 of [ADR-0022](0022-inbound-wireguard-and-published-access.md) |
+| [0031](0031-household-identity.md) | Household identity is box-local; the cloud never vouches, and device affinity never authenticates | 2026-08-10 | Accepted |
