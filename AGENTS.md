@@ -101,6 +101,28 @@ you're about to make, rather than the whole set.
   **no ALPN advertised**, publicly-trusted chain, fail-closed. Also the
   **Tunneller**-vs-**Private DNS** terminology split (relay infrastructure
   vs user-facing feature).
+- **[Application hosting](docs/adr/0030-published-apps.md)** — why a
+  **published app** is a name + a **reach ladder** (LAN always on; Remote
+  peer and Public as widening opt-ins) + an **access policy**, rather than
+  ADR-0022's mechanism × visibility matrix (whose §2 this supersedes); why
+  **no DNAT primitive exists** — Wardnet *is* the router, so v1 raw-L4
+  publishing is an authoritative DNS record plus a narrow
+  `ZoneEnforcementService` exception; why the Public rung is
+  **HTTPS/WebSockets only** (the edge demuxes by SNI, which raw L4 has
+  none of) and public L4 is deferred with its cloud port allocator; and
+  why the **app catalog is compiled into the binary** like `vendors.toml`.
+  Invariant: a published app's reachability probe **never** feeds the
+  watchdog's `HealthMonitor`.
+- **[Household identity](docs/adr/0031-household-identity.md)** — why the
+  user directory is **box-local** and wardnet-cloud may pre-fill a hint but
+  **never vouch for a box login** (no trust edge from cloud into a home
+  network, at the accepted cost of local-only account recovery); why
+  **device affinity is attribution and never authentication** (device
+  identity is source-IP-derived, so affinity-as-credential would collapse
+  admin to IP spoofing) and password-free entry comes from a **device-held
+  session**; the **Admin role** + **Local admin** break-glass pair; and why
+  a forward-auth gate breaks native mobile clients while app-native OIDC
+  does not.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with
