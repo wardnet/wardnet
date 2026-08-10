@@ -9,7 +9,7 @@ use wardnet_common::rule_request::{
     CreateRuleRequestRequest, DecideRuleRequestRequest, DeviceRuleRequest, RuleRequestStatus,
 };
 
-use crate::api::middleware::{SessionAuth, ClientIp};
+use crate::api::middleware::{ClientIp, SessionAuth};
 use crate::api::responses::{AuthErrors, BadRequest, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;

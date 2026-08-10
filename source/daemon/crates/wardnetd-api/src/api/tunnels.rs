@@ -12,6 +12,7 @@ use wardnet_common::api::{
 use wardnet_common::jobs::JobDispatchedResponse;
 use wardnet_common::speed_test::TunnelSpeedTestHistoryResponse;
 
+use crate::api::middleware;
 use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest, Conflict, NotFound, UpstreamUnavailable};
 use crate::state::AppState;
@@ -43,7 +44,14 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn list_tunnels(
     State(state): State<AppState>,
-    _auth: SessionAuth,
+    // `AdminOnly`, not `SessionAuth`, and deliberately not a tightened service
+    // guard: `TunnelService::list_tunnels` is `require_authenticated` because
+    // `/api/devices/me` calls it to build a device caller's `available_tunnels`,
+    // and a device must pass there. The service therefore cannot be the gate for
+    // *this* route, whose contract above says "Admin only" — before household
+    // users the session extractor made that true by accident, since every
+    // session was an admin's.
+    _auth: middleware::AdminOnly,
 ) -> Result<Json<ListTunnelsResponse>, AppError> {
     let response = state.tunnel_service().list_tunnels().await?;
     Ok(Json(response))

@@ -26,11 +26,11 @@ use wardnetd_data::repository::session::{
     SessionForRefresh, SessionPrincipal, SessionRepository, SessionSummary,
 };
 use wardnetd_data::repository::user::{UserRepository, UserRow};
-use wardnetd_data::repository::user_enrolment::{EnrolmentTokenRow, UserEnrolmentRepository};
 use wardnetd_data::repository::user_credential::{
     CredentialAlreadyLinkedError, CredentialKind, CredentialLogin, CredentialRow,
     CredentialSummary, UserCredentialRepository,
 };
+use wardnetd_data::repository::user_enrolment::{EnrolmentTokenRow, UserEnrolmentRepository};
 use wardnetd_data::repository::{ApiKeyRepository, SystemConfigRepository};
 
 /// RFC 3339 timestamp used for rows whose creation time is irrelevant.
@@ -509,10 +509,7 @@ impl MockSessionRepo {
     /// Is this user still allowed to authenticate?
     async fn user_enabled(&self, user_id: &str) -> anyhow::Result<bool> {
         match &self.users {
-            Some(users) => Ok(users
-                .find_by_id(user_id)
-                .await?
-                .is_some_and(|u| u.enabled)),
+            Some(users) => Ok(users.find_by_id(user_id).await?.is_some_and(|u| u.enabled)),
             None => Ok(true),
         }
     }
@@ -755,10 +752,7 @@ impl UserEnrolmentRepository for MockEnrolmentRepo {
 
     async fn mark_used(&self, id: &str, now: &str) -> anyhow::Result<u64> {
         let mut rows = self.rows.lock().unwrap();
-        match rows
-            .iter_mut()
-            .find(|r| r.id == id && r.used_at.is_none())
-        {
+        match rows.iter_mut().find(|r| r.id == id && r.used_at.is_none()) {
             Some(row) => {
                 row.used_at = Some(now.to_owned());
                 Ok(1)

@@ -82,10 +82,17 @@ set, grep `security(())` in `wardnetd-api/src/api`.
 - `GET /api/health` — unauthenticated by design; the watchdog depends on it
 - `GET /api/devices/me`, `PUT /api/devices/me/rule` — self-service,
   identifies the caller by source IP via `ConnectInfo<SocketAddr>`
-- `wardnetd-api/src/api/user_auth.rs` — login, logout, refresh,
-  `GET /api/auth/methods`, the OAuth start/callback pair, the passkey
-  ceremonies, and enrolment redemption. These *establish* identity and so
-  cannot require it.
+- `wardnetd-api/src/api/auth.rs` — `POST /api/auth/login`, `logout`,
+  `refresh`. These *establish* identity and so cannot require it.
+
+The household-identity credential paths — `available_methods`, the OAuth
+start/callback pair, the passkey ceremonies, and enrolment redemption — are
+implemented on `UserService` and carry the same
+category-(b) exception, documented per method. They have **no HTTP surface
+yet**: the API layer for them is step 10 of #1147 and is not in the tree.
+When it lands it will live in `wardnetd-api/src/api/user_auth.rs` and each
+route needs `security(())`, because the document-level default would
+otherwise mark them authenticated.
 
 ## Admin endpoints
 

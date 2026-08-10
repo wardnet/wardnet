@@ -12,11 +12,11 @@ use wardnet_common::api::{WizardMode, WizardStep};
 
 use crate::auth::SessionCleanupRunner;
 use crate::auth::service::{LoginResult, WizardState};
+use crate::auth::{CurrentUser, LoginAttempt};
 use crate::error::AppError;
 use crate::{AuthService, auth_context};
-use crate::auth::{CurrentUser, LoginAttempt};
-use wardnet_common::auth::{AuthenticatedUser, UserRole};
 use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
 
 /// Mock service that records every `cleanup_expired_sessions` call and whether
 /// it observed an admin auth context, and returns a configurable outcome. All
@@ -482,7 +482,10 @@ async fn a_failing_enrolment_sweep_does_not_stop_the_session_sweep() {
     let sessions_ran = wait_until(50, || service.calls.load(Ordering::SeqCst) > 1).await;
     let enrolments_ran = wait_until(50, || users.enrolment_calls() > 1).await;
     assert!(sessions_ran, "the session sweep must keep running");
-    assert!(enrolments_ran, "the enrolment sweep must keep being retried");
+    assert!(
+        enrolments_ran,
+        "the enrolment sweep must keep being retried"
+    );
 
     runner.shutdown().await;
 }

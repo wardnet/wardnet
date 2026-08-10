@@ -19,7 +19,9 @@ use crate::user::passkey::{
 };
 use wardnetd_data::repository::session::SessionRepository;
 use wardnetd_data::repository::user::{DuplicateUserEmailError, UserRepository, UserRow};
-use wardnetd_data::repository::user_credential::{CredentialSummary, UserCredentialRepository};
+use wardnetd_data::repository::user_credential::{
+    CredentialAlreadyLinkedError, CredentialSummary, UserCredentialRepository,
+};
 use wardnetd_data::repository::user_enrolment::{EnrolmentTokenRow, UserEnrolmentRepository};
 
 /// How long an admin-issued enrolment token stays redeemable.
@@ -231,11 +233,7 @@ pub trait UserService: Send + Sync {
     /// Never removes the local password: that is the floor, and a box whose
     /// only credential depended on a reachable provider would be unreachable
     /// during a WAN outage.
-    async fn unlink_oauth(
-        &self,
-        user_id: Uuid,
-        provider: OauthProvider,
-    ) -> Result<u64, AppError>;
+    async fn unlink_oauth(&self, user_id: Uuid, provider: OauthProvider) -> Result<u64, AppError>;
 
     /// Begin registering a passkey for the calling user.
     ///
@@ -362,11 +360,7 @@ impl UserServiceImpl {
     /// Replace one provider's endpoints. Test-facing: production always uses
     /// [`ProviderEndpoints::production`].
     #[must_use]
-    pub fn with_endpoints(
-        mut self,
-        provider: OauthProvider,
-        endpoints: ProviderEndpoints,
-    ) -> Self {
+    pub fn with_endpoints(mut self, provider: OauthProvider, endpoints: ProviderEndpoints) -> Self {
         self.endpoints.retain(|(p, _)| *p != provider);
         self.endpoints.push((provider, endpoints));
         self
@@ -424,7 +418,7 @@ impl UserServiceImpl {
         &self,
         state: &str,
         code: &str,
-    ) -> Result<(OauthProvider, ProviderIdentity), AppError> {
+    ) -> Result<(OauthProvider, ProviderIdentity, Option<Uuid>), AppError> {
         // `take` removes the entry, so a replayed `state` fails here even if the
         // rest of the ceremony would have succeeded.
         let pending = self.pending_oauth.take(state).ok_or_else(|| {
@@ -447,7 +441,7 @@ impl UserServiceImpl {
             )
             .await?;
 
-        Ok((provider, identity))
+        Ok((provider, identity, pending.started_by))
     }
 
     /// The calling user's id, or `Forbidden` for a device/anonymous caller.
@@ -481,7 +475,9 @@ impl UserServiceImpl {
     /// `409` rather than letting it surface as a `500`.
     fn map_write_error(err: anyhow::Error) -> AppError {
         if err.downcast_ref::<DuplicateUserEmailError>().is_some() {
-            return AppError::Conflict("a household user with that email already exists".to_owned());
+            return AppError::Conflict(
+                "a household user with that email already exists".to_owned(),
+            );
         }
         AppError::Internal(err)
     }
@@ -645,6 +641,64 @@ impl UserService for UserServiceImpl {
         let email = Self::validate_email(email)?;
 
         let now = chrono::Utc::now().to_rfc3339();
+
+        // The email **is** the password login identifier, so changing it has to
+        // move the credential's `subject` too. Without that the two silently
+        // diverge: `/api/users/me` shows the new address while only the retired
+        // one authenticates, and the freed address becomes a landmine — a later
+        // user given it trips `UNIQUE(kind, subject)` on enrolment.
+        //
+        // Only the password credential is touched. A passkey's subject is its
+        // credential id and an OAuth link's is the provider's subject; neither
+        // has anything to do with the email.
+        //
+        // The credential is written **first**, deliberately. There is no
+        // transaction across these two rows, so one order has to be chosen for
+        // its failure mode: if the credential write fails here, nothing has
+        // changed at all. Writing `users` first and failing here would leave the
+        // profile showing an address that cannot log in — a lockout.
+        if let Some(existing) = self
+            .credentials
+            .find_password(&user_id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+        {
+            let new_subject = email
+                .clone()
+                .unwrap_or_else(|| user_id.to_string())
+                .to_lowercase();
+
+            if new_subject != existing.subject {
+                let secret = existing.secret.as_deref().ok_or_else(|| {
+                    AppError::Internal(anyhow::anyhow!(
+                        "password credential {} has no secret",
+                        existing.id
+                    ))
+                })?;
+
+                // Re-points the subject and keeps the same hash — a person's
+                // password does not change because their address did.
+                if let Err(e) = self
+                    .credentials
+                    .set_password(
+                        &existing.id,
+                        &user_id.to_string(),
+                        &new_subject,
+                        secret,
+                        &now,
+                    )
+                    .await
+                {
+                    if e.downcast_ref::<CredentialAlreadyLinkedError>().is_some() {
+                        return Err(AppError::Conflict(
+                            "another account already signs in with that email address".to_owned(),
+                        ));
+                    }
+                    return Err(AppError::Internal(e));
+                }
+            }
+        }
+
         let affected = self
             .users
             .update_profile(
@@ -817,6 +871,25 @@ impl UserService for UserServiceImpl {
             ));
         }
 
+        // Refuse up front for an account that already has a password, so the
+        // admin sees the problem when they ask rather than handing over a token
+        // that `redeem_enrolment` will refuse. That refusal is the real guard —
+        // this one exists so the UI can say why, and so a token that could
+        // never be spent is never minted.
+        if self
+            .credentials
+            .find_password(&target.id)
+            .await
+            .map_err(AppError::Internal)?
+            .is_some()
+        {
+            return Err(AppError::Conflict(
+                "that account already has a password; enrolment sets a first \
+                 credential and never replaces one"
+                    .to_owned(),
+            ));
+        }
+
         // Reuse the session-token generator: 32 bytes of CSPRNG, base64url,
         // stored only as a SHA-256 hash. The same reasoning applies — the token
         // has no guessable structure, so it needs no slow hash, and a readable
@@ -859,9 +932,8 @@ impl UserService for UserServiceImpl {
                     id: Uuid::parse_str(&row.id).map_err(|e| {
                         AppError::Internal(anyhow::anyhow!("invalid enrolment id: {e}"))
                     })?,
-                    user_id: Uuid::parse_str(&row.user_id).map_err(|e| {
-                        AppError::Internal(anyhow::anyhow!("invalid user id: {e}"))
-                    })?,
+                    user_id: Uuid::parse_str(&row.user_id)
+                        .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid user id: {e}")))?,
                     created_at: row.created_at,
                     expires_at: row.expires_at,
                     used_at: row.used_at,
@@ -903,26 +975,34 @@ impl UserService for UserServiceImpl {
                 AppError::Unauthorized("that invitation is not valid".to_owned())
             })?;
 
-        // Claim the token *before* writing the credential. `mark_used` carries
-        // the `used_at IS NULL` predicate in its own WHERE clause, so two
-        // concurrent redemptions cannot both win — and losing the race here
-        // means no credential is written, which is the safe direction.
-        let claimed = self
-            .enrolments
-            .mark_used(&row.id, &now)
-            .await
-            .map_err(AppError::Internal)?;
-        if claimed == 0 {
-            return Err(AppError::Unauthorized(
-                "that invitation is not valid".to_owned(),
-            ));
-        }
-
         let user_id = Uuid::parse_str(&row.user_id)
             .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid user id: {e}")))?;
         let user = self.load(user_id).await?;
         if !user.enabled {
             return Err(AppError::Forbidden("this account is disabled".to_owned()));
+        }
+
+        // An enrolment token sets a *first* credential; it must never replace an
+        // existing one. Without this, an admin could issue a token against an
+        // account that already has a password, redeem it with a password of
+        // their choosing, and then sign in as that person — which is exactly the
+        // property ADR-0031 §3 rules out, and the reason
+        // `change_own_password` has no admin override.
+        if self
+            .credentials
+            .find_password(&user.id)
+            .await
+            .map_err(AppError::Internal)?
+            .is_some()
+        {
+            tracing::warn!(
+                user_id = %user_id,
+                "refused an enrolment redemption against an account that already has a password"
+            );
+            return Err(AppError::Conflict(
+                "this account already has a password; use the change-password flow instead"
+                    .to_owned(),
+            ));
         }
 
         // The login subject is the user's email when they have one, and their id
@@ -935,16 +1015,47 @@ impl UserService for UserServiceImpl {
             .unwrap_or_else(|| user.id.clone())
             .to_lowercase();
 
-        self.credentials
+        // Hash before claiming the token: Argon2id is the slowest step and the
+        // most likely to be interrupted, and a token burned with no credential
+        // written costs the household a fresh invitation.
+        let secret = hash_password(password)?;
+
+        // Claim the token only once everything else has succeeded. `mark_used`
+        // carries the `used_at IS NULL` predicate in its own WHERE clause, so
+        // two concurrent redemptions still cannot both win — losing that race
+        // means no credential is written, which is the safe direction.
+        let claimed = self
+            .enrolments
+            .mark_used(&row.id, &now)
+            .await
+            .map_err(AppError::Internal)?;
+        if claimed == 0 {
+            return Err(AppError::Unauthorized(
+                "that invitation is not valid".to_owned(),
+            ));
+        }
+
+        // The subject collides only if another account already logs in with this
+        // email — a real conflict the admin has to resolve, and a `409` rather
+        // than the `500` a bare downcast-less map would produce.
+        if let Err(e) = self
+            .credentials
             .set_password(
                 &Uuid::new_v4().to_string(),
                 &user.id,
                 &subject,
-                &hash_password(password)?,
+                &secret,
                 &now,
             )
             .await
-            .map_err(AppError::Internal)?;
+        {
+            if e.downcast_ref::<CredentialAlreadyLinkedError>().is_some() {
+                return Err(AppError::Conflict(
+                    "another account already signs in with that email address".to_owned(),
+                ));
+            }
+            return Err(AppError::Internal(e));
+        }
 
         tracing::info!(user_id = %user_id, "enrolment redeemed, password set");
 
@@ -988,7 +1099,9 @@ impl UserService for UserServiceImpl {
 
         let client_id = client_id.trim();
         if client_id.is_empty() {
-            return Err(AppError::BadRequest("client id must not be empty".to_owned()));
+            return Err(AppError::BadRequest(
+                "client id must not be empty".to_owned(),
+            ));
         }
 
         self.oauth_config
@@ -1016,7 +1129,10 @@ impl UserService for UserServiceImpl {
 
         self.oauth_config
             .system_config
-            .set(&provider.enabled_key(), if enabled { "true" } else { "false" })
+            .set(
+                &provider.enabled_key(),
+                if enabled { "true" } else { "false" },
+            )
             .await
             .map_err(AppError::Internal)?;
 
@@ -1065,11 +1181,17 @@ impl UserService for UserServiceImpl {
         let state = new_state();
         let (verifier, challenge) = new_pkce_pair();
 
+        // A ceremony started by a signed-in user is a *link*; record who, so
+        // `link_oauth` can refuse a `state` minted by somebody else. Sign-in
+        // ceremonies have no caller, which is the `None` case.
+        let started_by = auth_context::try_current().and_then(|ctx| ctx.user_id());
+
         self.pending_oauth.insert(
             state.clone(),
             PendingOauth {
                 provider,
                 pkce_verifier: verifier,
+                started_by,
             },
         );
 
@@ -1099,7 +1221,7 @@ impl UserService for UserServiceImpl {
         code: &str,
     ) -> Result<(UserProfile, UserRole), AppError> {
         // Documented exception (category (b)): this IS the credential check.
-        let (provider, identity) = self.resolve_callback(state, code).await?;
+        let (provider, identity, _started_by) = self.resolve_callback(state, code).await?;
 
         // The subject is the join key, and `find_for_login` filters disabled
         // users in SQL. An unknown subject is refused outright: Wardnet never
@@ -1150,7 +1272,29 @@ impl UserService for UserServiceImpl {
         auth_context::require_authenticated()?;
         let user_id = Self::caller()?;
 
-        let (provider, identity) = self.resolve_callback(state, code).await?;
+        let (provider, identity, started_by) = self.resolve_callback(state, code).await?;
+
+        // The ceremony must belong to the caller. Without this, an attacker
+        // could start a ceremony with their own provider account, obtain
+        // `(state, code)`, and get a signed-in admin's browser to redeem it —
+        // attaching the attacker's account to the admin's user and handing them
+        // the household. `finish_passkey_registration` refuses on the same
+        // mismatch.
+        //
+        // A `None` owner means the ceremony was started unauthenticated, i.e.
+        // as a sign-in. Those are not linkable, so refuse rather than adopt.
+        match started_by {
+            Some(owner) if owner == user_id => {}
+            _ => {
+                tracing::warn!(
+                    user_id = %user_id,
+                    "refused an oauth link for a ceremony this caller did not start"
+                );
+                return Err(AppError::Forbidden(
+                    "that sign-in attempt was not started by this account".to_owned(),
+                ));
+            }
+        }
 
         let now = chrono::Utc::now().to_rfc3339();
         let row = wardnetd_data::repository::user_credential::CredentialRow {
@@ -1192,11 +1336,7 @@ impl UserService for UserServiceImpl {
         Ok(())
     }
 
-    async fn unlink_oauth(
-        &self,
-        user_id: Uuid,
-        provider: OauthProvider,
-    ) -> Result<u64, AppError> {
+    async fn unlink_oauth(&self, user_id: Uuid, provider: OauthProvider) -> Result<u64, AppError> {
         Self::require_admin_or_self(user_id)?;
 
         // Only ever removes federated links. The local password is not
@@ -1227,7 +1367,10 @@ impl UserService for UserServiceImpl {
         let user = self.load(user_id).await?;
 
         let fqdn = self.oauth_config.canonical_fqdn().await?;
-        let webauthn = self.passkeys.for_request(fqdn.as_deref(), request_host).await?;
+        let webauthn = self
+            .passkeys
+            .for_request(fqdn.as_deref(), request_host)
+            .await?;
 
         // Existing passkeys are excluded so the authenticator offers to *update*
         // rather than silently creating a second credential for the same user on
@@ -1293,7 +1436,10 @@ impl UserService for UserServiceImpl {
         }
 
         let fqdn = self.oauth_config.canonical_fqdn().await?;
-        let webauthn = self.passkeys.for_request(fqdn.as_deref(), request_host).await?;
+        let webauthn = self
+            .passkeys
+            .for_request(fqdn.as_deref(), request_host)
+            .await?;
 
         let registration: webauthn_rs::prelude::RegisterPublicKeyCredential =
             serde_json::from_value(credential).map_err(|e| {
@@ -1305,9 +1451,12 @@ impl UserService for UserServiceImpl {
             .map_err(map_webauthn_error)?;
 
         let metadata = PasskeyMetadata {
+            // A fresh credential has no observed assertion yet. The backup flags
+            // are not knowable here (see `PasskeyMetadata`) and are filled in on
+            // first sign-in rather than guessed.
             sign_count: 0,
-            backup_eligible: false,
-            backup_state: false,
+            backup_eligible: None,
+            backup_state: None,
             credential: passkey.clone(),
         };
 
@@ -1350,7 +1499,10 @@ impl UserService for UserServiceImpl {
     ) -> Result<serde_json::Value, AppError> {
         // Documented exception (category (b)): a sign-in entry point.
         let fqdn = self.oauth_config.canonical_fqdn().await?;
-        let webauthn = self.passkeys.for_request(fqdn.as_deref(), request_host).await?;
+        let webauthn = self
+            .passkeys
+            .for_request(fqdn.as_deref(), request_host)
+            .await?;
 
         // Discoverable credentials: no allow-list, so the authenticator decides
         // which passkey to offer and no username is needed. That also means this
@@ -1392,12 +1544,14 @@ impl UserService for UserServiceImpl {
             })?;
 
         let fqdn = self.oauth_config.canonical_fqdn().await?;
-        let webauthn = self.passkeys.for_request(fqdn.as_deref(), request_host).await?;
+        let webauthn = self
+            .passkeys
+            .for_request(fqdn.as_deref(), request_host)
+            .await?;
 
         let assertion: webauthn_rs::prelude::PublicKeyCredential =
-            serde_json::from_value(credential).map_err(|e| {
-                AppError::BadRequest(format!("malformed passkey assertion: {e}"))
-            })?;
+            serde_json::from_value(credential)
+                .map_err(|e| AppError::BadRequest(format!("malformed passkey assertion: {e}")))?;
 
         // Resolve which credential the authenticator used, then look it up. The
         // browser tells us the credential id; the signature is what proves it.
@@ -1416,7 +1570,9 @@ impl UserService for UserServiceImpl {
 
         let mut metadata: PasskeyMetadata = serde_json::from_str(&login.credential.metadata)
             .map_err(|e| {
-                AppError::Internal(anyhow::anyhow!("stored passkey metadata is unreadable: {e}"))
+                AppError::Internal(anyhow::anyhow!(
+                    "stored passkey metadata is unreadable: {e}"
+                ))
             })?;
 
         let result = webauthn
@@ -1446,8 +1602,8 @@ impl UserService for UserServiceImpl {
         // something current to compare against.
         metadata.credential.update_credential(&result);
         metadata.sign_count = result.counter();
-        metadata.backup_state = result.backup_state();
-        metadata.backup_eligible = result.backup_eligible();
+        metadata.backup_state = Some(result.backup_state());
+        metadata.backup_eligible = Some(result.backup_eligible());
         let now = chrono::Utc::now().to_rfc3339();
         if let Ok(json) = serde_json::to_string(&metadata) {
             if let Err(e) = self

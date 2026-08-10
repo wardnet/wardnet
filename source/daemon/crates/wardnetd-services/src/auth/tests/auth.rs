@@ -12,13 +12,13 @@ use wardnetd_data::repository::user::UserRepository;
 use wardnetd_data::repository::user_credential::UserCredentialRepository;
 
 use crate::auth::password::hash_token;
+use crate::auth::{AuthService, AuthServiceImpl, LoginAttempt};
+use crate::auth_context;
+use crate::error::AppError;
 use crate::tests::repo_mocks::{
     MockApiKeyRepo, MockCredentialRepo, MockSessionRepo, MockSystemConfigRepo, MockUserRepo,
     StoredSession, user_row,
 };
-use crate::auth::{AuthService, AuthServiceImpl, LoginAttempt};
-use crate::auth_context;
-use crate::error::AppError;
 
 /// The backfilled local admin's id on every box in these tests.
 const ADMIN_ID: &str = "00000000-0000-0000-0000-000000000001";
@@ -61,7 +61,11 @@ struct Fixture {
 
 /// Build a service over the given repositories, joining sessions and
 /// credentials to `users` so the `enabled` filters behave as they do in SQL.
-fn fixture(users: MockUserRepo, credentials: MockCredentialRepo, api_keys: MockApiKeyRepo) -> Fixture {
+fn fixture(
+    users: MockUserRepo,
+    credentials: MockCredentialRepo,
+    api_keys: MockApiKeyRepo,
+) -> Fixture {
     let users = Arc::new(users);
     let credentials = Arc::new(credentials);
     let sessions = Arc::new(MockSessionRepo::joined_to(Arc::clone(&users)));
@@ -179,7 +183,10 @@ async fn login_is_case_insensitive_in_the_subject() {
     // lookup stopped folding case, every upgraded box would lose its login.
     let f = admin_with_password("correct-password");
 
-    let login = f.svc.login(attempt("ADMIN", "correct-password", false)).await;
+    let login = f
+        .svc
+        .login(attempt("ADMIN", "correct-password", false))
+        .await;
     assert!(login.is_ok(), "mixed-case username must still authenticate");
 }
 
@@ -283,7 +290,10 @@ async fn login_unknown_subject_runs_decoy_verify_to_hide_timing() {
 
     let wrong_password = {
         let start = std::time::Instant::now();
-        let r = known.svc.login(attempt("admin", "wrong-password", false)).await;
+        let r = known
+            .svc
+            .login(attempt("admin", "wrong-password", false))
+            .await;
         assert!(matches!(r, Err(AppError::Unauthorized(_))));
         start.elapsed()
     };
@@ -394,8 +404,11 @@ async fn validate_session_carries_the_members_own_role_not_admin() {
         user_row(MEMBER_ID, "kid", UserRole::Member, true),
     ]));
     let sessions = Arc::new(
-        MockSessionRepo::joined_to(Arc::clone(&users))
-            .with_session(live_session(MEMBER_ID, "member-token", false)),
+        MockSessionRepo::joined_to(Arc::clone(&users)).with_session(live_session(
+            MEMBER_ID,
+            "member-token",
+            false,
+        )),
     );
     let svc = AuthServiceImpl::new(
         Arc::clone(&users) as Arc<dyn UserRepository>,
@@ -413,7 +426,11 @@ async fn validate_session_carries_the_members_own_role_not_admin() {
         .unwrap()
         .expect("the member's session is live");
 
-    assert_eq!(user.role(), UserRole::Member, "a member must not become admin");
+    assert_eq!(
+        user.role(),
+        UserRole::Member,
+        "a member must not become admin"
+    );
     assert!(
         !wardnet_common::auth::AuthContext::user(user).is_admin(),
         "a member context must fail require_admin"
@@ -430,8 +447,11 @@ async fn validate_session_rejects_a_disabled_users_live_session() {
         false,
     )]));
     let sessions = Arc::new(
-        MockSessionRepo::joined_to(Arc::clone(&users))
-            .with_session(live_session(ADMIN_ID, "raw-token", true)),
+        MockSessionRepo::joined_to(Arc::clone(&users)).with_session(live_session(
+            ADMIN_ID,
+            "raw-token",
+            true,
+        )),
     );
     let svc = AuthServiceImpl::new(
         Arc::clone(&users) as Arc<dyn UserRepository>,
@@ -568,7 +588,11 @@ async fn validate_api_key_is_refused_when_no_enabled_admin_exists() {
     );
 
     assert!(
-        f.svc.validate_api_key("my-secret-key").await.unwrap().is_none(),
+        f.svc
+            .validate_api_key("my-secret-key")
+            .await
+            .unwrap()
+            .is_none(),
         "with no enabled admin the key must be refused, not downgraded to the member"
     );
 }
@@ -673,10 +697,9 @@ async fn cleanup_expired_sessions_removes_only_expired_rows() {
         .unwrap()
         .push(live_session(ADMIN_ID, "live-token", false));
 
-    let removed = auth_context::with_context(
-        wardnet_common::auth::AuthContext::system(),
-        async { f.svc.cleanup_expired_sessions().await },
-    )
+    let removed = auth_context::with_context(wardnet_common::auth::AuthContext::system(), async {
+        f.svc.cleanup_expired_sessions().await
+    })
     .await
     .unwrap();
 
@@ -696,11 +719,10 @@ async fn refresh_session_rotates_the_token() {
         .push(live_session(ADMIN_ID, "old-token", true));
     let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
 
-    let result = auth_context::with_context(ctx, async {
-        f.svc.refresh_session("old-token").await
-    })
-    .await
-    .unwrap();
+    let result =
+        auth_context::with_context(ctx, async { f.svc.refresh_session("old-token").await })
+            .await
+            .unwrap();
 
     assert!(!result.token.is_empty());
     assert_ne!(result.token, "old-token");
@@ -719,10 +741,8 @@ async fn refresh_session_not_remember_me_returns_forbidden() {
         .push(live_session(ADMIN_ID, "old-token", false));
     let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
 
-    let result = auth_context::with_context(ctx, async {
-        f.svc.refresh_session("old-token").await
-    })
-    .await;
+    let result =
+        auth_context::with_context(ctx, async { f.svc.refresh_session("old-token").await }).await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
@@ -735,8 +755,11 @@ async fn refresh_session_refuses_another_users_session() {
         user_row(MEMBER_ID, "kid", UserRole::Member, true),
     ]));
     let sessions = Arc::new(
-        MockSessionRepo::joined_to(Arc::clone(&users))
-            .with_session(live_session(MEMBER_ID, "kids-token", true)),
+        MockSessionRepo::joined_to(Arc::clone(&users)).with_session(live_session(
+            MEMBER_ID,
+            "kids-token",
+            true,
+        )),
     );
     let svc = AuthServiceImpl::new(
         Arc::clone(&users) as Arc<dyn UserRepository>,
@@ -767,8 +790,11 @@ async fn refresh_session_refuses_a_disabled_user() {
         false,
     )]));
     let sessions = Arc::new(
-        MockSessionRepo::joined_to(Arc::clone(&users))
-            .with_session(live_session(ADMIN_ID, "old-token", true)),
+        MockSessionRepo::joined_to(Arc::clone(&users)).with_session(live_session(
+            ADMIN_ID,
+            "old-token",
+            true,
+        )),
     );
     let svc = AuthServiceImpl::new(
         Arc::clone(&users) as Arc<dyn UserRepository>,
@@ -798,10 +824,8 @@ async fn refresh_session_past_the_absolute_ceiling_returns_unauthorized() {
     // Wait past the ceiling without waiting 90 days.
     tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
 
-    let result = auth_context::with_context(ctx, async {
-        f.svc.refresh_session("old-token").await
-    })
-    .await;
+    let result =
+        auth_context::with_context(ctx, async { f.svc.refresh_session("old-token").await }).await;
     assert!(matches!(result, Err(AppError::Unauthorized(_))));
 }
 
@@ -815,10 +839,8 @@ async fn refresh_session_with_malformed_absolute_expiry_returns_internal() {
     f.sessions.rows.lock().unwrap().push(row);
     let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
 
-    let result = auth_context::with_context(ctx, async {
-        f.svc.refresh_session("old-token").await
-    })
-    .await;
+    let result =
+        auth_context::with_context(ctx, async { f.svc.refresh_session("old-token").await }).await;
     assert!(matches!(result, Err(AppError::Internal(_))));
 }
 
@@ -877,8 +899,11 @@ async fn logout_session_is_available_to_a_member() {
         true,
     )]));
     let sessions = Arc::new(
-        MockSessionRepo::joined_to(Arc::clone(&users))
-            .with_session(live_session(MEMBER_ID, "kids-token", false)),
+        MockSessionRepo::joined_to(Arc::clone(&users)).with_session(live_session(
+            MEMBER_ID,
+            "kids-token",
+            false,
+        )),
     );
     let svc = AuthServiceImpl::new(
         Arc::clone(&users) as Arc<dyn UserRepository>,
@@ -918,7 +943,10 @@ async fn setup_admin_creates_a_user_and_a_password_credential() {
         MockApiKeyRepo::empty(),
     );
 
-    f.svc.setup_admin("operator", "a-good-password").await.unwrap();
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
 
     assert_eq!(f.users.count(), 1);
     let rows = f.users.rows.lock().unwrap().clone();

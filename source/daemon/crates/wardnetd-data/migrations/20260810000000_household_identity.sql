@@ -101,14 +101,22 @@ WHERE id != '00000000-0000-0000-0000-000000000000';
 -- back. Rare (the wizard creates one admin) is not the same as impossible, and
 -- the cost of being wrong is unbootable.
 --
--- So: lowercase only when the username is already unique under `lower()`.
--- Members of a colliding group keep their original casing, which was unique
--- among themselves by the old index — they simply keep logging in exactly as
--- case-sensitively as they did before. No abort, and nobody loses a password.
+-- Every subject is therefore lowercased unconditionally, because the login path
+-- lowercases what the operator types and `find_for_login` matches the column
+-- exactly. A subject preserved in its original casing would be **unreachable**:
+-- no input could ever match it, and that admin would be locked out with no
+-- recovery. (An earlier draft of this migration did exactly that, on the theory
+-- that colliding admins would "keep logging in case-sensitively" — they cannot;
+-- the case-sensitivity lived in the old `find_by_username`, which is gone.)
 --
--- These two cases cannot collide with each other: every subject's `lower()` is
--- its group's key, so distinct groups stay distinct, and within a group the
--- originals were already distinct.
+-- Two usernames differing only in case are, under the new scheme, one login.
+-- That is a genuine data conflict, so within a colliding group only the
+-- **oldest** admin gets the password credential. The others keep their `users`
+-- row, their id and their `admin` role — nothing is deleted, and a household is
+-- never left with fewer admins than it had — but they arrive with no password
+-- and are re-enrolled by an admin (`issue_enrolment` accepts exactly the
+-- credential-less case). That beats an abort, which would be unbootable, and it
+-- beats a row nobody can ever authenticate against.
 INSERT INTO user_credentials (id, user_id, kind, subject, secret, label, metadata, created_at)
 SELECT
     lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4'
@@ -116,17 +124,25 @@ SELECT
       || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6))),
     a.id,
     'password',
-    CASE
-        WHEN (SELECT COUNT(*) FROM admins b WHERE lower(b.username) = lower(a.username)) = 1
-            THEN lower(a.username)
-        ELSE a.username
-    END,
+    lower(a.username),
     a.password_hash,
     'Local admin password',
     '{}',
     a.created_at
 FROM admins a
-WHERE a.id != '00000000-0000-0000-0000-000000000000';
+WHERE a.id != '00000000-0000-0000-0000-000000000000'
+  -- The canonical member of this username's case-insensitive group. Ordered by
+  -- `created_at` then `id` so the choice is deterministic when timestamps tie.
+  -- For the overwhelmingly common case — one admin, no collision — this
+  -- subquery selects that admin and the clause is a no-op.
+  AND a.id = (
+      SELECT b.id
+      FROM admins b
+      WHERE lower(b.username) = lower(a.username)
+        AND b.id != '00000000-0000-0000-0000-000000000000'
+      ORDER BY b.created_at, b.id
+      LIMIT 1
+  );
 
 -- ---------------------------------------------------------------------------
 -- 3. Rebuild `sessions` so it references `users` instead of `admins`.
@@ -170,10 +186,29 @@ SELECT
     s.remember_me,
     NULL,
     NULL,
-    -- Existing sessions get their current expiry as the absolute ceiling: we
-    -- cannot invent a longer life for a session issued under the old rules,
-    -- and shortening one would log people out mid-upgrade.
-    s.expires_at
+    -- The ceiling is `created_at + 90 days`, which is **exactly** the rule these
+    -- sessions were already living under: the pre-migration `refresh_session`
+    -- recomputed `created_at + MAX_SESSION_DAYS` on every call. So this
+    -- reproduces the old policy rather than inventing a longer life.
+    --
+    -- Using `s.expires_at` here instead — an earlier draft did — silently breaks
+    -- the sliding window for every migrated session: `refresh_session` takes
+    -- `min(slid_expiry, absolute_expiry)`, so a ceiling equal to the current
+    -- expiry pins the expiry where it is and refresh can never move it again.
+    -- The session then dies at its original expiry with no warning.
+    --
+    -- `strftime` with an explicit `+00:00`, not `datetime()`: every other
+    -- timestamp in this schema is RFC 3339 and the comparisons against them are
+    -- lexicographic string compares. `datetime()` returns
+    -- `YYYY-MM-DD HH:MM:SS` (space, no offset), which would sort wrongly against
+    -- `chrono`'s `to_rfc3339()` output for the rest of the table.
+    --
+    -- `max(...)` so a session somehow already past that ceiling is never
+    -- *shortened* by the upgrade — nobody gets logged out mid-migration.
+    max(
+        s.expires_at,
+        strftime('%Y-%m-%dT%H:%M:%S+00:00', s.created_at, '+90 days')
+    )
 FROM sessions s
 -- Drop any session whose admin was the excluded nil UUID; it has no `users`
 -- row to point at, and honouring the FK matters more than one impossible row.

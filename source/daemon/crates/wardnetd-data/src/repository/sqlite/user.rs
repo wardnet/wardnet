@@ -72,8 +72,7 @@ const EXISTS: &str = "SELECT EXISTS(SELECT 1 FROM users)";
 /// Ordered by `created_at` then `id` so the answer is deterministic even if two
 /// admins share a timestamp — an API key must not silently change whose
 /// identity it acts under between two reads.
-const FIND_FIRST_ENABLED_ADMIN: &str =
-    "SELECT id, display_name, email, role, enabled, created_at, updated_at \
+const FIND_FIRST_ENABLED_ADMIN: &str = "SELECT id, display_name, email, role, enabled, created_at, updated_at \
      FROM users WHERE role = 'admin' AND enabled = 1 \
      ORDER BY created_at, id LIMIT 1";
 

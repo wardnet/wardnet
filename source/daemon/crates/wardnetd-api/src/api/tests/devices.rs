@@ -21,17 +21,17 @@ use crate::tests::stubs::{
     StubDnsService, StubEventPublisher, StubLogService, StubNetworkZoneService,
     StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 use wardnetd_services::device::identification::{DeviceIdentificationService, ProbeOutcome};
 use wardnetd_services::error::AppError;
 use wardnetd_services::{
     AuthService, DeviceDiscoveryService, DeviceService, DhcpService, TunnelService,
 };
-use wardnetd_services::auth::{CurrentUser, LoginAttempt};
-use wardnet_common::auth::{AuthenticatedUser, UserRole};
-use wardnet_test_support::principal;
-use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Mock services

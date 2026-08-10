@@ -19,8 +19,8 @@ use wardnet_common::api::{WebPushKeys, WebPushSubscription};
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
-use wardnetd_data::repository::device::DeviceRow;
 use wardnet_test_support::principal;
+use wardnetd_data::repository::device::DeviceRow;
 use wardnetd_data::repository::push::{OWNER_KIND_DEVICE, OWNER_KIND_USER};
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::repository::{
@@ -256,17 +256,18 @@ async fn seed(h: &Harness, owner_kind: &str, owner_key: &str, endpoint: &str) {
     if owner_kind == OWNER_KIND_USER {
         seed_user(&h.pool, owner_key, "admin").await;
     }
-    h.push_repo.upsert(NewPushSubscription {
-        id: &Uuid::new_v4().to_string(),
-        owner_kind,
-        owner_key,
-        endpoint,
-        p256dh: "p256dh",
-        auth: "auth",
-        created_at: "2026-07-01T00:00:00Z",
-    })
-    .await
-    .unwrap();
+    h.push_repo
+        .upsert(NewPushSubscription {
+            id: &Uuid::new_v4().to_string(),
+            owner_kind,
+            owner_key,
+            endpoint,
+            p256dh: "p256dh",
+            auth: "auth",
+            created_at: "2026-07-01T00:00:00Z",
+        })
+        .await
+        .unwrap();
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────
@@ -276,20 +277,8 @@ async fn admin_lock_notifies_the_target_device_only() {
     let device_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_device(&h.devices, device_id, "aa:bb:cc:00", Some("Kid's iPad")).await;
-    seed(
-        &h,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:00",
-        "https://push/device",
-    )
-    .await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:00", "https://push/device").await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -326,13 +315,7 @@ async fn private_dns_notify_resolves_uuid_to_mac_and_reports_delivered() {
     // Subscriptions are keyed by MAC; the endpoint speaks device UUID, so the
     // service must resolve UUID -> MAC before targeting.
     insert_device(&h.devices, device_id, "aa:bb:cc:11", Some("Phone")).await;
-    seed(
-        &h,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:11",
-        "https://push/device",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:11", "https://push/device").await;
 
     let delivered = notify(&h.service, device_id).await;
 
@@ -376,20 +359,8 @@ async fn admin_routing_change_targets_device_user_change_targets_admins() {
     let h = build(SendOutcome::Delivered).await;
     insert_device(&h.devices, device_id, "aa:bb:cc:01", Some("Laptop")).await;
     insert_tunnel(&h.tunnels, tunnel_id, "Sweden #12").await;
-    seed(
-        &h,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:01",
-        "https://push/device",
-    )
-    .await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:01", "https://push/device").await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     // Admin-initiated change -> the device is told.
     handle(
@@ -440,13 +411,7 @@ async fn tunnel_down_notifies_admins_only_when_interface_absent() {
     let tunnel_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_tunnel(&h.tunnels, tunnel_id, "USA #8").await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     // A deliberate teardown must NOT notify.
     handle(
@@ -485,13 +450,7 @@ async fn gone_subscriptions_are_pruned() {
     let tunnel_id = Uuid::new_v4();
     let h = build(SendOutcome::Gone).await;
     insert_tunnel(&h.tunnels, tunnel_id, "T").await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/dead",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/dead").await;
 
     handle(
         &h.service,
@@ -638,13 +597,7 @@ async fn subscribe_rejects_non_https_endpoint() {
 async fn unsubscribe_by_endpoint_cannot_remove_another_owners_subscription() {
     let h = build(SendOutcome::Delivered).await;
     // An admin owns a subscription.
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     // A device, knowing the admin's endpoint, tries to unsubscribe it.
     auth_context::with_context(
@@ -665,20 +618,8 @@ async fn unsubscribe_by_endpoint_cannot_remove_another_owners_subscription() {
 #[tokio::test]
 async fn unsubscribe_without_endpoint_removes_all_caller_subscriptions() {
     let h = build(SendOutcome::Delivered).await;
-    seed(
-        &h,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:aa",
-        "https://push/1",
-    )
-    .await;
-    seed(
-        &h,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:aa",
-        "https://push/2",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:aa", "https://push/1").await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:aa", "https://push/2").await;
 
     auth_context::with_context(
         AuthContext::Device {
@@ -738,13 +679,7 @@ async fn vapid_public_key_is_generated_once_and_stable() {
 async fn user_change_with_unknown_device_and_default_target_notifies_admins() {
     // Unknown device -> "A device"; Default target -> "default routing".
     let h = build(SendOutcome::Delivered).await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -772,13 +707,7 @@ async fn user_change_with_unknown_device_and_default_target_notifies_admins() {
 async fn offline_notification_falls_back_when_tunnel_unknown() {
     // No tunnel record -> label falls back to "A tunnel".
     let h = build(SendOutcome::Delivered).await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -827,13 +756,7 @@ async fn delivery_is_dropped_when_vapid_key_is_corrupt() {
     let tunnel_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_tunnel(&h.tunnels, tunnel_id, "T").await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
     h.secrets
         .put(crate::push::SECRET_VAPID_KEY, b"not-a-valid-key")
         .await
@@ -866,13 +789,7 @@ async fn new_device_quarantined_notifies_admins() {
         Some("Kid's iPad"),
     )
     .await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -904,13 +821,7 @@ async fn tunnel_offline_payload_carries_kind_url_and_tunnel_subject() {
     let tunnel_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_tunnel(&h.tunnels, tunnel_id, "USA #8").await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -965,13 +876,7 @@ async fn admin_notification_is_persisted_when_delivery_fails_transiently() {
     let tunnel_id = Uuid::new_v4();
     let h = build(SendOutcome::TransientFailure).await;
     insert_tunnel(&h.tunnels, tunnel_id, "T").await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -995,13 +900,7 @@ async fn device_keyed_notifications_are_not_persisted_to_the_feed() {
     let device_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_device(&h.devices, device_id, "aa:bb:cc:05", Some("Phone")).await;
-    seed(
-        &h,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:05",
-        "https://push/device",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:05", "https://push/device").await;
 
     handle(
         &h.service,
@@ -1063,13 +962,7 @@ async fn rule_request_notifies_admins_and_lands_in_the_feed() {
     let device_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_device(&h.devices, device_id, "aa:bb:cc:07", Some("Kid's iPad")).await;
-    seed(
-        &h,
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -1111,13 +1004,7 @@ async fn device_keyed_payload_omits_url_but_keeps_kind_and_subject() {
     let device_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_device(&h.devices, device_id, "aa:bb:cc:04", Some("Phone")).await;
-    seed(
-        &h,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:04",
-        "https://push/device",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:04", "https://push/device").await;
 
     handle(
         &h.service,

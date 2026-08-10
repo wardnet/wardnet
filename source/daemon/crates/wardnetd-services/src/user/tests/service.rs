@@ -132,7 +132,10 @@ async fn every_admin_only_method_refuses_a_member() {
     refused!(f.svc.issue_enrolment(member()), "issue_enrolment");
     refused!(f.svc.list_enrolments(member()), "list_enrolments");
     refused!(f.svc.revoke_enrolment(Uuid::new_v4()), "revoke_enrolment");
-    refused!(f.svc.cleanup_expired_enrolments(), "cleanup_expired_enrolments");
+    refused!(
+        f.svc.cleanup_expired_enrolments(),
+        "cleanup_expired_enrolments"
+    );
 }
 
 #[tokio::test]
@@ -217,10 +220,12 @@ async fn an_admin_can_edit_anybodys_profile() {
     let f = household();
     let ctx = principal::admin_context(admin());
 
-    let updated =
-        auth_context::with_context(ctx, f.svc.update_profile(member(), "Renamed By Admin", None))
-            .await
-            .unwrap();
+    let updated = auth_context::with_context(
+        ctx,
+        f.svc.update_profile(member(), "Renamed By Admin", None),
+    )
+    .await
+    .unwrap();
     assert_eq!(updated.display_name, "Renamed By Admin");
 }
 
@@ -249,10 +254,9 @@ async fn create_user_makes_an_account_with_no_credential() {
     // Email is folded to lower case, matching the case-insensitive index.
     assert_eq!(created.email.as_deref(), Some("teen@example.com"));
 
-    let credentials =
-        auth_context::with_context(ctx, f.svc.list_credentials(created.id))
-            .await
-            .unwrap();
+    let credentials = auth_context::with_context(ctx, f.svc.list_credentials(created.id))
+        .await
+        .unwrap();
     assert!(
         credentials.is_empty(),
         "a newly created user must hold no credential until enrolled"
@@ -347,10 +351,9 @@ async fn a_second_admin_makes_the_first_removable() {
     ]));
     let ctx = principal::admin_context(admin());
 
-    let demoted =
-        auth_context::with_context(ctx, f.svc.set_role(admin(), UserRole::Member))
-            .await
-            .unwrap();
+    let demoted = auth_context::with_context(ctx, f.svc.set_role(admin(), UserRole::Member))
+        .await
+        .unwrap();
     assert_eq!(demoted.role, UserRole::Member);
 }
 
@@ -422,11 +425,8 @@ async fn disabling_a_user_deletes_their_sessions() {
 #[tokio::test]
 async fn change_own_password_verifies_the_current_one() {
     let f = household();
-    f.credentials
-        .rows
-        .lock()
-        .unwrap()
-        .push(wardnetd_data::repository::user_credential::CredentialRow {
+    f.credentials.rows.lock().unwrap().push(
+        wardnetd_data::repository::user_credential::CredentialRow {
             id: "cred-1".to_owned(),
             user_id: MEMBER_ID.to_owned(),
             kind: wardnetd_data::repository::user_credential::CredentialKind::Password,
@@ -436,12 +436,14 @@ async fn change_own_password_verifies_the_current_one() {
             metadata: "{}".to_owned(),
             created_at: "2026-01-01T00:00:00+00:00".to_owned(),
             last_used_at: None,
-        });
+        },
+    );
     let ctx = principal::member_context(member());
 
     let wrong = auth_context::with_context(
         ctx.clone(),
-        f.svc.change_own_password("not-the-password", "new-password"),
+        f.svc
+            .change_own_password("not-the-password", "new-password"),
     )
     .await;
     assert!(matches!(wrong, Err(AppError::Unauthorized(_))));
@@ -459,11 +461,8 @@ async fn change_own_password_revokes_every_session() {
     // A password change is usually a response to "somebody may know my
     // password". Leaving the attacker's session alive would make it cosmetic.
     let f = household();
-    f.credentials
-        .rows
-        .lock()
-        .unwrap()
-        .push(wardnetd_data::repository::user_credential::CredentialRow {
+    f.credentials.rows.lock().unwrap().push(
+        wardnetd_data::repository::user_credential::CredentialRow {
             id: "cred-1".to_owned(),
             user_id: MEMBER_ID.to_owned(),
             kind: wardnetd_data::repository::user_credential::CredentialKind::Password,
@@ -473,7 +472,8 @@ async fn change_own_password_revokes_every_session() {
             metadata: "{}".to_owned(),
             created_at: "2026-01-01T00:00:00+00:00".to_owned(),
             last_used_at: None,
-        });
+        },
+    );
     f.sessions
         .rows
         .lock()
@@ -507,9 +507,11 @@ async fn change_own_password_reports_a_conflict_when_there_is_no_password_yet() 
     let f = household();
     let ctx = principal::member_context(member());
 
-    let result =
-        auth_context::with_context(ctx, f.svc.change_own_password("anything", "a-good-password"))
-            .await;
+    let result = auth_context::with_context(
+        ctx,
+        f.svc.change_own_password("anything", "a-good-password"),
+    )
+    .await;
     assert!(matches!(result, Err(AppError::Conflict(_))));
 }
 
@@ -582,7 +584,10 @@ async fn redeem_enrolment_sets_the_first_password_and_spends_the_token() {
         .expect("redemption must create a password credential");
     assert_eq!(credential.subject, "kid@example.com");
     assert!(
-        credential.secret.as_deref().is_some_and(|s| s.starts_with("$argon2")),
+        credential
+            .secret
+            .as_deref()
+            .is_some_and(|s| s.starts_with("$argon2")),
         "the password must be stored as an Argon2 hash"
     );
 
@@ -638,7 +643,10 @@ async fn an_unknown_enrolment_token_is_refused_indistinguishably() {
     // Unknown, expired and spent all report the same thing: telling a caller
     // which it was turns this into an oracle for guessing tokens.
     let f = household();
-    let result = f.svc.redeem_enrolment("never-issued", "a-good-password").await;
+    let result = f
+        .svc
+        .redeem_enrolment("never-issued", "a-good-password")
+        .await;
     match result {
         Err(AppError::Unauthorized(message)) => {
             assert_eq!(message, "that invitation is not valid");
@@ -680,7 +688,10 @@ async fn redeem_enrolment_refuses_a_disabled_user() {
         .await
         .unwrap();
 
-    let result = f.svc.redeem_enrolment(&invite.token, "a-good-password").await;
+    let result = f
+        .svc
+        .redeem_enrolment(&invite.token, "a-good-password")
+        .await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
@@ -698,7 +709,10 @@ async fn revoke_enrolment_removes_an_outstanding_invitation() {
         .unwrap();
 
     assert_eq!(f.enrolments.count(), 0);
-    let result = f.svc.redeem_enrolment(&invite.token, "a-good-password").await;
+    let result = f
+        .svc
+        .redeem_enrolment(&invite.token, "a-good-password")
+        .await;
     assert!(matches!(result, Err(AppError::Unauthorized(_))));
 }
 
@@ -762,4 +776,172 @@ async fn get_user_reports_not_found_for_an_unknown_id() {
 
     let result = auth_context::with_context(ctx, f.svc.get_user(Uuid::new_v4())).await;
     assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+// -- regressions from the high-effort code review --------------------------
+
+#[tokio::test]
+async fn an_enrolment_token_cannot_overwrite_an_existing_password() {
+    // The takeover path: an admin issues a second invitation against an account
+    // that already has a password, redeems it with a password of their choosing,
+    // and can then sign in as that person. That is exactly what ADR-0031 §3
+    // rules out, and why `change_own_password` has no admin override.
+    let f = household();
+    let ctx = principal::admin_context(admin());
+
+    // Ann already has a password of her own.
+    f.credentials
+        .set_password(
+            "cred-pw",
+            MEMBER_ID,
+            "kid@example.com",
+            "$argon2-ann",
+            "now",
+        )
+        .await
+        .unwrap();
+
+    // Issuing is refused up front, so no unusable token is even minted.
+    let issued = auth_context::with_context(ctx.clone(), f.svc.issue_enrolment(member())).await;
+    assert!(
+        matches!(issued, Err(AppError::Conflict(_))),
+        "issuing against an account with a password must be refused: {issued:?}"
+    );
+    assert_eq!(f.enrolments.count(), 0);
+
+    // And redemption refuses even for a token minted before the password existed.
+    f.enrolments.push(EnrolmentTokenRow {
+        id: "pre-existing".to_owned(),
+        user_id: MEMBER_ID.to_owned(),
+        token_hash: hash_token("smuggled"),
+        created_at: "2026-01-01T00:00:00+00:00".to_owned(),
+        expires_at: (chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339(),
+        used_at: None,
+    });
+    let redeemed = f.svc.redeem_enrolment("smuggled", "attacker-chosen").await;
+    assert!(
+        matches!(redeemed, Err(AppError::Conflict(_))),
+        "redeeming against an account with a password must be refused: {redeemed:?}"
+    );
+
+    // Ann's hash is untouched, so her password still works and the admin's does
+    // not become hers.
+    let credential = f
+        .credentials
+        .find_password(MEMBER_ID)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(credential.secret.as_deref(), Some("$argon2-ann"));
+}
+
+#[tokio::test]
+async fn a_failed_redemption_does_not_burn_the_invitation() {
+    // The token is claimed only after every check passes, so a refusal leaves it
+    // redeemable. Otherwise a typo'd password or a mid-flight disable costs the
+    // household a fresh invitation.
+    let f = household();
+    let ctx = principal::admin_context(admin());
+    let invite = auth_context::with_context(ctx.clone(), f.svc.issue_enrolment(member()))
+        .await
+        .unwrap();
+    let stored_id = f.enrolments.rows.lock().unwrap()[0].id.clone();
+
+    // A rejected password.
+    assert!(matches!(
+        f.svc.redeem_enrolment(&invite.token, "short").await,
+        Err(AppError::BadRequest(_))
+    ));
+    assert!(f.enrolments.used_at(&stored_id).is_none());
+
+    // A disabled account.
+    auth_context::with_context(ctx, f.svc.set_enabled(member(), false))
+        .await
+        .unwrap();
+    assert!(matches!(
+        f.svc
+            .redeem_enrolment(&invite.token, "a-good-password")
+            .await,
+        Err(AppError::Forbidden(_))
+    ));
+    assert!(
+        f.enrolments.used_at(&stored_id).is_none(),
+        "a refused redemption must leave the invitation spendable"
+    );
+}
+
+#[tokio::test]
+async fn changing_the_email_moves_the_password_login_subject() {
+    // The email *is* the password login identifier. If the two diverge, the
+    // profile shows an address that cannot sign in, and the freed address
+    // becomes a landmine for the next user given it.
+    let f = household();
+    f.credentials
+        .set_password(
+            "cred-pw",
+            MEMBER_ID,
+            "kid@example.com",
+            "$argon2-ann",
+            "now",
+        )
+        .await
+        .unwrap();
+    let ctx = principal::admin_context(admin());
+
+    auth_context::with_context(
+        ctx,
+        f.svc
+            .update_profile(member(), "Kid", Some("A.Jones@Example.com")),
+    )
+    .await
+    .unwrap();
+
+    let credential = f
+        .credentials
+        .find_password(MEMBER_ID)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        credential.subject, "a.jones@example.com",
+        "the login subject must follow the email, lowercased"
+    );
+    assert_eq!(
+        credential.secret.as_deref(),
+        Some("$argon2-ann"),
+        "the password itself must not change because the address did"
+    );
+}
+
+#[tokio::test]
+async fn a_profile_update_that_does_not_touch_the_email_leaves_the_subject_alone() {
+    let f = household();
+    f.credentials
+        .set_password(
+            "cred-pw",
+            MEMBER_ID,
+            "kid@example.com",
+            "$argon2-ann",
+            "now",
+        )
+        .await
+        .unwrap();
+    let ctx = principal::admin_context(admin());
+
+    auth_context::with_context(
+        ctx,
+        f.svc
+            .update_profile(member(), "Renamed Only", Some("kid@example.com")),
+    )
+    .await
+    .unwrap();
+
+    let credential = f
+        .credentials
+        .find_password(MEMBER_ID)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(credential.subject, "kid@example.com");
+    assert_eq!(credential.id, "cred-pw", "no needless credential rewrite");
 }

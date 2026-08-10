@@ -17,14 +17,14 @@ use crate::tests::stubs::{
     StubLogService, StubNetworkZoneService, StubProviderService, StubRoutingService,
     StubSystemService, StubTunnelService,
 };
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
 use wardnetd_services::AuthService;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
-use wardnetd_services::error::AppError;
 use wardnetd_services::auth::{CurrentUser, LoginAttempt};
-use wardnet_common::auth::{AuthenticatedUser, UserRole};
-use wardnet_test_support::principal;
-use uuid::Uuid;
+use wardnetd_services::error::AppError;
 
 /// Mock auth service that authenticates any Bearer token and returns a
 /// configurable `current_user` result.

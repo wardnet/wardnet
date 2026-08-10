@@ -9,11 +9,11 @@ use wardnetd_data::repository::system_config::SystemConfigRepository;
 use wardnetd_data::repository::user::UserRepository;
 use wardnetd_data::repository::user_credential::UserCredentialRepository;
 
+use crate::auth::{AuthService, AuthServiceImpl};
+use crate::error::AppError;
 use crate::tests::repo_mocks::{
     MockApiKeyRepo, MockCredentialRepo, MockSessionRepo, MockSystemConfigRepo, MockUserRepo,
 };
-use crate::auth::{AuthService, AuthServiceImpl};
-use crate::error::AppError;
 
 /// Handles a setup test needs to assert on.
 struct Fixture {
@@ -54,7 +54,12 @@ fn fresh_box() -> Fixture {
 #[tokio::test]
 async fn setup_admin_succeeds_when_not_completed() {
     let f = fresh_box();
-    assert!(f.svc.setup_admin("operator", "a-good-password").await.is_ok());
+    assert!(
+        f.svc
+            .setup_admin("operator", "a-good-password")
+            .await
+            .is_ok()
+    );
     assert_eq!(f.users.count(), 1);
 }
 
@@ -115,7 +120,10 @@ async fn setup_admin_fails_with_short_password() {
 #[tokio::test]
 async fn setup_admin_stores_an_argon2_hash_not_the_password() {
     let f = fresh_box();
-    f.svc.setup_admin("operator", "a-good-password").await.unwrap();
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
 
     let user_id = f.users.rows.lock().unwrap()[0].id.clone();
     let credential = f
@@ -124,7 +132,9 @@ async fn setup_admin_stores_an_argon2_hash_not_the_password() {
         .await
         .unwrap()
         .expect("a password credential must exist");
-    let secret = credential.secret.expect("a password credential has a secret");
+    let secret = credential
+        .secret
+        .expect("a password credential has a secret");
 
     assert!(
         secret.starts_with("$argon2"),
@@ -141,7 +151,10 @@ async fn setup_admin_creates_an_admin_role_user() {
     // Decision 6: the first account is a `role=admin` household user, exactly
     // equal to the legacy local admin.
     let f = fresh_box();
-    f.svc.setup_admin("operator", "a-good-password").await.unwrap();
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
 
     let row = f.users.rows.lock().unwrap()[0].clone();
     assert_eq!(row.role, UserRole::Admin);
@@ -154,10 +167,18 @@ async fn setup_admin_lowercases_the_credential_subject() {
     // a wizard-created admin would have case-sensitive login while an upgraded
     // one did not.
     let f = fresh_box();
-    f.svc.setup_admin("Operator", "a-good-password").await.unwrap();
+    f.svc
+        .setup_admin("Operator", "a-good-password")
+        .await
+        .unwrap();
 
     let user_id = f.users.rows.lock().unwrap()[0].id.clone();
-    let credential = f.credentials.find_password(&user_id).await.unwrap().unwrap();
+    let credential = f
+        .credentials
+        .find_password(&user_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(credential.subject, "operator");
     // The display name keeps the operator's own capitalisation.
     assert_eq!(f.users.rows.lock().unwrap()[0].display_name, "Operator");
@@ -171,7 +192,10 @@ async fn setup_admin_advances_wizard_to_network() {
         MockUserRepo::empty(),
         MockSystemConfigRepo::with("wizard_step", WizardStep::Admin.as_storage_str()),
     );
-    f.svc.setup_admin("operator", "a-good-password").await.unwrap();
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
     assert_eq!(
         f.config.read("wizard_step").as_deref(),
         Some(WizardStep::Network.as_storage_str())
@@ -181,7 +205,10 @@ async fn setup_admin_advances_wizard_to_network() {
 #[tokio::test]
 async fn setup_admin_advances_when_wizard_step_unset() {
     let f = fresh_box();
-    f.svc.setup_admin("operator", "a-good-password").await.unwrap();
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
     assert_eq!(
         f.config.read("wizard_step").as_deref(),
         Some(WizardStep::Network.as_storage_str())
@@ -196,7 +223,10 @@ async fn setup_admin_leaves_a_further_along_wizard_step_alone() {
         MockUserRepo::empty(),
         MockSystemConfigRepo::with("wizard_step", WizardStep::Dhcp.as_storage_str()),
     );
-    f.svc.setup_admin("operator", "a-good-password").await.unwrap();
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
     assert_eq!(
         f.config.read("wizard_step").as_deref(),
         Some(WizardStep::Dhcp.as_storage_str())
@@ -216,7 +246,10 @@ async fn is_setup_completed_returns_false_after_setup_admin() {
     // Creating the admin is step one of several; setup is not "completed" until
     // the wizard says so.
     let f = fresh_box();
-    f.svc.setup_admin("operator", "a-good-password").await.unwrap();
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
     assert!(!f.svc.is_setup_completed().await.unwrap());
 }
 

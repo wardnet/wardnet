@@ -77,7 +77,8 @@ fn fixture(mock_base: Option<&str>) -> Fixture {
         Arc::clone(&enrolments) as Arc<dyn UserEnrolmentRepository>,
         Arc::clone(&sessions) as Arc<dyn SessionRepository>,
         OauthConfig {
-            system_config: Arc::clone(&config) as Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
+            system_config: Arc::clone(&config)
+                as Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
             secrets: Arc::clone(&secrets) as Arc<dyn wardnetd_data::secret_store::SecretStore>,
         },
         Arc::new(ReqwestOauthClient::new().unwrap()),
@@ -108,8 +109,12 @@ async fn configure_google(f: &Fixture) {
     let ctx = principal::admin_context(admin());
     auth_context::with_context(
         ctx,
-        f.svc
-            .configure_oauth_provider(OauthProvider::Google, "client-id", Some("client-secret"), true),
+        f.svc.configure_oauth_provider(
+            OauthProvider::Google,
+            "client-id",
+            Some("client-secret"),
+            true,
+        ),
     )
     .await
     .unwrap();
@@ -134,7 +139,9 @@ async fn configuring_a_provider_stores_the_secret_out_of_reach() {
 
     // The client id is ordinary config; the secret is in the vault.
     assert_eq!(
-        f.config.read(&OauthProvider::Google.client_id_key()).as_deref(),
+        f.config
+            .read(&OauthProvider::Google.client_id_key())
+            .as_deref(),
         Some("client-id")
     );
     assert!(
@@ -267,7 +274,9 @@ async fn a_later_configure_can_omit_the_secret_without_losing_it() {
 
     assert!(status.configured, "the existing secret must survive");
     assert_eq!(
-        f.config.read(&OauthProvider::Google.client_id_key()).as_deref(),
+        f.config
+            .read(&OauthProvider::Google.client_id_key())
+            .as_deref(),
         Some("new-client-id")
     );
 }
@@ -298,8 +307,14 @@ async fn start_oauth_builds_a_pkce_authorize_url() {
     let url = reqwest::Url::parse(&redirect.url).unwrap();
     let params: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
 
-    assert_eq!(params.get("response_type").map(String::as_str), Some("code"));
-    assert_eq!(params.get("client_id").map(String::as_str), Some("client-id"));
+    assert_eq!(
+        params.get("response_type").map(String::as_str),
+        Some("code")
+    );
+    assert_eq!(
+        params.get("client_id").map(String::as_str),
+        Some("client-id")
+    );
     assert_eq!(
         params.get("code_challenge_method").map(String::as_str),
         Some("S256"),
@@ -531,18 +546,22 @@ async fn link_oauth_attaches_the_provider_account_to_the_caller() {
     let f = fixture(Some(&server.uri()));
     configure_google(&f).await;
 
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
-    let state = state_from(&redirect.url);
+    // The ceremony must be started by the same user that links it — see
+    // `a_link_ceremony_cannot_be_redeemed_by_a_different_user`.
     let ctx = principal::member_context(member());
+    let redirect =
+        auth_context::with_context(ctx.clone(), f.svc.start_oauth(OauthProvider::Google))
+            .await
+            .unwrap();
+    let state = state_from(&redirect.url);
 
     auth_context::with_context(ctx.clone(), f.svc.link_oauth(&state, "code"))
         .await
         .unwrap();
 
-    let credentials =
-        auth_context::with_context(ctx, f.svc.list_credentials(member()))
-            .await
-            .unwrap();
+    let credentials = auth_context::with_context(ctx, f.svc.list_credentials(member()))
+        .await
+        .unwrap();
     assert_eq!(credentials.len(), 1);
     assert_eq!(credentials[0].kind, CredentialKind::Google);
     assert_eq!(credentials[0].subject, "google-subject-9");
@@ -581,9 +600,12 @@ async fn a_provider_account_cannot_be_linked_to_two_users() {
     });
     f.credentials.enforce_subject_uniqueness();
 
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
-    let state = state_from(&redirect.url);
     let ctx = principal::admin_context(admin());
+    let redirect =
+        auth_context::with_context(ctx.clone(), f.svc.start_oauth(OauthProvider::Google))
+            .await
+            .unwrap();
+    let state = state_from(&redirect.url);
 
     let result = auth_context::with_context(ctx, f.svc.link_oauth(&state, "code")).await;
     match result {
@@ -603,7 +625,13 @@ async fn unlink_oauth_removes_only_that_provider() {
     let member_id = MEMBER_ID.to_owned();
     // A password and a Google link.
     f.credentials
-        .set_password("cred-pw", &member_id, "kid@example.com", "$argon2-hash", "now")
+        .set_password(
+            "cred-pw",
+            &member_id,
+            "kid@example.com",
+            "$argon2-hash",
+            "now",
+        )
         .await
         .unwrap();
     f.credentials.rows.lock().unwrap().push(CredentialRow {
@@ -619,15 +647,21 @@ async fn unlink_oauth_removes_only_that_provider() {
     });
     let ctx = principal::member_context(member());
 
-    let removed =
-        auth_context::with_context(ctx.clone(), f.svc.unlink_oauth(member(), OauthProvider::Google))
-            .await
-            .unwrap();
+    let removed = auth_context::with_context(
+        ctx.clone(),
+        f.svc.unlink_oauth(member(), OauthProvider::Google),
+    )
+    .await
+    .unwrap();
     assert_eq!(removed, 1);
 
     // The password — the floor — is untouched.
     assert!(
-        f.credentials.find_password(&member_id).await.unwrap().is_some(),
+        f.credentials
+            .find_password(&member_id)
+            .await
+            .unwrap()
+            .is_some(),
         "unlinking a provider must never remove the local password"
     );
 }
@@ -640,4 +674,80 @@ async fn a_member_cannot_unlink_another_users_provider() {
     let result =
         auth_context::with_context(ctx, f.svc.unlink_oauth(admin(), OauthProvider::Google)).await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+// -- regressions from the high-effort code review --------------------------
+
+#[tokio::test]
+async fn a_link_ceremony_cannot_be_redeemed_by_a_different_user() {
+    // The takeover path: an attacker starts a ceremony, consents with their own
+    // provider account, obtains `(state, code)`, and gets a signed-in admin's
+    // browser to redeem it — attaching the attacker's Google account to the
+    // admin's user. `PendingOauth` now records who started the ceremony.
+    let server = google_mock("attacker-google-subject").await;
+    let f = fixture(Some(&server.uri()));
+    configure_google(&f).await;
+
+    // The member starts a link ceremony.
+    let member_ctx = principal::member_context(member());
+    let redirect = auth_context::with_context(member_ctx, f.svc.start_oauth(OauthProvider::Google))
+        .await
+        .unwrap();
+    let state = state_from(&redirect.url);
+
+    // The admin tries to complete it.
+    let admin_ctx = principal::admin_context(admin());
+    let result = auth_context::with_context(admin_ctx, f.svc.link_oauth(&state, "code")).await;
+
+    assert!(
+        matches!(result, Err(AppError::Forbidden(_))),
+        "a ceremony started by another user must not be linkable: {result:?}"
+    );
+    assert!(
+        f.credentials.rows.lock().unwrap().is_empty(),
+        "no credential may be attached from somebody else's ceremony"
+    );
+}
+
+#[tokio::test]
+async fn a_sign_in_ceremony_cannot_be_redeemed_as_a_link() {
+    // A ceremony started unauthenticated has no owner. Adopting it would let an
+    // attacker who completed provider consent hand the resulting code to a
+    // signed-in victim's browser.
+    let server = google_mock("attacker-google-subject").await;
+    let f = fixture(Some(&server.uri()));
+    configure_google(&f).await;
+
+    // Started with no auth context at all — the sign-in entry point.
+    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let state = state_from(&redirect.url);
+
+    let ctx = principal::member_context(member());
+    let result = auth_context::with_context(ctx, f.svc.link_oauth(&state, "code")).await;
+
+    assert!(
+        matches!(result, Err(AppError::Forbidden(_))),
+        "an ownerless ceremony must not be adoptable: {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_link_ceremony_started_by_the_caller_still_works() {
+    // The guard must not break the legitimate flow.
+    let server = google_mock("member-google-subject").await;
+    let f = fixture(Some(&server.uri()));
+    configure_google(&f).await;
+    let ctx = principal::member_context(member());
+
+    let redirect =
+        auth_context::with_context(ctx.clone(), f.svc.start_oauth(OauthProvider::Google))
+            .await
+            .unwrap();
+    let state = state_from(&redirect.url);
+
+    auth_context::with_context(ctx, f.svc.link_oauth(&state, "code"))
+        .await
+        .expect("the caller who started the ceremony may complete it");
+
+    assert_eq!(f.credentials.rows.lock().unwrap().len(), 1);
 }

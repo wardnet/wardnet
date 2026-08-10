@@ -910,13 +910,14 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
         ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
             Ok(Vec::new())
         }
-    async fn set_owner(
-        &self,
-        _device_id: &str,
-        _owner_user_id: Option<&str>,
-    ) -> anyhow::Result<bool> {
-        Ok(true)
-    }
+
+        async fn set_owner(
+            &self,
+            _device_id: &str,
+            _owner_user_id: Option<&str>,
+        ) -> anyhow::Result<bool> {
+            Ok(true)
+        }
 
         async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
             Ok(None)

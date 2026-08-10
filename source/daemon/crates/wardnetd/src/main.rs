@@ -853,7 +853,8 @@ async fn run(
 
     // Periodically purge expired admin-session rows (reads already filter on
     // expiry; this reclaims the dead storage). Hourly cadence.
-    let session_cleanup_runner = SessionCleanupRunner::start(services.auth.clone(), services.user.clone(), &root_span);
+    let session_cleanup_runner =
+        SessionCleanupRunner::start(services.auth.clone(), services.user.clone(), &root_span);
 
     // Drain the DNS query log persistence channel into SQLite and trim the
     // table once a day. The receiver is taken out of `Services` exactly

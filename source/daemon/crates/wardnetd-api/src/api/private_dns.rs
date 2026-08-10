@@ -13,7 +13,7 @@ use wardnet_common::api::{
 };
 use wardnet_common::auth::AuthContext;
 
-use crate::api::middleware::{SessionAuth, ClientIp};
+use crate::api::middleware::{ClientIp, SessionAuth};
 use crate::api::responses::{AuthErrors, Conflict, NotFound};
 use crate::state::AppState;
 use wardnetd_services::auth_context;

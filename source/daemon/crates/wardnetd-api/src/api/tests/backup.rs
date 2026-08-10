@@ -35,11 +35,11 @@ use crate::tests::stubs::{
     StubNetworkZoneService, StubProviderService, StubRoutingService, StubSystemService,
     StubTunnelService,
 };
-use wardnetd_services::{AuthService, LogService};
-use wardnetd_services::auth::{CurrentUser, LoginAttempt};
+use uuid::Uuid;
 use wardnet_common::auth::{AuthenticatedUser, UserRole};
 use wardnet_test_support::principal;
-use uuid::Uuid;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
+use wardnetd_services::{AuthService, LogService};
 
 // ---------------------------------------------------------------------------
 // Auth mocks

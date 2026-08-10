@@ -90,8 +90,8 @@ async fn register(
     label: &str,
 ) -> Result<WebauthnAuthenticator<SoftPasskey>, AppError> {
     let ctx = principal::admin_context(who);
-    let challenge = auth_context::with_context(ctx.clone(), f.svc.start_passkey_registration(FQDN))
-        .await?;
+    let challenge =
+        auth_context::with_context(ctx.clone(), f.svc.start_passkey_registration(FQDN)).await?;
 
     let challenge_id = challenge
         .get("challengeId")
@@ -116,8 +116,11 @@ async fn register(
         .unwrap()
         .insert("challengeId".to_owned(), challenge_id.into());
 
-    auth_context::with_context(ctx, f.svc.finish_passkey_registration(FQDN, Some(label), value))
-        .await?;
+    auth_context::with_context(
+        ctx,
+        f.svc.finish_passkey_registration(FQDN, Some(label), value),
+    )
+    .await?;
 
     Ok(authenticator)
 }
@@ -150,10 +153,7 @@ async fn sign_in(
         .to_owned();
 
     let mut options = challenge;
-    options
-        .as_object_mut()
-        .unwrap()
-        .remove("challengeId");
+    options.as_object_mut().unwrap().remove("challengeId");
     // Point the soft authenticator at the credential it registered.
     if let Some(public_key) = options.get_mut("publicKey").and_then(|k| k.as_object_mut()) {
         public_key.insert(
@@ -165,7 +165,10 @@ async fn sign_in(
     let options: webauthn_rs::prelude::RequestChallengeResponse =
         serde_json::from_value(options).unwrap();
     let assertion = authenticator
-        .do_authentication(url::Url::parse(&format!("https://{host}")).unwrap(), options)
+        .do_authentication(
+            url::Url::parse(&format!("https://{host}")).unwrap(),
+            options,
+        )
         .expect("the soft authenticator should assert the credential it registered");
 
     let mut value = serde_json::to_value(&assertion).unwrap();
@@ -214,11 +217,8 @@ async fn a_request_to_the_plain_http_surface_is_refused_once_an_rp_id_is_pinned(
     let ctx = principal::admin_context(admin());
     register(&f, admin(), "laptop").await.unwrap();
 
-    let result = auth_context::with_context(
-        ctx,
-        f.svc.start_passkey_registration("192.168.1.2:7411"),
-    )
-    .await;
+    let result =
+        auth_context::with_context(ctx, f.svc.start_passkey_registration("192.168.1.2:7411")).await;
 
     match result {
         Err(AppError::PreconditionFailed(message)) => {
@@ -260,11 +260,9 @@ async fn a_pinned_rp_id_is_not_silently_replaced_when_the_hostname_changes() {
         .insert(KEY_SUBDOMAIN.to_owned(), "moved.example.com".to_owned());
 
     let ctx = principal::admin_context(admin());
-    let result = auth_context::with_context(
-        ctx,
-        f.svc.start_passkey_registration("moved.example.com"),
-    )
-    .await;
+    let result =
+        auth_context::with_context(ctx, f.svc.start_passkey_registration("moved.example.com"))
+            .await;
 
     assert!(matches!(result, Err(AppError::PreconditionFailed(_))));
     assert_eq!(
@@ -336,7 +334,10 @@ async fn a_registration_challenge_is_single_use() {
 
     let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
     let credential = authenticator
-        .do_registration(url::Url::parse(&format!("https://{FQDN}")).unwrap(), options)
+        .do_registration(
+            url::Url::parse(&format!("https://{FQDN}")).unwrap(),
+            options,
+        )
         .unwrap();
     let mut value = serde_json::to_value(&credential).unwrap();
     value
@@ -351,11 +352,8 @@ async fn a_registration_challenge_is_single_use() {
     .await
     .unwrap();
 
-    let replay = auth_context::with_context(
-        ctx,
-        f.svc.finish_passkey_registration(FQDN, None, value),
-    )
-    .await;
+    let replay =
+        auth_context::with_context(ctx, f.svc.finish_passkey_registration(FQDN, None, value)).await;
     assert!(
         matches!(replay, Err(AppError::Unauthorized(_))),
         "a replayed challenge must be refused"
@@ -368,10 +366,9 @@ async fn a_registration_cannot_be_completed_by_a_different_user() {
     // credential to their own account.
     let f = fixture(true);
     let starter = principal::admin_context(admin());
-    let challenge =
-        auth_context::with_context(starter, f.svc.start_passkey_registration(FQDN))
-            .await
-            .unwrap();
+    let challenge = auth_context::with_context(starter, f.svc.start_passkey_registration(FQDN))
+        .await
+        .unwrap();
     let challenge_id = challenge
         .get("challengeId")
         .and_then(|v| v.as_str())
@@ -382,7 +379,10 @@ async fn a_registration_cannot_be_completed_by_a_different_user() {
 
     let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
     let credential = authenticator
-        .do_registration(url::Url::parse(&format!("https://{FQDN}")).unwrap(), options)
+        .do_registration(
+            url::Url::parse(&format!("https://{FQDN}")).unwrap(),
+            options,
+        )
         .unwrap();
     let mut value = serde_json::to_value(&credential).unwrap();
     value
@@ -452,8 +452,10 @@ async fn an_unregistered_passkey_is_refused() {
 
     // A brand-new authenticator with no registration here.
     let mut stranger = WebauthnAuthenticator::new(SoftPasskey::new(true));
-    let attempt = stranger
-        .do_authentication(url::Url::parse(&format!("https://{FQDN}")).unwrap(), options);
+    let attempt = stranger.do_authentication(
+        url::Url::parse(&format!("https://{FQDN}")).unwrap(),
+        options,
+    );
 
     // The soft authenticator may refuse outright (no matching credential); if it
     // produces something, the daemon must refuse it.
@@ -497,7 +499,10 @@ async fn an_authentication_challenge_is_single_use() {
     let options: webauthn_rs::prelude::RequestChallengeResponse =
         serde_json::from_value(options).unwrap();
     let assertion = authenticator
-        .do_authentication(url::Url::parse(&format!("https://{FQDN}")).unwrap(), options)
+        .do_authentication(
+            url::Url::parse(&format!("https://{FQDN}")).unwrap(),
+            options,
+        )
         .unwrap();
 
     let mut value = serde_json::to_value(&assertion).unwrap();
@@ -565,7 +570,10 @@ async fn resetting_passkeys_removes_them_all_and_unpins_the_rp_id() {
         .await
         .unwrap();
 
-    assert_eq!(removed, 2, "every household passkey must go, not just the caller's");
+    assert_eq!(
+        removed, 2,
+        "every household passkey must go, not just the caller's"
+    );
     assert!(f.credentials.rows.lock().unwrap().is_empty());
     assert!(
         f.config.read(KEY_PASSKEY_RP_ID).is_none(),
@@ -580,7 +588,13 @@ async fn resetting_passkeys_leaves_passwords_alone() {
     let f = fixture(true);
     register(&f, member(), "Pixel 8").await.unwrap();
     f.credentials
-        .set_password("cred-pw", MEMBER_ID, "kid@example.com", "$argon2-hash", "now")
+        .set_password(
+            "cred-pw",
+            MEMBER_ID,
+            "kid@example.com",
+            "$argon2-hash",
+            "now",
+        )
         .await
         .unwrap();
 
@@ -590,7 +604,11 @@ async fn resetting_passkeys_leaves_passwords_alone() {
         .unwrap();
 
     assert!(
-        f.credentials.find_password(MEMBER_ID).await.unwrap().is_some(),
+        f.credentials
+            .find_password(MEMBER_ID)
+            .await
+            .unwrap()
+            .is_some(),
         "the local password is the floor and must survive a passkey reset"
     );
 }
@@ -622,11 +640,9 @@ async fn a_passkey_can_be_used_again_after_a_re_pin() {
         .insert(KEY_SUBDOMAIN.to_owned(), "moved.example.com".to_owned());
 
     let ctx = principal::admin_context(admin());
-    let challenge = auth_context::with_context(
-        ctx,
-        f.svc.start_passkey_registration("moved.example.com"),
-    )
-    .await;
+    let challenge =
+        auth_context::with_context(ctx, f.svc.start_passkey_registration("moved.example.com"))
+            .await;
 
     assert!(
         challenge.is_ok(),

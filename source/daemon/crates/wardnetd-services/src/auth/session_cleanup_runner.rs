@@ -26,9 +26,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 use wardnet_common::auth::AuthContext;
 
+use crate::AuthService;
 use crate::auth_context;
 use crate::user::UserService;
-use crate::AuthService;
 
 /// Production cleanup interval.
 const CLEANUP_INTERVAL: Duration = Duration::from_hours(1);

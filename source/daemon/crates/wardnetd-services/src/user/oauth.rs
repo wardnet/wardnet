@@ -164,6 +164,18 @@ pub struct PendingOauth {
     pub provider: OauthProvider,
     /// The PKCE verifier whose challenge went out with the authorize request.
     pub pkce_verifier: String,
+    /// Who started the ceremony, when it was started by a signed-in user in
+    /// order to **link** a provider account.
+    ///
+    /// `None` for a sign-in ceremony, which by definition has no caller yet.
+    ///
+    /// Binding the owner is what stops an attacker starting a ceremony with
+    /// their own provider account, obtaining `(state, code)`, and then getting a
+    /// signed-in admin's browser to redeem it — which would attach the
+    /// attacker's Google account to the admin's user and hand them the
+    /// household. `finish_passkey_registration` refuses on the same mismatch;
+    /// this makes the OAuth link path match.
+    pub started_by: Option<uuid::Uuid>,
 }
 
 /// Who the provider says signed in.
@@ -186,8 +198,8 @@ pub struct ProviderIdentity {
 pub fn new_pkce_pair() -> (String, String) {
     let bytes: [u8; 32] = rand::random();
     let verifier = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
-    let challenge =
-        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
+    let challenge = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .encode(Sha256::digest(verifier.as_bytes()));
     (verifier, challenge)
 }
 
@@ -369,8 +381,9 @@ impl OauthConfig {
     /// hostname — where a provider could not reach a redirect URI anyway, so
     /// federated login is correctly unavailable.
     pub async fn canonical_fqdn(&self) -> Result<Option<String>, AppError> {
-        use crate::ddns::{KEY_DOMAIN, KEY_PROVIDER, KEY_SUBDOMAIN, PROVIDER_CLOUDFLARE,
-                          PROVIDER_WARDNET};
+        use crate::ddns::{
+            KEY_DOMAIN, KEY_PROVIDER, KEY_SUBDOMAIN, PROVIDER_CLOUDFLARE, PROVIDER_WARDNET,
+        };
 
         let provider = self
             .system_config

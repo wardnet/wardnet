@@ -25,14 +25,14 @@ use crate::tests::stubs::{
     StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
     StubNetworkZoneService, StubProviderService, StubRoutingService, StubTunnelService,
 };
-use wardnetd_services::LogService;
-use wardnetd_services::auth::service::LoginResult;
-use wardnetd_services::error::AppError;
-use wardnetd_services::{AuthService, SystemService};
-use wardnetd_services::auth::{CurrentUser, LoginAttempt};
+use uuid::Uuid;
 use wardnet_common::auth::{AuthenticatedUser, UserRole};
 use wardnet_test_support::principal;
-use uuid::Uuid;
+use wardnetd_services::LogService;
+use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
+use wardnetd_services::error::AppError;
+use wardnetd_services::{AuthService, SystemService};
 
 // ---------------------------------------------------------------------------
 // Auth stubs

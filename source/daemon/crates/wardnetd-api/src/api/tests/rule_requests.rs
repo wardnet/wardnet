@@ -20,14 +20,14 @@ use crate::tests::stubs::{
     StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
     StubZoneExceptionService,
 };
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
 use wardnetd_services::LogService;
 use wardnetd_services::RuleRequestService;
 use wardnetd_services::auth::service::LoginResult;
-use wardnetd_services::error::AppError;
 use wardnetd_services::auth::{CurrentUser, LoginAttempt};
-use wardnet_common::auth::{AuthenticatedUser, UserRole};
-use wardnet_test_support::principal;
-use uuid::Uuid;
+use wardnetd_services::error::AppError;
 
 // --- MockAuthService — validates any session as admin -----------------------
 

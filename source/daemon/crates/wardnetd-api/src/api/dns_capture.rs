@@ -6,7 +6,7 @@ use wardnet_common::api::{
     ApiError, DeviceCaptureToggleRequest, DnsCaptureSettingsRequest, DnsCaptureSettingsResponse,
 };
 
-use crate::api::middleware::{SessionAuth, ClientIp};
+use crate::api::middleware::{ClientIp, SessionAuth};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
 

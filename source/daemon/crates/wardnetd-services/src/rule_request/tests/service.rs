@@ -15,8 +15,8 @@ use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::rule_request::{RuleRequestService, RuleRequestServiceImpl};
 use wardnet_common::auth::AuthContext;
-use wardnet_test_support::principal;
 use wardnet_common::event::WardnetEvent;
+use wardnet_test_support::principal;
 
 const DEVICE_ID: &str = "00000000-0000-0000-0000-000000000001";
 

@@ -1221,6 +1221,24 @@ func (e UpdateHistoryStatus) Valid() bool {
 	}
 }
 
+// Defines values for UserRole.
+const (
+	UserRoleAdmin  UserRole = "admin"
+	UserRoleMember UserRole = "member"
+)
+
+// Valid indicates whether the value is a known member of the UserRole enum.
+func (e UserRole) Valid() bool {
+	switch e {
+	case UserRoleAdmin:
+		return true
+	case UserRoleMember:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for WizardMode.
 const (
 	LockedRouter WizardMode = "locked_router"
@@ -2096,6 +2114,17 @@ type Device struct {
 	ManufacturerSource *ManufacturerSource `json:"manufacturer_source,omitempty"`
 	Name               *string             `json:"name,omitempty"`
 
+	// OwnerUserId Which household user this device belongs to, if an admin has assigned
+	// one.
+	//
+	// **Attribution, never authority** (ADR-0031 §4). It answers "whose iPad
+	// is this?" so notifications and per-person views can be built, and it is
+	// deliberately a plain `Option<Uuid>` with no path into an `AuthContext`:
+	// a device caller resolves to `AuthContext::Device` whatever its owner's
+	// role is. `ON DELETE SET NULL`, because deleting a person must not delete
+	// the household's hardware.
+	OwnerUserId *openapi_types.UUID `json:"owner_user_id,omitempty"`
+
 	// ZoneId The Network Zone this device belongs to (exactly one). Sticky: set from
 	// the default-for-new zone at discovery-insert time; never resolved at read
 	// time. See [`crate::network_zone`] and epic #244.
@@ -2295,6 +2324,17 @@ type DeviceWithStatus struct {
 	Manufacturer       *string             `json:"manufacturer,omitempty"`
 	ManufacturerSource *ManufacturerSource `json:"manufacturer_source,omitempty"`
 	Name               *string             `json:"name,omitempty"`
+
+	// OwnerUserId Which household user this device belongs to, if an admin has assigned
+	// one.
+	//
+	// **Attribution, never authority** (ADR-0031 §4). It answers "whose iPad
+	// is this?" so notifications and per-person views can be built, and it is
+	// deliberately a plain `Option<Uuid>` with no path into an `AuthContext`:
+	// a device caller resolves to `AuthContext::Device` whatever its owner's
+	// role is. `ON DELETE SET NULL`, because deleting a person must not delete
+	// the household's hardware.
+	OwnerUserId *openapi_types.UUID `json:"owner_user_id,omitempty"`
 
 	// ZoneId The Network Zone this device belongs to (exactly one). Sticky: set from
 	// the default-for-new zone at discovery-insert time; never resolved at read
@@ -3199,7 +3239,27 @@ type ManufacturerSource string
 
 // MeResponse Response for GET /api/users/me.
 type MeResponse struct {
-	// Username Username of the authenticated admin.
+	// DisplayName The authenticated user's display name. Same value as `username`.
+	DisplayName string `json:"display_name"`
+
+	// Email Optional email address. `None` for a local admin created by the wizard
+	// or the config-file bootstrap, neither of which asks for one.
+	Email *string `json:"email,omitempty"`
+
+	// Id The authenticated user's id.
+	Id string `json:"id"`
+
+	// Role `admin` or `member`. Lets a UI hide admin-only surfaces without probing
+	// endpoints for 403s.
+	Role UserRole `json:"role"`
+
+	// Username The authenticated user's display name.
+	//
+	// Kept under the name `username` **additively** (ADR-0031 §8): existing
+	// clients — the setup wizard's review step among them — read this field,
+	// and for a backfilled local admin it is exactly the old
+	// `admins.username`. New clients should prefer `display_name`, which is
+	// the same value under an honest name.
 	Username string `json:"username"`
 }
 
@@ -4524,6 +4584,13 @@ type UpstreamLatency struct {
 	// Reachable Whether the most recent probe reached the upstream.
 	Reachable bool `json:"reachable"`
 }
+
+// UserRole A household user's role (ADR-0031 §11).
+//
+// `Admin` is *exactly* equal to the legacy local admin — no deny-list, no
+// second tier. Deliberately only two values: a household is 2–6 people, and
+// an allow-list is honest at that size.
+type UserRole string
 
 // ValidateCredentialsRequest Request body for POST /api/providers/:id/validate.
 type ValidateCredentialsRequest struct {
@@ -7186,7 +7253,7 @@ type ClientInterface interface {
 
 	// Me performs a GET /api/users/me (the `Me` operationId) request.
 	//
-	// Return the authenticated admin's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store.
+	// Return the authenticated household user's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store, and to decide which admin-only surfaces to render. Available to any authenticated user, including members reading their own profile.
 	Me(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// Health performs a GET /health (the `Health` operationId) request.
@@ -10828,7 +10895,7 @@ func (c *Client) UpdateStatus(ctx context.Context, reqEditors ...RequestEditorFn
 
 // Me performs a GET /api/users/me (the `Me` operationId) request.
 //
-// Return the authenticated admin's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store.
+// Return the authenticated household user's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store, and to decide which admin-only surfaces to render. Available to any authenticated user, including members reading their own profile.
 func (c *Client) Me(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewMeRequest(c.Server)
 	if err != nil {
@@ -18939,7 +19006,7 @@ type ClientWithResponsesInterface interface {
 
 	// MeWithResponse performs a GET /api/users/me (the `Me` operationId) request.
 	//
-	// Return the authenticated admin's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store.
+	// Return the authenticated household user's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store, and to decide which admin-only surfaces to render. Available to any authenticated user, including members reading their own profile.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	MeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MeResp, error)
@@ -18961,6 +19028,8 @@ type LoginResp struct {
 	JSON400 *ApiError
 	// JSON401 the response for an HTTP 401 `application/json` response
 	JSON401 *ApiError
+	// JSON429 the response for an HTTP 429 `application/json` response
+	JSON429 *ApiError
 	// JSON500 the response for an HTTP 500 `application/json` response
 	JSON500 *ApiError
 }
@@ -18978,6 +19047,11 @@ func (r LoginResp) GetJSON400() *ApiError {
 // GetJSON401 returns the response for an HTTP 401 `application/json` response
 func (r LoginResp) GetJSON401() *ApiError {
 	return r.JSON401
+}
+
+// GetJSON429 returns the response for an HTTP 429 `application/json` response
+func (r LoginResp) GetJSON429() *ApiError {
+	return r.JSON429
 }
 
 // GetJSON500 returns the response for an HTTP 500 `application/json` response
@@ -40366,7 +40440,7 @@ func (c *ClientWithResponses) UpdateStatusWithResponse(ctx context.Context, reqE
 
 // MeWithResponse performs a GET /api/users/me (the `Me` operationId) request.
 //
-// Return the authenticated admin's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store.
+// Return the authenticated household user's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store, and to decide which admin-only surfaces to render. Available to any authenticated user, including members reading their own profile.
 //
 // Returns a wrapper object for the known response body format(s).
 func (c *ClientWithResponses) MeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MeResp, error) {
@@ -40424,6 +40498,13 @@ func ParseLoginResp(rsp *http.Response) (*LoginResp, error) {
 			return nil, err
 		}
 		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 429:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON429 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ApiError

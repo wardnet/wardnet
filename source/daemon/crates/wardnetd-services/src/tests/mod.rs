@@ -1,7 +1,6 @@
 use uuid::Uuid;
 
 mod auth_context;
-pub(crate) mod repo_mocks;
 mod db_maintenance_runner;
 mod device_retention_runner;
 mod entitlement;
@@ -12,6 +11,7 @@ mod health_checks;
 mod init;
 mod jobs;
 mod maintenance;
+pub(crate) mod repo_mocks;
 mod request_context;
 mod subnet;
 mod version;

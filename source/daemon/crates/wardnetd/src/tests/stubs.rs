@@ -41,10 +41,10 @@ use wardnetd_services::{
     TunnelService, VpnProviderService,
 };
 
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
 use wardnetd_api::state::AppState;
 use wardnetd_services::auth::{CurrentUser, LoginAttempt};
-use wardnet_common::auth::{AuthenticatedUser, UserRole};
-use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // StubAuthService

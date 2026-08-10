@@ -99,7 +99,13 @@ impl<T> CeremonyStore<T> {
             );
         }
 
-        entries.insert(key, Entry { value, created: now });
+        entries.insert(
+            key,
+            Entry {
+                value,
+                created: now,
+            },
+        );
     }
 
     /// Remove and return the value for `key`, if it exists and is unexpired.

@@ -49,14 +49,27 @@ pub struct PasskeyMetadata {
     /// The serialised credential.
     pub credential: Passkey,
     /// Last observed signature counter, mirrored out of the credential so a
-    /// regression is auditable without deserialising.
+    /// regression is auditable without deserialising it.
+    ///
+    /// `0` for a freshly registered credential, which is also what an
+    /// authenticator that does not maintain a counter reports forever — so a
+    /// zero is never treated as a regression.
     pub sign_count: u32,
-    /// Whether the authenticator says the credential is backed up (synced to a
-    /// platform keychain). Shown in the credential list, because a synced
-    /// passkey and a hardware-bound one are different things to a person
-    /// deciding whether to keep it.
-    pub backup_eligible: bool,
-    pub backup_state: bool,
+    /// Whether the authenticator says the credential is eligible for backup, and
+    /// whether it is currently backed up (synced to a platform keychain).
+    ///
+    /// `None` until the credential's **first successful authentication**, and
+    /// deliberately so: `webauthn-rs` does not expose these off a registered
+    /// `Passkey` without the `danger-credential-internals` feature, and they are
+    /// display metadata — not worth enabling a `danger-` feature for. They are
+    /// filled in from the `AuthenticationResult` on first sign-in.
+    ///
+    /// They must not be *guessed*. Recording `false` at registration, as an
+    /// earlier version did, tells a person that a synced iCloud or Google
+    /// passkey is hardware-bound — the exact opposite of what they need to know
+    /// when deciding whether losing the device loses the credential.
+    pub backup_eligible: Option<bool>,
+    pub backup_state: Option<bool>,
 }
 
 /// Why a passkey ceremony cannot run.
@@ -79,13 +92,13 @@ impl From<PasskeyUnavailable> for AppError {
                  and sign in with your password until then"
                     .to_owned(),
             ),
-            PasskeyUnavailable::HostMismatch { pinned, requested } => Self::PreconditionFailed(
-                format!(
+            PasskeyUnavailable::HostMismatch { pinned, requested } => {
+                Self::PreconditionFailed(format!(
                     "passkeys on this box are registered for {pinned}, but this request \
                      arrived at {requested}. Reach Wardnet at {pinned}, or ask an admin \
                      to reset passkeys."
-                ),
-            ),
+                ))
+            }
         }
     }
 }
@@ -115,9 +128,7 @@ pub struct PasskeyRelyingParty {
 
 impl PasskeyRelyingParty {
     #[must_use]
-    pub fn new(
-        system_config: Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
-    ) -> Self {
+    pub fn new(system_config: Arc<dyn wardnetd_data::repository::SystemConfigRepository>) -> Self {
         Self { system_config }
     }
 
@@ -206,9 +217,7 @@ impl PasskeyRelyingParty {
             .and_then(|b| {
                 // One passkey should cover the published-app subdomains #1149
                 // adds, rather than forcing a fresh registration per app.
-                Ok(b.allow_subdomains(true)
-                    .rp_name("Wardnet")
-                    .build()?)
+                Ok(b.allow_subdomains(true).rp_name("Wardnet").build()?)
             })
             .map_err(|e| AppError::Internal(anyhow::anyhow!("failed to build webauthn: {e}")))
     }

@@ -158,14 +158,9 @@ async fn delete_by_owner_and_endpoint_is_owner_scoped() {
     seed_user(&pool, "admin-1", "admin", true).await;
     let repo = SqlitePushRepository::new(pool);
 
-    repo.upsert(sub(
-        "a1",
-        OWNER_KIND_USER,
-        "admin-1",
-        "https://push/shared",
-    ))
-    .await
-    .unwrap();
+    repo.upsert(sub("a1", OWNER_KIND_USER, "admin-1", "https://push/shared"))
+        .await
+        .unwrap();
 
     // A different owner supplying the same endpoint must NOT delete it.
     let removed = repo

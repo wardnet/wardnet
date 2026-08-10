@@ -59,10 +59,7 @@ fn principals() -> Vec<(&'static str, AuthContext)> {
             "user{role=member}",
             AuthContext::user(wardnet_test_support::principal::member(Uuid::new_v4())),
         ),
-        (
-            "system() (nil uuid, role=admin)",
-            AuthContext::system(),
-        ),
+        ("system() (nil uuid, role=admin)", AuthContext::system()),
         (
             "device",
             AuthContext::Device {

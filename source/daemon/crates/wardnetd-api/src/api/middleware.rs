@@ -6,7 +6,7 @@ use axum::http::{HeaderMap, HeaderValue};
 use axum::middleware::Next;
 use axum::response::Response;
 use uuid::Uuid;
-use wardnet_common::auth::{AuthContext, AuthenticatedUser};
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -145,6 +145,48 @@ impl FromRequestParts<AppState> for SessionAuth {
         Err(AppError::Unauthorized(
             "valid session cookie or API key required".to_owned(),
         ))
+    }
+}
+
+/// Extractor that requires an authenticated household user with
+/// `role = Admin`.
+///
+/// # When to use this instead of [`SessionAuth`]
+///
+/// Almost never. The rule is that authorization lives in the service layer, so
+/// a handler takes `SessionAuth` and the service it calls opens with
+/// `auth_context::require_admin()`.
+///
+/// This exists for the handful of routes that have **no service call to put a
+/// guard in** — the OpenAPI spec endpoint and the Scalar docs shell, which are
+/// closures over embedded assets. Before household users those were gated by
+/// `AdminAuth` being the only session extractor, so renaming it to `SessionAuth`
+/// silently opened them to `member` callers. `/api/openapi.json` in particular
+/// hands back the entire admin API surface, which is exactly the reconnaissance
+/// material the gate existed to withhold.
+///
+/// If you are reaching for this on a route that *does* call a service, put
+/// `require_admin()` in the service instead — that is where the truth table in
+/// `wardnetd-services/src/tests/auth_context.rs` can see it.
+pub struct AdminOnly;
+
+impl FromRequestParts<AppState> for AdminOnly {
+    type Rejection = AppError;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        state: &AppState,
+    ) -> Result<Self, Self::Rejection> {
+        let session = SessionAuth::from_request_parts(parts, state).await?;
+
+        // `403`, not `401`: the caller proved who they are, and the answer is
+        // still no. Reporting 401 would invite a client to re-authenticate as
+        // if the credential were the problem.
+        if session.user.role() != UserRole::Admin {
+            return Err(AppError::Forbidden("admin privileges required".to_owned()));
+        }
+
+        Ok(Self)
     }
 }
 

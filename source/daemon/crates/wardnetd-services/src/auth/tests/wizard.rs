@@ -10,12 +10,12 @@ use wardnet_test_support::principal;
 use wardnetd_data::repository::system_config::SystemConfigRepository;
 use wardnetd_data::repository::user::UserRepository;
 
-use crate::tests::repo_mocks::{
-    MockApiKeyRepo, MockCredentialRepo, MockSessionRepo, MockSystemConfigRepo, MockUserRepo,
-};
 use crate::auth::{AuthService, AuthServiceImpl};
 use crate::auth_context;
 use crate::error::AppError;
+use crate::tests::repo_mocks::{
+    MockApiKeyRepo, MockCredentialRepo, MockSessionRepo, MockSystemConfigRepo, MockUserRepo,
+};
 
 const ADMIN_ID: &str = "00000000-0000-0000-0000-000000000001";
 const MEMBER_ID: &str = "00000000-0000-0000-0000-000000000002";

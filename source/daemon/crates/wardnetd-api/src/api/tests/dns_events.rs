@@ -24,16 +24,16 @@ use crate::tests::stubs::{
     StubRoutingService, StubSystemService, StubTunnelService,
 };
 use tokio::sync::broadcast;
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
 use wardnet_common::event::WardnetEvent;
+use wardnet_test_support::principal;
 use wardnetd_services::DeviceService;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
-use wardnetd_services::auth::{CurrentUser, LoginAttempt};
-use wardnet_common::auth::{AuthenticatedUser, UserRole};
-use wardnet_test_support::principal;
-use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // LagPublisher — 1-slot broadcast that triggers RecvError::Lagged
@@ -526,9 +526,8 @@ async fn stream_propagates_request_auth_context_to_flush_task() {
     let recorder = svc.ctx_recorder();
     let app = dns_events_router(build_state(svc));
 
-    let admin_ctx = principal::admin_context(
-        Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap(),
-    );
+    let admin_ctx =
+        principal::admin_context(Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap());
 
     // Drive the request inside an admin context. The flush task is spawned
     // detached, so it does NOT inherit this task-local — the only way the mock
