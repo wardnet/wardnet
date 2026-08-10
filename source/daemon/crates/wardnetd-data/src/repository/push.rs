@@ -5,15 +5,20 @@ use async_trait::async_trait;
 /// `SQLite` text column verbatim and the service layer maps auth contexts onto
 /// them.
 pub const OWNER_KIND_DEVICE: &str = "device";
-pub const OWNER_KIND_ADMIN: &str = "admin";
+/// A household user, keyed by `users.id`.
+///
+/// Replaced the former `"admin"` value in the household-identity migration,
+/// which rewrote existing rows in place. The ids were preserved by the
+/// `admins` → `users` backfill, so upgraded boxes keep their subscriptions.
+pub const OWNER_KIND_USER: &str = "user";
 
 /// A Web Push subscription as persisted in `push_subscriptions`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredPushSubscription {
     pub id: String,
-    /// [`OWNER_KIND_DEVICE`] or [`OWNER_KIND_ADMIN`].
+    /// [`OWNER_KIND_DEVICE`] or [`OWNER_KIND_USER`].
     pub owner_kind: String,
-    /// Device MAC (device kind) or admin account UUID (admin kind).
+    /// Device MAC (device kind) or `users.id` (user kind).
     pub owner_key: String,
     pub endpoint: String,
     pub p256dh: String,
@@ -48,8 +53,13 @@ pub trait PushRepository: Send + Sync {
         owner_key: &str,
     ) -> anyhow::Result<Vec<StoredPushSubscription>>;
 
-    /// All admin-owned subscriptions — the fan-out target for admin-PWA
-    /// notifications.
+    /// Subscriptions owned by **enabled `admin`-role household users** — the
+    /// fan-out target for admin-PWA notifications.
+    ///
+    /// Determined by joining `users` and reading `role`, not by the
+    /// `owner_kind` discriminator alone: a `member` is a legitimate
+    /// subscription owner ([`OWNER_KIND_USER`]) who must not receive
+    /// administrative notifications.
     async fn list_admins(&self) -> anyhow::Result<Vec<StoredPushSubscription>>;
 
     /// Remove every subscription for one owner. Returns the number removed.

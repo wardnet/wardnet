@@ -4,82 +4,221 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 
 use crate::bootstrap::{bootstrap_admin, bootstrap_system_config};
-use crate::repository::{AdminRepository, SystemConfigRepository};
+use crate::repository::SystemConfigRepository;
+use crate::repository::user::{UserRepository, UserRole, UserRow};
+use crate::repository::user_credential::{
+    CredentialKind, CredentialLogin, CredentialRow, CredentialSummary, UserCredentialRepository,
+};
 
-/// Mock admin repository that tracks created admins and configurable existence.
-struct MockAdminRepo {
-    has_admin: Mutex<bool>,
-    created: Mutex<Vec<(String, String, String)>>,
+/// Mock user repository with a configurable "box already claimed" answer.
+struct MockUserRepo {
+    has_user: Mutex<bool>,
+    created: Mutex<Vec<UserRow>>,
 }
 
-impl MockAdminRepo {
-    fn new(has_admin: bool) -> Self {
+impl MockUserRepo {
+    fn new(has_user: bool) -> Self {
         Self {
-            has_admin: Mutex::new(has_admin),
+            has_user: Mutex::new(has_user),
             created: Mutex::new(Vec::new()),
         }
     }
 
-    fn created_admins(&self) -> Vec<(String, String, String)> {
+    fn created_users(&self) -> Vec<UserRow> {
         self.created.lock().unwrap().clone()
     }
 }
 
 #[async_trait]
-impl AdminRepository for MockAdminRepo {
-    async fn find_username_by_id(&self, _id: &str) -> anyhow::Result<Option<String>> {
-        Ok(Some("admin".to_owned()))
+impl UserRepository for MockUserRepo {
+    async fn create(&self, row: &UserRow) -> anyhow::Result<()> {
+        self.created.lock().unwrap().push(row.clone());
+        Ok(())
     }
-    async fn find_by_username(&self, _username: &str) -> anyhow::Result<Option<(String, String)>> {
+    async fn find_by_id(&self, _id: &str) -> anyhow::Result<Option<UserRow>> {
         Ok(None)
     }
-    async fn create(&self, id: &str, username: &str, password_hash: &str) -> anyhow::Result<()> {
-        self.created.lock().unwrap().push((
-            id.to_owned(),
-            username.to_owned(),
-            password_hash.to_owned(),
+    async fn find_by_email(&self, _email: &str) -> anyhow::Result<Option<UserRow>> {
+        Ok(None)
+    }
+    async fn find_all(&self) -> anyhow::Result<Vec<UserRow>> {
+        Ok(self.created_users())
+    }
+    async fn update_profile(
+        &self,
+        _id: &str,
+        _display_name: &str,
+        _email: Option<&str>,
+        _now: &str,
+    ) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn set_enabled(&self, _id: &str, _enabled: bool, _now: &str) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn set_role(&self, _id: &str, _role: UserRole, _now: &str) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn delete(&self, id: &str) -> anyhow::Result<u64> {
+        let mut created = self.created.lock().unwrap();
+        let before = created.len();
+        created.retain(|u| u.id != id);
+        Ok((before - created.len()) as u64)
+    }
+    async fn count_enabled_admins(&self) -> anyhow::Result<i64> {
+        Ok(i64::from(*self.has_user.lock().unwrap()))
+    }
+    async fn exists(&self) -> anyhow::Result<bool> {
+        Ok(*self.has_user.lock().unwrap())
+    }
+    async fn find_first_enabled_admin(&self) -> anyhow::Result<Option<UserRow>> {
+        Ok(self
+            .created
+            .lock()
+            .unwrap()
+            .iter()
+            .find(|u| u.enabled && u.role == UserRole::Admin)
+            .cloned())
+    }
+}
+
+/// Mock credential repository that records the password it was handed, and can
+/// be told to fail so the compensating-delete path is exercised.
+struct MockCredentialRepo {
+    passwords: Mutex<Vec<(String, String, String)>>,
+    fail: bool,
+}
+
+impl MockCredentialRepo {
+    fn new() -> Self {
+        Self {
+            passwords: Mutex::new(Vec::new()),
+            fail: false,
+        }
+    }
+
+    fn failing() -> Self {
+        Self {
+            passwords: Mutex::new(Vec::new()),
+            fail: true,
+        }
+    }
+
+    /// `(user_id, subject, secret)` for each `set_password` call.
+    fn set_passwords(&self) -> Vec<(String, String, String)> {
+        self.passwords.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl UserCredentialRepository for MockCredentialRepo {
+    async fn insert(&self, _row: &CredentialRow) -> anyhow::Result<()> {
+        Ok(())
+    }
+    async fn find_for_login(
+        &self,
+        _kind: CredentialKind,
+        _subject: &str,
+    ) -> anyhow::Result<Option<CredentialLogin>> {
+        Ok(None)
+    }
+    async fn find_password(&self, _user_id: &str) -> anyhow::Result<Option<CredentialRow>> {
+        Ok(None)
+    }
+    async fn list_for_user(&self, _user_id: &str) -> anyhow::Result<Vec<CredentialSummary>> {
+        Ok(Vec::new())
+    }
+    async fn set_password(
+        &self,
+        _id: &str,
+        user_id: &str,
+        subject: &str,
+        secret: &str,
+        _now: &str,
+    ) -> anyhow::Result<()> {
+        if self.fail {
+            anyhow::bail!("simulated credential write failure");
+        }
+        self.passwords.lock().unwrap().push((
+            user_id.to_owned(),
+            subject.to_owned(),
+            secret.to_owned(),
         ));
         Ok(())
     }
-    async fn find_first_id(&self) -> anyhow::Result<Option<String>> {
-        Ok(None)
+    async fn touch_last_used(&self, _id: &str, _now: &str) -> anyhow::Result<()> {
+        Ok(())
     }
-    async fn exists(&self) -> anyhow::Result<bool> {
-        Ok(*self.has_admin.lock().unwrap())
+    async fn update_metadata(&self, _id: &str, _metadata: &str) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn delete(&self, _id: &str, _user_id: &str) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn delete_by_kind(&self, _user_id: &str, _kind: CredentialKind) -> anyhow::Result<u64> {
+        Ok(0)
+    }
+    async fn count_by_kind(&self, _user_id: &str, _kind: CredentialKind) -> anyhow::Result<i64> {
+        Ok(0)
     }
 }
 
-/// Helper: creates a mock repo and returns both the concrete and trait-object references.
-fn mock_repo(has_admin: bool) -> (Arc<MockAdminRepo>, Arc<dyn AdminRepository>) {
-    let repo = Arc::new(MockAdminRepo::new(has_admin));
-    let dyn_repo: Arc<dyn AdminRepository> = repo.clone();
-    (repo, dyn_repo)
+/// Helper: build both mocks plus their trait-object handles.
+#[allow(clippy::type_complexity)]
+fn mock_repos(
+    has_user: bool,
+) -> (
+    Arc<MockUserRepo>,
+    Arc<MockCredentialRepo>,
+    Arc<dyn UserRepository>,
+    Arc<dyn UserCredentialRepository>,
+) {
+    let users = Arc::new(MockUserRepo::new(has_user));
+    let creds = Arc::new(MockCredentialRepo::new());
+    let dyn_users: Arc<dyn UserRepository> = users.clone();
+    let dyn_creds: Arc<dyn UserCredentialRepository> = creds.clone();
+    (users, creds, dyn_users, dyn_creds)
 }
 
 #[tokio::test]
-async fn skips_when_admin_already_exists() {
-    let (repo, dyn_repo) = mock_repo(true);
+async fn skips_when_user_already_exists() {
+    let (users, creds, dyn_users, dyn_creds) = mock_repos(true);
 
-    bootstrap_admin(&dyn_repo, None).await.unwrap();
+    bootstrap_admin(&dyn_users, &dyn_creds, None).await.unwrap();
 
-    assert!(repo.created_admins().is_empty());
+    assert!(users.created_users().is_empty());
+    assert!(creds.set_passwords().is_empty());
 }
 
 #[tokio::test]
 async fn creates_admin_from_config() {
-    let (repo, dyn_repo) = mock_repo(false);
+    let (users, creds, dyn_users, dyn_creds) = mock_repos(false);
 
-    bootstrap_admin(&dyn_repo, Some(("myadmin", "mypassword")))
+    bootstrap_admin(&dyn_users, &dyn_creds, Some(("MyAdmin", "mypassword")))
         .await
         .unwrap();
 
-    let created = repo.created_admins();
+    let created = users.created_users();
     assert_eq!(created.len(), 1);
-    assert_eq!(created[0].1, "myadmin");
-    // Verify the stored hash is a valid argon2 hash, not the plaintext password.
-    assert!(created[0].2.starts_with("$argon2"));
-    // Verify the hash actually verifies against the original password.
-    let parsed = argon2::PasswordHash::new(&created[0].2).unwrap();
+    assert_eq!(created[0].display_name, "MyAdmin");
+    assert_eq!(created[0].role, UserRole::Admin);
+    assert!(created[0].enabled);
+    // No email is invented for the config-file path — it would occupy the
+    // unique email index with an address nobody can receive mail at.
+    assert_eq!(created[0].email, None);
+
+    let passwords = creds.set_passwords();
+    assert_eq!(passwords.len(), 1);
+    assert_eq!(
+        passwords[0].0, created[0].id,
+        "credential links to the user"
+    );
+    // Subject is lowercased so the break-glass login is case-insensitive,
+    // matching how the migration backfills existing local admins.
+    assert_eq!(passwords[0].1, "myadmin");
+    // The stored secret is an argon2 hash, not the plaintext password.
+    assert!(passwords[0].2.starts_with("$argon2"));
+    let parsed = argon2::PasswordHash::new(&passwords[0].2).unwrap();
     assert!(
         argon2::PasswordVerifier::verify_password(
             &argon2::Argon2::default(),
@@ -92,15 +231,15 @@ async fn creates_admin_from_config() {
 
 #[tokio::test]
 async fn defers_to_setup_wizard_when_no_config() {
-    // Without `config.admin`, bootstrap leaves the database without an
-    // admin so the setup wizard owns first-admin creation. A random
-    // fallback would conflict with the wizard's INSERT and surface as
-    // a 500 on POST /api/setup.
-    let (repo, dyn_repo) = mock_repo(false);
+    // Without `config.admin`, bootstrap leaves the database without a user so
+    // the setup wizard owns first-admin creation. A random fallback would
+    // conflict with the wizard's INSERT and surface as a 500 on POST /api/setup.
+    let (users, creds, dyn_users, dyn_creds) = mock_repos(false);
 
-    bootstrap_admin(&dyn_repo, None).await.unwrap();
+    bootstrap_admin(&dyn_users, &dyn_creds, None).await.unwrap();
 
-    assert!(repo.created_admins().is_empty());
+    assert!(users.created_users().is_empty());
+    assert!(creds.set_passwords().is_empty());
 }
 
 // -- bootstrap_system_config -------------------------------------------------
@@ -248,5 +387,32 @@ async fn bootstrap_system_config_seed_logs_name_the_seeded_values() {
     assert!(
         logs.contains("seeded wizard_step: step=admin"),
         "wizard_step seed line must name the step, got: {logs}"
+    );
+}
+
+/// A failure writing the password must not leave a half-claimed box.
+///
+/// Without the compensating delete, the orphan `users` row makes `exists()`
+/// true forever: bootstrap is skipped on every subsequent boot, the admin has
+/// no credential to log in with, and the setup wizard reads the same signal and
+/// considers itself complete. That is a permanent lockout, so it is worth a
+/// test rather than a comment.
+#[tokio::test]
+async fn a_failed_credential_write_rolls_back_the_user_row() {
+    let users = Arc::new(MockUserRepo::new(false));
+    let creds = Arc::new(MockCredentialRepo::failing());
+    let dyn_users: Arc<dyn UserRepository> = users.clone();
+    let dyn_creds: Arc<dyn UserCredentialRepository> = creds.clone();
+
+    let result = bootstrap_admin(&dyn_users, &dyn_creds, Some(("myadmin", "mypassword"))).await;
+
+    assert!(
+        result.is_err(),
+        "the failure must surface, not be swallowed"
+    );
+    assert!(
+        users.created_users().is_empty(),
+        "the orphan user row must be rolled back, or the box is permanently \
+         half-claimed: exists() would stay true with no way to log in"
     );
 }

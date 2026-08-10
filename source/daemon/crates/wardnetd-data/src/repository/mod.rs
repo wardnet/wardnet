@@ -1,4 +1,3 @@
-pub mod admin;
 pub mod api_key;
 pub mod device;
 pub mod device_identification;
@@ -22,9 +21,11 @@ pub mod system_config;
 pub mod tunnel;
 pub mod tunnel_speed_test;
 pub mod update;
+pub mod user;
+pub mod user_credential;
+pub mod user_enrolment;
 pub mod zone_exception;
 
-pub use admin::AdminRepository;
 pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow, PrunedDevice};
 pub use device_identification::{DeviceIdentificationRepository, DeviceSignalRow};
@@ -52,22 +53,29 @@ pub use routing_profile::{
     RoutingRuleRow, RoutingRuleUpdate,
 };
 pub use rule_request::RuleRequestRepository;
-pub use session::SessionRepository;
+pub use session::{SessionForRefresh, SessionPrincipal, SessionRepository, SessionSummary};
 pub use sqlite::{
-    SqliteAdminRepository, SqliteApiKeyRepository, SqliteDeviceIdentificationRepository,
-    SqliteDeviceRepository, SqliteDhcpRepository, SqliteDnsEventsRepository,
-    SqliteDnsFilterRepository, SqliteDnsLocalRepository, SqliteDnsRepository,
-    SqliteInboundWgPeerRepository, SqliteMaintenanceRepository, SqliteNetworkZoneRepository,
-    SqliteNotificationRepository, SqlitePrivateDnsGrantRepository, SqlitePushRepository,
-    SqliteRoutingProfileRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
-    SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
-    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, SqliteZoneExceptionRepository,
+    SqliteApiKeyRepository, SqliteDeviceIdentificationRepository, SqliteDeviceRepository,
+    SqliteDhcpRepository, SqliteDnsEventsRepository, SqliteDnsFilterRepository,
+    SqliteDnsLocalRepository, SqliteDnsRepository, SqliteInboundWgPeerRepository,
+    SqliteMaintenanceRepository, SqliteNetworkZoneRepository, SqliteNotificationRepository,
+    SqlitePrivateDnsGrantRepository, SqlitePushRepository, SqliteRoutingProfileRepository,
+    SqliteRuleRequestRepository, SqliteSessionRepository, SqliteStatsRepository,
+    SqliteSystemConfigRepository, SqliteTunnelRepository, SqliteTunnelSpeedTestRepository,
+    SqliteUpdateRepository, SqliteUserCredentialRepository, SqliteUserEnrolmentRepository,
+    SqliteUserRepository, SqliteZoneExceptionRepository,
 };
 pub use stats::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 pub use system_config::{LastShutdownInfo, SystemConfigRepository};
 pub use tunnel::{TunnelRepository, TunnelRow};
 pub use tunnel_speed_test::{SpeedTestRow, TunnelSpeedTestRepository};
 pub use update::{UpdateHistoryRow, UpdateRepository};
+pub use user::{DuplicateUserEmailError, UserRepository, UserRole, UserRow};
+pub use user_credential::{
+    CredentialAlreadyLinkedError, CredentialKind, CredentialLogin, CredentialRow,
+    CredentialSummary, UserAlreadyHasPasswordError, UserCredentialRepository,
+};
+pub use user_enrolment::{EnrolmentTokenRow, UserEnrolmentRepository};
 pub use zone_exception::ZoneExceptionRepository;
 
 #[cfg(test)]

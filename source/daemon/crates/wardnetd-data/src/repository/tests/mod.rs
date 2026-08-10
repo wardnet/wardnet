@@ -1,4 +1,3 @@
-mod admin;
 mod api_key;
 mod device;
 mod device_identification;
@@ -20,6 +19,9 @@ mod stats;
 mod system_config;
 mod tunnel;
 mod update;
+mod user;
+mod user_credential;
+mod user_enrolment;
 mod zone_exception;
 
 use sqlx::SqlitePool;

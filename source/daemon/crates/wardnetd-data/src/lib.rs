@@ -15,20 +15,22 @@ use wardnet_common::config::{ApplicationConfiguration, DatabaseProvider};
 
 use crate::db::DbPools;
 use repository::{
-    AdminRepository, ApiKeyRepository, DeviceIdentificationRepository, DeviceRepository,
-    DhcpRepository, DnsEventsRepository, DnsFilterRepository, DnsLocalRepository, DnsRepository,
+    ApiKeyRepository, DeviceIdentificationRepository, DeviceRepository, DhcpRepository,
+    DnsEventsRepository, DnsFilterRepository, DnsLocalRepository, DnsRepository,
     InboundWgPeerRepository, MaintenanceRepository, NetworkZoneRepository, NotificationRepository,
     PrivateDnsGrantRepository, PushRepository, RoutingProfileRepository, RuleRequestRepository,
-    SessionRepository, SqliteAdminRepository, SqliteApiKeyRepository,
-    SqliteDeviceIdentificationRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
-    SqliteDnsRepository, SqliteInboundWgPeerRepository, SqliteMaintenanceRepository,
-    SqliteNetworkZoneRepository, SqliteNotificationRepository, SqlitePrivateDnsGrantRepository,
-    SqlitePushRepository, SqliteRoutingProfileRepository, SqliteRuleRequestRepository,
-    SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
-    SqliteTunnelRepository, SqliteTunnelSpeedTestRepository, SqliteUpdateRepository,
-    SqliteZoneExceptionRepository, StatsRepository, SystemConfigRepository, TunnelRepository,
-    TunnelSpeedTestRepository, UpdateRepository, ZoneExceptionRepository,
+    SessionRepository, SqliteApiKeyRepository, SqliteDeviceIdentificationRepository,
+    SqliteDeviceRepository, SqliteDhcpRepository, SqliteDnsEventsRepository,
+    SqliteDnsFilterRepository, SqliteDnsLocalRepository, SqliteDnsRepository,
+    SqliteInboundWgPeerRepository, SqliteMaintenanceRepository, SqliteNetworkZoneRepository,
+    SqliteNotificationRepository, SqlitePrivateDnsGrantRepository, SqlitePushRepository,
+    SqliteRoutingProfileRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
+    SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
+    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, SqliteUserCredentialRepository,
+    SqliteUserEnrolmentRepository, SqliteUserRepository, SqliteZoneExceptionRepository,
+    StatsRepository, SystemConfigRepository, TunnelRepository, TunnelSpeedTestRepository,
+    UpdateRepository, UserCredentialRepository, UserEnrolmentRepository, UserRepository,
+    ZoneExceptionRepository,
 };
 use sqlx::SqlitePool;
 
@@ -36,7 +38,9 @@ use sqlx::SqlitePool;
 ///
 /// `SQLite` today, `PostgreSQL` or `rqlite` for future HA.
 pub trait RepositoryFactory: Send + Sync {
-    fn admin(&self) -> Arc<dyn AdminRepository>;
+    fn user(&self) -> Arc<dyn UserRepository>;
+    fn user_credential(&self) -> Arc<dyn UserCredentialRepository>;
+    fn user_enrolment(&self) -> Arc<dyn UserEnrolmentRepository>;
     fn session(&self) -> Arc<dyn SessionRepository>;
     fn api_key(&self) -> Arc<dyn ApiKeyRepository>;
     fn device(&self) -> Arc<dyn DeviceRepository>;
@@ -142,8 +146,18 @@ impl SqliteRepositoryFactory {
 }
 
 impl RepositoryFactory for SqliteRepositoryFactory {
-    fn admin(&self) -> Arc<dyn AdminRepository> {
-        Arc::new(SqliteAdminRepository::new_pools(self.pools.clone()))
+    fn user(&self) -> Arc<dyn UserRepository> {
+        Arc::new(SqliteUserRepository::new_pools(self.pools.clone()))
+    }
+
+    fn user_credential(&self) -> Arc<dyn UserCredentialRepository> {
+        Arc::new(SqliteUserCredentialRepository::new_pools(
+            self.pools.clone(),
+        ))
+    }
+
+    fn user_enrolment(&self) -> Arc<dyn UserEnrolmentRepository> {
+        Arc::new(SqliteUserEnrolmentRepository::new_pools(self.pools.clone()))
     }
 
     fn session(&self) -> Arc<dyn SessionRepository> {

@@ -3,7 +3,6 @@
 //! Each module provides a concrete `Sqlite*Repository` struct that implements
 //! the corresponding trait from the parent [`repository`](super) module.
 
-pub mod admin;
 pub mod api_key;
 pub mod device;
 pub mod device_identification;
@@ -26,9 +25,11 @@ pub mod system_config;
 pub mod tunnel;
 pub mod tunnel_speed_test;
 pub mod update;
+pub mod user;
+pub mod user_credential;
+pub mod user_enrolment;
 pub mod zone_exception;
 
-pub use admin::SqliteAdminRepository;
 pub use api_key::SqliteApiKeyRepository;
 pub use device::SqliteDeviceRepository;
 pub use device_identification::SqliteDeviceIdentificationRepository;
@@ -51,6 +52,9 @@ pub use system_config::SqliteSystemConfigRepository;
 pub use tunnel::SqliteTunnelRepository;
 pub use tunnel_speed_test::SqliteTunnelSpeedTestRepository;
 pub use update::SqliteUpdateRepository;
+pub use user::SqliteUserRepository;
+pub use user_credential::SqliteUserCredentialRepository;
+pub use user_enrolment::SqliteUserEnrolmentRepository;
 pub use zone_exception::SqliteZoneExceptionRepository;
 
 #[cfg(test)]

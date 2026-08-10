@@ -42,6 +42,7 @@ struct DeviceRow {
     last_ip: String,
     admin_locked: i32,
     zone_id: String,
+    owner_user_id: Option<String>,
     dns_capture_enabled: i32,
     dns_capture_cap_count: i64,
     dns_capture_cap_days: i64,
@@ -77,6 +78,10 @@ impl DeviceRow {
             last_ip: self.last_ip,
             admin_locked: self.admin_locked != 0,
             zone_id: self.zone_id.parse()?,
+            // A malformed owner id is dropped rather than failing the read: it
+            // is attribution, and a device must stay visible and manageable
+            // even if this column is somehow corrupt.
+            owner_user_id: self.owner_user_id.as_deref().and_then(|s| s.parse().ok()),
             dns_capture_enabled: self.dns_capture_enabled != 0,
             dns_capture_cap_count: self.dns_capture_cap_count,
             dns_capture_cap_days: self.dns_capture_cap_days,
@@ -122,19 +127,19 @@ struct RuleRow {
 // Static SQL strings — every column list is inlined so no runtime format!()
 // allocation is needed for these fixed SELECTs. The genuinely dynamic queries
 // further down (JOIN/LIKE against routing_rules) keep their own literals.
-const FIND_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
+const FIND_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, owner_user_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE last_ip = ? ORDER BY last_seen DESC LIMIT 1";
-const FIND_ALL_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
+const FIND_ALL_BY_IP_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, owner_user_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE last_ip = ? ORDER BY last_seen DESC";
-const FIND_BY_ID_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
+const FIND_BY_ID_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, owner_user_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE id = ?";
-const FIND_BY_MAC_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
+const FIND_BY_MAC_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, owner_user_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE mac = ?";
-const FIND_ALL_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
+const FIND_ALL_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, owner_user_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices ORDER BY last_seen DESC";
 const DELETE_UNMANAGED_BEFORE_SQL: &str =
     "DELETE FROM devices WHERE managed = 0 AND last_seen < ? RETURNING id, mac, last_seen";
-const FIND_STALE_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
+const FIND_STALE_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, owner_user_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE last_seen < ?";
 
 #[async_trait]
@@ -405,6 +410,7 @@ impl DeviceRepository for SqliteDeviceRepository {
         let query = "SELECT d.id, d.mac, d.name, d.hostname, d.manufacturer, \
              d.manufacturer_source, d.is_randomized, d.device_type, \
              d.first_seen, d.last_seen, d.last_ip, d.admin_locked, d.zone_id, \
+             d.owner_user_id, \
              d.dns_capture_enabled, d.dns_capture_cap_count, d.dns_capture_cap_days, \
              d.connection_mode, d.managed \
              FROM devices d \
@@ -460,6 +466,19 @@ impl DeviceRepository for SqliteDeviceRepository {
     async fn assign_zone(&self, device_id: &str, zone_id: &str) -> anyhow::Result<bool> {
         let result = sqlx::query("UPDATE devices SET zone_id = ? WHERE id = ?")
             .bind(zone_id)
+            .bind(device_id)
+            .execute(&self.pools.write)
+            .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    async fn set_owner(
+        &self,
+        device_id: &str,
+        owner_user_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        let result = sqlx::query("UPDATE devices SET owner_user_id = ? WHERE id = ?")
+            .bind(owner_user_id)
             .bind(device_id)
             .execute(&self.pools.write)
             .await?;
