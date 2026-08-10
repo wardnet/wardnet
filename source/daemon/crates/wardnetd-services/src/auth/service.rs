@@ -1,18 +1,19 @@
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
-use argon2::PasswordHasher;
-use argon2::password_hash::rand_core::OsRng;
 use async_trait::async_trait;
-use base64::Engine;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 use wardnet_common::api::{WizardMode, WizardStep};
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
 
+use crate::auth::password::{
+    hash_password, hash_token, new_session_token, validate_password, verify_decoy, verify_password,
+};
+use crate::auth::rate_limit::LoginRateLimiter;
 use crate::auth_context;
 use crate::error::AppError;
-use wardnetd_data::repository::{
-    AdminRepository, ApiKeyRepository, SessionRepository, SystemConfigRepository,
-};
+use wardnetd_data::repository::user::{UserRepository, UserRow};
+use wardnetd_data::repository::user_credential::{CredentialKind, UserCredentialRepository};
+use wardnetd_data::repository::{ApiKeyRepository, SessionRepository, SystemConfigRepository};
 
 /// Snapshot of the setup-wizard progress.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -37,54 +38,102 @@ pub struct LoginResult {
     pub max_age_seconds: u64,
 }
 
+/// Everything a login attempt carries.
+///
+/// A struct rather than a widening parameter list because the two optional
+/// fields are security-relevant and easy to pass in the wrong order as bare
+/// `Option<&str>` arguments: `client_ip` feeds the rate limiter, `user_agent` is
+/// shown in the "your sessions" list. Both are `None` for callers that genuinely
+/// have neither (`wctl` over a unix socket, tests).
+#[derive(Debug, Clone, Copy)]
+pub struct LoginAttempt<'a> {
+    /// Username or email address as typed. Matched case-insensitively.
+    pub subject: &'a str,
+    /// The submitted password.
+    pub password: &'a str,
+    /// Whether to issue a long-lived, refreshable session.
+    pub remember_me: bool,
+    /// Source address, for per-IP login backoff.
+    pub client_ip: Option<&'a str>,
+    /// Raw `User-Agent`, recorded on the session so a person can recognise it.
+    pub user_agent: Option<&'a str>,
+    /// Device the session is being issued to, when the caller is identifiable.
+    pub device_id: Option<&'a str>,
+}
+
+/// The calling household user's identity, as returned by `GET /api/users/me`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CurrentUser {
+    /// The user's id.
+    pub user_id: Uuid,
+    /// Name shown in the UI. For a backfilled local admin this is the old
+    /// `admins.username`.
+    pub display_name: String,
+    /// Optional email address.
+    pub email: Option<String>,
+    /// `admin` or `member`.
+    pub role: UserRole,
+}
+
 /// Authentication and session management.
 ///
-/// Orchestrates admin login (password verification, session creation),
-/// session validation (token → admin lookup), and API-key validation.
-/// All cryptographic operations (argon2, SHA-256) live here — repositories
-/// only store and retrieve hashes.
+/// Orchestrates household-user login (password verification, session creation),
+/// session validation (token → typed principal), and API-key validation. All
+/// cryptographic operations live in [`crate::auth::password`]; repositories only
+/// store and retrieve hashes.
 #[async_trait]
 pub trait AuthService: Send + Sync {
-    /// Verify credentials and create a new session. Returns a raw token for the cookie.
+    /// Verify credentials and create a new session. Returns a raw token for the
+    /// cookie.
     ///
-    /// When `remember_me` is `true`, the session is created with
+    /// When `remember_me` is `true` the session is created with
     /// `remember_me_expiry_hours` lifetime instead of the default
     /// `session_expiry_hours`.
-    async fn login(
-        &self,
-        username: &str,
-        password: &str,
-        remember_me: bool,
-    ) -> Result<LoginResult, AppError>;
+    ///
+    /// Returns [`AppError::TooManyRequests`] when either login backoff counter
+    /// has tripped, before any credential is verified.
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError>;
 
     /// Extend the expiry of an existing session (sliding-window refresh).
     ///
-    /// Called by `POST /api/auth/refresh` on every admin-app open. Validates
-    /// that the session still exists, slides the expiry forward by
-    /// `remember_me_expiry_hours`, and returns the same token with the new
+    /// Called by `POST /api/auth/refresh` on every app open. Validates that the
+    /// session still exists and still belongs to a live, enabled user, slides
+    /// the expiry forward, rotates the token, and returns the new token with its
     /// `max_age_seconds`.
     async fn refresh_session(&self, token: &str) -> Result<LoginResult, AppError>;
 
     /// Invalidate the session identified by the given raw token (logout).
     ///
     /// Backs `POST /api/auth/logout`. Callers must pass the token that
-    /// authenticated the request (the API layer's `AdminAuth` guarantees
+    /// authenticated the request (the API layer's `SessionAuth` guarantees
     /// this), so deleting it can only ever end the caller's own session.
     /// Idempotent: a token whose session row is already gone still succeeds,
     /// because the desired end state (no server-side session) already holds.
     async fn logout_session(&self, token: &str) -> Result<(), AppError>;
 
-    /// Validate a raw session token. Returns the admin UUID if valid and not expired.
-    async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError>;
+    /// Validate a raw session token into a typed principal.
+    ///
+    /// Returns [`AuthenticatedUser`] — carrying the user's **live** role read
+    /// from `users` — rather than a bare id. A bare id forced the caller to
+    /// decide what the session was allowed to do, and the caller
+    /// (`resolve_auth_context`) answered "admin" for every session, which with
+    /// two roles in play is a privilege escalation.
+    async fn validate_session(&self, token: &str) -> Result<Option<AuthenticatedUser>, AppError>;
 
-    /// Validate a raw API key. Returns the admin UUID if a matching key is found.
-    async fn validate_api_key(&self, key: &str) -> Result<Option<Uuid>, AppError>;
+    /// Validate a raw API key into a typed principal.
+    ///
+    /// An API key is a box-level credential with no person attached, so it acts
+    /// as the oldest enabled admin (see
+    /// [`UserRepository::find_first_enabled_admin`]). If no enabled admin
+    /// exists the key is refused rather than downgraded to some other user.
+    async fn validate_api_key(&self, key: &str) -> Result<Option<AuthenticatedUser>, AppError>;
 
     /// Create the first admin account during initial setup.
     ///
-    /// Validates the username (3-32 alphanumeric chars) and password (min 8 chars),
-    /// hashes the password with argon2, creates the admin, and marks setup as completed.
-    /// Returns [`AppError::Conflict`] if setup has already been completed.
+    /// Validates the username (3–32 alphanumeric chars) and password, hashes the
+    /// password with Argon2id, creates an `admin`-role household user with a
+    /// `password` credential, and advances the wizard. Returns
+    /// [`AppError::Conflict`] if setup has already been completed.
     async fn setup_admin(&self, username: &str, password: &str) -> Result<(), AppError>;
 
     /// Check whether the initial setup wizard has been completed.
@@ -98,11 +147,13 @@ pub trait AuthService: Send + Sync {
     /// `auth_context::require_admin()?` rule (see `.agents/auth.md`).
     async fn wizard_state(&self) -> Result<WizardState, AppError>;
 
-    /// Return the calling admin's username.
+    /// Return the calling household user's identity.
     ///
     /// Backs `GET /api/users/me`; identity comes from the request's
-    /// [`AuthContext::Admin`](wardnet_common::auth::AuthContext) task-local.
-    async fn current_admin_username(&self) -> Result<String, AppError>;
+    /// [`AuthContext::User`](wardnet_common::auth::AuthContext) task-local.
+    /// Guarded with `require_authenticated()`, not `require_admin()`: a member
+    /// must be able to read their own profile.
+    async fn current_user(&self) -> Result<CurrentUser, AppError>;
 
     /// Advance the wizard to the requested step.
     ///
@@ -113,7 +164,7 @@ pub trait AuthService: Send + Sync {
     ///   [`WizardStep::Completed`], which is terminal.
     /// - `mode` is either left unchanged or set when first reaching
     ///   [`WizardStep::Dhcp`].
-    /// - Reaching [`WizardStep::Completed`] requires an admin to exist.
+    /// - Reaching [`WizardStep::Completed`] requires a user to exist.
     async fn advance_wizard(
         &self,
         to_step: WizardStep,
@@ -129,45 +180,30 @@ pub trait AuthService: Send + Sync {
     async fn cleanup_expired_sessions(&self) -> Result<u64, AppError>;
 }
 
-/// Maximum lifetime of a `remember_me` session regardless of sliding-window refreshes.
-const MAX_SESSION_DAYS: i64 = 90;
-
-/// Derive the storage key for a raw session token.
+/// Maximum lifetime of a `remember_me` session regardless of sliding-window
+/// refreshes.
 ///
-/// Single definition on purpose: every write, lookup, and delete must derive
-/// the key identically, or a session created under one scheme becomes
-/// unreachable (and undeletable) under another.
-fn hash_token(token: &str) -> String {
-    hex::encode(Sha256::digest(token.as_bytes()))
-}
-
-/// Fixed decoy password hash verified on the login path when the username is
-/// unknown. It uses the same default argon2 parameters as a real admin hash, so
-/// a failed verify against it costs the same as a failed verify against a
-/// genuine record — closing the timing side channel an attacker could otherwise
-/// use to tell valid usernames from invalid ones. Computed once on first use.
-static DECOY_PASSWORD_HASH: LazyLock<String> = LazyLock::new(|| {
-    let salt = argon2::password_hash::SaltString::from_b64("d2FyZG5ldGRlY295c2FsdA")
-        .expect("decoy salt is valid non-padded base64");
-    argon2::Argon2::default()
-        .hash_password(b"login-decoy", &salt)
-        .expect("decoy hash generation with default params cannot fail")
-        .to_string()
-});
+/// Written into `sessions.absolute_expires_at` at creation rather than
+/// re-derived from `created_at` on every refresh, so the policy that issued a
+/// session is the policy that bounds it.
+const MAX_SESSION_DAYS: i64 = 90;
 
 /// Default implementation of [`AuthService`] backed by repository traits.
 pub struct AuthServiceImpl {
-    admins: Arc<dyn AdminRepository>,
+    users: Arc<dyn UserRepository>,
+    credentials: Arc<dyn UserCredentialRepository>,
     sessions: Arc<dyn SessionRepository>,
     api_keys: Arc<dyn ApiKeyRepository>,
     system_config: Arc<dyn SystemConfigRepository>,
+    rate_limiter: LoginRateLimiter,
     session_expiry_hours: u64,
     remember_me_expiry_hours: u64,
 }
 
 impl AuthServiceImpl {
     pub fn new(
-        admins: Arc<dyn AdminRepository>,
+        users: Arc<dyn UserRepository>,
+        credentials: Arc<dyn UserCredentialRepository>,
         sessions: Arc<dyn SessionRepository>,
         api_keys: Arc<dyn ApiKeyRepository>,
         system_config: Arc<dyn SystemConfigRepository>,
@@ -175,84 +211,140 @@ impl AuthServiceImpl {
         remember_me_expiry_hours: u64,
     ) -> Self {
         Self {
-            admins,
+            users,
+            credentials,
             sessions,
             api_keys,
             system_config,
+            rate_limiter: LoginRateLimiter::new(),
             session_expiry_hours,
             remember_me_expiry_hours,
+        }
+    }
+
+    /// Clamp an hour count to what `chrono::Duration::hours` accepts.
+    fn expiry_hours_i64(hours: u64) -> i64 {
+        hours.min(i64::MAX as u64).cast_signed()
+    }
+
+    /// The id of the household user the current context names.
+    ///
+    /// An exhaustive match, never a let-else: adding a principal must fail to
+    /// compile at every point that decides *whose* data is being touched.
+    fn context_user_id() -> Result<Uuid, AppError> {
+        match auth_context::current() {
+            wardnet_common::auth::AuthContext::User(user) => Ok(user.user_id()),
+            wardnet_common::auth::AuthContext::Device { .. }
+            | wardnet_common::auth::AuthContext::Anonymous => Err(AppError::Forbidden(
+                "must be authenticated as a household user".to_owned(),
+            )),
         }
     }
 }
 
 #[async_trait]
 impl AuthService for AuthServiceImpl {
-    async fn login(
-        &self,
-        username: &str,
-        password: &str,
-        remember_me: bool,
-    ) -> Result<LoginResult, AppError> {
-        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2):
-        // this IS the credential-verification endpoint — by definition the caller
-        // has no session yet, so there is no context to authenticate.
-        let record = self
-            .admins
-            .find_by_username(username)
+    async fn login(&self, request: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
+        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // category (b): auth bootstrap): this IS the credential-verification
+        // endpoint — by definition the caller has no session yet, so there is no
+        // context to authenticate.
+
+        // Backoff is checked before any lookup, so a throttled attempt costs an
+        // attacker a round-trip and us nothing.
+        if let Some(wait) = self
+            .rate_limiter
+            .check(request.subject, request.client_ip)
+            .map(|d| d.as_secs().max(1))
+        {
+            tracing::warn!(retry_after = wait, "login throttled: retry_after={wait}s");
+            return Err(AppError::TooManyRequests {
+                message: format!("too many login attempts; retry in {wait}s"),
+                retry_after_seconds: wait,
+            });
+        }
+
+        // The subject is stored lowercased by both the migration backfill and
+        // every write path, so the lookup lowercases too — logins are
+        // case-insensitive in username and email alike.
+        let subject = request.subject.trim().to_lowercase();
+
+        let found = self
+            .credentials
+            .find_for_login(CredentialKind::Password, &subject)
             .await
             .map_err(AppError::Internal)?;
 
-        // Unknown username: still run a full argon2 verify against a decoy hash
-        // before rejecting, so this path takes comparable time to a known
-        // username with the wrong password. Short-circuiting here would leak,
-        // via response latency, which usernames exist (enumeration).
-        let Some((admin_id, password_hash)) = record else {
-            let decoy = argon2::PasswordHash::new(&DECOY_PASSWORD_HASH)
-                .expect("decoy hash is a valid argon2 PHC string");
-            let _ = argon2::PasswordVerifier::verify_password(
-                &argon2::Argon2::default(),
-                password.as_bytes(),
-                &decoy,
-            );
+        // Unknown subject — or a disabled user, which `find_for_login`
+        // deliberately makes indistinguishable — still runs a full Argon2id
+        // verify against a decoy hash before rejecting. Short-circuiting here
+        // would leak, via response latency, which accounts exist.
+        let Some(login) = found else {
+            verify_decoy(request.password);
+            self.rate_limiter
+                .record_failure(request.subject, request.client_ip);
             return Err(AppError::Unauthorized("invalid credentials".to_owned()));
         };
 
-        let parsed_hash = argon2::PasswordHash::new(&password_hash)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid stored hash: {e}")))?;
+        let secret = login.credential.secret.as_deref().ok_or_else(|| {
+            AppError::Internal(anyhow::anyhow!(
+                "password credential {} has no secret",
+                login.credential.id
+            ))
+        })?;
 
-        argon2::PasswordVerifier::verify_password(
-            &argon2::Argon2::default(),
-            password.as_bytes(),
-            &parsed_hash,
-        )
-        .map_err(|_| AppError::Unauthorized("invalid credentials".to_owned()))?;
+        if let Err(e) = verify_password(request.password, secret) {
+            self.rate_limiter
+                .record_failure(request.subject, request.client_ip);
+            return Err(e);
+        }
 
-        // Generate random 32-byte token, base64url-encode, SHA-256 hash for storage.
-        let token_bytes: [u8; 32] = rand::random();
-        let token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(token_bytes);
-        let token_hash = hash_token(&token);
+        self.rate_limiter
+            .record_success(request.subject, request.client_ip);
 
+        let (token, token_hash) = new_session_token();
         let session_id = Uuid::new_v4().to_string();
         let now = chrono::Utc::now();
-        let expiry_hours = if remember_me {
+        let expiry_hours = if request.remember_me {
             self.remember_me_expiry_hours
         } else {
             self.session_expiry_hours
         };
-        let expiry_hours_i64 = expiry_hours.min(i64::MAX as u64).cast_signed();
-        let expires_at = now + chrono::Duration::hours(expiry_hours_i64);
+        let expires_at = now + chrono::Duration::hours(Self::expiry_hours_i64(expiry_hours));
+        let absolute_expires_at = now + chrono::Duration::days(MAX_SESSION_DAYS);
 
         self.sessions
             .create(
                 &session_id,
-                &admin_id,
+                &login.credential.user_id,
                 &token_hash,
                 &now.to_rfc3339(),
                 &expires_at.to_rfc3339(),
-                remember_me,
+                request.remember_me,
+                request.device_id,
+                request.user_agent,
+                &absolute_expires_at.to_rfc3339(),
             )
             .await
             .map_err(AppError::Internal)?;
+
+        // Best-effort: a failure to stamp `last_used_at` must not fail a login
+        // that has already succeeded.
+        if let Err(e) = self
+            .credentials
+            .touch_last_used(&login.credential.id, &now.to_rfc3339())
+            .await
+        {
+            tracing::warn!(error = %e, "failed to record credential last_used_at");
+        }
+
+        tracing::info!(
+            user_id = %login.credential.user_id,
+            role = login.role.as_str(),
+            remember_me = request.remember_me,
+            "login succeeded: role={}",
+            login.role.as_str()
+        );
 
         Ok(LoginResult {
             token,
@@ -261,69 +353,62 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn refresh_session(&self, token: &str) -> Result<LoginResult, AppError> {
-        auth_context::require_admin()?;
-
-        // Extract the calling admin's identity for cross-validation below.
-        let wardnet_common::auth::AuthContext::Admin {
-            admin_id: ctx_admin_id,
-        } = auth_context::current()
-        else {
-            return Err(AppError::Forbidden(
-                "must be authenticated as admin".to_owned(),
-            ));
-        };
+        // Any authenticated household user may refresh their own session — a
+        // member's session is no less refreshable than an admin's. Ownership,
+        // not role, is the check that matters here, and it is enforced below.
+        auth_context::require_authenticated()?;
+        let ctx_user_id = Self::context_user_id()?;
 
         let token_hash = hash_token(token);
         let now = chrono::Utc::now();
         let now_str = now.to_rfc3339();
 
-        // Single atomic query: validates the session is non-expired and retrieves
-        // remember_me + created_at in one round-trip, eliminating the race window where
-        // delete_expired() could remove the row between two sequential reads.
-        let (session_admin_id, is_refreshable, created_at_str) = self
+        // One atomic query: validates the session is live and returns
+        // remember_me plus both expiry bounds, closing the race in which
+        // `delete_expired` removes the row between two sequential reads.
+        let session = self
             .sessions
             .find_session_for_refresh(&token_hash, &now_str)
             .await
             .map_err(AppError::Internal)?
             .ok_or_else(|| AppError::Unauthorized("session not found or expired".to_owned()))?;
 
-        // Cross-validate: the session row must belong to the calling admin.
-        let session_admin_uuid = Uuid::parse_str(&session_admin_id)
-            .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid admin_id in session row")))?;
-        if session_admin_uuid != ctx_admin_id {
+        // Cross-validate: the session row must belong to the calling user.
+        let session_user_id = Uuid::parse_str(&session.user_id)
+            .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid user_id in session row")))?;
+        if session_user_id != ctx_user_id {
             return Err(AppError::Forbidden(
-                "session does not belong to this admin".to_owned(),
+                "session does not belong to this user".to_owned(),
             ));
         }
 
-        if !is_refreshable {
+        if !session.remember_me {
             return Err(AppError::Forbidden(
                 "session was not created with remember_me - refresh not permitted".to_owned(),
             ));
         }
 
-        // Enforce an absolute lifetime cap so remember_me sessions cannot refresh indefinitely.
-        let created_at = chrono::DateTime::parse_from_rfc3339(&created_at_str)
-            .map_err(|_| AppError::Internal(anyhow::anyhow!("invalid created_at in session row")))?
+        // The absolute ceiling is read from the row, not recomputed: the policy
+        // in force when the session was issued is the policy that bounds it.
+        let absolute_expiry = chrono::DateTime::parse_from_rfc3339(&session.absolute_expires_at)
+            .map_err(|_| {
+                AppError::Internal(anyhow::anyhow!(
+                    "invalid absolute_expires_at in session row"
+                ))
+            })?
             .with_timezone(&chrono::Utc);
-        let absolute_expiry = created_at + chrono::Duration::days(MAX_SESSION_DAYS);
         if now >= absolute_expiry {
             return Err(AppError::Unauthorized(
                 "session has exceeded maximum lifetime - please log in again".to_owned(),
             ));
         }
 
-        let expiry_hours_i64 = self
-            .remember_me_expiry_hours
-            .min(i64::MAX as u64)
-            .cast_signed();
-        let slid_expiry = now + chrono::Duration::hours(expiry_hours_i64);
+        let slid_expiry =
+            now + chrono::Duration::hours(Self::expiry_hours_i64(self.remember_me_expiry_hours));
         let new_expires_at = slid_expiry.min(absolute_expiry);
 
-        // Rotate token: generate a fresh secret so a captured token cannot be re-used.
-        let new_token_bytes: [u8; 32] = rand::random();
-        let new_token = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(new_token_bytes);
-        let new_token_hash = hash_token(&new_token);
+        // Rotate the token so a captured one cannot be re-used after refresh.
+        let (new_token, new_token_hash) = new_session_token();
 
         self.sessions
             .rotate_token(&token_hash, &new_token_hash, &new_expires_at.to_rfc3339())
@@ -337,7 +422,9 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn logout_session(&self, token: &str) -> Result<(), AppError> {
-        auth_context::require_admin()?;
+        // Members log out too. The token is the one that authenticated this
+        // request, so this can only ever end the caller's own session.
+        auth_context::require_authenticated()?;
 
         let token_hash = hash_token(token);
         let removed = self
@@ -351,27 +438,34 @@ impl AuthService for AuthServiceImpl {
         Ok(())
     }
 
-    async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_session(&self, token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
-        // category (b): auth bootstrap): this resolves a session token into an admin
-        // identity, so it necessarily runs before any identity exists to require.
+        // category (b): auth bootstrap): this resolves a session token into an
+        // identity, so it necessarily runs before any identity exists to
+        // require.
         let token_hash = hash_token(token);
         let now = chrono::Utc::now().to_rfc3339();
 
-        let admin_id_str = self
+        let principal = self
             .sessions
-            .find_admin_id_by_token_hash(&token_hash, &now)
+            .find_principal_by_token_hash(&token_hash, &now)
             .await
             .map_err(AppError::Internal)?;
 
-        match admin_id_str {
-            Some(id) => {
-                let uuid = Uuid::parse_str(&id)
-                    .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid UUID: {e}")))?;
-                Ok(Some(uuid))
-            }
-            None => Ok(None),
-        }
+        let Some(principal) = principal else {
+            return Ok(None);
+        };
+
+        let user_id = Uuid::parse_str(&principal.user_id)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid UUID: {e}")))?;
+
+        // The role travels from the `users` row this query joined, so a
+        // demotion takes effect on the caller's next request rather than at
+        // their next login.
+        Ok(Some(AuthenticatedUser::from_validated_session(
+            user_id,
+            principal.role,
+        )))
     }
 
     async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
@@ -384,10 +478,11 @@ impl AuthService for AuthServiceImpl {
             .map_err(AppError::Internal)
     }
 
-    async fn validate_api_key(&self, key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
-        // category (b): auth bootstrap): this resolves an API key into an admin
-        // identity, so it necessarily runs before any identity exists to require.
+        // category (b): auth bootstrap): this resolves an API key into an
+        // identity, so it necessarily runs before any identity exists to
+        // require.
         let all_keys = self
             .api_keys
             .find_all_hashes()
@@ -409,20 +504,28 @@ impl AuthService for AuthServiceImpl {
                 let now = chrono::Utc::now().to_rfc3339();
                 let _ = self.api_keys.update_last_used(id, &now).await;
 
-                // In the single-admin MVP, API keys authenticate as the first admin.
-                let admin_id_str = self
-                    .admins
-                    .find_first_id()
+                // An API key names no person, so it acts as the oldest enabled
+                // admin. When there is none the key is refused: falling back to
+                // any other user would hand a box-level credential a role
+                // nobody granted it.
+                let Some(admin) = self
+                    .users
+                    .find_first_enabled_admin()
                     .await
                     .map_err(AppError::Internal)?
-                    .ok_or_else(|| {
-                        AppError::Internal(anyhow::anyhow!("no admin account exists"))
-                    })?;
+                else {
+                    tracing::warn!(
+                        "api key accepted but no enabled admin exists; refusing the request"
+                    );
+                    return Ok(None);
+                };
 
-                let uuid = Uuid::parse_str(&admin_id_str)
+                let uuid = Uuid::parse_str(&admin.id)
                     .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid UUID: {e}")))?;
 
-                return Ok(Some(uuid));
+                return Ok(Some(AuthenticatedUser::from_validated_session(
+                    uuid, admin.role,
+                )));
             }
         }
 
@@ -431,18 +534,16 @@ impl AuthService for AuthServiceImpl {
 
     async fn setup_admin(&self, username: &str, password: &str) -> Result<(), AppError> {
         // Documented exception to the auth-guard rule (`.agents/auth.md`):
-        // by definition no admin exists when this is called, so there's no
+        // by definition no user exists when this is called, so there is no
         // session to authenticate. The 409 guard below is the actual gate
-        // — we use `admins.exists()` directly rather than the legacy
-        // `setup_completed` system_config key. That key was the previous
-        // signal but it was a separate write from `admin_repo.create()`,
-        // so a crash between the two could leave the system in a state
-        // where an admin exists but the key is `false` (or vice versa) —
-        // the 409 check would then disagree with reality. Reading the
-        // admin row directly removes that race entirely.
+        // — we read `users.exists()` directly rather than the legacy
+        // `setup_completed` system_config key. That key was a separate write
+        // from user creation, so a crash between the two could leave the
+        // system claiming setup was incomplete when an account already
+        // existed. Reading the row directly removes that race.
 
         // Guard: setup can only run once.
-        if self.admins.exists().await.map_err(AppError::Internal)? {
+        if self.users.exists().await.map_err(AppError::Internal)? {
             return Err(AppError::Conflict("setup already completed".to_owned()));
         }
 
@@ -456,40 +557,65 @@ impl AuthService for AuthServiceImpl {
             ));
         }
 
-        // Validate password: minimum 8 chars.
-        if password.len() < 8 {
-            return Err(AppError::BadRequest(
-                "password must be at least 8 characters".to_owned(),
-            ));
-        }
+        validate_password(password)?;
 
-        // Hash password with argon2.
-        let salt = argon2::password_hash::SaltString::generate(&mut OsRng);
-        let password_hash = argon2::Argon2::default()
-            .hash_password(password.as_bytes(), &salt)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("failed to hash password: {e}")))?
-            .to_string();
-
+        let password_hash = hash_password(password)?;
         let id = Uuid::new_v4().to_string();
-        self.admins
-            .create(&id, username, &password_hash)
+        let now = chrono::Utc::now().to_rfc3339();
+
+        self.users
+            .create(&UserRow {
+                id: id.clone(),
+                display_name: username.to_owned(),
+                // No email: the wizard only asks for a username, and inventing
+                // `username@localhost` would occupy the unique email index with
+                // an address nobody can receive mail at.
+                email: None,
+                role: UserRole::Admin,
+                enabled: true,
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            })
             .await
             .map_err(AppError::Internal)?;
 
-        // Advance the wizard to the next step in a single write. The
-        // `setup_completed` key is no longer maintained by this method —
-        // `is_setup_completed()` is now derived from
-        // `wizard_step == Completed` (see below). If this write fails
-        // after admin creation, the 409 guard above still fires on
-        // retry (the admin row exists), and the operator can recover
-        // by hitting POST /api/setup/advance from the wizard UI.
+        // Same compensation as `bootstrap_admin`: a user row with no credential
+        // makes `exists()` true forever, which skips this guard, blocks the
+        // wizard, and leaves nobody able to log in. Roll it back rather than
+        // leaving the box permanently half-claimed.
+        if let Err(e) = self
+            .credentials
+            .set_password(
+                &Uuid::new_v4().to_string(),
+                &id,
+                // Lowercased so the break-glass login is case-insensitive,
+                // matching how the migration backfills existing local admins.
+                &username.to_lowercase(),
+                &password_hash,
+                &now,
+            )
+            .await
+        {
+            if let Err(cleanup) = self.users.delete(&id).await {
+                tracing::error!(
+                    error = %cleanup,
+                    user_id = %id,
+                    "failed to roll back the half-created admin; the box may be \
+                     left with a credential-less user that blocks the wizard"
+                );
+            }
+            return Err(AppError::Internal(e));
+        }
+
+        // Advance the wizard in a single write. `is_setup_completed()` is
+        // derived from `wizard_step == Completed`, so the legacy
+        // `setup_completed` key is no longer maintained here. If this write
+        // fails after user creation the 409 guard above still fires on retry,
+        // and the operator can recover via POST /api/setup/advance.
         //
-        // Only advance from "admin" or unset state; if wizard_step is
-        // already further along (e.g. an operator hit advance manually
-        // before the frontend got to it) we leave it alone — same-step
-        // advances are idempotent in `advance_wizard`, and rewinding
-        // below `Network` (i.e. back to `Admin`) is rejected by
-        // `advance_wizard`'s floor check.
+        // Only advance from "admin" or unset; if wizard_step is already further
+        // along we leave it alone — same-step advances are idempotent in
+        // `advance_wizard`, and rewinding below `Network` is rejected there.
         let current = self
             .system_config
             .get_wizard_step()
@@ -512,31 +638,28 @@ impl AuthService for AuthServiceImpl {
         // category (b): auth bootstrap): backs the unauthenticated
         // `GET /api/setup/status` surface and delegates to the equally-unguarded
         // `wizard_state`, so there is no session to require here.
-        //
-        // Derived from `wizard_step == Completed` so this matches the
-        // value the API surfaces in `SetupStatusResponse.setup_completed`.
-        // The legacy `setup_completed` key in `system_config` is no
-        // longer written by `setup_admin` (it would race against the
-        // wizard_step write); it's kept only as a migration signal that
-        // `bootstrap_system_config` reads on first boot of an upgraded
-        // install.
         Ok(self.wizard_state().await?.setup_completed())
     }
 
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        auth_context::require_admin()?;
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        // Deliberately `require_authenticated`, not `require_admin`: a member
+        // reading their own profile is the whole point of this endpoint.
+        auth_context::require_authenticated()?;
+        let user_id = Self::context_user_id()?;
 
-        let wardnet_common::auth::AuthContext::Admin { admin_id } = auth_context::current() else {
-            return Err(AppError::Forbidden(
-                "must be authenticated as admin".to_owned(),
-            ));
-        };
-
-        self.admins
-            .find_username_by_id(&admin_id.to_string())
+        let row = self
+            .users
+            .find_by_id(&user_id.to_string())
             .await
             .map_err(AppError::Internal)?
-            .ok_or_else(|| AppError::Unauthorized("admin account no longer exists".to_owned()))
+            .ok_or_else(|| AppError::Unauthorized("user account no longer exists".to_owned()))?;
+
+        Ok(CurrentUser {
+            user_id,
+            display_name: row.display_name,
+            email: row.email,
+            role: row.role,
+        })
     }
 
     async fn wizard_state(&self) -> Result<WizardState, AppError> {
@@ -583,9 +706,9 @@ impl AuthService for AuthServiceImpl {
         }
 
         if to_step == WizardStep::Completed {
-            // Sanity-check: can't finish setup without an admin.
-            let admin_exists = self.admins.exists().await.map_err(AppError::Internal)?;
-            if !admin_exists {
+            // Sanity-check: can't finish setup without an account.
+            let user_exists = self.users.exists().await.map_err(AppError::Internal)?;
+            if !user_exists {
                 return Err(AppError::BadRequest(
                     "cannot complete wizard before an admin is created".to_owned(),
                 ));

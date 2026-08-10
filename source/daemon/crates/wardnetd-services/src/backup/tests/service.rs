@@ -20,7 +20,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use uuid::Uuid;
 use wardnet_common::api::{ApplyImportRequest, ExportBackupRequest};
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 use wardnet_common::backup::{BackupStatus, BundleManifest, CURRENT_BUNDLE_FORMAT_VERSION};
 use wardnetd_data::database_dumper::DatabaseDumper;
 use wardnetd_data::db::restore_pending_marker_path;
@@ -128,9 +128,10 @@ impl SystemConfigRepository for MockSystemConfig {
 // ---------------------------------------------------------------------------
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 struct Harness {

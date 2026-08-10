@@ -81,7 +81,7 @@ pub struct SecureTransport;
 ///
 /// # Authentication, not authorization
 ///
-/// Named `SessionAuth` rather than the former `AdminAuth` because it no longer
+/// Named `SessionAuth` rather than the former `SessionAuth` because it no longer
 /// implies anything about *role*: a `member` satisfies it exactly as an `admin`
 /// does.
 /// Authorization is the service layer's job, via

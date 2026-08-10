@@ -31,7 +31,7 @@ use wardnet_common::dns::{
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    AlwaysAdminAuth, StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer,
+    AlwaysSessionAuth, StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer,
     StubDhcpService, StubDiscoveryService, StubDnsFilterService, StubDnsServer, StubDnsService,
     StubEventPublisher, StubJobService, StubLogService, StubNetworkZoneService,
     StubProviderService, StubRoutingService, StubRuleRequestService, StubStatsService,
@@ -204,7 +204,7 @@ impl DnsLocalService for MockDnsLocal {
 
 fn make_state() -> AppState {
     AppState::new(
-        Arc::new(AlwaysAdminAuth),
+        Arc::new(AlwaysSessionAuth),
         Arc::new(StubBackupService),
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),

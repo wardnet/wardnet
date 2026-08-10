@@ -5,7 +5,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use wardnet_common::stats::{StatsQuery, StatsQueryResponse, StatsTopQuery, StatsTopResponse};
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::AuthErrors;
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -30,7 +30,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn query(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     // `axum_extra::extract::Query` (serde_html_form) supports repeated
     // keys for `Vec<String>` — the standard axum `Query` extractor
     // (`serde_urlencoded`) does not.
@@ -53,7 +53,7 @@ pub async fn query(
 )]
 pub async fn top(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Query(body): Query<StatsTopQuery>,
 ) -> Result<Json<StatsTopResponse>, AppError> {
     let response = state.stats_service().top(body).await?;

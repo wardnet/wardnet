@@ -8,7 +8,7 @@ use wardnet_common::event::WardnetEvent;
 use wardnet_common::tunnel::{Tunnel, TunnelConfig, TunnelStatus};
 use wardnet_common::wireguard_config::WgPeerConfig;
 
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 
 use wardnet_common::device::Device;
 use wardnet_common::routing::RoutingRule;
@@ -35,9 +35,10 @@ use wardnetd_data::repository::{DeviceRepository, SystemConfigRepository, Tunnel
 
 /// Helper to create an admin auth context for tests.
 pub(super) fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 // -- Sample WireGuard config text -----------------------------------------
@@ -753,6 +754,14 @@ impl DeviceRepository for MockDeviceRepoForTunnel {
         Ok(Vec::new())
     }
 
+    async fn set_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
         Ok(None)
     }
@@ -865,6 +874,14 @@ impl DeviceRepository for MockDeviceRepoWithSwitchedDevices {
         _cutoff: &str,
     ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
         Ok(Vec::new())
+    }
+
+    async fn set_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
     }
 
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {

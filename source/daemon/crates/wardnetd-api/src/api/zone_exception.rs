@@ -18,7 +18,7 @@ use wardnet_common::api::{
     UpdateZoneExceptionResponse,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -41,7 +41,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn list_exceptions(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListZoneExceptionsResponse>, AppError> {
     let exceptions = state.zone_exception_service().list_exceptions().await?;
     Ok(Json(ListZoneExceptionsResponse { exceptions }))
@@ -63,7 +63,7 @@ pub async fn list_exceptions(
 )]
 pub async fn create_exception(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<CreateZoneExceptionRequest>,
 ) -> Result<(StatusCode, Json<CreateZoneExceptionResponse>), AppError> {
     let exception = state
@@ -90,7 +90,7 @@ pub async fn create_exception(
 )]
 pub async fn get_exception(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<GetZoneExceptionResponse>, AppError> {
     let exception = state.zone_exception_service().get_exception(id).await?;
@@ -114,7 +114,7 @@ pub async fn get_exception(
 )]
 pub async fn update_exception(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateZoneExceptionRequest>,
 ) -> Result<Json<UpdateZoneExceptionResponse>, AppError> {
@@ -139,7 +139,7 @@ pub async fn update_exception(
 )]
 pub async fn delete_exception(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeleteZoneExceptionResponse>, AppError> {
     state.zone_exception_service().delete_exception(id).await?;

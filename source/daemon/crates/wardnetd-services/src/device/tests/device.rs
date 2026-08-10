@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::sync::broadcast;
 use uuid::Uuid;
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 use wardnet_common::device::{Device, DeviceType};
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone, ZoneProvenance, ZoneStance};
@@ -41,6 +41,14 @@ impl DeviceRepository for MockDeviceRepo {
         _cutoff: &str,
     ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
         Ok(Vec::new())
+    }
+
+    async fn set_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
     }
 
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
@@ -316,6 +324,7 @@ fn sample_device(locked: bool) -> Device {
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: locked,
         zone_id: TRUSTED_ZONE_ID.parse().unwrap(),
+        owner_user_id: None,
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
@@ -333,9 +342,10 @@ fn sample_rule() -> RoutingRule {
 }
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 fn device_ctx(mac: &str) -> AuthContext {
@@ -900,6 +910,13 @@ async fn update_dns_capture_settings_returns_404_for_unknown() {
         ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
             Ok(Vec::new())
         }
+    async fn set_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
+    }
 
         async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
             Ok(None)
@@ -1134,22 +1151,17 @@ async fn fetch_pending_maps_rows_to_items() {
         Arc::new(MockEventPublisher::default()),
     );
 
-    crate::auth_context::with_context(
-        wardnet_common::auth::AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        async {
-            let items = svc
-                .fetch_pending_dns_events("00000000-0000-0000-0000-000000000001", 0, 100)
-                .await
-                .unwrap();
-            assert_eq!(items.len(), 2);
-            assert_eq!(items[0].id, 1);
-            assert_eq!(items[0].domain, "ads.tracker.io");
-            assert_eq!(items[1].id, 2);
-            assert_eq!(items[1].status, "allowed");
-        },
-    )
+    crate::auth_context::with_context(wardnet_common::auth::AuthContext::system(), async {
+        let items = svc
+            .fetch_pending_dns_events("00000000-0000-0000-0000-000000000001", 0, 100)
+            .await
+            .unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].id, 1);
+        assert_eq!(items[0].domain, "ads.tracker.io");
+        assert_eq!(items[1].id, 2);
+        assert_eq!(items[1].status, "allowed");
+    })
     .await;
 }
 
@@ -1167,16 +1179,11 @@ async fn ack_dns_events_delegates_to_repo() {
         Arc::new(MockEventPublisher::default()),
     );
 
-    crate::auth_context::with_context(
-        wardnet_common::auth::AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        async {
-            svc.ack_dns_events("00000000-0000-0000-0000-000000000001", 42)
-                .await
-                .expect("ack should succeed when repo succeeds");
-        },
-    )
+    crate::auth_context::with_context(wardnet_common::auth::AuthContext::system(), async {
+        svc.ack_dns_events("00000000-0000-0000-0000-000000000001", 42)
+            .await
+            .expect("ack should succeed when repo succeeds");
+    })
     .await;
 }
 

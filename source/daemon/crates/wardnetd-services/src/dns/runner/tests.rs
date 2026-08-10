@@ -10,7 +10,6 @@ use std::time::Duration;
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::dns::DnsConfig;
 use wardnet_common::event::WardnetEvent;
@@ -25,9 +24,7 @@ use crate::error::AppError;
 use crate::event::{BroadcastEventBus, EventPublisher};
 
 fn admin() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
+    AuthContext::system()
 }
 
 async fn dns_local() -> Arc<dyn DnsLocalService> {

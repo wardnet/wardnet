@@ -1,3 +1,7 @@
+use uuid::Uuid;
+
+mod auth_context;
+pub(crate) mod repo_mocks;
 mod db_maintenance_runner;
 mod device_retention_runner;
 mod entitlement;
@@ -11,8 +15,6 @@ mod maintenance;
 mod request_context;
 mod subnet;
 mod version;
-
-use uuid::Uuid;
 
 /// A MAC address derived from `id`, for test devices.
 ///

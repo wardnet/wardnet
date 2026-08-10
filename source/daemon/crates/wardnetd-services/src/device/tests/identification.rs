@@ -150,13 +150,7 @@ async fn insert_device_at(
 }
 
 async fn as_admin<F: Future>(fut: F) -> F::Output {
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
-        fut,
-    )
-    .await
+    auth_context::with_context(AuthContext::system(), fut).await
 }
 
 #[tokio::test]

@@ -8,7 +8,7 @@ use wardnet_common::api::{
     VapidPublicKeyResponse, WebPushSubscription,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::AuthErrors;
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -127,7 +127,7 @@ pub struct NotificationsQuery {
 )]
 pub async fn list_notifications(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Query(query): Query<NotificationsQuery>,
 ) -> Result<Json<NotificationsResponse>, AppError> {
     let stored = state
@@ -164,7 +164,7 @@ pub async fn list_notifications(
 )]
 pub async fn clear_notifications(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<PushSubscriptionResponse>, AppError> {
     state.push_service().clear_notifications().await?;
     Ok(Json(PushSubscriptionResponse {

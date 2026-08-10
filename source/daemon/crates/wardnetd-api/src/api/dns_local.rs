@@ -19,7 +19,7 @@ use wardnet_common::api::{
     UpdateRecordResponse, UpdateZoneRequest, UpdateZoneResponse,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -54,7 +54,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn list_zones(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListZonesResponse>, AppError> {
     Ok(Json(state.dns_local_service().list_zones().await?))
 }
@@ -74,7 +74,7 @@ pub async fn list_zones(
 )]
 pub async fn create_zone(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<CreateZoneRequest>,
 ) -> Result<(StatusCode, Json<CreateZoneResponse>), AppError> {
     let response = state.dns_local_service().create_zone(body).await?;
@@ -96,7 +96,7 @@ pub async fn create_zone(
 )]
 pub async fn get_zone(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<GetZoneResponse>, AppError> {
     Ok(Json(state.dns_local_service().get_zone(id).await?))
@@ -119,7 +119,7 @@ pub async fn get_zone(
 )]
 pub async fn update_zone(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateZoneRequest>,
 ) -> Result<Json<UpdateZoneResponse>, AppError> {
@@ -142,7 +142,7 @@ pub async fn update_zone(
 )]
 pub async fn delete_zone(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeleteZoneResponse>, AppError> {
     Ok(Json(state.dns_local_service().delete_zone(id).await?))
@@ -162,7 +162,7 @@ pub async fn delete_zone(
 )]
 pub async fn list_zone_records(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ListRecordsResponse>, AppError> {
     Ok(Json(state.dns_local_service().list_zone_records(id).await?))
@@ -182,7 +182,7 @@ pub async fn list_zone_records(
 )]
 pub async fn list_records(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListRecordsResponse>, AppError> {
     Ok(Json(state.dns_local_service().list_records().await?))
 }
@@ -202,7 +202,7 @@ pub async fn list_records(
 )]
 pub async fn create_record(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<CreateRecordRequest>,
 ) -> Result<(StatusCode, Json<CreateRecordResponse>), AppError> {
     let response = state.dns_local_service().create_record(body).await?;
@@ -223,7 +223,7 @@ pub async fn create_record(
 )]
 pub async fn get_record(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<GetRecordResponse>, AppError> {
     Ok(Json(state.dns_local_service().get_record(id).await?))
@@ -245,7 +245,7 @@ pub async fn get_record(
 )]
 pub async fn update_record(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateRecordRequest>,
 ) -> Result<Json<UpdateRecordResponse>, AppError> {
@@ -268,7 +268,7 @@ pub async fn update_record(
 )]
 pub async fn delete_record(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeleteRecordResponse>, AppError> {
     Ok(Json(state.dns_local_service().delete_record(id).await?))
@@ -289,7 +289,7 @@ pub async fn delete_record(
 )]
 pub async fn list_forwarding_rules(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListForwardingRulesResponse>, AppError> {
     Ok(Json(
         state.dns_local_service().list_forwarding_rules().await?,
@@ -310,7 +310,7 @@ pub async fn list_forwarding_rules(
 )]
 pub async fn create_forwarding_rule(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<CreateForwardingRuleRequest>,
 ) -> Result<(StatusCode, Json<CreateForwardingRuleResponse>), AppError> {
     let response = state
@@ -334,7 +334,7 @@ pub async fn create_forwarding_rule(
 )]
 pub async fn get_forwarding_rule(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<GetForwardingRuleResponse>, AppError> {
     Ok(Json(
@@ -358,7 +358,7 @@ pub async fn get_forwarding_rule(
 )]
 pub async fn update_forwarding_rule(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateForwardingRuleRequest>,
 ) -> Result<Json<UpdateForwardingRuleResponse>, AppError> {
@@ -384,7 +384,7 @@ pub async fn update_forwarding_rule(
 )]
 pub async fn delete_forwarding_rule(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeleteForwardingRuleResponse>, AppError> {
     Ok(Json(

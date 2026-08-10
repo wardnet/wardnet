@@ -8,7 +8,6 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use tower::ServiceExt;
-use uuid::Uuid;
 use wardnet_common::api::{AdvanceWizardResponse, SetupStatusResponse, WizardMode, WizardStep};
 
 use crate::state::AppState;
@@ -22,6 +21,10 @@ use wardnetd_services::AuthService;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Mock auth service for setup tests
@@ -51,20 +54,25 @@ impl MockSetupAuthService {
 
 #[async_trait]
 impl AuthService for MockSetupAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         // Authenticate any Bearer token to a stable admin id so the
         // setup_advance tests can drive the endpoint behind the
-        // AdminAuth extractor without standing up a real session.
-        Ok(Some(Uuid::nil()))
+        // SessionAuth extractor without standing up a real session.
+        Ok(Some(principal::admin(Uuid::nil())))
     }
     async fn setup_admin(&self, _username: &str, _password: &str) -> Result<(), AppError> {
         match &self.setup_result {
@@ -297,7 +305,7 @@ async fn setup_advance_rejects_unauthenticated() {
         "wizard_mode": "primary",
     });
 
-    // No Authorization header — AdminAuth should reject before the
+    // No Authorization header — SessionAuth should reject before the
     // service ever sees the call.
     let req = Request::builder()
         .method("POST")

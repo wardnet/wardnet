@@ -19,7 +19,7 @@ use wardnet_common::api::{
     CreateTunnelRequest, DeviceMeResponse, DnsCaptureSettingsResponse, DnsEventItem,
     SetMyRuleResponse,
 };
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 use wardnet_common::device::Device;
 use wardnet_common::routing::RoutingTarget;
 use wardnet_common::routing_profile::DomainRoutingTarget;
@@ -35,9 +35,10 @@ use crate::routing_profile::service::{
 };
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 async fn test_pool() -> SqlitePool {
@@ -84,6 +85,14 @@ struct RecordingDeviceService {
 
 #[async_trait]
 impl DeviceService for RecordingDeviceService {
+    async fn set_device_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<Uuid>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+
     async fn clear_rule(&self, _device_id: &str) -> Result<(), crate::error::AppError> {
         Ok(())
     }

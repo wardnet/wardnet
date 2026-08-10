@@ -34,7 +34,6 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
@@ -160,9 +159,7 @@ async fn runner_loop(
     nudge: TlsRetryNudge,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     // `None` while healthy: the next attempt is a full `RENEWAL_INTERVAL` away.
     // `Some(d)` after a failure: retry in `d`, doubling up to `RETRY_MAX` (or

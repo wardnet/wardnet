@@ -8,7 +8,6 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use tower::ServiceExt;
-use uuid::Uuid;
 use wardnet_common::api::{MeResponse, WizardMode, WizardStep};
 
 use crate::state::AppState;
@@ -22,33 +21,44 @@ use wardnetd_services::AuthService;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
+use uuid::Uuid;
 
 /// Mock auth service that authenticates any Bearer token and returns a
-/// configurable `current_admin_username` result.
+/// configurable `current_user` result.
 struct MockUsersAuthService {
+    /// `Ok` yields a user with this display name; `Err` simulates the account
+    /// having been deleted out from under a live session.
     username: Result<String, ()>,
 }
 
 #[async_trait]
 impl AuthService for MockUsersAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
         match &self.username {
-            Ok(name) => Ok(name.clone()),
+            Ok(name) => Ok(CurrentUser {
+                user_id: Uuid::nil(),
+                display_name: name.clone(),
+                email: None,
+                role: UserRole::Admin,
+            }),
             Err(()) => Err(AppError::Unauthorized(
-                "admin account no longer exists".to_owned(),
+                "user account no longer exists".to_owned(),
             )),
         }
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         // Authenticate any Bearer token so the tests can drive the
-        // AdminAuth extractor without a real session.
-        Ok(Some(Uuid::nil()))
+        // SessionAuth extractor without a real session.
+        Ok(Some(principal::admin(Uuid::nil())))
     }
     async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
         unimplemented!()
@@ -146,7 +156,7 @@ async fn me_rejects_unauthenticated() {
     });
     let app = users_app(state);
 
-    // No Authorization header — AdminAuth rejects before the service
+    // No Authorization header — SessionAuth rejects before the service
     // ever sees the call.
     let req = Request::builder()
         .method("GET")

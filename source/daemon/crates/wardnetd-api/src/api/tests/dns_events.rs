@@ -10,7 +10,6 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use tower::ServiceExt;
-use uuid::Uuid;
 use wardnet_common::api::{
     DeviceMeResponse, DnsCaptureSettingsResponse, DnsEventItem, SetMyRuleResponse,
 };
@@ -31,6 +30,10 @@ use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // LagPublisher — 1-slot broadcast that triggers RecvError::Lagged
@@ -60,10 +63,15 @@ struct MockAuthService;
 
 #[async_trait]
 impl wardnetd_services::AuthService for MockAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         Ok(LoginResult {
             token: "t".to_owned(),
             max_age_seconds: 3600,
@@ -72,12 +80,12 @@ impl wardnetd_services::AuthService for MockAuthService {
     async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
         unimplemented!()
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(Some(principal::admin(
             Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap(),
-        ))
+        )))
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
     async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
@@ -125,6 +133,7 @@ fn sample_device() -> Device {
         last_ip: "192.168.1.100".to_owned(),
         admin_locked: false,
         zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
+        owner_user_id: None,
         dns_capture_enabled: true,
         dns_capture_cap_count: 500,
         dns_capture_cap_days: 14,
@@ -198,6 +207,14 @@ impl DeviceService for MockDnsEventsDeviceService {
         _device_id: &str,
     ) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
+    }
+
+    async fn set_device_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<uuid::Uuid>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
     }
 
     async fn get_device(
@@ -509,9 +526,9 @@ async fn stream_propagates_request_auth_context_to_flush_task() {
     let recorder = svc.ctx_recorder();
     let app = dns_events_router(build_state(svc));
 
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap(),
-    };
+    let admin_ctx = principal::admin_context(
+        Uuid::parse_str("00000000-0000-0000-0000-0000000000aa").unwrap(),
+    );
 
     // Drive the request inside an admin context. The flush task is spawned
     // detached, so it does NOT inherit this task-local — the only way the mock
@@ -539,7 +556,7 @@ async fn stream_propagates_request_auth_context_to_flush_task() {
 
     let observed = recorder.lock().unwrap().clone();
     assert!(
-        matches!(observed, Some(AuthContext::Admin { .. })),
+        matches!(observed, Some(AuthContext::User(_))),
         "flush task must run under the request's admin context, got: {observed:?}"
     );
 }

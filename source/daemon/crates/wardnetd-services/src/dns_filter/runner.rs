@@ -16,7 +16,6 @@ use chrono::{DateTime, Utc};
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::{DnsFilterChange, WardnetEvent};
 
@@ -60,9 +59,7 @@ async fn runner_loop(
     cancel: CancellationToken,
     cron_check_interval: Duration,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     if let Err(e) = auth_context::with_context(admin_ctx.clone(), service.rebuild_all()).await {
         tracing::error!(error = %e, "failed to bootstrap DNS filter cache");

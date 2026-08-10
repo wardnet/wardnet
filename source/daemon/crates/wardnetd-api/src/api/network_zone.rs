@@ -16,7 +16,7 @@ use wardnet_common::api::{
     SetQuarantineNewDevicesRequest, UpdateNetworkZoneRequest, UpdateNetworkZoneResponse,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -45,7 +45,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn list_zones(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListNetworkZonesResponse>, AppError> {
     let zones = state.network_zone_service().list_zones().await?;
     Ok(Json(ListNetworkZonesResponse { zones }))
@@ -69,7 +69,7 @@ pub async fn list_zones(
 )]
 pub async fn create_zone(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<CreateNetworkZoneRequest>,
 ) -> Result<(StatusCode, Json<CreateNetworkZoneResponse>), AppError> {
     let zone = state.network_zone_service().create_zone(body).await?;
@@ -94,7 +94,7 @@ pub async fn create_zone(
 )]
 pub async fn get_zone(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<GetNetworkZoneResponse>, AppError> {
     let zone = state.network_zone_service().get_zone(id).await?;
@@ -122,7 +122,7 @@ pub async fn get_zone(
 )]
 pub async fn update_zone(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateNetworkZoneRequest>,
 ) -> Result<Json<UpdateNetworkZoneResponse>, AppError> {
@@ -148,7 +148,7 @@ pub async fn update_zone(
 )]
 pub async fn delete_zone(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeleteNetworkZoneResponse>, AppError> {
     state.network_zone_service().delete_zone(id).await?;
@@ -170,7 +170,7 @@ pub async fn delete_zone(
 )]
 pub async fn get_quarantine_new_devices(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<QuarantineNewDevicesResponse>, AppError> {
     let enabled = state
         .network_zone_service()
@@ -196,7 +196,7 @@ pub async fn get_quarantine_new_devices(
 )]
 pub async fn set_quarantine_new_devices(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<SetQuarantineNewDevicesRequest>,
 ) -> Result<Json<QuarantineNewDevicesResponse>, AppError> {
     state

@@ -1,14 +1,15 @@
 use axum::extract::State;
-use axum::http::StatusCode;
 use axum::http::header::SET_COOKIE;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::{Extension, Json};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use wardnet_common::api::{ApiError, LoginRequest, LoginResponse};
 
-use crate::api::middleware::{AdminAuth, SecureTransport};
+use crate::api::middleware::{ClientIp, SecureTransport, SessionAuth};
 use crate::state::AppState;
+use wardnetd_services::auth::LoginAttempt;
 use wardnetd_services::error::AppError;
 
 /// Build the `wardnet_session` `Set-Cookie` value.
@@ -61,6 +62,8 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         (status = 200, description = "Login successful; session cookie is set", body = LoginResponse),
         (status = 400, description = "Malformed request body", body = ApiError),
         (status = 401, description = "Invalid credentials", body = ApiError),
+        (status = 429, description = "Too many login attempts; see the \
+                                     `Retry-After` header", body = ApiError),
         (status = 500, description = "Internal server error", body = ApiError),
     ),
     security(()),
@@ -68,11 +71,32 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 pub async fn login(
     State(state): State<AppState>,
     secure_transport: Option<Extension<SecureTransport>>,
+    client_ip: Option<ClientIp>,
+    headers: HeaderMap,
     Json(body): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    // The source address feeds the per-IP arm of the login backoff. It is
+    // `Option` because the extractor needs `ConnectInfo`, which the mock server
+    // and some tests do not install; a missing IP degrades to identity-only
+    // throttling rather than failing the login.
+    let client_ip = client_ip.map(|ClientIp(ip)| ip.to_string());
+    let user_agent = headers
+        .get(axum::http::header::USER_AGENT)
+        .and_then(|v| v.to_str().ok());
+
     let result = state
         .auth_service()
-        .login(&body.username, &body.password, body.remember_me)
+        .login(LoginAttempt {
+            subject: &body.username,
+            password: &body.password,
+            remember_me: body.remember_me,
+            client_ip: client_ip.as_deref(),
+            user_agent,
+            // Sessions are not yet bound to a device at login; the device-owner
+            // work (ADR-0031 §4) is attribution and deliberately not a
+            // credential, so nothing here derives identity from the caller's IP.
+            device_id: None,
+        })
         .await?;
 
     let cookie_value = session_cookie(
@@ -109,7 +133,7 @@ pub async fn login(
 pub async fn refresh(
     State(state): State<AppState>,
     secure_transport: Option<Extension<SecureTransport>>,
-    auth: AdminAuth,
+    auth: SessionAuth,
 ) -> Result<impl IntoResponse, AppError> {
     let token = auth
         .session_token
@@ -147,7 +171,7 @@ pub async fn refresh(
 pub async fn logout(
     State(state): State<AppState>,
     secure_transport: Option<Extension<SecureTransport>>,
-    auth: AdminAuth,
+    auth: SessionAuth,
 ) -> Result<impl IntoResponse, AppError> {
     let token = auth
         .session_token

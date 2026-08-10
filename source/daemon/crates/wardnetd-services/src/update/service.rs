@@ -878,9 +878,7 @@ impl UpdateService for UpdateServiceImpl {
         let svc_clone = self.clone_for_task();
         let release_clone = release.clone();
         tokio::spawn(async move {
-            let admin_ctx = wardnet_common::auth::AuthContext::Admin {
-                admin_id: Uuid::nil(),
-            };
+            let admin_ctx = wardnet_common::auth::AuthContext::system();
             let result =
                 auth_context::with_context(admin_ctx, svc_clone.run_install(release_clone)).await;
             let mut inflight = svc_clone.inflight.lock().await;

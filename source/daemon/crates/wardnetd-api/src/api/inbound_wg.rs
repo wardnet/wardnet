@@ -10,7 +10,7 @@ use wardnet_common::api::{
     SetInboundWgPeerEnabledRequest,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, Conflict, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -37,7 +37,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn get_config(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<InboundWgConfigResponse>, AppError> {
     let response = state.inbound_wg_service().get_config().await?;
     Ok(Json(response))
@@ -61,7 +61,7 @@ pub async fn get_config(
 )]
 pub async fn set_config(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<InboundWgConfigRequest>,
 ) -> Result<Json<InboundWgConfigResponse>, AppError> {
     let response = state
@@ -85,7 +85,7 @@ pub async fn set_config(
 )]
 pub async fn list_peers(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListInboundWgPeersResponse>, AppError> {
     let peers = state.inbound_wg_service().list_peers().await?;
     Ok(Json(ListInboundWgPeersResponse { peers }))
@@ -113,7 +113,7 @@ pub async fn list_peers(
 )]
 pub async fn add_peer(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<AddInboundWgPeerRequest>,
 ) -> Result<(StatusCode, Json<AddInboundWgPeerResponse>), AppError> {
     // Compose the reachable endpoint here (the API layer has both services):
@@ -157,7 +157,7 @@ async fn build_endpoint(state: &AppState) -> Result<Option<String>, AppError> {
 )]
 pub async fn remove_peer(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
     state.inbound_wg_service().remove_peer(id).await?;
@@ -183,7 +183,7 @@ pub async fn remove_peer(
 )]
 pub async fn set_peer_enabled(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
     Json(body): Json<SetInboundWgPeerEnabledRequest>,
 ) -> Result<Json<InboundWgPeerSummary>, AppError> {

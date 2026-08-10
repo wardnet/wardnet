@@ -15,7 +15,7 @@ use wardnet_common::api::{
     UpdateConfigRequest, UpdateConfigResponse, UpdateHistoryResponse, UpdateStatusResponse,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -66,7 +66,7 @@ const HISTORY_LIMIT_MAX: u32 = 100;
 )]
 pub async fn status(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<UpdateStatusResponse>, AppError> {
     Ok(Json(state.update_service().status().await?))
 }
@@ -85,7 +85,7 @@ pub async fn status(
 )]
 pub async fn check(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<UpdateCheckResponse>, AppError> {
     Ok(Json(state.update_service().check().await?))
 }
@@ -107,7 +107,7 @@ pub async fn check(
 )]
 pub async fn install(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     body: Option<Json<InstallUpdateRequest>>,
 ) -> Result<Json<InstallUpdateResponse>, AppError> {
     let req = body.map(|b| b.0).unwrap_or_default();
@@ -128,7 +128,7 @@ pub async fn install(
 )]
 pub async fn rollback(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<RollbackResponse>, AppError> {
     Ok(Json(state.update_service().rollback().await?))
 }
@@ -150,7 +150,7 @@ pub async fn rollback(
 )]
 pub async fn update_config(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<UpdateConfigRequest>,
 ) -> Result<Json<UpdateConfigResponse>, AppError> {
     Ok(Json(state.update_service().update_config(body).await?))
@@ -172,7 +172,7 @@ pub async fn update_config(
 )]
 pub async fn history(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Query(query): Query<HistoryQuery>,
 ) -> Result<Json<UpdateHistoryResponse>, AppError> {
     let limit = query.limit.clamp(1, HISTORY_LIMIT_MAX);

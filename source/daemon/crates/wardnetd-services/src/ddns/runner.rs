@@ -20,7 +20,6 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
@@ -64,9 +63,7 @@ async fn runner_loop(
     entitlement: Arc<Entitlement>,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     let mut interval = tokio::time::interval(REFRESH_INTERVAL);
     // The first `tick()` resolves immediately → refresh once at startup. If a

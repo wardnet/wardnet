@@ -11,7 +11,6 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use uuid::Uuid;
 use wardnet_common::api::{
     DnsCacheFlushResponse, DnsConfigResponse, DnsStatusResponse, ListQueryLogParams,
     ListQueryLogResponse, QueryLogEvent, ToggleDnsRequest, UpdateDnsConfigRequest,
@@ -153,9 +152,7 @@ fn sample_row() -> QueryLogRow {
 }
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
+    AuthContext::system()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

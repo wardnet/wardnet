@@ -4,7 +4,6 @@ use std::time::Duration;
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use wardnetd_services::auth_context;
@@ -63,9 +62,7 @@ impl HeartbeatRunner {
 }
 
 async fn heartbeat_loop(system: Arc<dyn SystemService>, tick: Duration, cancel: CancellationToken) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     // Fire one heartbeat immediately on startup so the initial
     // `last_seen_at` is no older than the boot moment.

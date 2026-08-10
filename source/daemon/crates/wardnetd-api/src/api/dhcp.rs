@@ -11,7 +11,7 @@ use wardnet_common::api::{
     ToggleDhcpRequest, UpdateDhcpConfigRequest,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -53,7 +53,7 @@ const PATH_STATUS: &str = "/api/dhcp/status";
 )]
 pub async fn get_config(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<DhcpConfigResponse>, AppError> {
     let response = state.dhcp_service().get_config().await?;
     Ok(Json(response))
@@ -76,7 +76,7 @@ pub async fn get_config(
 )]
 pub async fn update_config(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<UpdateDhcpConfigRequest>,
 ) -> Result<Json<DhcpConfigResponse>, AppError> {
     // No running-server hot-reload needed: the DHCP server resolves each
@@ -104,7 +104,7 @@ pub async fn update_config(
 )]
 pub async fn preview_config(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<PreviewDhcpConfigRequest>,
 ) -> Result<Json<PreviewDhcpConfigResponse>, AppError> {
     let response = state.dhcp_service().preview_config(body).await?;
@@ -128,7 +128,7 @@ pub async fn preview_config(
 )]
 pub async fn toggle(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<ToggleDhcpRequest>,
 ) -> Result<Json<DhcpConfigResponse>, AppError> {
     let enabled = body.enabled;
@@ -174,7 +174,7 @@ pub async fn toggle(
 )]
 pub async fn list_leases(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListDhcpLeasesResponse>, AppError> {
     let response = state.dhcp_service().list_leases().await?;
     Ok(Json(response))
@@ -196,7 +196,7 @@ pub async fn list_leases(
 )]
 pub async fn revoke_lease(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<RevokeDhcpLeaseResponse>, AppError> {
     let response = state.dhcp_service().revoke_lease(id).await?;
@@ -216,7 +216,7 @@ pub async fn revoke_lease(
 )]
 pub async fn list_reservations(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListDhcpReservationsResponse>, AppError> {
     let response = state.dhcp_service().list_reservations().await?;
     Ok(Json(response))
@@ -237,7 +237,7 @@ pub async fn list_reservations(
 )]
 pub async fn create_reservation(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<CreateDhcpReservationRequest>,
 ) -> Result<(StatusCode, Json<CreateDhcpReservationResponse>), AppError> {
     let response = state.dhcp_service().create_reservation(body).await?;
@@ -259,7 +259,7 @@ pub async fn create_reservation(
 )]
 pub async fn delete_reservation(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeleteDhcpReservationResponse>, AppError> {
     let response = state.dhcp_service().delete_reservation(id).await?;
@@ -280,7 +280,7 @@ pub async fn delete_reservation(
 )]
 pub async fn status(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<DhcpStatusResponse>, AppError> {
     let response = state.dhcp_service().status().await?;
     Ok(Json(response))

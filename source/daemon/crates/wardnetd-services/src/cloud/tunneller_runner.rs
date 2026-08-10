@@ -50,7 +50,6 @@ use tokio::time::Instant;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument as _;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use wardnetd_data::repository::SystemConfigRepository;
@@ -219,12 +218,10 @@ impl TunnelerConnector {
     /// `ddns_region` slug + signing seed the DDNS client uses) rather than routing
     /// through `DdnsService`. Per `.agents/auth.md` rule 3, a background task must
     /// still establish an admin [`AuthContext`] around its service/repository work,
-    /// so the whole body runs under `AuthContext::Admin { admin_id: nil }` —
+    /// so the whole body runs under `AuthContext::system()` —
     /// mirroring `ddns::runner`/`tls::runner`.
     async fn resolve(&self) -> Option<(Arc<DaemonIdentity>, String, u16)> {
-        let admin_ctx = AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        };
+        let admin_ctx = AuthContext::system();
         auth_context::with_context(admin_ctx, async {
             let slug = self.system_config.get(KEY_REGION).await.ok().flatten()?;
             // Distinguish "misconfigured" from "not enrolled": a persisted region

@@ -20,7 +20,7 @@ use wardnet_common::api::{
 };
 use wardnet_common::jobs::JobDispatchedResponse;
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -56,7 +56,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn list_profiles(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListProfilesResponse>, AppError> {
     Ok(Json(state.dns_filter_service().list_profiles().await?))
 }
@@ -76,7 +76,7 @@ pub async fn list_profiles(
 )]
 pub async fn create_profile(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<CreateProfileRequest>,
 ) -> Result<(StatusCode, Json<CreateProfileResponse>), AppError> {
     let response = state.dns_filter_service().create_profile(body).await?;
@@ -98,7 +98,7 @@ pub async fn create_profile(
 )]
 pub async fn get_profile(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(profile_id): Path<Uuid>,
 ) -> Result<Json<GetProfileResponse>, AppError> {
     Ok(Json(
@@ -123,7 +123,7 @@ pub async fn get_profile(
 )]
 pub async fn update_profile(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(profile_id): Path<Uuid>,
     Json(body): Json<UpdateProfileRequest>,
 ) -> Result<Json<UpdateProfileResponse>, AppError> {
@@ -153,7 +153,7 @@ pub async fn update_profile(
 )]
 pub async fn delete_profile(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(profile_id): Path<Uuid>,
 ) -> Result<Json<DeleteProfileResponse>, AppError> {
     Ok(Json(
@@ -180,7 +180,7 @@ pub async fn delete_profile(
 )]
 pub async fn list_blocklists(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(profile_id): Path<Uuid>,
 ) -> Result<Json<ListBlocklistsResponse>, AppError> {
     Ok(Json(
@@ -207,7 +207,7 @@ pub async fn list_blocklists(
 )]
 pub async fn create_blocklist(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(profile_id): Path<Uuid>,
     Json(body): Json<CreateBlocklistRequest>,
 ) -> Result<(StatusCode, Json<CreateBlocklistResponse>), AppError> {
@@ -237,7 +237,7 @@ pub async fn create_blocklist(
 )]
 pub async fn update_blocklist(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path((profile_id, id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateBlocklistRequest>,
 ) -> Result<Json<UpdateBlocklistResponse>, AppError> {
@@ -266,7 +266,7 @@ pub async fn update_blocklist(
 )]
 pub async fn delete_blocklist(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path((profile_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<DeleteBlocklistResponse>, AppError> {
     Ok(Json(
@@ -294,7 +294,7 @@ pub async fn delete_blocklist(
 )]
 pub async fn refresh_blocklist(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path((profile_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<(StatusCode, Json<JobDispatchedResponse>), AppError> {
     let response = state
@@ -320,7 +320,7 @@ pub async fn refresh_blocklist(
 )]
 pub async fn list_allowlist(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(profile_id): Path<Uuid>,
 ) -> Result<Json<ListAllowlistResponse>, AppError> {
     Ok(Json(
@@ -347,7 +347,7 @@ pub async fn list_allowlist(
 )]
 pub async fn create_allowlist_entry(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(profile_id): Path<Uuid>,
     Json(body): Json<CreateAllowlistRequest>,
 ) -> Result<(StatusCode, Json<CreateAllowlistResponse>), AppError> {
@@ -375,7 +375,7 @@ pub async fn create_allowlist_entry(
 )]
 pub async fn delete_allowlist_entry(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path((profile_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<DeleteAllowlistResponse>, AppError> {
     Ok(Json(
@@ -402,7 +402,7 @@ pub async fn delete_allowlist_entry(
 )]
 pub async fn list_custom_rules(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(profile_id): Path<Uuid>,
 ) -> Result<Json<ListFilterRulesResponse>, AppError> {
     Ok(Json(
@@ -429,7 +429,7 @@ pub async fn list_custom_rules(
 )]
 pub async fn create_custom_rule(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(profile_id): Path<Uuid>,
     Json(body): Json<CreateFilterRuleRequest>,
 ) -> Result<(StatusCode, Json<CreateFilterRuleResponse>), AppError> {
@@ -459,7 +459,7 @@ pub async fn create_custom_rule(
 )]
 pub async fn update_custom_rule(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path((profile_id, id)): Path<(Uuid, Uuid)>,
     Json(body): Json<UpdateFilterRuleRequest>,
 ) -> Result<Json<UpdateFilterRuleResponse>, AppError> {
@@ -488,7 +488,7 @@ pub async fn update_custom_rule(
 )]
 pub async fn delete_custom_rule(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path((profile_id, id)): Path<(Uuid, Uuid)>,
 ) -> Result<Json<DeleteFilterRuleResponse>, AppError> {
     Ok(Json(
@@ -516,7 +516,7 @@ pub async fn delete_custom_rule(
 )]
 pub async fn list_device_settings(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Query(params): Query<ListDeviceFilterSettingsParams>,
 ) -> Result<Json<ListDeviceFilterSettingsResponse>, AppError> {
     Ok(Json(
@@ -542,7 +542,7 @@ pub async fn list_device_settings(
 )]
 pub async fn get_device_settings(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(device_id): Path<Uuid>,
 ) -> Result<Json<GetDeviceFilterSettingsResponse>, AppError> {
     Ok(Json(
@@ -570,7 +570,7 @@ pub async fn get_device_settings(
 )]
 pub async fn update_device_settings(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(device_id): Path<Uuid>,
     Json(body): Json<UpdateDeviceFilterSettingsRequest>,
 ) -> Result<Json<UpdateDeviceFilterSettingsResponse>, AppError> {
@@ -597,7 +597,7 @@ pub async fn update_device_settings(
 )]
 pub async fn get_filter_config(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<DnsFilterConfigResponse>, AppError> {
     Ok(Json(state.dns_filter_service().get_filter_config().await?))
 }
@@ -617,7 +617,7 @@ pub async fn get_filter_config(
 )]
 pub async fn update_filter_config(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<UpdateDnsFilterConfigRequest>,
 ) -> Result<Json<DnsFilterConfigResponse>, AppError> {
     Ok(Json(

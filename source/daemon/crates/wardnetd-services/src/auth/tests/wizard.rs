@@ -1,189 +1,62 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+//! Tests for the setup-wizard state machine — `wizard_state` and
+//! `advance_wizard`.
 
-use async_trait::async_trait;
+use std::sync::Arc;
+
 use uuid::Uuid;
-
-use crate::auth::AuthServiceImpl;
-use crate::auth::service::AuthService;
-use crate::auth_context;
-use crate::error::AppError;
 use wardnet_common::api::{WizardMode, WizardStep};
 use wardnet_common::auth::AuthContext;
-use wardnetd_data::repository::{
-    AdminRepository, ApiKeyRepository, SessionRepository, SystemConfigRepository,
+use wardnet_test_support::principal;
+use wardnetd_data::repository::system_config::SystemConfigRepository;
+use wardnetd_data::repository::user::UserRepository;
+
+use crate::tests::repo_mocks::{
+    MockApiKeyRepo, MockCredentialRepo, MockSessionRepo, MockSystemConfigRepo, MockUserRepo,
 };
+use crate::auth::{AuthService, AuthServiceImpl};
+use crate::auth_context;
+use crate::error::AppError;
 
-// -- Mocks -------------------------------------------------------------------
+const ADMIN_ID: &str = "00000000-0000-0000-0000-000000000001";
+const MEMBER_ID: &str = "00000000-0000-0000-0000-000000000002";
 
-struct MockAdminRepo {
-    has_admin: Mutex<bool>,
-}
-
-impl MockAdminRepo {
-    fn new(has_admin: bool) -> Self {
-        Self {
-            has_admin: Mutex::new(has_admin),
-        }
-    }
-}
-
-#[async_trait]
-impl AdminRepository for MockAdminRepo {
-    async fn find_username_by_id(&self, _id: &str) -> anyhow::Result<Option<String>> {
-        Ok(Some("admin".to_owned()))
-    }
-    async fn find_by_username(&self, _u: &str) -> anyhow::Result<Option<(String, String)>> {
-        Ok(None)
-    }
-    async fn create(&self, _id: &str, _u: &str, _hash: &str) -> anyhow::Result<()> {
-        *self.has_admin.lock().unwrap() = true;
-        Ok(())
-    }
-    async fn find_first_id(&self) -> anyhow::Result<Option<String>> {
-        Ok(None)
-    }
-    async fn exists(&self) -> anyhow::Result<bool> {
-        Ok(*self.has_admin.lock().unwrap())
-    }
-}
-
-struct MockSessionRepo;
-
-#[async_trait]
-impl SessionRepository for MockSessionRepo {
-    async fn create(
-        &self,
-        _id: &str,
-        _admin_id: &str,
-        _hash: &str,
-        _created_at: &str,
-        _expires_at: &str,
-        _remember_me: bool,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn find_admin_id_by_token_hash(
-        &self,
-        _hash: &str,
-        _now: &str,
-    ) -> anyhow::Result<Option<String>> {
-        Ok(None)
-    }
-    async fn delete_expired(&self, _now: &str) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-    async fn delete_by_token_hash(&self, _token_hash: &str) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-    async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn rotate_token(
-        &self,
-        _old_token_hash: &str,
-        _new_token_hash: &str,
-        _new_expires_at: &str,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn find_session_for_refresh(
-        &self,
-        _token_hash: &str,
-        _now: &str,
-    ) -> anyhow::Result<Option<(String, bool, String)>> {
-        Ok(None)
-    }
-}
-
-struct MockApiKeyRepo;
-
-#[async_trait]
-impl ApiKeyRepository for MockApiKeyRepo {
-    async fn create(&self, _id: &str, _name: &str, _hash: &str, _now: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn find_all_hashes(&self) -> anyhow::Result<Vec<(String, String)>> {
-        Ok(vec![])
-    }
-    async fn update_last_used(&self, _id: &str, _now: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-#[derive(Default)]
-struct MockSystemConfigRepo {
-    store: Mutex<HashMap<String, String>>,
-}
-
-impl MockSystemConfigRepo {
-    fn with(initial: &[(&str, &str)]) -> Self {
-        let mut map = HashMap::new();
-        for (k, v) in initial {
-            map.insert((*k).to_owned(), (*v).to_owned());
-        }
-        Self {
-            store: Mutex::new(map),
-        }
-    }
-}
-
-#[async_trait]
-impl SystemConfigRepository for MockSystemConfigRepo {
-    async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
-        Ok(self.store.lock().unwrap().get(key).cloned())
-    }
-    async fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
-        self.store
-            .lock()
-            .unwrap()
-            .insert(key.to_owned(), value.to_owned());
-        Ok(())
-    }
-    async fn delete(&self, key: &str) -> anyhow::Result<()> {
-        self.store.lock().unwrap().remove(key);
-        Ok(())
-    }
-    async fn device_count(&self) -> anyhow::Result<i64> {
-        Ok(0)
-    }
-    async fn tunnel_count(&self) -> anyhow::Result<i64> {
-        Ok(0)
-    }
-    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-}
-
-// -- Helpers -----------------------------------------------------------------
-
+/// Build a service, optionally with an existing admin, seeded with the given
+/// `system_config` keys.
 fn make_service(
     has_admin: bool,
     initial_state: &[(&str, &str)],
 ) -> (AuthServiceImpl, Arc<MockSystemConfigRepo>) {
-    let system_config = Arc::new(MockSystemConfigRepo::with(initial_state));
+    let users = Arc::new(if has_admin {
+        MockUserRepo::with_admin(ADMIN_ID, "admin")
+    } else {
+        MockUserRepo::empty()
+    });
+    let config = Arc::new(MockSystemConfigRepo::empty());
+    for (k, v) in initial_state {
+        config
+            .values
+            .lock()
+            .unwrap()
+            .insert((*k).to_owned(), (*v).to_owned());
+    }
     let svc = AuthServiceImpl::new(
-        Arc::new(MockAdminRepo::new(has_admin)),
-        Arc::new(MockSessionRepo),
-        Arc::new(MockApiKeyRepo),
-        system_config.clone(),
+        Arc::clone(&users) as Arc<dyn UserRepository>,
+        Arc::new(MockCredentialRepo::joined_to(Arc::clone(&users))),
+        Arc::new(MockSessionRepo::empty()),
+        Arc::new(MockApiKeyRepo::empty()),
+        Arc::clone(&config) as Arc<dyn SystemConfigRepository>,
         24,
         720,
     );
-    (svc, system_config)
+    (svc, config)
 }
 
+/// Run `f` as the system actor, which carries `role = admin`.
 async fn as_admin<F: std::future::Future>(f: F) -> F::Output {
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        f,
-    )
-    .await
+    auth_context::with_context(AuthContext::system(), f).await
 }
 
-// -- wizard_state -----------------------------------------------------------
+// -- wizard_state ---------------------------------------------------------
 
 #[tokio::test]
 async fn wizard_state_defaults_to_admin_for_fresh_install() {
@@ -214,36 +87,84 @@ async fn wizard_state_reads_persisted_step_and_mode() {
 async fn wizard_state_setup_completed_is_derived_from_completed_step() {
     let (svc, _) = make_service(true, &[("wizard_step", "completed")]);
 
-    let state = svc.wizard_state().await.unwrap();
-
-    assert!(state.setup_completed());
+    assert!(svc.wizard_state().await.unwrap().setup_completed());
 }
 
 #[tokio::test]
 async fn wizard_state_does_not_require_auth() {
-    // The wizard_state path is exposed via the unauthenticated
-    // GET /api/setup/status, so it must succeed without an AuthContext.
+    // Exposed via the unauthenticated GET /api/setup/status, so it must succeed
+    // with no `AuthContext` at all — that is what lets a fresh browser be
+    // redirected to the wizard.
     let (svc, _) = make_service(false, &[]);
 
-    // Note: no `as_admin` wrapper — calling raw.
+    // Note: no `as_admin` wrapper — called raw.
     let state = svc.wizard_state().await.unwrap();
 
     assert_eq!(state.step, WizardStep::Admin);
 }
 
-// -- advance_wizard ---------------------------------------------------------
+#[tokio::test]
+async fn wizard_state_reads_persisted_dns_and_review_steps() {
+    for (raw, expected) in [("dns", WizardStep::Dns), ("review", WizardStep::Review)] {
+        let (svc, _) = make_service(true, &[("wizard_step", raw)]);
+        let state = svc.wizard_state().await.unwrap();
+        assert_eq!(state.step, expected, "storage string {raw:?}");
+    }
+}
+
+#[tokio::test]
+async fn wizard_step_ordinals_pin_the_full_sequence() {
+    // Pins the canonical order so inserting a step is a conscious decision
+    // (rewind validation and the web rail both depend on it).
+    let expected = [
+        WizardStep::Admin,
+        WizardStep::Network,
+        WizardStep::Dhcp,
+        WizardStep::RouterMac,
+        WizardStep::Dns,
+        WizardStep::Tunnel,
+        WizardStep::Policy,
+        WizardStep::RemoteAccess,
+        WizardStep::Review,
+        WizardStep::Completed,
+    ];
+    for (i, step) in expected.iter().enumerate() {
+        assert_eq!(step.ordinal() as usize, i, "{step:?}");
+        assert_eq!(
+            WizardStep::from_storage_str(step.as_storage_str()),
+            *step,
+            "storage round-trip for {step:?}"
+        );
+    }
+}
+
+// -- advance_wizard -------------------------------------------------------
 
 #[tokio::test]
 async fn advance_wizard_requires_admin_auth() {
     let (svc, _) = make_service(true, &[("wizard_step", "admin")]);
 
-    // Call without admin context — should be Forbidden.
     let result = svc
         .advance_wizard(WizardStep::Network, None)
         .await
-        .expect_err("advance_wizard without admin context must fail");
+        .expect_err("advance_wizard without an admin context must fail");
 
     assert!(matches!(result, AppError::Forbidden(_)));
+}
+
+#[tokio::test]
+async fn advance_wizard_refuses_a_member() {
+    // Setting the box up is an admin action. A member is authenticated but not
+    // authorized, and `require_admin` is what draws that line.
+    let (svc, _) = make_service(true, &[("wizard_step", "network")]);
+    let ctx = principal::member_context(Uuid::parse_str(MEMBER_ID).unwrap());
+
+    let result = auth_context::with_context(ctx, async {
+        svc.advance_wizard(WizardStep::Dhcp, None).await
+    })
+    .await;
+
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
@@ -342,47 +263,14 @@ async fn advance_wizard_allows_idempotent_completed() {
 }
 
 #[tokio::test]
-async fn wizard_state_reads_persisted_dns_and_review_steps() {
-    for (raw, expected) in [("dns", WizardStep::Dns), ("review", WizardStep::Review)] {
-        let (svc, _) = make_service(true, &[("wizard_step", raw)]);
-        let state = svc.wizard_state().await.unwrap();
-        assert_eq!(state.step, expected, "storage string {raw:?}");
-    }
-}
-
-#[tokio::test]
-async fn wizard_step_ordinals_pin_the_full_sequence() {
-    // Pins the canonical order so inserting a step is a conscious decision
-    // (rewind validation and the web rail both depend on it).
-    let expected = [
-        WizardStep::Admin,
-        WizardStep::Network,
-        WizardStep::Dhcp,
-        WizardStep::RouterMac,
-        WizardStep::Dns,
-        WizardStep::Tunnel,
-        WizardStep::Policy,
-        WizardStep::RemoteAccess,
-        WizardStep::Review,
-        WizardStep::Completed,
-    ];
-    for (i, step) in expected.iter().enumerate() {
-        assert_eq!(step.ordinal() as usize, i, "{step:?}");
-        assert_eq!(
-            WizardStep::from_storage_str(step.as_storage_str()),
-            *step,
-            "storage round-trip for {step:?}"
-        );
-    }
-}
-
-#[tokio::test]
-async fn advance_wizard_to_completed_requires_admin_to_exist() {
+async fn advance_wizard_to_completed_requires_a_user_to_exist() {
+    // The check now reads `users.exists()`: finishing setup with no account at
+    // all would leave a box nobody can log into.
     let (svc, _) = make_service(false, &[("wizard_step", "policy")]);
 
     let err = as_admin(svc.advance_wizard(WizardStep::Completed, None))
         .await
-        .expect_err("completing without an admin should fail");
+        .expect_err("completing without an account should fail");
 
     assert!(matches!(err, AppError::BadRequest(_)));
 }
@@ -396,37 +284,4 @@ async fn advance_wizard_allows_idempotent_same_step() {
         .unwrap();
 
     assert_eq!(state.step, WizardStep::Network);
-}
-
-// -- setup_admin advances wizard atomically -------------------------------
-
-#[tokio::test]
-async fn setup_admin_advances_wizard_to_network() {
-    // Fresh install: no admin, wizard_step starts at "admin". After
-    // setup_admin succeeds the wizard must already be on "network" so a
-    // page reload between admin creation and the frontend's advance call
-    // doesn't dead-end on Step 1.
-    let (svc, store) = make_service(false, &[("wizard_step", "admin")]);
-
-    svc.setup_admin("adminuser", "password123").await.unwrap();
-
-    assert_eq!(
-        store.get("wizard_step").await.unwrap().as_deref(),
-        Some("network")
-    );
-}
-
-#[tokio::test]
-async fn setup_admin_advances_when_wizard_step_unset() {
-    // Some install paths (config-bootstrapped admin pre-dating this feature)
-    // may not have a wizard_step row yet. The atomic advance must still
-    // happen.
-    let (svc, store) = make_service(false, &[]);
-
-    svc.setup_admin("adminuser", "password123").await.unwrap();
-
-    assert_eq!(
-        store.get("wizard_step").await.unwrap().as_deref(),
-        Some("network")
-    );
 }

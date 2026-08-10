@@ -8,7 +8,7 @@ use wardnet_common::api::{
     ValidateCredentialsResponse,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -37,7 +37,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn list_providers(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListProvidersResponse>, AppError> {
     let response = state.provider_service().list_providers().await?;
     Ok(Json(response))
@@ -61,7 +61,7 @@ pub async fn list_providers(
 )]
 pub async fn validate_credentials(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
     Json(body): Json<ValidateCredentialsRequest>,
 ) -> Result<Json<ValidateCredentialsResponse>, AppError> {
@@ -87,7 +87,7 @@ pub async fn validate_credentials(
 )]
 pub async fn list_countries(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
 ) -> Result<Json<ListCountriesResponse>, AppError> {
     let response = state.provider_service().list_countries(&id).await?;
@@ -113,7 +113,7 @@ pub async fn list_countries(
 )]
 pub async fn list_servers(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
     Json(body): Json<ListServersRequest>,
 ) -> Result<Json<ListServersResponse>, AppError> {
@@ -140,7 +140,7 @@ pub async fn list_servers(
 )]
 pub async fn setup_tunnel(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
     Json(body): Json<SetupProviderRequest>,
 ) -> Result<Json<SetupProviderResponse>, AppError> {

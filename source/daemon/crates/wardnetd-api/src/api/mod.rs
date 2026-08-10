@@ -180,13 +180,13 @@ pub fn router(state: AppState) -> Router {
         .route("/api/system/logs/stream", get(logs_ws::logs_ws))
         .route("/api/dns/log/stream", get(dns_log_ws::dns_log_ws));
 
-    // Spec endpoint: admin-gated JSON. `AdminAuth` as an extractor ensures the
+    // Spec endpoint: admin-gated JSON. `SessionAuth` as an extractor ensures the
     // handler returns 401 for unauthenticated callers without any extra
     // middleware plumbing.
     let openapi_for_spec = openapi.clone();
     let api_router = api_router.route(
         "/api/openapi.json",
-        get(move |_: middleware::AdminAuth| {
+        get(move |_: middleware::SessionAuth| {
             let spec = openapi_for_spec.clone();
             async move { axum::Json(spec) }
         }),
@@ -199,13 +199,13 @@ pub fn router(state: AppState) -> Router {
     let api_router = api_router
         .route(
             "/api/docs",
-            get(|_: middleware::AdminAuth| async {
+            get(|_: middleware::SessionAuth| async {
                 axum::response::Html(crate::openapi::SCALAR_HTML)
             }),
         )
         .route(
             "/api/docs/logo.svg",
-            get(|_: middleware::AdminAuth| async {
+            get(|_: middleware::SessionAuth| async {
                 // Unlike the PNG it replaced, SVG is an active document type:
                 // scripts inside it would run in the admin origin if the URL
                 // is opened directly. The asset is vendored and reviewed, but
@@ -225,7 +225,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/api/docs/scalar.js",
-            get(|_: middleware::AdminAuth| async {
+            get(|_: middleware::SessionAuth| async {
                 // Vendored @scalar/api-reference bundle (pinned in `openapi.rs`).
                 // Served from the daemon itself so /api/docs doesn't depend on
                 // an external CDN — works offline and kills the supply-chain

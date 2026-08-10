@@ -13,7 +13,7 @@ use wardnet_common::jobs::{Job, JobKind, JobStatus};
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    AlwaysAdminAuth, StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService,
+    AlwaysSessionAuth, StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService,
     StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher,
     StubLogService, StubNetworkZoneService, StubProviderService, StubRoutingService,
     StubSystemService, StubTunnelService,
@@ -36,7 +36,7 @@ impl JobService for FixedJobService {
 
 fn build_state(job_service: Arc<dyn JobService>) -> AppState {
     AppState::new(
-        Arc::new(AlwaysAdminAuth),
+        Arc::new(AlwaysSessionAuth),
         Arc::new(crate::tests::stubs::StubBackupService),
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use uuid::Uuid;
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, UserRole};
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::rule_request::{DeviceRuleRequest, RuleRequestKind, RuleRequestStatus};
 use wardnetd_data::repository::RuleRequestRepository;
@@ -148,9 +148,16 @@ impl RuleRequestService for RuleRequestServiceImpl {
                 "status must be approved or rejected".to_owned(),
             ));
         }
+        // Enumerated rather than `_ =>`: this value is the audit record of *who*
+        // decided the request, so a new principal must be named here explicitly.
         let admin_id = match auth_context::try_current() {
-            Some(AuthContext::Admin { admin_id }) => admin_id.to_string(),
-            _ => return Err(AppError::Forbidden("admin privileges required".to_owned())),
+            Some(AuthContext::User(user)) if user.role() == UserRole::Admin => {
+                user.user_id().to_string()
+            }
+            Some(AuthContext::User(_) | AuthContext::Device { .. } | AuthContext::Anonymous)
+            | None => {
+                return Err(AppError::Forbidden("admin privileges required".to_owned()));
+            }
         };
         let now = Utc::now().to_rfc3339();
         self.requests

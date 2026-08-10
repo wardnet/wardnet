@@ -13,7 +13,6 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use sqlx::SqlitePool;
 use sqlx::sqlite::SqlitePoolOptions;
-use uuid::Uuid;
 use wardnet_common::api::CreateRecordRequest;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::dns::{DnsRecordSource, DnsRecordType};
@@ -208,9 +207,7 @@ impl CertActivator for MockActivator {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
+    AuthContext::system()
 }
 
 fn build_service(

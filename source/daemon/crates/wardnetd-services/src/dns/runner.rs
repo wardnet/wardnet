@@ -11,7 +11,6 @@ use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 
@@ -91,9 +90,7 @@ async fn runner_loop(
     mut event_rx: broadcast::Receiver<WardnetEvent>,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     match auth_context::with_context(admin_ctx.clone(), service.get_dns_config()).await {
         Ok(config) if config.enabled => {

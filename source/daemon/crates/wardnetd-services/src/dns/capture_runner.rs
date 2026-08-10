@@ -122,9 +122,7 @@ async fn runner_loop(
     // This runner lives outside the HTTP middleware, so it establishes its own
     // system/admin context (`Uuid::nil()`) around every service call, per
     // `.agents/auth.md`.
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     // Populate the hot-path cache from DB on startup.
     let mut enabled = load_enabled_ids(device_service.as_ref(), &admin_ctx, "on startup")

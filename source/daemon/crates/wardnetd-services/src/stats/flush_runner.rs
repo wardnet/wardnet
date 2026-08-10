@@ -13,7 +13,6 @@ use std::time::Duration;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use super::buffer::StatsBuffer;
@@ -147,9 +146,7 @@ async fn perform_flush(buffer: &Arc<StatsBuffer>, service: &Arc<dyn StatsService
     // takes the rows by value, so each attempt clones them — fine,
     // batches are bounded and the clone is only paid on retry, which
     // should be rare under the 30 s `busy_timeout`.
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
     let result = retry_on_busy(
         FLUSH_OPERATION,
         FLUSH_BUSY_RETRIES,
@@ -172,9 +169,7 @@ async fn perform_flush(buffer: &Arc<StatsBuffer>, service: &Arc<dyn StatsService
 }
 
 async fn perform_maintenance(service: &Arc<dyn StatsService>) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
     if let Err(e) = auth_context::with_context(admin_ctx, service.run_maintenance()).await {
         tracing::warn!(
             error = %e,

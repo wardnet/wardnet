@@ -14,7 +14,6 @@ use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use tower::ServiceExt;
-use uuid::Uuid;
 use wardnet_common::api::{
     DhcpSelfProbeResponse, DhcpSource, DiscoverGatewayMacRequest, DiscoverGatewayMacResponse,
     NetworkStatusResponse, RouterMacSource, SystemStatusResponse,
@@ -30,6 +29,10 @@ use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::error::AppError;
 use wardnetd_services::{AuthService, SystemService};
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
+use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
 // Auth stubs
@@ -41,17 +44,22 @@ struct AlwaysAuthService {
 
 #[async_trait]
 impl AuthService for AlwaysAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(self.admin_id))
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(Some(principal::admin(self.admin_id)))
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(self.admin_id))
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(Some(principal::admin(self.admin_id)))
     }
     async fn setup_admin(&self, _username: &str, _password: &str) -> Result<(), AppError> {
         unimplemented!()
@@ -85,16 +93,21 @@ impl AuthService for AlwaysAuthService {
 struct NeverAuthService;
 #[async_trait]
 impl AuthService for NeverAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
     async fn setup_admin(&self, _username: &str, _password: &str) -> Result<(), AppError> {
@@ -167,6 +180,13 @@ fn clone_app_error(err: &AppError) -> AppError {
         AppError::Forbidden(s) => AppError::Forbidden(s.clone()),
         AppError::Unauthorized(s) => AppError::Unauthorized(s.clone()),
         AppError::UpstreamUnavailable(s) => AppError::UpstreamUnavailable(s.clone()),
+        AppError::TooManyRequests {
+            message,
+            retry_after_seconds,
+        } => AppError::TooManyRequests {
+            message: message.clone(),
+            retry_after_seconds: *retry_after_seconds,
+        },
         AppError::Internal(_) | AppError::Database(_) => {
             AppError::Internal(anyhow::anyhow!("mock internal"))
         }

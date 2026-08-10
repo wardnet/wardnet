@@ -14,7 +14,7 @@ use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::StoredNotification;
 
 use crate::state::AppState;
-use crate::tests::stubs::{AlwaysAdminAuth, test_app_state};
+use crate::tests::stubs::{AlwaysSessionAuth, test_app_state};
 use wardnetd_services::error::AppError;
 use wardnetd_services::push::PushService;
 
@@ -166,7 +166,7 @@ async fn send_as_admin(app: Router, method: &str, uri: &str) -> (StatusCode, ser
 
 #[tokio::test]
 async fn list_notifications_rejects_anonymous_callers() {
-    // Default StubAuthService validates no session -> AdminAuth rejects.
+    // Default StubAuthService validates no session -> SessionAuth rejects.
     let app = router(test_app_state().with_push_service(Arc::new(MockPushService)));
     let (status, _) = send(app, "GET", "/api/push/notifications", None).await;
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -180,7 +180,7 @@ async fn list_notifications_rejects_anonymous_callers() {
 async fn list_notifications_returns_the_feed_for_admins() {
     let app = router(
         test_app_state()
-            .with_auth_service(Arc::new(AlwaysAdminAuth))
+            .with_auth_service(Arc::new(AlwaysSessionAuth))
             .with_push_service(Arc::new(MockPushService)),
     );
     let (status, json) = send_as_admin(app, "GET", "/api/push/notifications?limit=10").await;
@@ -197,7 +197,7 @@ async fn list_notifications_returns_the_feed_for_admins() {
 async fn clear_notifications_returns_ok_for_admins() {
     let app = router(
         test_app_state()
-            .with_auth_service(Arc::new(AlwaysAdminAuth))
+            .with_auth_service(Arc::new(AlwaysSessionAuth))
             .with_push_service(Arc::new(MockPushService)),
     );
     let (status, json) = send_as_admin(app, "DELETE", "/api/push/notifications").await;

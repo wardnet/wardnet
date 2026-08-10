@@ -1,151 +1,34 @@
-use std::sync::{Arc, Mutex};
+//! Tests for [`AuthServiceImpl`] — login, session validation, refresh, logout
+//! and API-key validation, on the household-identity model (ADR-0031).
 
-use async_trait::async_trait;
+use std::sync::Arc;
+
 use uuid::Uuid;
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::UserRole;
+use wardnet_test_support::principal;
+use wardnetd_data::repository::session::SessionRepository;
+use wardnetd_data::repository::system_config::SystemConfigRepository;
+use wardnetd_data::repository::user::UserRepository;
+use wardnetd_data::repository::user_credential::UserCredentialRepository;
 
-use crate::error::AppError;
-use crate::{AuthService, AuthServiceImpl, auth_context};
-use wardnetd_data::repository::{
-    AdminRepository, ApiKeyRepository, SessionRepository, SystemConfigRepository,
+use crate::auth::password::hash_token;
+use crate::tests::repo_mocks::{
+    MockApiKeyRepo, MockCredentialRepo, MockSessionRepo, MockSystemConfigRepo, MockUserRepo,
+    StoredSession, user_row,
 };
+use crate::auth::{AuthService, AuthServiceImpl, LoginAttempt};
+use crate::auth_context;
+use crate::error::AppError;
 
-// -- Mock repositories ---------------------------------------------------
+/// The backfilled local admin's id on every box in these tests.
+const ADMIN_ID: &str = "00000000-0000-0000-0000-000000000001";
+/// An ordinary household member.
+const MEMBER_ID: &str = "00000000-0000-0000-0000-000000000002";
 
-/// Mock admin repo that returns a preconfigured result for `find_by_username`.
-struct MockAdminRepo {
-    find_result: Mutex<Option<(String, String)>>,
-    first_id: Mutex<Option<String>>,
-}
+const SESSION_HOURS: u64 = 24;
+const REMEMBER_HOURS: u64 = 720;
 
-#[async_trait]
-impl AdminRepository for MockAdminRepo {
-    async fn find_username_by_id(&self, _id: &str) -> anyhow::Result<Option<String>> {
-        Ok(Some("admin".to_owned()))
-    }
-    async fn find_by_username(&self, _username: &str) -> anyhow::Result<Option<(String, String)>> {
-        Ok(self.find_result.lock().unwrap().clone())
-    }
-    async fn create(&self, _id: &str, _u: &str, _h: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn find_first_id(&self) -> anyhow::Result<Option<String>> {
-        Ok(self.first_id.lock().unwrap().clone())
-    }
-    async fn exists(&self) -> anyhow::Result<bool> {
-        Ok(self.find_result.lock().unwrap().is_some())
-    }
-}
-
-/// Mock session repo that captures created sessions and returns preconfigured lookup results.
-#[derive(Default)]
-struct MockSessionRepo {
-    /// Returned by `find_admin_id_by_token_hash` (drives `validate_session`).
-    find_result: Mutex<Option<String>>,
-    /// Returned by `find_session_for_refresh` (drives `refresh_session`).
-    session_for_refresh: Mutex<Option<(String, bool, String)>>,
-    /// Token hashes passed to `delete_by_token_hash` (drives `logout_session` assertions).
-    deleted_hashes: Mutex<Vec<String>>,
-}
-
-#[async_trait]
-impl SessionRepository for MockSessionRepo {
-    async fn create(
-        &self,
-        _id: &str,
-        _admin_id: &str,
-        _token_hash: &str,
-        _created_at: &str,
-        _expires_at: &str,
-        _remember_me: bool,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn find_admin_id_by_token_hash(
-        &self,
-        _token_hash: &str,
-        _now: &str,
-    ) -> anyhow::Result<Option<String>> {
-        Ok(self.find_result.lock().unwrap().clone())
-    }
-    async fn delete_expired(&self, _now: &str) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-    async fn delete_by_token_hash(&self, token_hash: &str) -> anyhow::Result<u64> {
-        // Report one row removed when a session is configured, zero otherwise,
-        // mirroring the real repository's rows_affected semantics.
-        let existed = self.find_result.lock().unwrap().take().is_some();
-        self.deleted_hashes
-            .lock()
-            .unwrap()
-            .push(token_hash.to_owned());
-        Ok(u64::from(existed))
-    }
-    async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn rotate_token(
-        &self,
-        _old_token_hash: &str,
-        _new_token_hash: &str,
-        _new_expires_at: &str,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn find_session_for_refresh(
-        &self,
-        _token_hash: &str,
-        _now: &str,
-    ) -> anyhow::Result<Option<(String, bool, String)>> {
-        Ok(self.session_for_refresh.lock().unwrap().clone())
-    }
-}
-
-/// Mock API key repo that returns preconfigured key hashes.
-struct MockApiKeyRepo {
-    hashes: Vec<(String, String)>,
-}
-
-#[async_trait]
-impl ApiKeyRepository for MockApiKeyRepo {
-    async fn find_all_hashes(&self) -> anyhow::Result<Vec<(String, String)>> {
-        Ok(self.hashes.clone())
-    }
-    async fn create(&self, _id: &str, _l: &str, _h: &str, _c: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn update_last_used(&self, _id: &str, _now: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-/// Mock system config repo (unused in login/session tests).
-struct MockSystemConfigRepo;
-
-#[async_trait]
-impl SystemConfigRepository for MockSystemConfigRepo {
-    async fn get(&self, _key: &str) -> anyhow::Result<Option<String>> {
-        Ok(None)
-    }
-    async fn set(&self, _key: &str, _value: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn delete(&self, _key: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn device_count(&self) -> anyhow::Result<i64> {
-        Ok(0)
-    }
-    async fn tunnel_count(&self) -> anyhow::Result<i64> {
-        Ok(0)
-    }
-    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-}
-
-// -- Helpers --------------------------------------------------------------
-
+/// Argon2id-hash a password with a fixed salt, so tests are deterministic.
 fn argon2_hash(password: &str) -> String {
     use argon2::PasswordHasher;
     let salt = argon2::password_hash::SaltString::from_b64("dGVzdHNhbHR2YWx1ZTEyMw").unwrap();
@@ -155,450 +38,970 @@ fn argon2_hash(password: &str) -> String {
         .to_string()
 }
 
-fn make_auth_service(
-    admin_find: Option<(String, String)>,
-    admin_first_id: Option<String>,
-    session_find: Option<String>,
-    api_key_hashes: Vec<(String, String)>,
-) -> AuthServiceImpl {
-    let recent_created_at = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
-    let session_for_refresh = session_find
-        .as_ref()
-        .map(|id| (id.clone(), true, recent_created_at));
-    AuthServiceImpl::new(
-        Arc::new(MockAdminRepo {
-            find_result: Mutex::new(admin_find),
-            first_id: Mutex::new(admin_first_id),
-        }),
-        Arc::new(MockSessionRepo {
-            find_result: Mutex::new(session_find),
-            session_for_refresh: Mutex::new(session_for_refresh),
-            ..Default::default()
-        }),
-        Arc::new(MockApiKeyRepo {
-            hashes: api_key_hashes,
-        }),
-        Arc::new(MockSystemConfigRepo),
-        24,
-        720,
-    )
+/// A `LoginAttempt` with no client metadata — the shape most tests want.
+fn attempt<'a>(subject: &'a str, password: &'a str, remember_me: bool) -> LoginAttempt<'a> {
+    LoginAttempt {
+        subject,
+        password,
+        remember_me,
+        client_ip: None,
+        user_agent: None,
+        device_id: None,
+    }
 }
 
-// -- Tests ----------------------------------------------------------------
+/// The wired-up service plus the handles a test needs to assert against.
+struct Fixture {
+    svc: AuthServiceImpl,
+    users: Arc<MockUserRepo>,
+    credentials: Arc<MockCredentialRepo>,
+    sessions: Arc<MockSessionRepo>,
+    config: Arc<MockSystemConfigRepo>,
+}
+
+/// Build a service over the given repositories, joining sessions and
+/// credentials to `users` so the `enabled` filters behave as they do in SQL.
+fn fixture(users: MockUserRepo, credentials: MockCredentialRepo, api_keys: MockApiKeyRepo) -> Fixture {
+    let users = Arc::new(users);
+    let credentials = Arc::new(credentials);
+    let sessions = Arc::new(MockSessionRepo::joined_to(Arc::clone(&users)));
+    let config = Arc::new(MockSystemConfigRepo::empty());
+    let svc = AuthServiceImpl::new(
+        Arc::clone(&users) as Arc<dyn UserRepository>,
+        Arc::clone(&credentials) as Arc<dyn UserCredentialRepository>,
+        Arc::clone(&sessions) as Arc<dyn SessionRepository>,
+        Arc::new(api_keys),
+        Arc::clone(&config) as Arc<dyn SystemConfigRepository>,
+        SESSION_HOURS,
+        REMEMBER_HOURS,
+    );
+    Fixture {
+        svc,
+        users,
+        credentials,
+        sessions,
+        config,
+    }
+}
+
+/// A box with one enabled admin whose password is `password`.
+fn admin_with_password(password: &str) -> Fixture {
+    let users = MockUserRepo::with_admin(ADMIN_ID, "admin");
+    let users_arc = Arc::new(users);
+    let credentials = MockCredentialRepo::joined_to(Arc::clone(&users_arc)).with_password(
+        "cred-1",
+        ADMIN_ID,
+        "admin",
+        &argon2_hash(password),
+    );
+    let sessions = Arc::new(MockSessionRepo::joined_to(Arc::clone(&users_arc)));
+    let credentials = Arc::new(credentials);
+    let config = Arc::new(MockSystemConfigRepo::empty());
+    let svc = AuthServiceImpl::new(
+        Arc::clone(&users_arc) as Arc<dyn UserRepository>,
+        Arc::clone(&credentials) as Arc<dyn UserCredentialRepository>,
+        Arc::clone(&sessions) as Arc<dyn SessionRepository>,
+        Arc::new(MockApiKeyRepo::empty()),
+        Arc::clone(&config) as Arc<dyn SystemConfigRepository>,
+        SESSION_HOURS,
+        REMEMBER_HOURS,
+    );
+    Fixture {
+        svc,
+        users: users_arc,
+        credentials,
+        sessions,
+        config,
+    }
+}
+
+/// A live session row for `user_id`, valid for a day and refreshable for 90.
+fn live_session(user_id: &str, token: &str, remember_me: bool) -> StoredSession {
+    let now = chrono::Utc::now();
+    StoredSession {
+        id: "session-1".to_owned(),
+        user_id: user_id.to_owned(),
+        token_hash: hash_token(token),
+        created_at: now.to_rfc3339(),
+        expires_at: (now + chrono::Duration::days(1)).to_rfc3339(),
+        remember_me,
+        device_id: None,
+        user_agent: None,
+        absolute_expires_at: (now + chrono::Duration::days(90)).to_rfc3339(),
+    }
+}
+
+// -- login ----------------------------------------------------------------
 
 #[tokio::test]
 async fn login_success() {
-    let hash = argon2_hash("correct-password");
-    let svc = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
+    let f = admin_with_password("correct-password");
 
-    let result = svc.login("admin", "correct-password", false).await;
-    assert!(result.is_ok());
-    let login = result.unwrap();
+    let login = f
+        .svc
+        .login(attempt("admin", "correct-password", false))
+        .await
+        .expect("login should succeed");
+
     assert!(!login.token.is_empty());
-    assert_eq!(login.max_age_seconds, 24 * 3600);
+    assert_eq!(login.max_age_seconds, SESSION_HOURS * 3600);
+
+    // The session row is written against the credential's user, with the
+    // absolute ceiling stored rather than left to be re-derived on refresh.
+    let row = f.sessions.only();
+    assert_eq!(row.user_id, ADMIN_ID);
+    assert_eq!(row.token_hash, hash_token(&login.token));
+    assert!(!row.remember_me);
+    assert!(row.absolute_expires_at > row.expires_at);
+
+    // A successful login stamps the credential.
+    assert!(f.credentials.last_used("cred-1").is_some());
 }
 
 #[tokio::test]
 async fn login_success_with_remember_me() {
-    let hash = argon2_hash("correct-password");
-    let svc = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
+    let f = admin_with_password("correct-password");
 
-    let result = svc.login("admin", "correct-password", true).await;
-    assert!(result.is_ok());
-    let login = result.unwrap();
-    assert!(!login.token.is_empty());
-    assert_eq!(login.max_age_seconds, 720 * 3600);
+    let login = f
+        .svc
+        .login(attempt("admin", "correct-password", true))
+        .await
+        .unwrap();
+
+    assert_eq!(login.max_age_seconds, REMEMBER_HOURS * 3600);
+    assert!(f.sessions.only().remember_me);
+}
+
+#[tokio::test]
+async fn login_is_case_insensitive_in_the_subject() {
+    // The migration lowercases backfilled usernames and every write path
+    // lowercases too, so `Admin` and `admin` are the same account. If the
+    // lookup stopped folding case, every upgraded box would lose its login.
+    let f = admin_with_password("correct-password");
+
+    let login = f.svc.login(attempt("ADMIN", "correct-password", false)).await;
+    assert!(login.is_ok(), "mixed-case username must still authenticate");
 }
 
 #[tokio::test]
 async fn login_with_malformed_stored_hash_returns_internal() {
-    // A corrupt password hash in the admins table must surface as Internal,
-    // not masquerade as bad credentials.
-    let svc = make_auth_service(
-        Some(("admin-1".to_owned(), "not-an-argon2-hash".to_owned())),
-        None,
-        None,
-        vec![],
+    // A corrupt credential must surface as Internal, not masquerade as bad
+    // credentials — otherwise the operator hunts a forgotten password instead
+    // of a broken row.
+    let users = Arc::new(MockUserRepo::with_admin(ADMIN_ID, "admin"));
+    let credentials = MockCredentialRepo::joined_to(Arc::clone(&users)).with_password(
+        "cred-1",
+        ADMIN_ID,
+        "admin",
+        "not-an-argon2-hash",
+    );
+    let f = fixture(
+        MockUserRepo::with_admin(ADMIN_ID, "admin"),
+        credentials,
+        MockApiKeyRepo::empty(),
     );
 
-    let result = svc.login("admin", "any-password", false).await;
+    let result = f.svc.login(attempt("admin", "any-password", false)).await;
     assert!(matches!(result, Err(AppError::Internal(_))));
 }
 
 #[tokio::test]
 async fn login_wrong_password() {
-    let hash = argon2_hash("correct-password");
-    let svc = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
-
-    let result = svc.login("admin", "wrong-password", false).await;
-    assert!(result.is_err());
+    let f = admin_with_password("correct-password");
+    let result = f.svc.login(attempt("admin", "wrong-password", false)).await;
+    assert!(matches!(result, Err(AppError::Unauthorized(_))));
+    // Nothing was issued.
+    assert_eq!(f.sessions.count(), 0);
 }
 
 #[tokio::test]
 async fn login_user_not_found() {
-    let svc = make_auth_service(None, None, None, vec![]);
-
-    let result = svc.login("nobody", "password", false).await;
+    let f = fixture(
+        MockUserRepo::empty(),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::empty(),
+    );
+    let result = f.svc.login(attempt("nobody", "password", false)).await;
     assert!(matches!(result, Err(AppError::Unauthorized(_))));
 }
 
 #[tokio::test]
-async fn login_unknown_username_runs_decoy_verify_to_hide_timing() {
-    // Username-enumeration mitigation: an unknown username must still trigger a
-    // full argon2 verify (against a decoy hash) so its latency matches a known
-    // username with the wrong password. If the not-found path short-circuited
-    // before the verify, it would complete in microseconds while the
-    // wrong-password path spends milliseconds in argon2 — a side channel an
-    // attacker could use to enumerate valid usernames.
-    let hash = argon2_hash("correct-password");
-    let known = make_auth_service(Some(("admin-1".to_owned(), hash)), None, None, vec![]);
-    let unknown = make_auth_service(None, None, None, vec![]);
+async fn login_refuses_a_disabled_user() {
+    // Disabling is the revocation primitive: it must stop authentication
+    // immediately, without anybody having to hunt down live sessions. The
+    // credential is perfectly valid here — only `users.enabled` differs.
+    let users = Arc::new(MockUserRepo::with_rows(vec![user_row(
+        ADMIN_ID,
+        "admin",
+        UserRole::Admin,
+        false,
+    )]));
+    let credentials = Arc::new(
+        MockCredentialRepo::joined_to(Arc::clone(&users)).with_password(
+            "cred-1",
+            ADMIN_ID,
+            "admin",
+            &argon2_hash("correct-password"),
+        ),
+    );
+    let sessions = Arc::new(MockSessionRepo::joined_to(Arc::clone(&users)));
+    let svc = AuthServiceImpl::new(
+        Arc::clone(&users) as Arc<dyn UserRepository>,
+        Arc::clone(&credentials) as Arc<dyn UserCredentialRepository>,
+        Arc::clone(&sessions) as Arc<dyn SessionRepository>,
+        Arc::new(MockApiKeyRepo::empty()),
+        Arc::new(MockSystemConfigRepo::empty()),
+        SESSION_HOURS,
+        REMEMBER_HOURS,
+    );
 
-    // Warm up so neither measurement is skewed by one-time init (allocator
-    // pages, the lazily-computed decoy hash).
-    let _ = known.login("admin", "warm", false).await;
-    let _ = unknown.login("nobody", "warm", false).await;
+    let result = svc.login(attempt("admin", "correct-password", false)).await;
+    // Indistinguishable from an unknown subject, so a disabled account cannot
+    // be probed by watching which error comes back.
+    assert!(matches!(result, Err(AppError::Unauthorized(_))));
+    assert_eq!(sessions.count(), 0);
+}
+
+#[tokio::test]
+async fn login_unknown_subject_runs_decoy_verify_to_hide_timing() {
+    // Enumeration mitigation: an unknown subject must still trigger a full
+    // Argon2id verify against a decoy hash so its latency matches a known
+    // subject with the wrong password. Short-circuiting would complete in
+    // microseconds while the wrong-password path spends milliseconds — a side
+    // channel an attacker could use to enumerate accounts.
+    let known = admin_with_password("correct-password");
+    let unknown = fixture(
+        MockUserRepo::empty(),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::empty(),
+    );
+
+    // Warm up so neither measurement pays one-time init (allocator pages, the
+    // lazily-computed decoy hash).
+    let _ = known.svc.login(attempt("admin", "warm", false)).await;
+    let _ = unknown.svc.login(attempt("nobody", "warm", false)).await;
 
     let wrong_password = {
         let start = std::time::Instant::now();
-        let r = known.login("admin", "wrong-password", false).await;
+        let r = known.svc.login(attempt("admin", "wrong-password", false)).await;
         assert!(matches!(r, Err(AppError::Unauthorized(_))));
         start.elapsed()
     };
     let missing_user = {
         let start = std::time::Instant::now();
-        let r = unknown.login("nobody", "wrong-password", false).await;
+        let r = unknown
+            .svc
+            .login(attempt("nobody", "wrong-password", false))
+            .await;
         assert!(matches!(r, Err(AppError::Unauthorized(_))));
         start.elapsed()
     };
 
-    // Both do exactly one argon2 verify, so the durations sit on the same order
-    // of magnitude. The 4x slack keeps this robust under CI scheduling noise
-    // while still catching a regression that drops the decoy verify (which
-    // would make the not-found path orders of magnitude faster).
+    // Both do exactly one Argon2id verify, so the durations sit on the same
+    // order of magnitude. The 4x slack keeps this robust under CI scheduling
+    // noise while still catching a regression that drops the decoy verify.
     assert!(
         missing_user * 4 >= wrong_password,
-        "unknown-username login ({missing_user:?}) was far faster than a wrong-password \
+        "unknown-subject login ({missing_user:?}) was far faster than a wrong-password \
          login ({wrong_password:?}); the decoy argon2 verify looks to be missing"
     );
 }
 
 #[tokio::test]
-async fn validate_session_valid() {
-    let admin_uuid = "00000000-0000-0000-0000-000000000001";
-    let svc = make_auth_service(None, None, Some(admin_uuid.to_owned()), vec![]);
+async fn repeated_failures_trip_the_login_rate_limiter() {
+    // Per-identity backoff (ADR-0031 §12). The exact free-attempt count is a
+    // tuning decision, so this asserts the property that matters: sustained
+    // wrong guesses eventually stop being answered with a plain 401, and the
+    // refusal carries a retry hint.
+    let f = admin_with_password("correct-password");
 
-    let result = svc.validate_session("any-token").await.unwrap();
-    assert!(result.is_some());
-    assert_eq!(result.unwrap().to_string(), admin_uuid);
+    let mut throttled = None;
+    for _ in 0..12 {
+        match f.svc.login(attempt("admin", "wrong-password", false)).await {
+            Err(AppError::TooManyRequests {
+                retry_after_seconds,
+                ..
+            }) => {
+                throttled = Some(retry_after_seconds);
+                break;
+            }
+            Err(AppError::Unauthorized(_)) => {}
+            Ok(_) => panic!("a wrong password must never succeed"),
+            Err(other) => panic!("unexpected login error: {other}"),
+        }
+    }
+
+    let retry_after = throttled.expect("sustained wrong passwords must eventually be throttled");
+    assert!(
+        retry_after >= 1,
+        "a throttled login must tell the caller how long to wait"
+    );
 }
 
 #[tokio::test]
-async fn validate_session_with_malformed_admin_id_returns_internal() {
-    // A session row whose admin_id is not a UUID must error rather than
-    // silently authenticate or deny.
-    let svc = make_auth_service(None, None, Some("not-a-uuid".to_owned()), vec![]);
+async fn a_successful_login_clears_the_backoff() {
+    // Otherwise one person's typos would lock out the household member who
+    // then types their password correctly.
+    let f = admin_with_password("correct-password");
 
-    let result = svc.validate_session("any-token").await;
+    for _ in 0..3 {
+        let _ = f.svc.login(attempt("admin", "wrong-password", false)).await;
+    }
+    assert!(
+        f.svc
+            .login(attempt("admin", "correct-password", false))
+            .await
+            .is_ok()
+    );
+    // And the next attempt is not sitting behind the earlier failures.
+    assert!(
+        f.svc
+            .login(attempt("admin", "correct-password", false))
+            .await
+            .is_ok()
+    );
+}
+
+// -- validate_session -----------------------------------------------------
+
+#[tokio::test]
+async fn validate_session_returns_the_typed_principal() {
+    let f = admin_with_password("pw");
+    f.sessions
+        .rows
+        .lock()
+        .unwrap()
+        .push(live_session(ADMIN_ID, "raw-token", false));
+
+    let user = f
+        .svc
+        .validate_session("raw-token")
+        .await
+        .unwrap()
+        .expect("a live session must resolve");
+
+    assert_eq!(user.user_id().to_string(), ADMIN_ID);
+    assert_eq!(user.role(), UserRole::Admin);
+}
+
+#[tokio::test]
+async fn validate_session_carries_the_members_own_role_not_admin() {
+    // The escalation this epic exists to close: `resolve_auth_context` used to
+    // promote *any* valid session to admin. The role must come from the
+    // `users` row the session joins to.
+    let users = Arc::new(MockUserRepo::with_rows(vec![
+        user_row(ADMIN_ID, "admin", UserRole::Admin, true),
+        user_row(MEMBER_ID, "kid", UserRole::Member, true),
+    ]));
+    let sessions = Arc::new(
+        MockSessionRepo::joined_to(Arc::clone(&users))
+            .with_session(live_session(MEMBER_ID, "member-token", false)),
+    );
+    let svc = AuthServiceImpl::new(
+        Arc::clone(&users) as Arc<dyn UserRepository>,
+        Arc::new(MockCredentialRepo::empty()),
+        Arc::clone(&sessions) as Arc<dyn SessionRepository>,
+        Arc::new(MockApiKeyRepo::empty()),
+        Arc::new(MockSystemConfigRepo::empty()),
+        SESSION_HOURS,
+        REMEMBER_HOURS,
+    );
+
+    let user = svc
+        .validate_session("member-token")
+        .await
+        .unwrap()
+        .expect("the member's session is live");
+
+    assert_eq!(user.role(), UserRole::Member, "a member must not become admin");
+    assert!(
+        !wardnet_common::auth::AuthContext::user(user).is_admin(),
+        "a member context must fail require_admin"
+    );
+}
+
+#[tokio::test]
+async fn validate_session_rejects_a_disabled_users_live_session() {
+    // Disabling must revoke *now*, not at the next login.
+    let users = Arc::new(MockUserRepo::with_rows(vec![user_row(
+        ADMIN_ID,
+        "admin",
+        UserRole::Admin,
+        false,
+    )]));
+    let sessions = Arc::new(
+        MockSessionRepo::joined_to(Arc::clone(&users))
+            .with_session(live_session(ADMIN_ID, "raw-token", true)),
+    );
+    let svc = AuthServiceImpl::new(
+        Arc::clone(&users) as Arc<dyn UserRepository>,
+        Arc::new(MockCredentialRepo::empty()),
+        Arc::clone(&sessions) as Arc<dyn SessionRepository>,
+        Arc::new(MockApiKeyRepo::empty()),
+        Arc::new(MockSystemConfigRepo::empty()),
+        SESSION_HOURS,
+        REMEMBER_HOURS,
+    );
+
+    assert!(svc.validate_session("raw-token").await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn validate_session_with_malformed_user_id_returns_internal() {
+    // A session row whose user_id is not a UUID must error rather than
+    // silently authenticate or deny.
+    let f = admin_with_password("pw");
+    // The user row has to exist, or the liveness join would filter the session
+    // out before the service ever tries to parse the id — and this test is
+    // about the parse, not the join.
+    f.users
+        .rows
+        .lock()
+        .unwrap()
+        .push(user_row("not-a-uuid", "corrupt", UserRole::Admin, true));
+    let mut row = live_session(ADMIN_ID, "raw-token", false);
+    row.user_id = "not-a-uuid".to_owned();
+    f.sessions.rows.lock().unwrap().push(row);
+
+    let result = f.svc.validate_session("raw-token").await;
     assert!(matches!(result, Err(AppError::Internal(_))));
 }
 
 #[tokio::test]
 async fn validate_session_expired() {
-    let svc = make_auth_service(None, None, None, vec![]);
+    let f = admin_with_password("pw");
+    let now = chrono::Utc::now();
+    let mut row = live_session(ADMIN_ID, "raw-token", false);
+    row.expires_at = (now - chrono::Duration::hours(1)).to_rfc3339();
+    f.sessions.rows.lock().unwrap().push(row);
 
-    let result = svc.validate_session("any-token").await.unwrap();
-    assert!(result.is_none());
+    assert!(f.svc.validate_session("raw-token").await.unwrap().is_none());
 }
 
 #[tokio::test]
-async fn validate_api_key_valid() {
-    let hash = argon2_hash("my-secret-key");
-    let admin_uuid = "00000000-0000-0000-0000-000000000001";
-    let svc = make_auth_service(
-        None,
-        Some(admin_uuid.to_owned()),
-        None,
-        vec![("key-1".to_owned(), hash)],
+async fn validate_session_past_its_absolute_ceiling_is_refused() {
+    // The ceiling is what stops a remember_me session refreshing forever.
+    let f = admin_with_password("pw");
+    let now = chrono::Utc::now();
+    let mut row = live_session(ADMIN_ID, "raw-token", true);
+    row.absolute_expires_at = (now - chrono::Duration::minutes(1)).to_rfc3339();
+    f.sessions.rows.lock().unwrap().push(row);
+
+    assert!(f.svc.validate_session("raw-token").await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn validate_session_unknown_token() {
+    let f = admin_with_password("pw");
+    assert!(f.svc.validate_session("nope").await.unwrap().is_none());
+}
+
+// -- validate_api_key -----------------------------------------------------
+
+#[tokio::test]
+async fn validate_api_key_acts_as_the_oldest_enabled_admin() {
+    let f = fixture(
+        MockUserRepo::with_admin(ADMIN_ID, "admin"),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::with_hashes(vec![("key-1".to_owned(), argon2_hash("my-secret-key"))]),
     );
 
-    let result = svc.validate_api_key("my-secret-key").await.unwrap();
-    assert!(result.is_some());
-    assert_eq!(result.unwrap().to_string(), admin_uuid);
+    let user = f
+        .svc
+        .validate_api_key("my-secret-key")
+        .await
+        .unwrap()
+        .expect("a matching key authenticates");
+
+    assert_eq!(user.user_id().to_string(), ADMIN_ID);
+    assert_eq!(user.role(), UserRole::Admin);
 }
 
 #[tokio::test]
 async fn validate_api_key_invalid() {
-    let hash = argon2_hash("my-secret-key");
-    let svc = make_auth_service(
-        None,
-        Some("00000000-0000-0000-0000-000000000001".to_owned()),
-        None,
-        vec![("key-1".to_owned(), hash)],
+    let f = fixture(
+        MockUserRepo::with_admin(ADMIN_ID, "admin"),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::with_hashes(vec![("key-1".to_owned(), argon2_hash("my-secret-key"))]),
     );
 
-    let result = svc.validate_api_key("wrong-key").await.unwrap();
-    assert!(result.is_none());
+    assert!(f.svc.validate_api_key("wrong-key").await.unwrap().is_none());
 }
 
 #[tokio::test]
 async fn validate_api_key_no_keys_returns_none() {
-    let svc = make_auth_service(None, None, None, vec![]);
-
-    let result = svc.validate_api_key("any-key").await.unwrap();
-    assert!(result.is_none());
+    let f = fixture(
+        MockUserRepo::with_admin(ADMIN_ID, "admin"),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::empty(),
+    );
+    assert!(f.svc.validate_api_key("any-key").await.unwrap().is_none());
 }
 
 #[tokio::test]
 async fn validate_api_key_skips_malformed_hash() {
-    // One malformed hash and one valid hash -- the valid one should still match.
-    let valid_hash = argon2_hash("valid-key");
-    let svc = make_auth_service(
-        None,
-        Some("00000000-0000-0000-0000-000000000001".to_owned()),
-        None,
-        vec![
+    // One malformed hash must not stop the valid one from matching.
+    let f = fixture(
+        MockUserRepo::with_admin(ADMIN_ID, "admin"),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::with_hashes(vec![
             ("key-bad".to_owned(), "not-a-valid-argon2-hash".to_owned()),
-            ("key-good".to_owned(), valid_hash),
-        ],
+            ("key-good".to_owned(), argon2_hash("valid-key")),
+        ]),
     );
 
-    let result = svc.validate_api_key("valid-key").await.unwrap();
-    assert!(result.is_some());
+    assert!(f.svc.validate_api_key("valid-key").await.unwrap().is_some());
 }
 
 #[tokio::test]
-async fn current_admin_username_requires_admin() {
-    // No auth context → require_admin rejects before touching the repo.
-    let svc = make_auth_service(None, None, None, vec![]);
-    let result = svc.current_admin_username().await;
+async fn validate_api_key_is_refused_when_no_enabled_admin_exists() {
+    // A key borrows an admin's authority. With every admin disabled there is
+    // no authority to borrow, and falling back to some other user would hand
+    // the key a role nobody granted it.
+    let f = fixture(
+        MockUserRepo::with_rows(vec![
+            user_row(ADMIN_ID, "admin", UserRole::Admin, false),
+            user_row(MEMBER_ID, "kid", UserRole::Member, true),
+        ]),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::with_hashes(vec![("key-1".to_owned(), argon2_hash("my-secret-key"))]),
+    );
+
+    assert!(
+        f.svc.validate_api_key("my-secret-key").await.unwrap().is_none(),
+        "with no enabled admin the key must be refused, not downgraded to the member"
+    );
+}
+
+// -- current_user ---------------------------------------------------------
+
+#[tokio::test]
+async fn current_user_requires_authentication() {
+    let f = admin_with_password("pw");
+    let result = f.svc.current_user().await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
-async fn current_admin_username_returns_the_callers_username() {
-    let svc = make_auth_service(None, None, None, vec![]);
-    let result = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        async { svc.current_admin_username().await },
-    )
-    .await;
-    assert_eq!(result.unwrap(), "admin");
+async fn current_user_returns_the_callers_profile() {
+    let f = admin_with_password("pw");
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+
+    let user = auth_context::with_context(ctx, async { f.svc.current_user().await })
+        .await
+        .unwrap();
+
+    assert_eq!(user.user_id.to_string(), ADMIN_ID);
+    assert_eq!(user.display_name, "admin");
+    assert_eq!(user.role, UserRole::Admin);
 }
 
 #[tokio::test]
-async fn is_setup_completed_delegates() {
-    let svc = make_auth_service(None, None, None, vec![]);
-    // Default MockSystemConfigRepo returns false.
-    let result = svc.is_setup_completed().await.unwrap();
-    assert!(!result);
+async fn current_user_is_available_to_a_member() {
+    // `/api/users/me` is guarded with require_authenticated, not require_admin:
+    // a member reading their own profile is the point of the endpoint.
+    let f = fixture(
+        MockUserRepo::with_rows(vec![user_row(MEMBER_ID, "kid", UserRole::Member, true)]),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::empty(),
+    );
+    let ctx = principal::member_context(Uuid::parse_str(MEMBER_ID).unwrap());
+
+    let user = auth_context::with_context(ctx, async { f.svc.current_user().await })
+        .await
+        .unwrap();
+
+    assert_eq!(user.display_name, "kid");
+    assert_eq!(user.role, UserRole::Member);
 }
+
+#[tokio::test]
+async fn current_user_rejects_a_device_caller() {
+    // A device holds no credential and has no profile to read.
+    let f = admin_with_password("pw");
+    let ctx = principal::device_context("AA:BB:CC:DD:EE:01");
+
+    let result = auth_context::with_context(ctx, async { f.svc.current_user().await }).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn current_user_errors_when_the_account_is_gone() {
+    // A live session whose user row was deleted must not resolve to a profile.
+    let f = fixture(
+        MockUserRepo::empty(),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::empty(),
+    );
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+
+    let result = auth_context::with_context(ctx, async { f.svc.current_user().await }).await;
+    assert!(matches!(result, Err(AppError::Unauthorized(_))));
+}
+
+// -- setup / wizard delegation -------------------------------------------
+
+#[tokio::test]
+async fn is_setup_completed_is_false_on_a_fresh_box() {
+    let f = fixture(
+        MockUserRepo::empty(),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::empty(),
+    );
+    assert!(!f.svc.is_setup_completed().await.unwrap());
+}
+
+// -- cleanup --------------------------------------------------------------
 
 #[tokio::test]
 async fn cleanup_expired_sessions_requires_admin() {
-    // No auth context → require_admin rejects before touching the repo.
-    let svc = make_auth_service(None, None, None, vec![]);
-    let result = svc.cleanup_expired_sessions().await;
+    let f = admin_with_password("pw");
+    let result = f.svc.cleanup_expired_sessions().await;
     assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
-async fn cleanup_expired_sessions_delegates_under_admin_context() {
-    // Under an admin context it delegates to SessionRepository::delete_expired
-    // and returns the row count (MockSessionRepo returns 0).
-    let svc = make_auth_service(None, None, None, vec![]);
-    let result = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        async { svc.cleanup_expired_sessions().await },
+async fn cleanup_expired_sessions_removes_only_expired_rows() {
+    let f = admin_with_password("pw");
+    let now = chrono::Utc::now();
+    let mut expired = live_session(ADMIN_ID, "old-token", false);
+    expired.expires_at = (now - chrono::Duration::hours(1)).to_rfc3339();
+    f.sessions.rows.lock().unwrap().push(expired);
+    f.sessions
+        .rows
+        .lock()
+        .unwrap()
+        .push(live_session(ADMIN_ID, "live-token", false));
+
+    let removed = auth_context::with_context(
+        wardnet_common::auth::AuthContext::system(),
+        async { f.svc.cleanup_expired_sessions().await },
     )
-    .await;
-    assert_eq!(result.unwrap(), 0);
+    .await
+    .unwrap();
+
+    assert_eq!(removed, 1);
+    assert_eq!(f.sessions.count(), 1);
 }
 
+// -- refresh --------------------------------------------------------------
+
 #[tokio::test]
-async fn refresh_session_success() {
-    // Session exists and was created as remember_me=true → rotates token and extends expiry.
-    let admin_uuid = "00000000-0000-0000-0000-000000000001";
-    let svc = make_auth_service(None, None, Some(admin_uuid.to_owned()), vec![]);
-    let result = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::parse_str(admin_uuid).unwrap(),
-        },
-        async { svc.refresh_session("any-token").await },
-    )
-    .await;
-    assert!(result.is_ok());
-    let r = result.unwrap();
-    // Token must be rotated: returned token must be non-empty and different from the input.
-    assert!(!r.token.is_empty());
-    assert_ne!(r.token, "any-token");
-    assert_eq!(r.max_age_seconds, 720 * 3600);
+async fn refresh_session_rotates_the_token() {
+    let f = admin_with_password("pw");
+    f.sessions
+        .rows
+        .lock()
+        .unwrap()
+        .push(live_session(ADMIN_ID, "old-token", true));
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+
+    let result = auth_context::with_context(ctx, async {
+        f.svc.refresh_session("old-token").await
+    })
+    .await
+    .unwrap();
+
+    assert!(!result.token.is_empty());
+    assert_ne!(result.token, "old-token");
+    assert_eq!(result.max_age_seconds, REMEMBER_HOURS * 3600);
+    // The stored hash is the new token's: a captured old token is now useless.
+    assert_eq!(f.sessions.only().token_hash, hash_token(&result.token));
 }
 
 #[tokio::test]
 async fn refresh_session_not_remember_me_returns_forbidden() {
-    // Session exists but remember_me=false → Forbidden.
-    let admin_uuid = "00000000-0000-0000-0000-000000000001";
-    // Build a service with a MockSessionRepo where remember_me=false.
-    let svc = AuthServiceImpl::new(
-        Arc::new(MockAdminRepo {
-            find_result: Mutex::new(None),
-            first_id: Mutex::new(None),
-        }),
-        Arc::new(MockSessionRepo {
-            find_result: Mutex::new(Some(admin_uuid.to_owned())),
-            session_for_refresh: Mutex::new(Some((
-                admin_uuid.to_owned(),
-                false,
-                (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339(),
-            ))),
-            ..Default::default()
-        }),
-        Arc::new(MockApiKeyRepo { hashes: vec![] }),
-        Arc::new(MockSystemConfigRepo),
-        24,
-        720,
+    let f = admin_with_password("pw");
+    f.sessions
+        .rows
+        .lock()
+        .unwrap()
+        .push(live_session(ADMIN_ID, "old-token", false));
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+
+    let result = auth_context::with_context(ctx, async {
+        f.svc.refresh_session("old-token").await
+    })
+    .await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn refresh_session_refuses_another_users_session() {
+    // Ownership, not role, is the check that matters: the session row must
+    // belong to the calling principal.
+    let users = Arc::new(MockUserRepo::with_rows(vec![
+        user_row(ADMIN_ID, "admin", UserRole::Admin, true),
+        user_row(MEMBER_ID, "kid", UserRole::Member, true),
+    ]));
+    let sessions = Arc::new(
+        MockSessionRepo::joined_to(Arc::clone(&users))
+            .with_session(live_session(MEMBER_ID, "kids-token", true)),
     );
-    let result = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::parse_str(admin_uuid).unwrap(),
-        },
-        async { svc.refresh_session("any-token").await },
-    )
-    .await;
-    assert!(matches!(result, Err(AppError::Forbidden(_))));
-}
-
-/// Build a service whose session row for refresh is exactly `row`.
-fn make_refresh_service(row: (String, bool, String)) -> AuthServiceImpl {
-    AuthServiceImpl::new(
-        Arc::new(MockAdminRepo {
-            find_result: Mutex::new(None),
-            first_id: Mutex::new(None),
-        }),
-        Arc::new(MockSessionRepo {
-            session_for_refresh: Mutex::new(Some(row)),
-            ..Default::default()
-        }),
-        Arc::new(MockApiKeyRepo { hashes: vec![] }),
-        Arc::new(MockSystemConfigRepo),
-        24,
-        720,
-    )
-}
-
-#[tokio::test]
-async fn refresh_session_with_malformed_admin_id_returns_internal() {
-    // A session row whose admin_id is not a UUID must error out, not refresh.
-    let svc = make_refresh_service((
-        "not-a-uuid".to_owned(),
-        true,
-        (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339(),
-    ));
-    let result = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        async { svc.refresh_session("any-token").await },
-    )
-    .await;
-    assert!(matches!(result, Err(AppError::Internal(_))));
-}
-
-#[tokio::test]
-async fn refresh_session_with_malformed_created_at_returns_internal() {
-    // A session row whose created_at is not RFC 3339 must error out — the
-    // absolute-lifetime cap cannot be enforced without it.
-    let admin_uuid = "00000000-0000-0000-0000-000000000001";
-    let svc = make_refresh_service((admin_uuid.to_owned(), true, "not-a-timestamp".to_owned()));
-    let result = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::parse_str(admin_uuid).unwrap(),
-        },
-        async { svc.refresh_session("any-token").await },
-    )
-    .await;
-    assert!(matches!(result, Err(AppError::Internal(_))));
-}
-
-#[tokio::test]
-async fn logout_session_requires_admin() {
-    // No auth context → require_admin rejects before touching the repo.
-    let svc = make_auth_service(None, None, None, vec![]);
-    let result = svc.logout_session("any-token").await;
-    assert!(matches!(result, Err(AppError::Forbidden(_))));
-}
-
-#[tokio::test]
-async fn logout_session_deletes_the_sessions_row_by_token_hash() {
-    let admin_uuid = "00000000-0000-0000-0000-000000000001";
-    let sessions = Arc::new(MockSessionRepo {
-        find_result: Mutex::new(Some(admin_uuid.to_owned())),
-        ..Default::default()
-    });
     let svc = AuthServiceImpl::new(
-        Arc::new(MockAdminRepo {
-            find_result: Mutex::new(None),
-            first_id: Mutex::new(None),
-        }),
+        Arc::clone(&users) as Arc<dyn UserRepository>,
+        Arc::new(MockCredentialRepo::empty()),
         Arc::clone(&sessions) as Arc<dyn SessionRepository>,
-        Arc::new(MockApiKeyRepo { hashes: vec![] }),
-        Arc::new(MockSystemConfigRepo),
-        24,
-        720,
+        Arc::new(MockApiKeyRepo::empty()),
+        Arc::new(MockSystemConfigRepo::empty()),
+        SESSION_HOURS,
+        REMEMBER_HOURS,
     );
 
-    let result = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::parse_str(admin_uuid).unwrap(),
-        },
-        async { svc.logout_session("raw-token").await },
-    )
-    .await;
-    assert!(result.is_ok());
-
-    // The repo receives the SHA-256 hash of the raw token, never the token itself.
-    let deleted = sessions.deleted_hashes.lock().unwrap().clone();
-    let expected_hash = {
-        use sha2::{Digest, Sha256};
-        hex::encode(Sha256::digest("raw-token".as_bytes()))
-    };
-    assert_eq!(deleted, vec![expected_hash]);
-
-    // The session no longer resolves afterwards.
-    let after = svc.validate_session("raw-token").await.unwrap();
-    assert!(after.is_none());
+    // The admin presents the member's token.
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+    let result =
+        auth_context::with_context(ctx, async { svc.refresh_session("kids-token").await }).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
-async fn logout_session_is_idempotent_when_session_already_gone() {
-    // No session row exists (delete affects 0 rows) → still Ok, the desired
-    // end state (no server-side session) already holds.
-    let svc = make_auth_service(None, None, None, vec![]);
-    let result = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        async { svc.logout_session("any-token").await },
-    )
-    .await;
-    assert!(result.is_ok());
+async fn refresh_session_refuses_a_disabled_user() {
+    // The refresh lookup applies the same four liveness conditions as
+    // validation. If it did not, disabling an account would leave a
+    // refreshable session standing — a revocation that does not revoke.
+    let users = Arc::new(MockUserRepo::with_rows(vec![user_row(
+        ADMIN_ID,
+        "admin",
+        UserRole::Admin,
+        false,
+    )]));
+    let sessions = Arc::new(
+        MockSessionRepo::joined_to(Arc::clone(&users))
+            .with_session(live_session(ADMIN_ID, "old-token", true)),
+    );
+    let svc = AuthServiceImpl::new(
+        Arc::clone(&users) as Arc<dyn UserRepository>,
+        Arc::new(MockCredentialRepo::empty()),
+        Arc::clone(&sessions) as Arc<dyn SessionRepository>,
+        Arc::new(MockApiKeyRepo::empty()),
+        Arc::new(MockSystemConfigRepo::empty()),
+        SESSION_HOURS,
+        REMEMBER_HOURS,
+    );
+
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+    let result =
+        auth_context::with_context(ctx, async { svc.refresh_session("old-token").await }).await;
+    assert!(matches!(result, Err(AppError::Unauthorized(_))));
 }
 
 #[tokio::test]
-async fn refresh_session_expired_returns_unauthorized() {
-    // Session does not exist (find returns None) → Unauthorized.
-    let svc = make_auth_service(None, None, None, vec![]);
-    let result = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        async { svc.refresh_session("any-token").await },
-    )
+async fn refresh_session_past_the_absolute_ceiling_returns_unauthorized() {
+    let f = admin_with_password("pw");
+    let mut row = live_session(ADMIN_ID, "old-token", true);
+    // Inside the sliding window, but past the hard ceiling.
+    row.absolute_expires_at = (chrono::Utc::now() + chrono::Duration::seconds(1)).to_rfc3339();
+    f.sessions.rows.lock().unwrap().push(row);
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+
+    // Wait past the ceiling without waiting 90 days.
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    let result = auth_context::with_context(ctx, async {
+        f.svc.refresh_session("old-token").await
+    })
     .await;
     assert!(matches!(result, Err(AppError::Unauthorized(_))));
+}
+
+#[tokio::test]
+async fn refresh_session_with_malformed_absolute_expiry_returns_internal() {
+    // The ceiling cannot be enforced without a parseable timestamp, so this
+    // must error rather than refresh.
+    let f = admin_with_password("pw");
+    let mut row = live_session(ADMIN_ID, "old-token", true);
+    row.absolute_expires_at = "not-a-timestamp".to_owned();
+    f.sessions.rows.lock().unwrap().push(row);
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+
+    let result = auth_context::with_context(ctx, async {
+        f.svc.refresh_session("old-token").await
+    })
+    .await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+}
+
+#[tokio::test]
+async fn refresh_session_unknown_token_returns_unauthorized() {
+    let f = admin_with_password("pw");
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+
+    let result =
+        auth_context::with_context(ctx, async { f.svc.refresh_session("nope").await }).await;
+    assert!(matches!(result, Err(AppError::Unauthorized(_))));
+}
+
+#[tokio::test]
+async fn refresh_session_requires_authentication() {
+    let f = admin_with_password("pw");
+    let result = f.svc.refresh_session("any-token").await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+// -- logout ---------------------------------------------------------------
+
+#[tokio::test]
+async fn logout_session_requires_authentication() {
+    let f = admin_with_password("pw");
+    let result = f.svc.logout_session("any-token").await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+}
+
+#[tokio::test]
+async fn logout_session_deletes_the_row_by_token_hash() {
+    let f = admin_with_password("pw");
+    f.sessions
+        .rows
+        .lock()
+        .unwrap()
+        .push(live_session(ADMIN_ID, "raw-token", false));
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+
+    auth_context::with_context(ctx, async { f.svc.logout_session("raw-token").await })
+        .await
+        .unwrap();
+
+    assert_eq!(f.sessions.count(), 0);
+    // And the session no longer resolves.
+    assert!(f.svc.validate_session("raw-token").await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn logout_session_is_available_to_a_member() {
+    // Members log out too — this is guarded with require_authenticated.
+    let users = Arc::new(MockUserRepo::with_rows(vec![user_row(
+        MEMBER_ID,
+        "kid",
+        UserRole::Member,
+        true,
+    )]));
+    let sessions = Arc::new(
+        MockSessionRepo::joined_to(Arc::clone(&users))
+            .with_session(live_session(MEMBER_ID, "kids-token", false)),
+    );
+    let svc = AuthServiceImpl::new(
+        Arc::clone(&users) as Arc<dyn UserRepository>,
+        Arc::new(MockCredentialRepo::empty()),
+        Arc::clone(&sessions) as Arc<dyn SessionRepository>,
+        Arc::new(MockApiKeyRepo::empty()),
+        Arc::new(MockSystemConfigRepo::empty()),
+        SESSION_HOURS,
+        REMEMBER_HOURS,
+    );
+
+    let ctx = principal::member_context(Uuid::parse_str(MEMBER_ID).unwrap());
+    let result =
+        auth_context::with_context(ctx, async { svc.logout_session("kids-token").await }).await;
+    assert!(result.is_ok());
+    assert_eq!(sessions.count(), 0);
+}
+
+#[tokio::test]
+async fn logout_session_is_idempotent_when_the_row_is_already_gone() {
+    // The desired end state (no server-side session) already holds.
+    let f = admin_with_password("pw");
+    let ctx = principal::admin_context(Uuid::parse_str(ADMIN_ID).unwrap());
+
+    let result =
+        auth_context::with_context(ctx, async { f.svc.logout_session("any-token").await }).await;
+    assert!(result.is_ok());
+}
+
+// -- setup_admin ----------------------------------------------------------
+
+#[tokio::test]
+async fn setup_admin_creates_a_user_and_a_password_credential() {
+    let f = fixture(
+        MockUserRepo::empty(),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::empty(),
+    );
+
+    f.svc.setup_admin("operator", "a-good-password").await.unwrap();
+
+    assert_eq!(f.users.count(), 1);
+    let rows = f.users.rows.lock().unwrap().clone();
+    assert_eq!(rows[0].display_name, "operator");
+    assert_eq!(rows[0].role, UserRole::Admin);
+    assert!(rows[0].enabled);
+    // The email index is left free rather than filled with a fake address.
+    assert!(rows[0].email.is_none());
+
+    // The credential subject is lowercased, so login is case-insensitive.
+    let credential = f
+        .credentials
+        .find_password(&rows[0].id)
+        .await
+        .unwrap()
+        .expect("a password credential must exist");
+    assert_eq!(credential.subject, "operator");
+
+    // And the wizard moved off the admin step.
+    assert_eq!(f.config.read("wizard_step").as_deref(), Some("network"));
+}
+
+#[tokio::test]
+async fn setup_admin_refuses_once_a_user_exists() {
+    let f = fixture(
+        MockUserRepo::with_admin(ADMIN_ID, "admin"),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::empty(),
+    );
+
+    let result = f.svc.setup_admin("second", "a-good-password").await;
+    assert!(matches!(result, Err(AppError::Conflict(_))));
+}
+
+#[tokio::test]
+async fn setup_admin_validates_the_username_and_password() {
+    let f = fixture(
+        MockUserRepo::empty(),
+        MockCredentialRepo::empty(),
+        MockApiKeyRepo::empty(),
+    );
+
+    assert!(matches!(
+        f.svc.setup_admin("ab", "a-good-password").await,
+        Err(AppError::BadRequest(_))
+    ));
+    assert!(matches!(
+        f.svc.setup_admin("has space", "a-good-password").await,
+        Err(AppError::BadRequest(_))
+    ));
+    assert!(matches!(
+        f.svc.setup_admin("operator", "short").await,
+        Err(AppError::BadRequest(_))
+    ));
+    // Nothing was written by any rejected attempt.
+    assert_eq!(f.users.count(), 0);
+}
+
+#[tokio::test]
+async fn setup_admin_rolls_back_the_user_when_the_credential_write_fails() {
+    // Without compensating, `users.exists()` stays true forever: the 409 guard
+    // fires on every retry, the wizard considers itself done, and nobody can
+    // log in. That is a permanent lockout with no recovery short of editing the
+    // database by hand.
+    let users = Arc::new(MockUserRepo::empty());
+    let credentials = Arc::new(
+        MockCredentialRepo::joined_to(Arc::clone(&users)).failing_set_password("disk on fire"),
+    );
+    let svc = AuthServiceImpl::new(
+        Arc::clone(&users) as Arc<dyn UserRepository>,
+        Arc::clone(&credentials) as Arc<dyn UserCredentialRepository>,
+        Arc::new(MockSessionRepo::empty()),
+        Arc::new(MockApiKeyRepo::empty()),
+        Arc::new(MockSystemConfigRepo::empty()),
+        SESSION_HOURS,
+        REMEMBER_HOURS,
+    );
+
+    let result = svc.setup_admin("operator", "a-good-password").await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+    assert_eq!(
+        users.count(),
+        0,
+        "the orphan users row must be rolled back, or the box is permanently half-claimed"
+    );
 }

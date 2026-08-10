@@ -12,7 +12,7 @@ use wardnet_common::api::{
     SetDefaultPolicyRequest, SetDefaultPolicyResponse, SystemStatusResponse,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::AuthErrors;
 use crate::state::AppState;
 use wardnetd_services::diagnostics::Diagnostic;
@@ -49,7 +49,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn status(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<SystemStatusResponse>, AppError> {
     let response = state.system_service().status().await?;
     Ok(Json(response))
@@ -69,7 +69,7 @@ pub async fn status(
 )]
 pub async fn download_logs(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<impl IntoResponse, AppError> {
     let formatted = state.log_service().download_log_file(None).await?;
 
@@ -106,7 +106,7 @@ pub async fn download_logs(
 )]
 pub async fn restart(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<axum::http::StatusCode, AppError> {
     state.system_service().request_restart().await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -134,7 +134,7 @@ pub async fn restart(
 )]
 pub async fn reboot(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<axum::http::StatusCode, AppError> {
     state.system_service().request_reboot().await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -161,7 +161,7 @@ pub async fn reboot(
 )]
 pub async fn shutdown(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<axum::http::StatusCode, AppError> {
     state.system_service().request_shutdown().await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -182,7 +182,7 @@ pub async fn shutdown(
 )]
 pub async fn get_default_policy(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<SetDefaultPolicyResponse>, AppError> {
     let policy = state.routing_service().default_policy().await?;
     Ok(Json(SetDefaultPolicyResponse { policy }))
@@ -206,7 +206,7 @@ pub async fn get_default_policy(
 )]
 pub async fn set_default_policy(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<SetDefaultPolicyRequest>,
 ) -> Result<Json<SetDefaultPolicyResponse>, AppError> {
     state
@@ -242,7 +242,7 @@ pub async fn set_default_policy(
 )]
 pub async fn acknowledge_shutdown(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<axum::http::StatusCode, AppError> {
     state.system_service().acknowledge_last_shutdown().await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
@@ -305,7 +305,7 @@ pub struct RecentErrorsResponse {
 )]
 pub async fn recent_errors(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<RecentErrorsResponse>, AppError> {
     let errors = state
         .log_service()

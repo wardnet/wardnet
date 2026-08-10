@@ -321,7 +321,12 @@ async fn run(
         .admin
         .as_ref()
         .map(|a| (a.username.as_str(), a.password.as_str()));
-    wardnetd_data::bootstrap::bootstrap_admin(&repo_factory.admin(), admin_credentials).await?;
+    wardnetd_data::bootstrap::bootstrap_admin(
+        &repo_factory.user(),
+        &repo_factory.user_credential(),
+        admin_credentials,
+    )
+    .await?;
     let system_config_repo = repo_factory.system_config();
 
     // Hold a clone of `garp_ops` outside `Backends` so the shutdown
@@ -485,23 +490,16 @@ async fn run(
         .restore_tunnels()
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
-        services.discovery.restore_devices(),
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    auth_context::with_context(AuthContext::system(), services.discovery.restore_devices())
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Name already-discovered devices the curated vendor catalog can identify
     // (issue #1099). Only `insert_new_device` consults the catalog, so without
     // this an upgrade would leave existing devices unidentified forever. Not
     // fatal: a failure here costs a nicer label, not a working daemon.
     match auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
+        AuthContext::system(),
         services.device_identification.reconcile_from_catalog(),
     )
     .await
@@ -541,14 +539,9 @@ async fn run(
         );
 
     // Reconcile routing state with kernel on startup.
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
-        services.routing.reconcile(),
-    )
-    .await
-    .map_err(|e| anyhow::anyhow!("{e}"))?;
+    auth_context::with_context(AuthContext::system(), services.routing.reconcile())
+        .await
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     // Reconcile Network-Zone packet enforcement (#736) *after* routing: routing's
     // reconcile (re)creates + flushes the shared `wardnet` nftables table
@@ -556,13 +549,9 @@ async fn run(
     // enforcer starts from a clean slate and can clamp any forbidden default
     // binding routing just installed. A failure here must not block startup —
     // enforcement is best-effort layered on top of routing.
-    if let Err(e) = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
-        services.zone_enforcement.reconcile(),
-    )
-    .await
+    if let Err(e) =
+        auth_context::with_context(AuthContext::system(), services.zone_enforcement.reconcile())
+            .await
     {
         tracing::warn!(error = %e, "network-zone enforcement reconcile failed on startup: {e}");
     }
@@ -604,9 +593,7 @@ async fn run(
             source: DnsRecordSource::System,
         };
         match auth_context::with_context(
-            AuthContext::Admin {
-                admin_id: uuid::Uuid::nil(),
-            },
+            AuthContext::system(),
             services.dns_local.upsert_record(req),
         )
         .await
@@ -628,13 +615,8 @@ async fn run(
     // latency (2 pulses × 500ms gap) buys deterministic acceptance —
     // see issue #213, decision 5. Failures swallowed: the GARP path
     // must never block bootstrap.
-    if let Err(e) = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
-        garp_ops.broadcast_claim(),
-    )
-    .await
+    if let Err(e) =
+        auth_context::with_context(AuthContext::system(), garp_ops.broadcast_claim()).await
     {
         tracing::warn!(error = %e, "GARP claim failed; continuing bootstrap");
     }
@@ -871,7 +853,7 @@ async fn run(
 
     // Periodically purge expired admin-session rows (reads already filter on
     // expiry; this reclaims the dead storage). Hourly cadence.
-    let session_cleanup_runner = SessionCleanupRunner::start(services.auth.clone(), &root_span);
+    let session_cleanup_runner = SessionCleanupRunner::start(services.auth.clone(), services.user.clone(), &root_span);
 
     // Drain the DNS query log persistence channel into SQLite and trim the
     // table once a day. The receiver is taken out of `Services` exactly
@@ -925,9 +907,7 @@ async fn run(
     // like every other (`.agents/auth.md`), so the startup caller supplies the
     // identity rather than the method opting out of the check.
     let reconcile = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
+        AuthContext::system(),
         services.update.reconcile_pending_install(),
     )
     .await;
@@ -943,9 +923,7 @@ async fn run(
     // `beta` here — before the update runner's first check, so it can never
     // pull an edge build the current config no longer permits.
     let channel_gate = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
+        AuthContext::system(),
         services.update.reconcile_channel_gate(),
     )
     .await;
@@ -1289,13 +1267,8 @@ async fn run(
     // of the daemon is still alive on the LAN. Failures swallowed: a
     // GARP error must not block routing/DHCP/DNS cleanup. See issue
     // #213, decision 3.
-    if let Err(e) = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
-        garp_ops.broadcast_farewell(),
-    )
-    .await
+    if let Err(e) =
+        auth_context::with_context(AuthContext::system(), garp_ops.broadcast_farewell()).await
     {
         tracing::warn!(error = %e, "GARP farewell failed; continuing shutdown");
     }
@@ -1384,9 +1357,7 @@ async fn run(
         //
         // Failures are already logged by the callee; the returned list exists
         // for `wardnetd uninstall`, which has no tracing subscriber.
-        let teardown_ctx = AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        };
+        let teardown_ctx = AuthContext::system();
         let _ = auth_context::with_context(
             teardown_ctx,
             wardnetd::shutdown::teardown_runtime_state(
@@ -1409,9 +1380,7 @@ async fn run(
     // outside the HTTP middleware chain. Failure here is logged but
     // never escalated — the worst-case is a benign false-positive
     // banner on the next boot.
-    let admin_ctx = AuthContext::Admin {
-        admin_id: uuid::Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
     if let Err(e) =
         auth_context::with_context(admin_ctx, services.system.record_graceful_shutdown()).await
     {
