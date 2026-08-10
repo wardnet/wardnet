@@ -267,6 +267,36 @@ impl crate::user::UserService for MockUserService {
     ) -> Result<u64, AppError> {
         unimplemented!()
     }
+    async fn start_passkey_registration(
+        &self,
+        _request_host: &str,
+    ) -> Result<serde_json::Value, AppError> {
+        unimplemented!()
+    }
+    async fn finish_passkey_registration(
+        &self,
+        _request_host: &str,
+        _label: Option<&str>,
+        _credential: serde_json::Value,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn start_passkey_authentication(
+        &self,
+        _request_host: &str,
+    ) -> Result<serde_json::Value, AppError> {
+        unimplemented!()
+    }
+    async fn finish_passkey_authentication(
+        &self,
+        _request_host: &str,
+        _credential: serde_json::Value,
+    ) -> Result<(crate::user::UserProfile, UserRole), AppError> {
+        unimplemented!()
+    }
+    async fn reset_passkeys(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

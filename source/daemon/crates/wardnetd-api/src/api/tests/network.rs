@@ -180,6 +180,7 @@ fn clone_app_error(err: &AppError) -> AppError {
         AppError::Forbidden(s) => AppError::Forbidden(s.clone()),
         AppError::Unauthorized(s) => AppError::Unauthorized(s.clone()),
         AppError::UpstreamUnavailable(s) => AppError::UpstreamUnavailable(s.clone()),
+        AppError::PreconditionFailed(s) => AppError::PreconditionFailed(s.clone()),
         AppError::TooManyRequests {
             message,
             retry_after_seconds,
