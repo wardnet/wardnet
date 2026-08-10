@@ -52,14 +52,14 @@ use self::provider::DnsProvider;
 use self::region::RegionEndpoint;
 
 // ── system_config keys (non-secret) ────────────────────────────────────────────
-const KEY_PROVIDER: &str = "ddns_provider";
+pub const KEY_PROVIDER: &str = "ddns_provider";
 const KEY_TENANT_ID: &str = "ddns_tenant_id";
 const KEY_NETWORK_ID: &str = "ddns_network_id";
 const KEY_SLUG: &str = "ddns_slug";
-const KEY_SUBDOMAIN: &str = "ddns_subdomain";
+pub const KEY_SUBDOMAIN: &str = "ddns_subdomain";
 pub(crate) const KEY_REGION: &str = "ddns_region";
 const KEY_LAST_IP: &str = "ddns_last_public_ip";
-const KEY_DOMAIN: &str = "ddns_domain";
+pub const KEY_DOMAIN: &str = "ddns_domain";
 const KEY_CF_ZONE_ID: &str = "ddns_cf_zone_id";
 
 // ── secret-store paths ─────────────────────────────────────────────────────────
@@ -69,9 +69,9 @@ pub(crate) const SECRET_DAEMON_KEY: &str = "ddns/daemon/signing_key";
 const SECRET_CF_TOKEN: &str = "ddns/cloudflare/api_token";
 
 /// The wardnet-managed provider (enroll → network → ddns).
-const PROVIDER_WARDNET: &str = "wardnet";
+pub const PROVIDER_WARDNET: &str = "wardnet";
 /// The Bring-Your-Own-Domain Cloudflare provider.
-const PROVIDER_CLOUDFLARE: &str = "cloudflare";
+pub const PROVIDER_CLOUDFLARE: &str = "cloudflare";
 /// The retired pre-mesh `bridge` provider. Any install still carrying it is
 /// wiped on sight and must re-enroll (no migration — the auth model changed).
 const PROVIDER_LEGACY_BRIDGE: &str = "bridge";

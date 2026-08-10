@@ -532,6 +532,14 @@ fn create_services(
         repo_factory.user_credential(),
         repo_factory.user_enrolment(),
         repo_factory.session(),
+        crate::user::OauthConfig {
+            system_config: system_config_repo.clone(),
+            secrets: backup_secret_store.clone(),
+        },
+        Arc::new(
+            crate::user::ReqwestOauthClient::new()
+                .expect("building a reqwest client with a timeout cannot fail"),
+        ),
     ));
 
     let dns_events_repo = repo_factory.dns_events();

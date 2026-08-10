@@ -56,6 +56,13 @@ fn build(users: MockUserRepo) -> Fixture {
         Arc::clone(&credentials) as Arc<dyn UserCredentialRepository>,
         Arc::clone(&enrolments) as Arc<dyn UserEnrolmentRepository>,
         Arc::clone(&sessions) as Arc<dyn SessionRepository>,
+        // No provider is configured in these tests: the directory and enrolment
+        // paths must not depend on federated sign-in being available.
+        crate::user::OauthConfig {
+            system_config: Arc::new(crate::tests::repo_mocks::MockSystemConfigRepo::empty()),
+            secrets: Arc::new(crate::tests::repo_mocks::MockSecretStore::empty()),
+        },
+        Arc::new(crate::user::ReqwestOauthClient::new().unwrap()),
     );
     Fixture {
         svc,

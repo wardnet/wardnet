@@ -9,6 +9,11 @@ use wardnet_common::auth::UserRole;
 use crate::auth::password::{hash_password, hash_token, new_session_token, validate_password};
 use crate::auth_context;
 use crate::error::AppError;
+use crate::user::ceremony::CeremonyStore;
+use crate::user::oauth::{
+    OauthClient, OauthConfig, OauthProvider, PendingOauth, ProviderEndpoints, ProviderIdentity,
+    ProviderStatus, new_pkce_pair, new_state,
+};
 use wardnetd_data::repository::session::SessionRepository;
 use wardnetd_data::repository::user::{DuplicateUserEmailError, UserRepository, UserRow};
 use wardnetd_data::repository::user_credential::{CredentialSummary, UserCredentialRepository};
@@ -170,6 +175,81 @@ pub trait UserService: Send + Sync {
 
     /// Delete expired enrolment tokens. Called by the session-cleanup runner.
     async fn cleanup_expired_enrolments(&self) -> Result<u64, AppError>;
+
+    /// Which sign-in methods this box can actually offer right now.
+    ///
+    /// **Unauthenticated** — a documented exception (`.agents/auth.md`
+    /// category (b)): it backs the sign-in surface, whose whole job is to be
+    /// reachable before anybody has a session. It reports only whether a method
+    /// is available, never any credential or client secret.
+    async fn available_methods(&self) -> Result<AuthMethods, AppError>;
+
+    /// Configure a provider's client id and secret.
+    ///
+    /// The secret goes to the `SecretStore` and is never readable back through
+    /// any API; reads report `configured: true|false`. Passing `None` for the
+    /// secret leaves an existing one in place, so an admin can toggle `enabled`
+    /// or fix a typo'd client id without re-pasting it.
+    async fn configure_oauth_provider(
+        &self,
+        provider: OauthProvider,
+        client_id: &str,
+        client_secret: Option<&str>,
+        enabled: bool,
+    ) -> Result<ProviderStatus, AppError>;
+
+    /// Forget a provider's configuration entirely, including its secret.
+    async fn clear_oauth_provider(&self, provider: OauthProvider) -> Result<(), AppError>;
+
+    /// Begin an OAuth sign-in, returning the URL to send the browser to.
+    ///
+    /// **Unauthenticated** — this is a sign-in entry point (category (b)).
+    async fn start_oauth(&self, provider: OauthProvider) -> Result<OauthRedirect, AppError>;
+
+    /// Complete an OAuth sign-in.
+    ///
+    /// **Unauthenticated** (category (b)). Returns the user the provider
+    /// account is linked to. An unknown subject is refused — Wardnet **never**
+    /// auto-creates a household user from a federated login, because that would
+    /// let anyone with a Google account create an account on somebody's home
+    /// network. The admin links the account first.
+    async fn complete_oauth(
+        &self,
+        state: &str,
+        code: &str,
+    ) -> Result<(UserProfile, UserRole), AppError>;
+
+    /// Link a provider account to the calling user, completing a ceremony the
+    /// caller started while signed in.
+    async fn link_oauth(&self, state: &str, code: &str) -> Result<(), AppError>;
+
+    /// Unlink every credential of one provider kind from a user.
+    ///
+    /// Never removes the local password: that is the floor, and a box whose
+    /// only credential depended on a reachable provider would be unreachable
+    /// during a WAN outage.
+    async fn unlink_oauth(
+        &self,
+        user_id: Uuid,
+        provider: OauthProvider,
+    ) -> Result<u64, AppError>;
+}
+
+/// What the sign-in surface may render.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuthMethods {
+    /// Always `true`. The local password is the floor: it works with no WAN, no
+    /// certificate and no provider, and there is no path that removes it.
+    pub password: bool,
+    /// Per-provider availability and the redirect URI to register.
+    pub providers: Vec<ProviderStatus>,
+}
+
+/// Where to send the browser to start an OAuth ceremony.
+#[derive(Debug, Clone)]
+pub struct OauthRedirect {
+    /// The provider's authorize URL, fully parameterised.
+    pub url: String,
 }
 
 /// Default [`UserService`] over the repository traits.
@@ -178,6 +258,13 @@ pub struct UserServiceImpl {
     credentials: Arc<dyn UserCredentialRepository>,
     enrolments: Arc<dyn UserEnrolmentRepository>,
     sessions: Arc<dyn SessionRepository>,
+    oauth_config: OauthConfig,
+    oauth_client: Arc<dyn OauthClient>,
+    /// Open OAuth ceremonies. In memory and never persisted — see
+    /// [`crate::user::ceremony`].
+    pending_oauth: CeremonyStore<PendingOauth>,
+    /// Provider endpoints, overridable so tests can point at `wiremock`.
+    endpoints: Vec<(OauthProvider, ProviderEndpoints)>,
 }
 
 impl UserServiceImpl {
@@ -186,13 +273,119 @@ impl UserServiceImpl {
         credentials: Arc<dyn UserCredentialRepository>,
         enrolments: Arc<dyn UserEnrolmentRepository>,
         sessions: Arc<dyn SessionRepository>,
+        oauth_config: OauthConfig,
+        oauth_client: Arc<dyn OauthClient>,
     ) -> Self {
         Self {
             users,
             credentials,
             enrolments,
             sessions,
+            oauth_config,
+            oauth_client,
+            pending_oauth: CeremonyStore::new(),
+            endpoints: vec![
+                (
+                    OauthProvider::Google,
+                    ProviderEndpoints::production(OauthProvider::Google),
+                ),
+                (
+                    OauthProvider::Github,
+                    ProviderEndpoints::production(OauthProvider::Github),
+                ),
+            ],
         }
+    }
+
+    /// Replace one provider's endpoints. Test-facing: production always uses
+    /// [`ProviderEndpoints::production`].
+    #[must_use]
+    pub fn with_endpoints(
+        mut self,
+        provider: OauthProvider,
+        endpoints: ProviderEndpoints,
+    ) -> Self {
+        self.endpoints.retain(|(p, _)| *p != provider);
+        self.endpoints.push((provider, endpoints));
+        self
+    }
+
+    /// The endpoints in force for `provider`.
+    fn endpoints_for(&self, provider: OauthProvider) -> ProviderEndpoints {
+        self.endpoints
+            .iter()
+            .find(|(p, _)| *p == provider)
+            .map(|(_, e)| e.clone())
+            .unwrap_or_else(|| ProviderEndpoints::production(provider))
+    }
+
+    /// Everything needed to talk to a provider, or a clear refusal.
+    ///
+    /// Checked in one place so no path can reach a provider call with a missing
+    /// piece — and so the failure is `Conflict` ("not configured"), never a
+    /// confusing 500 from an empty client id.
+    async fn provider_ready(
+        &self,
+        provider: OauthProvider,
+    ) -> Result<(String, String, String), AppError> {
+        let status = self.oauth_config.status(provider).await?;
+        if !status.enabled {
+            return Err(AppError::Conflict(format!(
+                "{} sign-in is not configured on this box",
+                provider.as_str()
+            )));
+        }
+        let redirect_uri = status.redirect_uri.ok_or_else(|| {
+            AppError::Conflict(
+                "this box has no canonical public hostname, so federated sign-in \
+                 cannot work; set up remote access first"
+                    .to_owned(),
+            )
+        })?;
+        let client_id = self
+            .oauth_config
+            .client_id(provider)
+            .await?
+            .ok_or_else(|| AppError::Conflict("no client id configured".to_owned()))?;
+        let client_secret = self
+            .oauth_config
+            .client_secret(provider)
+            .await?
+            .ok_or_else(|| AppError::Conflict("no client secret configured".to_owned()))?;
+        Ok((client_id, client_secret, redirect_uri))
+    }
+
+    /// Run an OAuth callback to the point of knowing who the provider says this
+    /// is. Shared by sign-in and account-linking, which differ only in what they
+    /// do with the answer.
+    async fn resolve_callback(
+        &self,
+        state: &str,
+        code: &str,
+    ) -> Result<(OauthProvider, ProviderIdentity), AppError> {
+        // `take` removes the entry, so a replayed `state` fails here even if the
+        // rest of the ceremony would have succeeded.
+        let pending = self.pending_oauth.take(state).ok_or_else(|| {
+            AppError::Unauthorized("that sign-in attempt is not valid; please try again".to_owned())
+        })?;
+
+        let provider = pending.provider;
+        let (client_id, client_secret, redirect_uri) = self.provider_ready(provider).await?;
+
+        let identity = self
+            .oauth_client
+            .exchange_and_identify(
+                provider,
+                &self.endpoints_for(provider),
+                &client_id,
+                &client_secret,
+                &redirect_uri,
+                code,
+                &pending.pkce_verifier,
+            )
+            .await?;
+
+        Ok((provider, identity))
     }
 
     /// The calling user's id, or `Forbidden` for a device/anonymous caller.
@@ -674,5 +867,262 @@ impl UserService for UserServiceImpl {
             .delete_expired(&now)
             .await
             .map_err(AppError::Internal)
+    }
+
+    async fn available_methods(&self) -> Result<AuthMethods, AppError> {
+        // Documented exception to the auth-guard rule (`.agents/auth.md`
+        // category (b)): this backs the sign-in surface, which by definition is
+        // reached before anybody has a session. It returns availability only.
+        Ok(AuthMethods {
+            // Not a stored flag. The local password is the floor by
+            // construction — there is no code path that removes it — so
+            // reporting it from configuration would invite it to become false.
+            password: true,
+            providers: vec![
+                self.oauth_config.status(OauthProvider::Google).await?,
+                self.oauth_config.status(OauthProvider::Github).await?,
+            ],
+        })
+    }
+
+    async fn configure_oauth_provider(
+        &self,
+        provider: OauthProvider,
+        client_id: &str,
+        client_secret: Option<&str>,
+        enabled: bool,
+    ) -> Result<ProviderStatus, AppError> {
+        auth_context::require_admin()?;
+
+        let client_id = client_id.trim();
+        if client_id.is_empty() {
+            return Err(AppError::BadRequest("client id must not be empty".to_owned()));
+        }
+
+        self.oauth_config
+            .system_config
+            .set(&provider.client_id_key(), client_id)
+            .await
+            .map_err(AppError::Internal)?;
+
+        // `None` keeps the existing secret, so an admin can flip `enabled` or
+        // correct a client id without re-pasting a value they may not still
+        // have. An empty string is a mistake, not "clear it" — that is what
+        // `clear_oauth_provider` is for.
+        if let Some(secret) = client_secret {
+            if secret.trim().is_empty() {
+                return Err(AppError::BadRequest(
+                    "client secret must not be empty; use the clear action to remove it".to_owned(),
+                ));
+            }
+            self.oauth_config
+                .secrets
+                .put(&provider.secret_path(), secret.trim().as_bytes())
+                .await
+                .map_err(AppError::Internal)?;
+        }
+
+        self.oauth_config
+            .system_config
+            .set(&provider.enabled_key(), if enabled { "true" } else { "false" })
+            .await
+            .map_err(AppError::Internal)?;
+
+        tracing::info!(
+            provider = provider.as_str(),
+            enabled,
+            "oauth provider configured: provider={}",
+            provider.as_str()
+        );
+
+        self.oauth_config.status(provider).await
+    }
+
+    async fn clear_oauth_provider(&self, provider: OauthProvider) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        self.oauth_config
+            .system_config
+            .delete(&provider.client_id_key())
+            .await
+            .map_err(AppError::Internal)?;
+        self.oauth_config
+            .system_config
+            .set(&provider.enabled_key(), "false")
+            .await
+            .map_err(AppError::Internal)?;
+        self.oauth_config
+            .secrets
+            .delete(&provider.secret_path())
+            .await
+            .map_err(AppError::Internal)?;
+
+        tracing::info!(
+            provider = provider.as_str(),
+            "oauth provider configuration cleared: provider={}",
+            provider.as_str()
+        );
+        Ok(())
+    }
+
+    async fn start_oauth(&self, provider: OauthProvider) -> Result<OauthRedirect, AppError> {
+        // Documented exception (category (b)): a sign-in entry point.
+        let (client_id, _secret, redirect_uri) = self.provider_ready(provider).await?;
+        let endpoints = self.endpoints_for(provider);
+
+        let state = new_state();
+        let (verifier, challenge) = new_pkce_pair();
+
+        self.pending_oauth.insert(
+            state.clone(),
+            PendingOauth {
+                provider,
+                pkce_verifier: verifier,
+            },
+        );
+
+        // Built through `Url` rather than string interpolation: a client id or
+        // scope containing a reserved character would otherwise silently corrupt
+        // the query. `reqwest` re-exports this, so it costs no new dependency.
+        let mut url = reqwest::Url::parse(&endpoints.authorize_url).map_err(|e| {
+            AppError::Internal(anyhow::anyhow!("invalid authorize url configured: {e}"))
+        })?;
+        url.query_pairs_mut()
+            .append_pair("response_type", "code")
+            .append_pair("client_id", &client_id)
+            .append_pair("redirect_uri", &redirect_uri)
+            .append_pair("scope", &endpoints.scopes)
+            .append_pair("state", &state)
+            .append_pair("code_challenge", &challenge)
+            .append_pair("code_challenge_method", "S256");
+
+        Ok(OauthRedirect {
+            url: url.to_string(),
+        })
+    }
+
+    async fn complete_oauth(
+        &self,
+        state: &str,
+        code: &str,
+    ) -> Result<(UserProfile, UserRole), AppError> {
+        // Documented exception (category (b)): this IS the credential check.
+        let (provider, identity) = self.resolve_callback(state, code).await?;
+
+        // The subject is the join key, and `find_for_login` filters disabled
+        // users in SQL. An unknown subject is refused outright: Wardnet never
+        // auto-creates a household user from a federated login, because that
+        // would let anybody with a Google account create an account on somebody
+        // else's home network.
+        let login = self
+            .credentials
+            .find_for_login(provider.credential_kind(), &identity.subject)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| {
+                tracing::warn!(
+                    provider = provider.as_str(),
+                    "oauth sign-in refused: provider account is not linked to any household user"
+                );
+                AppError::Unauthorized(
+                    "that account is not linked to a household user; ask an admin to link it"
+                        .to_owned(),
+                )
+            })?;
+
+        let now = chrono::Utc::now().to_rfc3339();
+        if let Err(e) = self
+            .credentials
+            .touch_last_used(&login.credential.id, &now)
+            .await
+        {
+            tracing::warn!(error = %e, "failed to record credential last_used_at");
+        }
+
+        let user_id = Uuid::parse_str(&login.credential.user_id)
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid user id: {e}")))?;
+        let profile = UserProfile::from_row(self.load(user_id).await?)?;
+        let role = login.role;
+
+        tracing::info!(
+            provider = provider.as_str(),
+            user_id = %user_id,
+            "oauth sign-in succeeded: provider={}",
+            provider.as_str()
+        );
+
+        Ok((profile, role))
+    }
+
+    async fn link_oauth(&self, state: &str, code: &str) -> Result<(), AppError> {
+        auth_context::require_authenticated()?;
+        let user_id = Self::caller()?;
+
+        let (provider, identity) = self.resolve_callback(state, code).await?;
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let row = wardnetd_data::repository::user_credential::CredentialRow {
+            id: Uuid::new_v4().to_string(),
+            user_id: user_id.to_string(),
+            kind: provider.credential_kind(),
+            subject: identity.subject,
+            // No secret: the provider holds the credential. What is stored is
+            // only the link.
+            secret: None,
+            label: identity.label,
+            metadata: "{}".to_owned(),
+            created_at: now,
+            last_used_at: None,
+        };
+
+        self.credentials.insert(&row).await.map_err(|e| {
+            // The `(kind, subject)` uniqueness constraint is the anti-hijack
+            // invariant: one provider account links to at most one household
+            // user. The refusal deliberately does not say *which* user already
+            // holds the link — that would turn a link attempt into a
+            // directory-enumeration oracle.
+            if e.downcast_ref::<wardnetd_data::repository::user_credential::CredentialAlreadyLinkedError>()
+                .is_some()
+            {
+                return AppError::Conflict(
+                    "that provider account is already linked to an account".to_owned(),
+                );
+            }
+            AppError::Internal(e)
+        })?;
+
+        tracing::info!(
+            provider = provider.as_str(),
+            user_id = %user_id,
+            "oauth account linked: provider={}",
+            provider.as_str()
+        );
+        Ok(())
+    }
+
+    async fn unlink_oauth(
+        &self,
+        user_id: Uuid,
+        provider: OauthProvider,
+    ) -> Result<u64, AppError> {
+        Self::require_admin_or_self(user_id)?;
+
+        // Only ever removes federated links. The local password is not
+        // reachable from here at all: a box whose sole credential depended on a
+        // reachable provider would be unreachable during a WAN outage, which is
+        // exactly what ADR-0031 refuses.
+        let removed = self
+            .credentials
+            .delete_by_kind(&user_id.to_string(), provider.credential_kind())
+            .await
+            .map_err(AppError::Internal)?;
+
+        tracing::info!(
+            provider = provider.as_str(),
+            user_id = %user_id,
+            removed,
+            "oauth account unlinked: removed={removed}"
+        );
+        Ok(removed)
     }
 }

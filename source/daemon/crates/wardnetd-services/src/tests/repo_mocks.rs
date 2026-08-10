@@ -28,7 +28,8 @@ use wardnetd_data::repository::session::{
 use wardnetd_data::repository::user::{UserRepository, UserRow};
 use wardnetd_data::repository::user_enrolment::{EnrolmentTokenRow, UserEnrolmentRepository};
 use wardnetd_data::repository::user_credential::{
-    CredentialKind, CredentialLogin, CredentialRow, CredentialSummary, UserCredentialRepository,
+    CredentialAlreadyLinkedError, CredentialKind, CredentialLogin, CredentialRow,
+    CredentialSummary, UserCredentialRepository,
 };
 use wardnetd_data::repository::{ApiKeyRepository, SystemConfigRepository};
 
@@ -210,6 +211,10 @@ pub struct MockCredentialRepo {
     /// When set, `set_password` fails with this message — used to test the
     /// bootstrap rollback path.
     pub fail_set_password: Option<String>,
+    /// When true, `insert` enforces the `(kind, subject)` unique index by
+    /// returning [`CredentialAlreadyLinkedError`]. Off by default so tests that
+    /// merely seed rows are not obliged to care.
+    enforce_unique_subject: Mutex<bool>,
 }
 
 impl MockCredentialRepo {
@@ -219,7 +224,14 @@ impl MockCredentialRepo {
             rows: Mutex::new(Vec::new()),
             users: None,
             fail_set_password: None,
+            enforce_unique_subject: Mutex::new(false),
         }
+    }
+
+    /// Turn on the `(kind, subject)` uniqueness constraint — the anti-hijack
+    /// invariant that stops one provider account linking to two users.
+    pub fn enforce_subject_uniqueness(&self) {
+        *self.enforce_unique_subject.lock().unwrap() = true;
     }
 
     /// Join credentials to a user repo so the `enabled` filter is honoured.
@@ -229,6 +241,7 @@ impl MockCredentialRepo {
             rows: Mutex::new(Vec::new()),
             users: Some(users),
             fail_set_password: None,
+            enforce_unique_subject: Mutex::new(false),
         }
     }
 
@@ -271,7 +284,17 @@ impl MockCredentialRepo {
 #[async_trait]
 impl UserCredentialRepository for MockCredentialRepo {
     async fn insert(&self, row: &CredentialRow) -> anyhow::Result<()> {
-        self.rows.lock().unwrap().push(row.clone());
+        let mut rows = self.rows.lock().unwrap();
+        if *self.enforce_unique_subject.lock().unwrap()
+            && rows
+                .iter()
+                .any(|r| r.kind == row.kind && r.subject == row.subject)
+        {
+            // Downcastable, exactly as the real SQLite constraint violation is,
+            // so the service can map it to a 409 rather than a 500.
+            return Err(anyhow::Error::new(CredentialAlreadyLinkedError));
+        }
+        rows.push(row.clone());
         Ok(())
     }
 
@@ -894,5 +917,64 @@ impl SystemConfigRepository for MockSystemConfigRepo {
 
     async fn db_size_bytes(&self) -> anyhow::Result<u64> {
         Ok(0)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Secret store
+// ---------------------------------------------------------------------------
+
+/// In-memory [`SecretStore`].
+///
+/// Lets a test assert that a client secret went to the vault and **not** into
+/// `system_config`, which is the property that keeps it out of every API
+/// response and every config dump.
+pub struct MockSecretStore {
+    pub values: Mutex<HashMap<String, Vec<u8>>>,
+}
+
+impl MockSecretStore {
+    #[must_use]
+    pub fn empty() -> Self {
+        Self {
+            values: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Whether a secret is stored at `path`.
+    #[must_use]
+    pub fn contains(&self, path: &str) -> bool {
+        self.values.lock().unwrap().contains_key(path)
+    }
+}
+
+#[async_trait]
+impl wardnetd_data::secret_store::SecretStore for MockSecretStore {
+    async fn put(&self, path: &str, value: &[u8]) -> anyhow::Result<()> {
+        self.values
+            .lock()
+            .unwrap()
+            .insert(path.to_owned(), value.to_vec());
+        Ok(())
+    }
+
+    async fn get(&self, path: &str) -> anyhow::Result<Option<Vec<u8>>> {
+        Ok(self.values.lock().unwrap().get(path).cloned())
+    }
+
+    async fn delete(&self, path: &str) -> anyhow::Result<()> {
+        self.values.lock().unwrap().remove(path);
+        Ok(())
+    }
+
+    async fn list(&self, prefix: &str) -> anyhow::Result<Vec<String>> {
+        Ok(self
+            .values
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|k| k.starts_with(prefix))
+            .cloned()
+            .collect())
     }
 }

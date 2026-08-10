@@ -226,6 +226,47 @@ impl crate::user::UserService for MockUserService {
     ) -> Result<crate::user::UserProfile, AppError> {
         unimplemented!()
     }
+    async fn available_methods(&self) -> Result<crate::user::service::AuthMethods, AppError> {
+        unimplemented!()
+    }
+    async fn configure_oauth_provider(
+        &self,
+        _provider: crate::user::OauthProvider,
+        _client_id: &str,
+        _client_secret: Option<&str>,
+        _enabled: bool,
+    ) -> Result<crate::user::ProviderStatus, AppError> {
+        unimplemented!()
+    }
+    async fn clear_oauth_provider(
+        &self,
+        _provider: crate::user::OauthProvider,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn start_oauth(
+        &self,
+        _provider: crate::user::OauthProvider,
+    ) -> Result<crate::user::service::OauthRedirect, AppError> {
+        unimplemented!()
+    }
+    async fn complete_oauth(
+        &self,
+        _state: &str,
+        _code: &str,
+    ) -> Result<(crate::user::UserProfile, UserRole), AppError> {
+        unimplemented!()
+    }
+    async fn link_oauth(&self, _state: &str, _code: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn unlink_oauth(
+        &self,
+        _user_id: Uuid,
+        _provider: crate::user::OauthProvider,
+    ) -> Result<u64, AppError> {
+        unimplemented!()
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
