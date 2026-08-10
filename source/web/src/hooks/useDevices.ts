@@ -115,7 +115,7 @@ export function useIdentifyDevice() {
     // computed from `last_seen` at render time and the device detail query does
     // not poll — so name the actual reason rather than reporting a bare
     // failure for something the admin can act on by waking the device.
-    onError: (error: unknown) =>
+    onError: (error) =>
       toast.error(
         httpStatus(error) === 409
           ? "This device is no longer on the network, so Wardnet did not contact it"
