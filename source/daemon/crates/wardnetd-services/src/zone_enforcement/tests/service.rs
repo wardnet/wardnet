@@ -417,6 +417,12 @@ impl RoutingService for RecordingRouting {
     async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
         unimplemented!()
     }
+    fn dns_device_upstream_snapshot(&self) -> Arc<ArcSwap<HashMap<Uuid, UpstreamId>>> {
+        unimplemented!()
+    }
+    async fn rebuild_dns_device_upstream_snapshot(&self) -> Result<(), AppError> {
+        unimplemented!()
+    }
 }
 
 // -- Harness -----------------------------------------------------------------

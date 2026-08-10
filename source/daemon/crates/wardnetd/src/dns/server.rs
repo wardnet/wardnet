@@ -146,12 +146,14 @@ impl Drop for UdpDnsServer {
 }
 
 impl UdpDnsServer {
+    #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn new(
         config: DnsConfig,
         dns_filter: Arc<dyn DnsFilterService>,
         routing_profile: Option<Arc<dyn RoutingProfileService>>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+        device_routing_snapshot: Arc<ArcSwap<HashMap<Uuid, UpstreamId>>>,
         device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
         events: Arc<dyn EventPublisher>,
@@ -162,6 +164,7 @@ impl UdpDnsServer {
             dns_filter,
             routing_profile,
             routing_snapshot,
+            device_routing_snapshot,
             device_snapshot,
             tunnel_repo,
             events,
@@ -179,6 +182,7 @@ impl UdpDnsServer {
         dns_filter: Arc<dyn DnsFilterService>,
         routing_profile: Option<Arc<dyn RoutingProfileService>>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+        device_routing_snapshot: Arc<ArcSwap<HashMap<Uuid, UpstreamId>>>,
         device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
         events: Arc<dyn EventPublisher>,
@@ -225,6 +229,7 @@ impl UdpDnsServer {
             dns_filter,
             routing_profile,
             routing_snapshot,
+            device_routing_snapshot,
             device_snapshot,
             tunnel_repo,
         ));

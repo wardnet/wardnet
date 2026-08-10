@@ -75,15 +75,15 @@ const LOCAL_ZONE_SUFFIX: &str = "lan";
 /// depend on an IP → device mapping that may not cover the client's
 /// address.
 ///
-/// Scope: the identity feeds **attribution only** — the `device_id`
-/// stamped on log rows and stats. Rate limiting, per-client upstream
-/// selection, and the filter-policy lookup all still key on the
-/// transport-level source IP (see [`QueryPipeline::handle`]). A
-/// transport whose peer addresses the snapshots and filter contexts
-/// don't cover gets the default upstream and default filter policy for
-/// those clients; extending the IP-keyed paths to honour the device
-/// identity is on the transport that needs it, not silently implied by
-/// this enum.
+/// Scope: the identity feeds attribution (the `device_id` stamped on log
+/// rows and stats), the filter-policy lookup, and — since #923 — the
+/// per-client upstream selection: a device-authenticated client resolves
+/// its upstream through the device-keyed routing snapshot, so a roaming
+/// device's queries follow its tunnel binding even though the transport
+/// peer is the relay's loopback. Rate limiting still keys on the
+/// transport-level source IP for IP-attributed clients (the `DoT` listener
+/// rate-limits per grant token instead), and domain-route enforcement
+/// stays IP-only (see [`QueryPipeline::handle`]).
 #[derive(Clone)]
 pub enum ClientIdentity {
     /// Attribute by source IP via the device snapshot.
@@ -191,6 +191,13 @@ pub struct QueryPipeline {
     /// routing service. Maps a tunneled-device IP to `Tunnel(_)` only
     /// when that tunnel has `override_default_dns = true`.
     pub(crate) routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+    /// Device-keyed companion to `routing_snapshot` (#923), also populated
+    /// by the routing service — but from the *persisted* routing rules, so
+    /// entries survive a device leaving the LAN. Consulted for
+    /// device-authenticated clients ([`ClientIdentity::Device`], the `DoT`
+    /// listener), whose transport peer while roaming is the relay's
+    /// loopback and therefore useless as a routing key.
+    pub(crate) device_routing_snapshot: Arc<ArcSwap<HashMap<Uuid, UpstreamId>>>,
     /// Lock-free IP → device-id snapshot, kept current by the
     /// device-snapshot listener. Consulted once per IP-attributed query
     /// so log rows and stats carry the device identity as of query time —
@@ -240,6 +247,7 @@ impl QueryPipeline {
         dns_filter: Arc<dyn DnsFilterService>,
         routing_profile: Option<Arc<dyn RoutingProfileService>>,
         routing_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+        device_routing_snapshot: Arc<ArcSwap<HashMap<Uuid, UpstreamId>>>,
         device_snapshot: Arc<ArcSwap<HashMap<IpAddr, Uuid>>>,
         tunnel_repo: Arc<dyn TunnelRepository>,
     ) -> Self {
@@ -253,6 +261,7 @@ impl QueryPipeline {
             routing_profile,
             log_sink: None,
             routing_snapshot,
+            device_routing_snapshot,
             device_snapshot,
             tunnel_repo,
             tunnel_forwarders: Arc::new(RwLock::new(HashMap::new())),
@@ -325,13 +334,28 @@ impl QueryPipeline {
         // so never trips the limiter into REFUSED — the response that was
         // driving its retry loop.
 
-        // 0. Resolve upstream pool for this client.
-        let upstream_id = self
-            .routing_snapshot
-            .load()
-            .get(&src.ip())
-            .copied()
-            .unwrap_or(UpstreamId::Default);
+        // 0. Resolve upstream pool for this client. An IP-attributed client
+        //    keys on the transport source IP (applied-kernel-state snapshot);
+        //    a device-authenticated (DoT) client keys on its device identity
+        //    through the persisted-rule snapshot, so a roaming device's
+        //    queries follow its tunnel binding — its `src` is the relay's
+        //    loopback, which the IP-keyed map can never cover (#923).
+        let upstream_id = match &client {
+            ClientIdentity::Ip(_) => self.routing_snapshot.load().get(&src.ip()).copied(),
+            ClientIdentity::Device { device_id, .. } => self
+                .device_routing_snapshot
+                .load()
+                .get(device_id)
+                .copied()
+                // On a device-map miss, fall back to the applied-state IP
+                // map: an on-LAN DoT client queries from its own address,
+                // so a stale or still-building device map must not cost it
+                // the binding the kernel is actually enforcing. A roaming
+                // client's `src` is the relay loopback, which always
+                // misses, so this can never mis-key a relayed query.
+                .or_else(|| self.routing_snapshot.load().get(&src.ip()).copied()),
+        }
+        .unwrap_or(UpstreamId::Default);
 
         let domain_lower = domain.trim_end_matches('.').to_ascii_lowercase();
         let view = self.authoritative_view.load();

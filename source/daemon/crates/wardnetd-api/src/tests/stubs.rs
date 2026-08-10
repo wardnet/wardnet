@@ -774,6 +774,18 @@ impl RoutingService for StubRoutingService {
     async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
         Ok(())
     }
+    fn dns_device_upstream_snapshot(
+        &self,
+    ) -> std::sync::Arc<
+        arc_swap::ArcSwap<std::collections::HashMap<Uuid, wardnet_common::dns::UpstreamId>>,
+    > {
+        std::sync::Arc::new(arc_swap::ArcSwap::from_pointee(
+            std::collections::HashMap::new(),
+        ))
+    }
+    async fn rebuild_dns_device_upstream_snapshot(&self) -> Result<(), AppError> {
+        Ok(())
+    }
 }
 
 pub struct StubNetworkZoneService;

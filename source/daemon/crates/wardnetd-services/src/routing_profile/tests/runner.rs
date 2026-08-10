@@ -280,6 +280,12 @@ impl RoutingService for MockRouting {
     async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
         unimplemented!("not exercised by runner tests")
     }
+    fn dns_device_upstream_snapshot(&self) -> Arc<ArcSwap<HashMap<Uuid, UpstreamId>>> {
+        unimplemented!("not exercised by runner tests")
+    }
+    async fn rebuild_dns_device_upstream_snapshot(&self) -> Result<(), AppError> {
+        unimplemented!("not exercised by runner tests")
+    }
 }
 
 /// Poll until `predicate` holds or ~2s elapse.

@@ -324,6 +324,16 @@ impl RoutingService for MockRoutingService {
     async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError> {
         self.inner.rebuild_dns_upstream_snapshot().await
     }
+    fn dns_device_upstream_snapshot(
+        &self,
+    ) -> std::sync::Arc<
+        arc_swap::ArcSwap<std::collections::HashMap<uuid::Uuid, wardnet_common::dns::UpstreamId>>,
+    > {
+        self.inner.dns_device_upstream_snapshot()
+    }
+    async fn rebuild_dns_device_upstream_snapshot(&self) -> Result<(), AppError> {
+        self.inner.rebuild_dns_device_upstream_snapshot().await
+    }
 }
 
 /// Re-create an [`AppError`] of the same variant as `err` so a mock

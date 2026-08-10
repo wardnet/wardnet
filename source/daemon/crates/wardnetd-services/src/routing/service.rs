@@ -11,6 +11,7 @@ use uuid::Uuid;
 use wardnet_common::device::Device;
 use wardnet_common::dns::UpstreamId;
 use wardnet_common::event::WardnetEvent;
+use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone};
 use wardnet_common::routing::{RoutingRule, RoutingTarget};
 use wardnet_common::routing_profile::DomainRoutingTarget;
 use wardnet_common::tunnel::TunnelStatus;
@@ -21,7 +22,9 @@ use crate::error::AppError;
 use crate::event::EventPublisher;
 use crate::routing::firewall::FirewallManager;
 use crate::routing::policy_router::PolicyRouter;
-use wardnetd_data::repository::{DeviceRepository, SystemConfigRepository, TunnelRepository};
+use wardnetd_data::repository::{
+    DeviceRepository, NetworkZoneRepository, SystemConfigRepository, TunnelRepository,
+};
 
 /// Manages Linux kernel policy routing rules for per-device VPN routing.
 ///
@@ -217,6 +220,42 @@ pub trait RoutingService: Send + Sync {
     /// so already-applied device rules pick up the new upstream choice
     /// without waiting for the next routing-rule mutation.
     async fn rebuild_dns_upstream_snapshot(&self) -> Result<(), AppError>;
+
+    /// Lock-free, atomically swappable snapshot of `device_id → UpstreamId`
+    /// for the DNS server's per-query upstream selection of
+    /// device-authenticated clients (the `DoT` listener's SNI-token
+    /// attribution, issue #923).
+    ///
+    /// Unlike [`Self::dns_upstream_snapshot`], which reflects *applied*
+    /// kernel state and therefore empties for a device the moment it
+    /// leaves the LAN (`DeviceGone` → `remove_device_routes`), this map is
+    /// derived from the **persisted** routing rules — a roaming device
+    /// keeps its entry, so its `DoT` queries follow its tunnel binding
+    /// even though the transport peer is the relay's loopback. Entries
+    /// map a device to `Tunnel(id)` only when its rule (with `Default`
+    /// resolved through the global policy) targets a tunnel that is not
+    /// `Down` and has `override_default_dns` with at least one DNS
+    /// server — and, for `Default` rules, only when the device's zone
+    /// permits tunnel egress (mirroring the Network-Zone enforcer's
+    /// clamp, which rewrites applied state but never the persisted rule).
+    /// Lookup misses implicitly resolve to [`UpstreamId::Default`] — the
+    /// same soft fallback the LAN path takes when `handle_tunnel_down`
+    /// drops its applied rules.
+    fn dns_device_upstream_snapshot(&self) -> Arc<ArcSwap<HashMap<Uuid, UpstreamId>>>;
+
+    /// Force a rebuild + atomic swap of the snapshot returned by
+    /// [`Self::dns_device_upstream_snapshot`]. Driven by the daemon's
+    /// `DnsDeviceSnapshotListener`, which subscribes to the event bus and
+    /// coalesces bursts of relevant events (rule changes, policy flips,
+    /// tunnel status transitions, DNS-override toggles, zone changes)
+    /// into single rebuilds; `reconcile` also runs it once at startup for
+    /// the initial build. Rebuilds are internally serialised so a slow
+    /// rebuild can never overwrite a fresher one.
+    ///
+    /// Admin-gated like every other method — callers outside the HTTP
+    /// request path drive it under
+    /// `auth_context::with_context(AuthContext::Admin { .. })`.
+    async fn rebuild_dns_device_upstream_snapshot(&self) -> Result<(), AppError>;
 }
 
 /// Priority of the cross-zone switchback carve-out `ip rule`s.
@@ -322,6 +361,25 @@ pub struct RoutingServiceImpl {
     /// server hot path. Rebuilt and atomically swapped on every change
     /// to [`RoutingState::applied`].
     dns_upstream_snapshot: Arc<ArcSwap<HashMap<IpAddr, UpstreamId>>>,
+    /// `device_id → UpstreamId` snapshot consulted lock-free by the DNS
+    /// server for device-authenticated (`DoT`) clients (#923). Derived
+    /// from the persisted routing rules, not from applied kernel state,
+    /// so roaming devices keep their entries. See
+    /// [`RoutingService::dns_device_upstream_snapshot`].
+    dns_device_upstream_snapshot: Arc<ArcSwap<HashMap<Uuid, UpstreamId>>>,
+    /// Serialises [`RoutingService::rebuild_dns_device_upstream_snapshot`]:
+    /// the rebuild is load-then-store across many awaits, so without this a
+    /// slow rebuild started before a policy/tunnel change could store its
+    /// stale map *after* a fresh rebuild stored the correct one — and no
+    /// further event would correct it.
+    device_snapshot_rebuild: tokio::sync::Mutex<()>,
+    /// Zone repository, used by the device-keyed snapshot rebuild to mirror
+    /// the Network-Zone enforcer's clamp of `Default` bindings (#736): the
+    /// enforcer rewrites *applied* kernel state only, never the persisted
+    /// rule, so the rebuild must apply the same clamp itself or it would
+    /// resolve a clamped device's rule straight through the forbidden
+    /// policy.
+    zones: Arc<dyn NetworkZoneRepository>,
 }
 
 impl RoutingServiceImpl {
@@ -334,6 +392,7 @@ impl RoutingServiceImpl {
         netlink: Arc<dyn PolicyRouter>,
         nftables: Arc<dyn FirewallManager>,
         system_config: Arc<dyn SystemConfigRepository>,
+        zones: Arc<dyn NetworkZoneRepository>,
         events: Arc<dyn EventPublisher>,
         default_policy: String,
         lan_interface: String,
@@ -356,6 +415,9 @@ impl RoutingServiceImpl {
                 domain_routes: HashMap::new(),
             }),
             dns_upstream_snapshot: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            dns_device_upstream_snapshot: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            device_snapshot_rebuild: tokio::sync::Mutex::new(()),
+            zones,
         }
     }
 
@@ -389,6 +451,123 @@ impl RoutingServiceImpl {
             "rebuilt DNS upstream snapshot from routing state"
         );
         self.dns_upstream_snapshot.store(Arc::new(map));
+    }
+
+    /// Best-effort wrapper around
+    /// [`RoutingService::rebuild_dns_device_upstream_snapshot`] for
+    /// `reconcile`'s initial build — a failed build there must not abort
+    /// startup; the daemon's snapshot listener converges the map on the
+    /// next relevant event.
+    async fn refresh_dns_device_upstream_snapshot(&self) {
+        if let Err(e) = self.rebuild_dns_device_upstream_snapshot().await {
+            tracing::warn!(
+                error = %e,
+                "failed to rebuild device-keyed DNS upstream snapshot: {e}"
+            );
+        }
+    }
+
+    /// The config half of the tunnel DNS-override gate, shared by
+    /// `apply_rule` and both snapshot rebuilds so the predicate cannot
+    /// drift between the applied-state and persisted-rule maps: does
+    /// `tunnel_id`'s stored config mark it as a DNS upstream
+    /// (`override_default_dns` with at least one DNS server)?
+    /// `Some(false)` for a missing config (a definite "no"); `None` when
+    /// the lookup failed — the caller decides how to degrade, because
+    /// "unknown" and "off" must not be conflated by the device-keyed
+    /// rebuild (a transient repo error would otherwise silently drop
+    /// every device on the tunnel to the default upstream).
+    async fn tunnel_dns_override_active(&self, tunnel_id: Uuid) -> Option<bool> {
+        match self
+            .tunnel_repo
+            .find_config_by_id(&tunnel_id.to_string())
+            .await
+        {
+            Ok(Some(cfg)) => Some(cfg.override_default_dns && !cfg.dns.is_empty()),
+            Ok(None) => Some(false),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    tunnel_id = %tunnel_id,
+                    "failed to load tunnel config for DNS override gate of tunnel {tunnel_id}: {e}"
+                );
+                None
+            }
+        }
+    }
+
+    /// Whether `tunnel_id` currently qualifies as a DNS upstream for the
+    /// devices bound to it: the tunnel must exist, must not be `Down`
+    /// (its interface is expected present — `Connecting`/`Reconnecting`
+    /// keep the iface configured, matching the routing listener's
+    /// treatment), and must pass [`Self::tunnel_dns_override_active`]. A
+    /// `Down` tunnel drops its devices to the default upstream — the same
+    /// soft fallback the LAN path takes when `handle_tunnel_down` removes
+    /// applied rules. When per-device kill-switch mode (#235) lands, a
+    /// block-mode device must instead keep failing here rather than fall
+    /// back.
+    ///
+    /// Status is read through the *repository*, not `TunnelService` —
+    /// the service getter is admin-gated, and a swallowed auth error here
+    /// would masquerade as "tunnel inactive" and wipe the map.
+    ///
+    /// `Some(active)` is a definite answer; `None` means the status
+    /// lookup failed and the caller must not treat the tunnel as down.
+    async fn tunnel_dns_upstream_gate(&self, tunnel_id: Uuid) -> Option<bool> {
+        match self.tunnel_repo.find_by_id(&tunnel_id.to_string()).await {
+            Ok(Some(tunnel)) if tunnel.status == TunnelStatus::Down => return Some(false),
+            Ok(Some(_)) => {}
+            // Deleted tunnel still referenced by a rule — definitely inactive.
+            Ok(None) => return Some(false),
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    tunnel_id = %tunnel_id,
+                    "failed to load tunnel {tunnel_id} for device DNS upstream rebuild: {e}"
+                );
+                return None;
+            }
+        }
+        self.tunnel_dns_override_active(tunnel_id).await
+    }
+
+    /// Mirror of the Network-Zone enforcer's clamp of `Default` bindings
+    /// (`ZoneEnforcementServiceImpl::clamp_default_bindings`, #736): true
+    /// when the device's zone forbids the tunnel kind but permits direct.
+    /// The enforcer clamps such a device's *applied* routing to direct
+    /// without rewriting its persisted `Default` rule, so the
+    /// persisted-rule rebuild must apply the same clamp or it would hand
+    /// the device's roaming DNS to the forbidden tunnel. A zone that
+    /// forbids both kinds does NOT clamp (matching the enforcer, which
+    /// leaves that binding for the packet-layer drop — applied state
+    /// stays tunnel-bound, and this map stays in step with it). A device
+    /// with no row or an unresolvable zone is not clamped, again matching
+    /// the enforcer's skip.
+    async fn zone_clamps_default_to_direct(
+        &self,
+        zone_cache: &mut HashMap<Uuid, Option<NetworkZone>>,
+        zone_id: Option<Uuid>,
+    ) -> bool {
+        let Some(zone_id) = zone_id else {
+            return false;
+        };
+        let zone = if let Some(z) = zone_cache.get(&zone_id) {
+            z.clone()
+        } else {
+            let z = self
+                .zones
+                .find_by_id(&zone_id.to_string())
+                .await
+                .ok()
+                .flatten();
+            zone_cache.insert(zone_id, z.clone());
+            z
+        };
+        let Some(zone) = zone else {
+            return false;
+        };
+        !zone.permits_kind(AllowedTargetKind::Tunnel)
+            && zone.permits_kind(AllowedTargetKind::Direct)
     }
 
     /// Snapshot the current default policy.
@@ -1051,39 +1230,12 @@ impl RoutingService for RoutingServiceImpl {
         // DNS upstream as `Tunnel(id)` so wardnet's DNS server forwards
         // its queries via a `SO_BINDTODEVICE`-bound socket on the tunnel.
         // No nftables prerouting DNAT is installed — see issue #342.
+        // A failed config lookup degrades to "off" here: the applied-state
+        // map is per-device and self-corrects on the next apply.
         let tunnel_dns_override = if let Some(ref tunnel) = tunnel_info {
-            tracing::debug!(
-                tunnel_id = %tunnel.id,
-                "loading tunnel config for DNS override flag"
-            );
-            match self
-                .tunnel_repo
-                .find_config_by_id(&tunnel.id.to_string())
+            self.tunnel_dns_override_active(tunnel.id)
                 .await
-            {
-                Ok(Some(config)) => {
-                    let on = config.override_default_dns && !config.dns.is_empty();
-                    tracing::debug!(
-                        tunnel_id = %tunnel.id,
-                        override_default_dns = config.override_default_dns,
-                        has_dns = !config.dns.is_empty(),
-                        active = on,
-                        "resolved tunnel DNS override"
-                    );
-                    on
-                }
-                Ok(None) => {
-                    tracing::debug!(
-                        tunnel_id = %tunnel.id,
-                        "no tunnel config found, DNS override defaults to off"
-                    );
-                    false
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "failed to load tunnel config for DNS override");
-                    false
-                }
-            }
+                .unwrap_or(false)
         } else {
             false
         };
@@ -1764,6 +1916,12 @@ impl RoutingService for RoutingServiceImpl {
             }
         }
 
+        // Initial build of the device-keyed DNS upstream snapshot (#923).
+        // The per-IP snapshot was already refreshed by the apply_rule walk
+        // above; this builds its roaming companion from the same persisted
+        // rules so DoT-authenticated queries route correctly from startup.
+        self.refresh_dns_device_upstream_snapshot().await;
+
         tracing::info!(
             applied_count,
             total_devices = all_devices.len(),
@@ -1876,6 +2034,7 @@ impl RoutingService for RoutingServiceImpl {
                 );
             }
         }
+
         Ok(())
     }
 
@@ -2226,6 +2385,10 @@ impl RoutingService for RoutingServiceImpl {
         // inline before the event is published, so an in-sync cache says
         // nothing about whether devices have been re-applied yet.
         // `apply_rule`'s short-circuit makes a redundant sweep cheap.
+        // (The device-keyed DNS snapshot is NOT refreshed here — the
+        // daemon's snapshot listener reacts to the same
+        // `DefaultPolicyChanged` event independently, so a failure in this
+        // kernel sweep cannot leave that map pinned to the old policy.)
         self.reapply_default_ruled_devices().await
     }
 
@@ -2241,7 +2404,10 @@ impl RoutingService for RoutingServiceImpl {
 
         // Re-fetch the override flag for every tunnel currently referenced
         // by an applied rule. Caching by tunnel id avoids repeating the
-        // repo lookup when multiple devices share a tunnel.
+        // repo lookup when multiple devices share a tunnel. A failed lookup
+        // degrades to "off" — this map self-corrects on the next per-device
+        // apply, unlike the device-keyed map (see
+        // `tunnel_dns_override_active`).
         let mut override_cache: HashMap<Uuid, bool> = HashMap::new();
         for rule in state.applied.values_mut() {
             let Some(tunnel_id) = rule.tunnel_id else {
@@ -2251,22 +2417,10 @@ impl RoutingService for RoutingServiceImpl {
             let active = if let Some(v) = override_cache.get(&tunnel_id) {
                 *v
             } else {
-                let v = match self
-                    .tunnel_repo
-                    .find_config_by_id(&tunnel_id.to_string())
+                let v = self
+                    .tunnel_dns_override_active(tunnel_id)
                     .await
-                {
-                    Ok(Some(cfg)) => cfg.override_default_dns && !cfg.dns.is_empty(),
-                    Ok(None) => false,
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            tunnel_id = %tunnel_id,
-                            "failed to load tunnel config during DNS upstream rebuild"
-                        );
-                        false
-                    }
-                };
+                    .unwrap_or(false);
                 override_cache.insert(tunnel_id, v);
                 v
             };
@@ -2278,6 +2432,98 @@ impl RoutingService for RoutingServiceImpl {
         }
 
         self.refresh_dns_upstream_snapshot(&state);
+        Ok(())
+    }
+
+    fn dns_device_upstream_snapshot(&self) -> Arc<ArcSwap<HashMap<Uuid, UpstreamId>>> {
+        Arc::clone(&self.dns_device_upstream_snapshot)
+    }
+
+    async fn rebuild_dns_device_upstream_snapshot(&self) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        // Serialise rebuilds: the load-then-store below spans many awaits,
+        // so without this a slow rebuild started before a policy/tunnel
+        // change could store its stale map after a fresh rebuild stored the
+        // correct one — and nothing would then correct it.
+        let _rebuild = self.device_snapshot_rebuild.lock().await;
+
+        // Built from the persisted rules rather than `RoutingState::applied`
+        // deliberately: applied state is removed when a device leaves the LAN
+        // (`DeviceGone` → `remove_device_routes`), which is exactly the
+        // roaming case this snapshot exists to serve (#923).
+        let rules = self
+            .devices
+            .find_all_rules()
+            .await
+            .map_err(AppError::Internal)?;
+        // Device → zone mapping for the zone-clamp mirror below.
+        let zone_of: HashMap<Uuid, Uuid> = self
+            .devices
+            .find_all()
+            .await
+            .map_err(AppError::Internal)?
+            .into_iter()
+            .map(|d| (d.id, d.zone_id))
+            .collect();
+
+        // On a per-tunnel lookup failure the previous map's entries for the
+        // affected devices are carried over: "unknown" must not silently
+        // drop a roaming device to the default upstream (fail-open); the
+        // next successful rebuild converges.
+        let prev = self.dns_device_upstream_snapshot.load_full();
+        // Cache the per-tunnel gate and per-zone lookups — devices sharing
+        // a tunnel or zone shouldn't repeat the repo round-trips.
+        let mut gate_cache: HashMap<Uuid, Option<bool>> = HashMap::new();
+        let mut zone_cache: HashMap<Uuid, Option<NetworkZone>> = HashMap::new();
+        let mut map: HashMap<Uuid, UpstreamId> = HashMap::new();
+        for rule in rules {
+            let RoutingTarget::Tunnel { tunnel_id } = self.resolve_target(&rule.target) else {
+                continue;
+            };
+
+            // Zone gate (#736): a `Default` rule whose resolved policy the
+            // device's zone forbids is clamped to direct by the zone
+            // enforcer — in applied state only, so this rebuild must mirror
+            // the clamp or it would route the device's roaming DNS through
+            // the forbidden tunnel. Explicit tunnel rules are the #735
+            // write gate's job and pass through, matching applied state.
+            if matches!(rule.target, RoutingTarget::Default)
+                && self
+                    .zone_clamps_default_to_direct(
+                        &mut zone_cache,
+                        zone_of.get(&rule.device_id).copied(),
+                    )
+                    .await
+            {
+                continue;
+            }
+
+            let gate = if let Some(g) = gate_cache.get(&tunnel_id) {
+                *g
+            } else {
+                let g = self.tunnel_dns_upstream_gate(tunnel_id).await;
+                gate_cache.insert(tunnel_id, g);
+                g
+            };
+            match gate {
+                Some(true) => {
+                    map.insert(rule.device_id, UpstreamId::Tunnel(tunnel_id));
+                }
+                Some(false) => {}
+                None => {
+                    if let Some(entry) = prev.get(&rule.device_id) {
+                        map.insert(rule.device_id, *entry);
+                    }
+                }
+            }
+        }
+
+        let entry_count = map.len();
+        tracing::debug!(
+            entry_count,
+            "rebuilt device-keyed DNS upstream snapshot from persisted rules: entry_count={entry_count}"
+        );
+        self.dns_device_upstream_snapshot.store(Arc::new(map));
         Ok(())
     }
 }
