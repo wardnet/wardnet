@@ -80,10 +80,17 @@ export function AnomaliesCard({ anomalies }: AnomaliesCardProps) {
                           to={link.href}
                           aria-label={`${link.label}: ${anomaly.message}`}
                           data-testid="anomaly-subject-link"
-                          className="shrink-0 text-ink-3 hover:text-ink-1"
+                          // Spelled out rather than a bare glyph: an arrow on
+                          // its own reads as decoration, says nothing about
+                          // where it goes, and is a small target. The label is
+                          // already resolved per anomaly type, and showing it
+                          // keeps the visible text inside the accessible name
+                          // (WCAG 2.5.3) rather than diverging from it.
+                          className="shrink-0 whitespace-nowrap text-accent hover:underline"
                         >
+                          {link.label}
                           <span aria-hidden className="select-none">
-                            ↗
+                            {" ↗"}
                           </span>
                         </Link>
                       )}

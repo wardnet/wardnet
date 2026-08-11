@@ -92,6 +92,9 @@ describe("AnomaliesCard", () => {
     );
     // Names the target: every row would otherwise share one accessible name.
     expect(link).toHaveAccessibleName(/blocklist.*failed 7 times/i);
+    // And says so visibly. A bare arrow reads as decoration rather than a
+    // link, and gives no hint where it leads.
+    expect(link).toHaveTextContent("Open the blocklist");
   });
 
   it("renders no link for an anomaly with nowhere to go", () => {
