@@ -97,6 +97,42 @@ describe("anomalySubjectLink", () => {
     expect(link?.href).toBe("/dns/filter");
   });
 
+  // A surface can list tunnels without having a page for an individual one.
+  // The builder returning null is how it says so, and the viewer should still
+  // get as far as the section rather than nowhere at all.
+  it("falls back when a surface declines a tunnel detail route", () => {
+    const link = anomalySubjectLink(
+      anomaly({
+        type: "tunnel_unhealthy",
+        component: "tunnel",
+        subject_id: "tun-9",
+      }),
+      { tunnel: () => null, fallback: () => "/tunnels" },
+    );
+    expect(link).toEqual({ href: "/tunnels", label: "Open Tunnels" });
+  });
+
+  // The fallback label names the area, because that is the most specific
+  // thing left to say once there is no detail page to point at.
+  it("labels a fallback by the area its component maps to", () => {
+    const cases = [
+      ["tunnel", "Open Tunnels"],
+      ["dns", "Open Ad Blocking"],
+      ["dhcp", "Open DHCP"],
+      ["routing", "Open Routing"],
+      // A newer daemon can name a component this client has never heard of.
+      ["storage", "Open Settings"],
+    ] as const;
+
+    for (const [component, label] of cases) {
+      const link = anomalySubjectLink(
+        anomaly({ type: "route_table_lost", component, subject_id: null }),
+        { fallback: () => "/somewhere" },
+      );
+      expect(link?.label).toBe(label);
+    }
+  });
+
   it("names the target so list rows do not all share one accessible name", () => {
     expect(anomalySubjectLink(anomaly(), RICH)?.label).toBe(
       "Open the blocklist",
