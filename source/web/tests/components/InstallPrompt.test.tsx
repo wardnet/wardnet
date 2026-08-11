@@ -38,6 +38,14 @@ describe("InstallPrompt", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("carries a stacking context so page content cannot cover it", () => {
+    const { container } = renderWithProviders(<InstallPrompt icon="i.svg" />);
+    // Positioned *and* given a z-index: without both, any positioned page
+    // element that reaches the banner's box paints over it and eats the tap,
+    // which is how the banner this one replaced ended up unclickable (#1175).
+    expect(container.firstElementChild).toHaveClass("relative", "z-10");
+  });
+
   it("shows a success toast and dismisses when install is accepted", async () => {
     promptInstall.mockResolvedValue({ outcome: "accepted" });
     renderWithProviders(<InstallPrompt icon="i.svg" />);
