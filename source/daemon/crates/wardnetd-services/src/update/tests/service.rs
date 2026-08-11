@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use uuid::Uuid;
 use wardnet_common::api::{InstallUpdateRequest, UpdateConfigRequest};
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 use wardnet_common::update::{InstallPhase, Release, UpdateChannel};
 use wardnetd_data::repository::{UpdateHistoryRow, UpdateRepository};
 
@@ -196,9 +196,10 @@ impl BinaryApplier for RecordingApplier {
 }
 
 fn test_admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 fn build_service(

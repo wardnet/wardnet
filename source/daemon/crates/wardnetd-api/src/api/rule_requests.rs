@@ -9,7 +9,7 @@ use wardnet_common::rule_request::{
     CreateRuleRequestRequest, DecideRuleRequestRequest, DeviceRuleRequest, RuleRequestStatus,
 };
 
-use crate::api::middleware::{AdminAuth, ClientIp};
+use crate::api::middleware::{ClientIp, SessionAuth};
 use crate::api::responses::{AuthErrors, BadRequest, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -100,7 +100,7 @@ pub async fn list_my_rule_requests(
 )]
 pub async fn list_rule_requests(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Query(query): Query<ListRuleRequestsQuery>,
 ) -> Result<Json<Vec<DeviceRuleRequest>>, AppError> {
     let requests = state.rule_request_service().list(query.status).await?;
@@ -125,7 +125,7 @@ pub async fn list_rule_requests(
 )]
 pub async fn decide_rule_request(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
     Json(body): Json<DecideRuleRequestRequest>,
 ) -> Result<Json<DeviceRuleRequest>, AppError> {

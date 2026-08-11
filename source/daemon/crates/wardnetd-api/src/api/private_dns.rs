@@ -13,7 +13,7 @@ use wardnet_common::api::{
 };
 use wardnet_common::auth::AuthContext;
 
-use crate::api::middleware::{AdminAuth, ClientIp};
+use crate::api::middleware::{ClientIp, SessionAuth};
 use crate::api::responses::{AuthErrors, Conflict, NotFound};
 use crate::state::AppState;
 use wardnetd_services::auth_context;
@@ -41,9 +41,7 @@ const TAG: &str = "private-dns";
 /// Private DNS service to read that one device's state (mirrors how
 /// `GET /api/devices/me` enriches itself from admin-only services).
 fn system_admin() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
+    AuthContext::system()
 }
 
 /// `<token>.<domain>`, or the bare token when the domain isn't known (a grant
@@ -128,7 +126,7 @@ async fn build_status(state: &AppState) -> Result<PrivateDnsStatusResponse, AppE
 )]
 pub async fn get_status(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<PrivateDnsStatusResponse>, AppError> {
     Ok(Json(build_status(&state).await?))
 }
@@ -153,7 +151,7 @@ pub async fn get_status(
 )]
 pub async fn set_enabled(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<SetPrivateDnsEnabledRequest>,
 ) -> Result<Json<PrivateDnsStatusResponse>, AppError> {
     state
@@ -182,7 +180,7 @@ pub async fn set_enabled(
 )]
 pub async fn create_grant(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<CreatePrivateDnsGrantRequest>,
 ) -> Result<(StatusCode, Json<PrivateDnsGrantSummary>), AppError> {
     let grant = state
@@ -219,7 +217,7 @@ pub async fn create_grant(
 )]
 pub async fn delete_grant(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(device_id): Path<Uuid>,
 ) -> Result<StatusCode, AppError> {
     let Some(grant) = state.private_dns_service().device_grant(device_id).await? else {
@@ -253,7 +251,7 @@ pub async fn delete_grant(
 )]
 pub async fn notify_device(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(device_id): Path<Uuid>,
 ) -> Result<Json<SendPrivateDnsNotificationResponse>, AppError> {
     let delivered = state.private_dns_service().notify_device(device_id).await?;

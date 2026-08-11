@@ -85,6 +85,25 @@ export interface DeviceDetailResponse {
   signals: DeviceSignal[];
 }
 
+/**
+ * Response for POST /api/devices/:id/identify (admin, issue #1116).
+ *
+ * Carries what the probe *contacted* as well as what answered, so a caller can
+ * distinguish "we tried these ports and none answered" from "nothing
+ * happened". An empty `answering_ports` is a real result.
+ */
+export interface DeviceProbeResponse {
+  /** Every TCP port the probe contacted — the vendor catalog's full surface. */
+  ports_probed: number[];
+  /**
+   * The subset that answered. Each was recorded as a `probed_port`
+   * identification signal and may have named the device.
+   */
+  answering_ports: number[];
+  /** The device re-read after the probe, including any new signals. */
+  device: DeviceDetailResponse;
+}
+
 /** Request body for PUT /api/devices/:id (admin). */
 export interface UpdateDeviceRequest {
   name?: string;

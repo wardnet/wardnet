@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 use wardnetd_data::repository::{
     IncrementalVacuumOutcome, MaintenanceRepository, VacuumStop, WalCheckpointOutcome,
@@ -84,9 +83,7 @@ fn service(fail: bool) -> MaintenanceServiceImpl {
 }
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
+    AuthContext::system()
 }
 
 // ── run_wal_checkpoint ───────────────────────────────────────────────────────

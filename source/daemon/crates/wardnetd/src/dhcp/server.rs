@@ -10,7 +10,6 @@ use tokio::net::UdpSocket;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::device::DeviceSignalKind;
 use wardnet_common::dhcp::{DhcpLease, DhcpScope};
@@ -371,9 +370,7 @@ pub(crate) async fn handle_discover(
     msg: &Message,
     mac: &str,
 ) -> Result<Message, AppError> {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
     let hostname = extract_hostname(msg);
     let lease = auth_context::with_context(
         admin_ctx.clone(),
@@ -409,9 +406,7 @@ pub(crate) async fn handle_request(
     msg: &Message,
     mac: &str,
 ) -> Result<Message, AppError> {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
     let hostname = extract_hostname(msg);
     let requested_ip = extract_requested_ip(msg);
 
@@ -483,9 +478,7 @@ pub(crate) async fn handle_release(
     mac: &str,
     src_addr: SocketAddr,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     // Authorize on the real UDP source address only. `ciaddr` is an untrusted
     // wire field (see this function's doc comment) — kept solely for logging.
@@ -763,9 +756,7 @@ pub(crate) fn record_dhcp_signals(
     Some(tokio::spawn(async move {
         for (kind, value) in signals {
             let result = auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: Uuid::nil(),
-                },
+                AuthContext::system(),
                 identification.record_signal_for_mac(&mac, kind, &value),
             )
             .await;

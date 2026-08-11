@@ -16,6 +16,7 @@ mod packet_capture;
 mod pidfile;
 mod policy_router_netlink;
 mod profiling;
+mod route_monitor;
 mod routing_listener;
 pub mod stubs;
 mod systemctl_power_ops;

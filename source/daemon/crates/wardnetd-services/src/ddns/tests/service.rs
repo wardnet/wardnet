@@ -14,7 +14,6 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use base64::Engine as _;
 use serde_json::json;
-use uuid::Uuid;
 use wardnet_common::api::DdnsResolutionVerdict;
 use wardnet_common::auth::AuthContext;
 use wardnetd_data::repository::SystemConfigRepository;
@@ -101,9 +100,7 @@ impl SecretStore for MockSecretStore {
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
+    AuthContext::system()
 }
 
 /// A JWT-shaped string whose payload decodes to `{"exp": exp}` (mirrors the

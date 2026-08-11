@@ -23,6 +23,11 @@ corresponding source under GPL-compatible terms, and (per GPLv3's
 anti-tivoization terms) that users of a device you ship can install their
 own modified builds on it.
 
+One other non-permissive dependency is in the tree, and it does not change the
+above: [`wireguard-control`](https://crates.io/crates/wireguard-control) is
+LGPL-2.1-or-later, whose linking exception means it does not, on its own,
+impose GPL terms.
+
 ## The SDK — MIT
 
 [`source/sdk/wardnet-js/`](source/sdk/wardnet-js/) — the `@wardnet/js`

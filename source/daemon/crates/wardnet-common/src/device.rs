@@ -136,6 +136,16 @@ pub struct Device {
     /// the default-for-new zone at discovery-insert time; never resolved at read
     /// time. See [`crate::network_zone`] and epic #244.
     pub zone_id: Uuid,
+    /// Which household user this device belongs to, if an admin has assigned
+    /// one.
+    ///
+    /// **Attribution, never authority** (ADR-0031 §4). It answers "whose iPad
+    /// is this?" so notifications and per-person views can be built, and it is
+    /// deliberately a plain `Option<Uuid>` with no path into an `AuthContext`:
+    /// a device caller resolves to `AuthContext::Device` whatever its owner's
+    /// role is. `ON DELETE SET NULL`, because deleting a person must not delete
+    /// the household's hardware.
+    pub owner_user_id: Option<Uuid>,
     pub dns_capture_enabled: bool,
     pub dns_capture_cap_count: i64,
     pub dns_capture_cap_days: i64,

@@ -9,16 +9,34 @@
 
 use std::net::IpAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use wardnet_common::device::{DeviceSignal, DeviceSignalKind, ManufacturerSource};
+use wardnet_common::net::is_private_ip;
 
 use crate::auth_context;
+use crate::device::prober::DeviceProber;
 use crate::error::AppError;
 use wardnetd_data::repository::{
     DeviceIdentificationRepository, DeviceRepository, DeviceSignalRow,
 };
 use wardnetd_data::vendor_catalog;
+
+/// What a probe contacted and what answered.
+///
+/// `ports_probed` is carried alongside `answering_ports` so the caller can tell
+/// "we contacted four ports and none answered" apart from "nothing happened".
+/// Without it an empty result is indistinguishable from a broken button.
+#[derive(Debug, Clone)]
+pub struct ProbeOutcome {
+    /// Every port the probe contacted — the catalog's full probe surface.
+    pub ports_probed: Vec<u16>,
+    /// The subset that answered, sorted. Each one was recorded as a
+    /// [`DeviceSignalKind::ProbedPort`] signal.
+    pub answering_ports: Vec<u16>,
+}
 
 /// Records identification signals and reads them back.
 #[async_trait]
@@ -69,6 +87,20 @@ pub trait DeviceIdentificationService: Send + Sync {
     /// Every signal recorded for a device, most recent first.
     async fn signals_for(&self, device_id: &str) -> Result<Vec<DeviceSignal>, AppError>;
 
+    /// Probe a device's catalog ports and record whichever answered.
+    ///
+    /// The direct-admin-action end of ADR 0025 §5's invariant: this is the only
+    /// thing that produces [`DeviceSignalKind::ProbedPort`] signals, and the
+    /// only method in the subsystem that emits unsolicited traffic.
+    ///
+    /// Refuses with [`AppError::Conflict`] unless the device is still on the
+    /// network. `last_ip` is last-observation-wins, so probing a departed
+    /// device contacts whoever holds that address *now* — and a vendor resolved
+    /// from that stranger's port would be written permanently onto this
+    /// device's row by `set_manufacturer_if_absent`. The guard is about
+    /// misattribution, not privacy.
+    async fn probe_device(&self, device_id: &str) -> Result<ProbeOutcome, AppError>;
+
     /// Name already-discovered devices the curated catalog can identify.
     ///
     /// The migration can only *remove* placeholder manufacturers — the catalog
@@ -88,6 +120,11 @@ pub trait DeviceIdentificationService: Send + Sync {
 pub struct DeviceIdentificationServiceImpl {
     identification: Arc<dyn DeviceIdentificationRepository>,
     devices: Arc<dyn DeviceRepository>,
+    prober: Arc<dyn DeviceProber>,
+    /// `detection.departure_timeout_secs` — how long a device may go unseen
+    /// before the daemon considers it gone. Reused as the probe's freshness
+    /// bound rather than inventing a second, subtly different threshold.
+    departure_timeout: Duration,
 }
 
 impl DeviceIdentificationServiceImpl {
@@ -95,10 +132,14 @@ impl DeviceIdentificationServiceImpl {
     pub fn new(
         identification: Arc<dyn DeviceIdentificationRepository>,
         devices: Arc<dyn DeviceRepository>,
+        prober: Arc<dyn DeviceProber>,
+        departure_timeout: Duration,
     ) -> Self {
         Self {
             identification,
             devices,
+            prober,
+            departure_timeout,
         }
     }
 }
@@ -271,5 +312,80 @@ impl DeviceIdentificationService for DeviceIdentificationServiceImpl {
             .find_by_device(device_id)
             .await
             .map_err(AppError::Internal)
+    }
+
+    async fn probe_device(&self, device_id: &str) -> Result<ProbeOutcome, AppError> {
+        auth_context::require_admin()?;
+
+        let device = self
+            .devices
+            .find_by_id(device_id)
+            .await
+            .map_err(AppError::Internal)?
+            .ok_or_else(|| AppError::NotFound(format!("device {device_id} not found")))?;
+
+        // Both guards protect the same thing: that the address we contact still
+        // belongs to the device whose row we are about to name. `last_ip` is
+        // last-observation-wins, so a stale one points at whoever holds that
+        // address now, and `set_manufacturer_if_absent` would write their
+        // vendor onto this row permanently.
+        let unseen_secs = Utc::now()
+            .signed_duration_since(device.last_seen)
+            .num_seconds();
+        let departure_secs = i64::try_from(self.departure_timeout.as_secs()).unwrap_or(i64::MAX);
+        if unseen_secs > departure_secs {
+            return Err(AppError::Conflict(
+                "device is not currently on the network".to_owned(),
+            ));
+        }
+
+        let ip: IpAddr = device.last_ip.parse().map_err(|_| {
+            AppError::Conflict(format!(
+                "device has no usable address to probe: {}",
+                device.last_ip
+            ))
+        })?;
+        // Remote WireGuard peers live on 10.100.64.0/24, so they stay probeable;
+        // a globally-routable address means the record has drifted into
+        // something we have no business contacting.
+        //
+        // Loopback and the unspecified address are excluded explicitly:
+        // `is_private_ip` counts them as private (it exists for the DDNS/rebind
+        // guards, where "not publishable" is the question), but here they mean
+        // the Pi would probe *itself*. Unreachable today — a departed device's
+        // address is blanked and no catalog port collides with a daemon
+        // listener — but the guard should not read as stricter than it is, and
+        // the first catalog port that overlaps `:853` or `:7411` would make it
+        // matter.
+        if !is_private_ip(ip) || ip.is_loopback() || ip.is_unspecified() {
+            return Err(AppError::Conflict(
+                "device's last known address is not one we will contact".to_owned(),
+            ));
+        }
+
+        // The probe surface is the catalog's, and only the catalog's — see the
+        // ADR 0025 §5 invariant on [`DeviceProber`].
+        let ports_probed = vendor_catalog::probe_ports();
+        let answering_ports = self.prober.probe(ip, &ports_probed).await;
+
+        tracing::info!(
+            %device_id,
+            %ip,
+            probed = ports_probed.len(),
+            answered = answering_ports.len(),
+            "identification: admin-triggered port probe complete"
+        );
+
+        // Funnel each hit through `record_signal` so vendor resolution, the
+        // per-kind cap and first-writer-wins naming all come for free.
+        for port in &answering_ports {
+            self.record_signal(device_id, DeviceSignalKind::ProbedPort, &port.to_string())
+                .await?;
+        }
+
+        Ok(ProbeOutcome {
+            ports_probed,
+            answering_ports,
+        })
     }
 }

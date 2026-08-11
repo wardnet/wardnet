@@ -692,6 +692,15 @@ impl DeviceIdentificationService for NoopDeviceIdentificationService {
     async fn reconcile_from_catalog(&self) -> Result<usize, wardnetd_services::error::AppError> {
         Ok(0)
     }
+    async fn probe_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<wardnetd_services::device::ProbeOutcome, wardnetd_services::error::AppError> {
+        Ok(wardnetd_services::device::ProbeOutcome {
+            ports_probed: Vec::new(),
+            answering_ports: Vec::new(),
+        })
+    }
 }
 
 /// No-op [`PushService`] used as the [`AppState::new`] default before the live

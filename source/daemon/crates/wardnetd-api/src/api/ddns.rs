@@ -20,15 +20,14 @@ use serde::Deserialize;
 use tracing::Instrument;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
-use uuid::Uuid;
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser};
 
 use wardnet_common::api::{
     ConfigureCloudflareRequest, DdnsCheckResponse, DdnsEnrollRequest, DdnsEnrollmentCodeRequest,
     DdnsRegisterRequest, DdnsRegisterResponse, DdnsResolutionCheckResponse, DdnsStatusResponse,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -56,11 +55,16 @@ pub struct CheckQuery {
 /// a poll right after register already reflects it); this only runs the slow
 /// work and logs the outcome — failures surface through the persisted TLS
 /// provisioning phase, not this task's result.
-fn spawn_provisioning(state: &AppState, admin_id: Uuid) {
+fn spawn_provisioning(state: &AppState, caller: AuthenticatedUser) {
     let ddns = state.ddns_service_arc();
     let tls = state.tls_service_arc();
     let nudge = state.tls_nudge();
-    let ctx = AuthContext::Admin { admin_id };
+    // The detached task runs as the *caller*, carrying the role their credential
+    // actually resolved to. Re-deriving an admin context here would let a
+    // `member` who reached this handler run the provisioning work with
+    // privileges they do not hold — the handler's own guard is what decides
+    // whether they get this far.
+    let ctx = AuthContext::user(caller);
     // Spawned tasks do not inherit the request's span, so attach our own child
     // span (rooted at the current request span) — see `.agents/observability.md`.
     let span = tracing::info_span!("remote_access_provisioning");
@@ -110,7 +114,7 @@ fn spawn_provisioning(state: &AppState, admin_id: Uuid) {
 )]
 pub async fn ddns_enrollment_code(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<DdnsEnrollmentCodeRequest>,
 ) -> Result<StatusCode, AppError> {
     state
@@ -137,7 +141,7 @@ pub async fn ddns_enrollment_code(
 )]
 pub async fn ddns_enroll(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<DdnsEnrollRequest>,
 ) -> Result<StatusCode, AppError> {
     state.ddns_service().enroll(body.code).await?;
@@ -159,7 +163,7 @@ pub async fn ddns_enroll(
 )]
 pub async fn ddns_check(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Query(query): Query<CheckQuery>,
 ) -> Result<Json<DdnsCheckResponse>, AppError> {
     let available = state.ddns_service().check_slug(query.slug).await?;
@@ -184,7 +188,7 @@ pub async fn ddns_check(
 )]
 pub async fn ddns_register(
     State(state): State<AppState>,
-    auth: AdminAuth,
+    auth: SessionAuth,
     Json(body): Json<DdnsRegisterRequest>,
 ) -> Result<Json<DdnsRegisterResponse>, AppError> {
     let registration = state
@@ -194,7 +198,7 @@ pub async fn ddns_register(
     // Reflect "issuing" before the spawn runs, so a poll racing the task still
     // shows progress rather than a stale idle/failed phase.
     state.tls_service().mark_provisioning_started().await?;
-    spawn_provisioning(&state, auth.admin_id);
+    spawn_provisioning(&state, auth.user);
     Ok(Json(DdnsRegisterResponse {
         fqdn: registration.subdomain,
         region: Some(registration.region),
@@ -219,7 +223,7 @@ pub async fn ddns_register(
 )]
 pub async fn ddns_cloudflare(
     State(state): State<AppState>,
-    auth: AdminAuth,
+    auth: SessionAuth,
     Json(body): Json<ConfigureCloudflareRequest>,
 ) -> Result<Json<DdnsRegisterResponse>, AppError> {
     let registration = state
@@ -227,7 +231,7 @@ pub async fn ddns_cloudflare(
         .configure_cloudflare(body.token, body.domain)
         .await?;
     state.tls_service().mark_provisioning_started().await?;
-    spawn_provisioning(&state, auth.admin_id);
+    spawn_provisioning(&state, auth.user);
     Ok(Json(DdnsRegisterResponse {
         fqdn: registration.subdomain,
         // BYOD has no bridge region.
@@ -249,7 +253,7 @@ pub async fn ddns_cloudflare(
 )]
 pub async fn ddns_status(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<DdnsStatusResponse>, AppError> {
     let status = state.ddns_service().status().await?;
     Ok(Json(DdnsStatusResponse {
@@ -276,7 +280,7 @@ pub async fn ddns_status(
 )]
 pub async fn ddns_resolution_check(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<DdnsResolutionCheckResponse>, AppError> {
     let result = state.ddns_service().resolution_check().await?;
     Ok(Json(result))
@@ -297,7 +301,7 @@ pub async fn ddns_resolution_check(
 )]
 pub async fn ddns_teardown(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<StatusCode, AppError> {
     // Revert serving + drop the cert first, then release the DDNS identity. The
     // two services own disjoint state, so order only affects the brief window

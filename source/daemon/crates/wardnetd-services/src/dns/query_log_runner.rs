@@ -23,7 +23,6 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use crate::DnsService;
@@ -124,9 +123,7 @@ async fn runner_loop(
     cleanup_interval: Duration,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     let mut buffer: Vec<QueryLogRow> = Vec::with_capacity(BATCH_MAX);
     let mut flush_ticker = tokio::time::interval(batch_interval);

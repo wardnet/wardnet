@@ -102,7 +102,7 @@ pub fn catch_panic_layer() -> CatchPanicLayer<fn(Box<dyn Any + Send + 'static>) 
     CatchPanicLayer::custom(handle_panic as fn(Box<dyn Any + Send + 'static>) -> Response)
 }
 
-/// Build the OpenAPI-aware router by letting each module register its own
+/// Build the `OpenAPI`-aware router by letting each module register its own
 /// handlers. Order is purely cosmetic — it controls the grouping in the
 /// generated docs. Seeded with [`crate::openapi::ApiDoc`] so the merged
 /// document carries the shared metadata (title, tags, security schemes).
@@ -182,13 +182,14 @@ pub fn router(state: AppState) -> Router {
         .route("/api/system/logs/stream", get(logs_ws::logs_ws))
         .route("/api/dns/log/stream", get(dns_log_ws::dns_log_ws));
 
-    // Spec endpoint: admin-gated JSON. `AdminAuth` as an extractor ensures the
-    // handler returns 401 for unauthenticated callers without any extra
-    // middleware plumbing.
+    // Spec endpoint: admin-gated JSON. These closures call no service, so there
+    // is nowhere to put `require_admin()` — `AdminOnly` is the guard itself.
+    // `SessionAuth` would not do: it admits `member` callers, and this endpoint
+    // returns the whole admin API surface.
     let openapi_for_spec = openapi.clone();
     let api_router = api_router.route(
         "/api/openapi.json",
-        get(move |_: middleware::AdminAuth| {
+        get(move |_: middleware::AdminOnly| {
             let spec = openapi_for_spec.clone();
             async move { axum::Json(spec) }
         }),
@@ -197,17 +198,17 @@ pub fn router(state: AppState) -> Router {
     // Scalar UI: a hand-rolled HTML shell with our palette applied to Scalar's
     // sidebar CSS variables. The spec is fetched from `/api/openapi.json` and
     // the brand logo from `/api/docs/logo.svg` at runtime — all three endpoints
-    // share the same admin-gating extractor.
+    // share the same `AdminOnly` extractor, for the reason above.
     let api_router = api_router
         .route(
             "/api/docs",
-            get(|_: middleware::AdminAuth| async {
+            get(|_: middleware::AdminOnly| async {
                 axum::response::Html(crate::openapi::SCALAR_HTML)
             }),
         )
         .route(
             "/api/docs/logo.svg",
-            get(|_: middleware::AdminAuth| async {
+            get(|_: middleware::AdminOnly| async {
                 // Unlike the PNG it replaced, SVG is an active document type:
                 // scripts inside it would run in the admin origin if the URL
                 // is opened directly. The asset is vendored and reviewed, but
@@ -227,7 +228,7 @@ pub fn router(state: AppState) -> Router {
         )
         .route(
             "/api/docs/scalar.js",
-            get(|_: middleware::AdminAuth| async {
+            get(|_: middleware::AdminOnly| async {
                 // Vendored @scalar/api-reference bundle (pinned in `openapi.rs`).
                 // Served from the daemon itself so /api/docs doesn't depend on
                 // an external CDN — works offline and kills the supply-chain

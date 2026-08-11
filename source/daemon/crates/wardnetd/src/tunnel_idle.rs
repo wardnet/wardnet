@@ -141,9 +141,7 @@ async fn handle_event(event: &WardnetEvent, routing: &dyn RoutingService, state:
             // If previous target was a tunnel, check if it's now idle.
             if let Some(RoutingTarget::Tunnel { tunnel_id }) = previous_target {
                 let users = wardnetd_services::auth_context::with_context(
-                    wardnet_common::auth::AuthContext::Admin {
-                        admin_id: Uuid::nil(),
-                    },
+                    wardnet_common::auth::AuthContext::system(),
                     routing.devices_using_tunnel(*tunnel_id),
                 )
                 .await;
@@ -187,9 +185,7 @@ async fn handle_event(event: &WardnetEvent, routing: &dyn RoutingService, state:
                     continue;
                 }
                 let users = wardnetd_services::auth_context::with_context(
-                    wardnet_common::auth::AuthContext::Admin {
-                        admin_id: Uuid::nil(),
-                    },
+                    wardnet_common::auth::AuthContext::system(),
                     routing.devices_using_tunnel(tid),
                 )
                 .await;
@@ -248,9 +244,7 @@ async fn sweep_idle(tunnel_service: &dyn TunnelService, state: &mut IdleState, t
         state.idle_since.remove(&tunnel_id);
         tracing::info!(tunnel_id = %tunnel_id, "tearing down idle tunnel");
         if let Err(e) = wardnetd_services::auth_context::with_context(
-            wardnet_common::auth::AuthContext::Admin {
-                admin_id: Uuid::nil(),
-            },
+            wardnet_common::auth::AuthContext::system(),
             tunnel_service.tear_down_internal(tunnel_id, "idle timeout"),
         )
         .await

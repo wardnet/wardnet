@@ -103,6 +103,7 @@ impl MemoryDeviceRepository {
                 last_ip: last_ip.to_owned(),
                 admin_locked: false,
                 zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
+                owner_user_id: None,
                 dns_capture_enabled: false,
                 dns_capture_cap_count: 1000,
                 dns_capture_cap_days: 7,
@@ -132,6 +133,14 @@ impl DeviceRepository for MemoryDeviceRepository {
         _cutoff: &str,
     ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
         Ok(Vec::new())
+    }
+
+    async fn set_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
     }
 
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
@@ -349,13 +358,7 @@ impl Harness {
 /// call `auth_context::require_admin()?` at entry, so unscoped calls would
 /// return `Forbidden`.
 async fn as_admin<F: Future>(fut: F) -> F::Output {
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        fut,
-    )
-    .await
+    auth_context::with_context(AuthContext::system(), fut).await
 }
 
 async fn build() -> Harness {

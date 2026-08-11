@@ -121,7 +121,7 @@ pub trait SystemService: Send + Sync {
     ///
     /// Called by the background `HeartbeatRunner` on a 60-second
     /// cadence. Admin-only — the runner wraps the call in
-    /// `auth_context::with_context(AuthContext::Admin { admin_id: Uuid::nil() })`.
+    /// `auth_context::with_context(AuthContext::system())`.
     async fn record_heartbeat(&self) -> Result<(), AppError>;
 
     /// Record that the daemon is exiting gracefully so the next boot

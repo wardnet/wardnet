@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use tracing_subscriber::layer::SubscriberExt;
 use uuid::Uuid;
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 
 use crate::auth_context;
 use crate::error::AppError;
@@ -24,9 +24,10 @@ fn build_service() -> (LogServiceImpl, PathBuf) {
 }
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 #[test]

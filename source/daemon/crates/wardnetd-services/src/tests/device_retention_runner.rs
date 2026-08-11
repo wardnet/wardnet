@@ -130,9 +130,7 @@ impl DeviceDiscoveryService for MockDiscovery {
 }
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
+    AuthContext::system()
 }
 
 // ── One pass ─────────────────────────────────────────────────────────────────

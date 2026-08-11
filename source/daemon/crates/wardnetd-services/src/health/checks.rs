@@ -22,7 +22,6 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use super::{CheckOutcome, HealthCheck};
@@ -39,9 +38,7 @@ use wardnetd_data::repository::MaintenanceRepository;
 /// the auth-gated service layer — the same nil-admin pattern the DNS/DHCP/
 /// heartbeat runners use for their own background reads.
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
+    AuthContext::system()
 }
 
 /// Liveness probe — always `Up`.

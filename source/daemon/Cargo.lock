@@ -6168,6 +6168,8 @@ version = "0.7.0"
 dependencies = [
  "tracing",
  "tracing-subscriber",
+ "uuid",
+ "wardnet-common",
 ]
 
 [[package]]
@@ -6254,6 +6256,7 @@ dependencies = [
  "utoipa-axum",
  "uuid",
  "wardnet-common",
+ "wardnet-test-support",
  "wardnetd-data",
  "wardnetd-services",
 ]

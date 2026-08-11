@@ -12,7 +12,8 @@ use wardnet_common::api::{
 use wardnet_common::jobs::JobDispatchedResponse;
 use wardnet_common::speed_test::TunnelSpeedTestHistoryResponse;
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest, Conflict, NotFound, UpstreamUnavailable};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -43,7 +44,14 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn list_tunnels(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    // `AdminOnly`, not `SessionAuth`, and deliberately not a tightened service
+    // guard: `TunnelService::list_tunnels` is `require_authenticated` because
+    // `/api/devices/me` calls it to build a device caller's `available_tunnels`,
+    // and a device must pass there. The service therefore cannot be the gate for
+    // *this* route, whose contract above says "Admin only" — before household
+    // users the session extractor made that true by accident, since every
+    // session was an admin's.
+    _auth: middleware::AdminOnly,
 ) -> Result<Json<ListTunnelsResponse>, AppError> {
     let response = state.tunnel_service().list_tunnels().await?;
     Ok(Json(response))
@@ -65,7 +73,7 @@ pub async fn list_tunnels(
 )]
 pub async fn create_tunnel(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<CreateTunnelRequest>,
 ) -> Result<(StatusCode, Json<CreateTunnelResponse>), AppError> {
     let response = state.tunnel_service().import_tunnel(body).await?;
@@ -87,7 +95,7 @@ pub async fn create_tunnel(
 )]
 pub async fn get_tunnel(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<TunnelDetailResponse>, AppError> {
     let tunnel = state.tunnel_service().get_tunnel(id).await?;
@@ -109,7 +117,7 @@ pub async fn get_tunnel(
 )]
 pub async fn list_tunnel_devices(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<TunnelDevicesResponse>, AppError> {
     let response = state.tunnel_service().list_tunnel_devices(id).await?;
@@ -132,7 +140,7 @@ pub async fn list_tunnel_devices(
 )]
 pub async fn delete_tunnel(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeleteTunnelResponse>, AppError> {
     let response = state.tunnel_service().delete_tunnel(id).await?;
@@ -159,7 +167,7 @@ pub async fn delete_tunnel(
 )]
 pub async fn test_tunnel(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<TunnelTestResponse>, AppError> {
     let result = state.tunnel_service().test_tunnel(id).await?;
@@ -187,7 +195,7 @@ pub async fn test_tunnel(
 )]
 pub async fn start_speed_test(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<(StatusCode, Json<JobDispatchedResponse>), AppError> {
     let response = state.tunnel_service_arc().start_speed_test(id).await?;
@@ -210,7 +218,7 @@ pub async fn start_speed_test(
 )]
 pub async fn list_speed_tests(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<TunnelSpeedTestHistoryResponse>, AppError> {
     let response = state.tunnel_service().list_speed_tests(id).await?;
@@ -237,7 +245,7 @@ pub async fn list_speed_tests(
 )]
 pub async fn update_tunnel_dns_override(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
     Json(body): Json<UpdateTunnelDnsOverrideRequest>,
 ) -> Result<Json<UpdateTunnelDnsOverrideResponse>, AppError> {
@@ -264,7 +272,7 @@ pub async fn update_tunnel_dns_override(
 )]
 pub async fn rebuild_tunnel(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<RebuildTunnelResponse>, AppError> {
     state.tunnel_service().rebuild(id).await?;

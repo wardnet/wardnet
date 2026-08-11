@@ -9,7 +9,7 @@ use uuid::Uuid;
 use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType, ManufacturerSource};
 use wardnet_common::event::WardnetEvent;
 
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, UserRole};
 
 use crate::auth_context;
 use crate::device::hostname_resolver::HostnameResolver;
@@ -980,7 +980,18 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         auth_context::require_authenticated()?;
         let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
         match ctx {
-            AuthContext::Admin { .. } => self.devices.find_all().await.map_err(AppError::Internal),
+            // An admin-role household user sees the whole directory.
+            AuthContext::User(user) if user.role() == UserRole::Admin => {
+                self.devices.find_all().await.map_err(AppError::Internal)
+            }
+            // A `member` is a person, not an operator. The device directory is
+            // an admin surface; members reach the daemon through the user PWA
+            // and their own device (the `Device` arm below), so there is no
+            // member view of this endpoint to define. Enumerated rather than
+            // folded into the admin arm precisely so that stays true.
+            AuthContext::User(_) => {
+                Err(AppError::Forbidden("admin privileges required".to_owned()))
+            }
             AuthContext::Device { mac } => {
                 match self
                     .devices
@@ -992,8 +1003,13 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
                     None => Ok(vec![]),
                 }
             }
-            // Already handled by require_authenticated above.
-            AuthContext::Anonymous => unreachable!(),
+            // Already refused by `require_authenticated` above. Answered with a
+            // second explicit refusal rather than `unreachable!()`: if that
+            // reasoning ever stops holding, an authorization bug must not turn
+            // into a remotely-triggerable panic.
+            AuthContext::Anonymous => {
+                Err(AppError::Forbidden("authentication required".to_owned()))
+            }
         }
     }
 
@@ -1008,13 +1024,27 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             .map_err(AppError::Internal)?
             .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))?;
 
-        // Device callers can only view their own device.
-        if let AuthContext::Device { mac } = &ctx
-            && device.mac != *mac
-        {
-            return Err(AppError::Forbidden(
-                "not authorised to view this device".to_owned(),
-            ));
+        // Decide per principal, exhaustively. An `if let` on `Device` would let
+        // every other principal fall through to the admin path.
+        match &ctx {
+            // Admins may view any device.
+            AuthContext::User(user) if user.role() == UserRole::Admin => {}
+            // Members have no admin-surface access; their own device reaches
+            // this through the `Device` arm below.
+            AuthContext::User(_) => {
+                return Err(AppError::Forbidden("admin privileges required".to_owned()));
+            }
+            // Device callers can only view their own device.
+            AuthContext::Device { mac } if device.mac == *mac => {}
+            AuthContext::Device { .. } => {
+                return Err(AppError::Forbidden(
+                    "not authorised to view this device".to_owned(),
+                ));
+            }
+            // Already refused by `require_authenticated` above.
+            AuthContext::Anonymous => {
+                return Err(AppError::Forbidden("authentication required".to_owned()));
+            }
         }
 
         Ok(device)
@@ -1029,22 +1059,43 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         auth_context::require_authenticated()?;
         let ctx = auth_context::try_current().unwrap_or(AuthContext::Anonymous);
 
-        // Device callers can only update their own device, and only if not admin-locked.
-        if let AuthContext::Device { mac } = &ctx {
-            let device = self
-                .devices
-                .find_by_id(&id.to_string())
-                .await
-                .map_err(AppError::Internal)?
-                .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))?;
-
-            if device.mac != *mac {
-                return Err(AppError::Forbidden(
-                    "not authorised to modify this device".to_owned(),
-                ));
+        // Decide per principal, exhaustively. `admin_locked` is the parental-
+        // control primitive and is enforced on the device path only, so a
+        // wildcard arm here would hand any future principal an admin-path
+        // bypass of it.
+        match &ctx {
+            // Admins may rename any device, locked or not — the lock is theirs.
+            AuthContext::User(user) if user.role() == UserRole::Admin => {}
+            // Members have no admin-surface access. Keeping this arm separate
+            // from the admin one matters more here than anywhere else: the
+            // admin path skips `admin_locked`, the parental-control primitive,
+            // so a member falling through to it would silently gain the power
+            // to rename a device their parent had locked.
+            AuthContext::User(_) => {
+                return Err(AppError::Forbidden("admin privileges required".to_owned()));
             }
-            if device.admin_locked {
-                return Err(AppError::Forbidden("device is locked by admin".to_owned()));
+            // Device callers can only update their own device, and only if not
+            // admin-locked.
+            AuthContext::Device { mac } => {
+                let device = self
+                    .devices
+                    .find_by_id(&id.to_string())
+                    .await
+                    .map_err(AppError::Internal)?
+                    .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))?;
+
+                if device.mac != *mac {
+                    return Err(AppError::Forbidden(
+                        "not authorised to modify this device".to_owned(),
+                    ));
+                }
+                if device.admin_locked {
+                    return Err(AppError::Forbidden("device is locked by admin".to_owned()));
+                }
+            }
+            // Already refused by `require_authenticated` above.
+            AuthContext::Anonymous => {
+                return Err(AppError::Forbidden("authentication required".to_owned()));
             }
         }
 
@@ -1105,7 +1156,11 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
         // `AuthContext::Device` renaming itself); a device naming itself is the
         // device asking, not the admin deciding, and promoting on it would make
         // every guest device permanently exempt from retention.
-        if matches!(ctx, AuthContext::Admin { .. }) {
+        //
+        // `is_admin()` rather than a variant match, so a `member` household user
+        // renaming their own device is treated the same way as the device doing
+        // it — a person asking, not the admin deciding (ADR-0031).
+        if ctx.is_admin() {
             self.devices
                 .set_managed(&id.to_string(), true)
                 .await

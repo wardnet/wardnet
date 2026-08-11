@@ -59,6 +59,19 @@ export interface Device {
   admin_locked: boolean;
   /** The Network Zone this device belongs to (exactly one). See issue #735. */
   zone_id: string;
+  /**
+   * Which household user this device belongs to, if an admin has assigned one.
+   *
+   * **Attribution, never authority** (ADR-0031 §4). It answers "whose iPad is
+   * this?" so per-person views can be built; it grants nothing. A device caller
+   * resolves to the device principal whatever its owner's role is, so a UI must
+   * never treat this as a signal that the caller is that user.
+   *
+   * `null` when unassigned, and set to `null` if the owner is deleted —
+   * removing a person does not remove the household's hardware. See issue
+   * #1147.
+   */
+  owner_user_id: string | null;
   dns_capture_enabled: boolean;
   dns_capture_cap_count: number;
   dns_capture_cap_days: number;

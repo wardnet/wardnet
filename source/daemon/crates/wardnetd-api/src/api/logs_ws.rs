@@ -4,7 +4,7 @@ use axum::response::IntoResponse;
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
 use wardnetd_services::logging::stream::LogEntry;
@@ -44,7 +44,7 @@ fn level_priority(level: &str) -> u8 {
 /// ```
 pub async fn logs_ws(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     ws: WebSocketUpgrade,
 ) -> Result<impl IntoResponse, AppError> {
     let rx = state.log_service().subscribe()?;

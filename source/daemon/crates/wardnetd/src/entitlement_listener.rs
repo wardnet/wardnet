@@ -92,9 +92,7 @@ async fn event_loop(
 /// zone-enforcement listener uses for background enforcement).
 async fn disable_inbound_wg(inbound_wg: &dyn InboundWgService) {
     if let Err(e) = wardnetd_services::auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
+        AuthContext::system(),
         disable_if_enabled(inbound_wg),
     )
     .await
@@ -123,9 +121,7 @@ async fn disable_if_enabled(
 /// the service side, so this always succeeds for a lapsed box.
 async fn disable_private_dns(private_dns: &dyn PrivateDnsService) {
     if let Err(e) = wardnetd_services::auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
+        AuthContext::system(),
         disable_private_dns_if_enabled(private_dns),
     )
     .await

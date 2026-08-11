@@ -19,8 +19,9 @@ use wardnet_common::api::{WebPushKeys, WebPushSubscription};
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
+use wardnet_test_support::principal;
 use wardnetd_data::repository::device::DeviceRow;
-use wardnetd_data::repository::push::{OWNER_KIND_ADMIN, OWNER_KIND_DEVICE};
+use wardnetd_data::repository::push::{OWNER_KIND_DEVICE, OWNER_KIND_USER};
 use wardnetd_data::repository::tunnel::TunnelRow;
 use wardnetd_data::repository::{
     DeviceRepository, NewPushSubscription, NotificationRepository, PushRepository,
@@ -126,6 +127,8 @@ impl WebPushSender for RecordingSender {
 
 struct Harness {
     service: PushServiceImpl,
+    /// Kept so `seed` can insert the `users` row that `list_admins` joins to.
+    pool: SqlitePool,
     push_repo: Arc<dyn PushRepository>,
     notifications: Arc<dyn NotificationRepository>,
     devices: Arc<dyn DeviceRepository>,
@@ -141,7 +144,7 @@ async fn build(outcome: SendOutcome) -> Harness {
         Arc::new(SqliteNotificationRepository::new(pool.clone()));
     let devices: Arc<dyn DeviceRepository> = Arc::new(SqliteDeviceRepository::new(pool.clone()));
     let tunnels: Arc<dyn TunnelRepository> = Arc::new(SqliteTunnelRepository::new(pool.clone()));
-    let system_config = Arc::new(SqliteSystemConfigRepository::new(pool));
+    let system_config = Arc::new(SqliteSystemConfigRepository::new(pool.clone()));
     let sender = Arc::new(RecordingSender::new(outcome));
     let secrets = Arc::new(InMemorySecretStore::default());
     let service = PushServiceImpl::new(
@@ -155,6 +158,7 @@ async fn build(outcome: SendOutcome) -> Harness {
     );
     Harness {
         service,
+        pool,
         push_repo,
         notifications,
         devices,
@@ -221,28 +225,49 @@ async fn insert_tunnel(tunnels: &Arc<dyn TunnelRepository>, id: Uuid, label: &st
 
 /// Dispatch an event the way the daemon listener does: under an admin context.
 async fn handle(service: &PushServiceImpl, event: WardnetEvent) {
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        service.handle_event(&event),
+    auth_context::with_context(AuthContext::system(), service.handle_event(&event))
+        .await
+        .unwrap();
+}
+
+/// Insert a household user so subscription joins resolve.
+async fn seed_user(pool: &SqlitePool, id: &str, role: &str) {
+    sqlx::query(
+        "INSERT OR IGNORE INTO users \
+         (id, display_name, email, role, enabled, created_at, updated_at) \
+         VALUES (?, ?, NULL, ?, 1, ?, ?)",
     )
+    .bind(id)
+    .bind(id)
+    .bind(role)
+    .bind("2026-07-01T00:00:00Z")
+    .bind("2026-07-01T00:00:00Z")
+    .execute(pool)
     .await
     .unwrap();
 }
 
-async fn seed(repo: &Arc<dyn PushRepository>, owner_kind: &str, owner_key: &str, endpoint: &str) {
-    repo.upsert(NewPushSubscription {
-        id: &Uuid::new_v4().to_string(),
-        owner_kind,
-        owner_key,
-        endpoint,
-        p256dh: "p256dh",
-        auth: "auth",
-        created_at: "2026-07-01T00:00:00Z",
-    })
-    .await
-    .unwrap();
+/// Seed a push subscription.
+///
+/// For a user-owned subscription this also inserts the `users` row, because
+/// `list_admins` joins `users` to read the owner's role — a subscription whose
+/// owner has no row is correctly invisible to the admin fan-out.
+async fn seed(h: &Harness, owner_kind: &str, owner_key: &str, endpoint: &str) {
+    if owner_kind == OWNER_KIND_USER {
+        seed_user(&h.pool, owner_key, "admin").await;
+    }
+    h.push_repo
+        .upsert(NewPushSubscription {
+            id: &Uuid::new_v4().to_string(),
+            owner_kind,
+            owner_key,
+            endpoint,
+            p256dh: "p256dh",
+            auth: "auth",
+            created_at: "2026-07-01T00:00:00Z",
+        })
+        .await
+        .unwrap();
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────
@@ -252,20 +277,8 @@ async fn admin_lock_notifies_the_target_device_only() {
     let device_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_device(&h.devices, device_id, "aa:bb:cc:00", Some("Kid's iPad")).await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:00",
-        "https://push/device",
-    )
-    .await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:00", "https://push/device").await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -288,9 +301,7 @@ async fn admin_lock_notifies_the_target_device_only() {
 /// context.
 async fn notify(service: &PushServiceImpl, device_id: Uuid) -> bool {
     auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
+        AuthContext::system(),
         service.notify_private_dns_granted(device_id),
     )
     .await
@@ -304,13 +315,7 @@ async fn private_dns_notify_resolves_uuid_to_mac_and_reports_delivered() {
     // Subscriptions are keyed by MAC; the endpoint speaks device UUID, so the
     // service must resolve UUID -> MAC before targeting.
     insert_device(&h.devices, device_id, "aa:bb:cc:11", Some("Phone")).await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:11",
-        "https://push/device",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:11", "https://push/device").await;
 
     let delivered = notify(&h.service, device_id).await;
 
@@ -354,20 +359,8 @@ async fn admin_routing_change_targets_device_user_change_targets_admins() {
     let h = build(SendOutcome::Delivered).await;
     insert_device(&h.devices, device_id, "aa:bb:cc:01", Some("Laptop")).await;
     insert_tunnel(&h.tunnels, tunnel_id, "Sweden #12").await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:01",
-        "https://push/device",
-    )
-    .await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:01", "https://push/device").await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     // Admin-initiated change -> the device is told.
     handle(
@@ -418,13 +411,7 @@ async fn tunnel_down_notifies_admins_only_when_interface_absent() {
     let tunnel_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_tunnel(&h.tunnels, tunnel_id, "USA #8").await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     // A deliberate teardown must NOT notify.
     handle(
@@ -463,13 +450,7 @@ async fn gone_subscriptions_are_pruned() {
     let tunnel_id = Uuid::new_v4();
     let h = build(SendOutcome::Gone).await;
     insert_tunnel(&h.tunnels, tunnel_id, "T").await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/dead",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/dead").await;
 
     handle(
         &h.service,
@@ -488,6 +469,61 @@ async fn gone_subscriptions_are_pruned() {
 }
 
 #[tokio::test]
+async fn a_members_subscription_is_not_an_admin_fan_out_target() {
+    // `owner_kind = 'user'` covers admins and members alike, so the admin
+    // fan-out has to filter on the *role*. Without the join, every household
+    // member's phone would receive the household's administrative
+    // notifications — new-device alerts, rule requests, tunnel outages.
+    let h = build(SendOutcome::Delivered).await;
+    let member_id = Uuid::new_v4();
+    seed_user(&h.pool, &member_id.to_string(), "member").await;
+
+    let sub = WebPushSubscription {
+        endpoint: "https://push/member".to_owned(),
+        keys: WebPushKeys {
+            p256dh: "pk".to_owned(),
+            auth: "au".to_owned(),
+        },
+    };
+    auth_context::with_context(
+        principal::member_context(member_id),
+        h.service.subscribe(sub),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        h.push_repo.list_admins().await.unwrap().is_empty(),
+        "a member must not be an admin-notification target"
+    );
+}
+
+#[tokio::test]
+async fn a_disabled_admin_stops_receiving_notifications() {
+    // Disabling is the revocation primitive; it must stop delivery too, not
+    // just authentication.
+    let h = build(SendOutcome::Delivered).await;
+    let admin_id = Uuid::new_v4();
+    seed_user(&h.pool, &admin_id.to_string(), "admin").await;
+    seed(
+        &h,
+        OWNER_KIND_USER,
+        &admin_id.to_string(),
+        "https://push/admin",
+    )
+    .await;
+    assert_eq!(h.push_repo.list_admins().await.unwrap().len(), 1);
+
+    sqlx::query("UPDATE users SET enabled = 0 WHERE id = ?")
+        .bind(admin_id.to_string())
+        .execute(&h.pool)
+        .await
+        .unwrap();
+
+    assert!(h.push_repo.list_admins().await.unwrap().is_empty());
+}
+
+#[tokio::test]
 async fn subscribe_picks_owner_from_auth_context() {
     let h = build(SendOutcome::Delivered).await;
     let sub = WebPushSubscription {
@@ -499,8 +535,11 @@ async fn subscribe_picks_owner_from_auth_context() {
     };
 
     let admin_id = Uuid::new_v4();
+    // `list_admins` joins `users` to read the owner's role, so the subscriber
+    // needs a row — a subscription owned by nobody is correctly invisible.
+    seed_user(&h.pool, &admin_id.to_string(), "admin").await;
     auth_context::with_context(
-        AuthContext::Admin { admin_id },
+        principal::admin_context(admin_id),
         h.service.subscribe(sub.clone()),
     )
     .await
@@ -558,13 +597,7 @@ async fn subscribe_rejects_non_https_endpoint() {
 async fn unsubscribe_by_endpoint_cannot_remove_another_owners_subscription() {
     let h = build(SendOutcome::Delivered).await;
     // An admin owns a subscription.
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     // A device, knowing the admin's endpoint, tries to unsubscribe it.
     auth_context::with_context(
@@ -585,20 +618,8 @@ async fn unsubscribe_by_endpoint_cannot_remove_another_owners_subscription() {
 #[tokio::test]
 async fn unsubscribe_without_endpoint_removes_all_caller_subscriptions() {
     let h = build(SendOutcome::Delivered).await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:aa",
-        "https://push/1",
-    )
-    .await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:aa",
-        "https://push/2",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:aa", "https://push/1").await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:aa", "https://push/2").await;
 
     auth_context::with_context(
         AuthContext::Device {
@@ -658,13 +679,7 @@ async fn vapid_public_key_is_generated_once_and_stable() {
 async fn user_change_with_unknown_device_and_default_target_notifies_admins() {
     // Unknown device -> "A device"; Default target -> "default routing".
     let h = build(SendOutcome::Delivered).await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -692,13 +707,7 @@ async fn user_change_with_unknown_device_and_default_target_notifies_admins() {
 async fn offline_notification_falls_back_when_tunnel_unknown() {
     // No tunnel record -> label falls back to "A tunnel".
     let h = build(SendOutcome::Delivered).await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -747,13 +756,7 @@ async fn delivery_is_dropped_when_vapid_key_is_corrupt() {
     let tunnel_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_tunnel(&h.tunnels, tunnel_id, "T").await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
     h.secrets
         .put(crate::push::SECRET_VAPID_KEY, b"not-a-valid-key")
         .await
@@ -786,13 +789,7 @@ async fn new_device_quarantined_notifies_admins() {
         Some("Kid's iPad"),
     )
     .await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -824,13 +821,7 @@ async fn tunnel_offline_payload_carries_kind_url_and_tunnel_subject() {
     let tunnel_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_tunnel(&h.tunnels, tunnel_id, "USA #8").await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -885,13 +876,7 @@ async fn admin_notification_is_persisted_when_delivery_fails_transiently() {
     let tunnel_id = Uuid::new_v4();
     let h = build(SendOutcome::TransientFailure).await;
     insert_tunnel(&h.tunnels, tunnel_id, "T").await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -915,13 +900,7 @@ async fn device_keyed_notifications_are_not_persisted_to_the_feed() {
     let device_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_device(&h.devices, device_id, "aa:bb:cc:05", Some("Phone")).await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:05",
-        "https://push/device",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:05", "https://push/device").await;
 
     handle(
         &h.service,
@@ -965,25 +944,16 @@ async fn recent_notifications_requires_admin_and_returns_newest_first() {
     assert!(matches!(result, Err(crate::error::AppError::Forbidden(_))));
 
     // An admin gets the feed.
-    let feed = auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        h.service.recent_notifications(10),
-    )
-    .await
-    .unwrap();
+    let feed =
+        auth_context::with_context(AuthContext::system(), h.service.recent_notifications(10))
+            .await
+            .unwrap();
     assert_eq!(feed.len(), 1);
 
     // Clear empties it (also admin-gated).
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        h.service.clear_notifications(),
-    )
-    .await
-    .unwrap();
+    auth_context::with_context(AuthContext::system(), h.service.clear_notifications())
+        .await
+        .unwrap();
     assert!(h.notifications.list_recent(10).await.unwrap().is_empty());
 }
 
@@ -992,13 +962,7 @@ async fn rule_request_notifies_admins_and_lands_in_the_feed() {
     let device_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_device(&h.devices, device_id, "aa:bb:cc:07", Some("Kid's iPad")).await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/admin",
-    )
-    .await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
 
     handle(
         &h.service,
@@ -1040,13 +1004,7 @@ async fn device_keyed_payload_omits_url_but_keeps_kind_and_subject() {
     let device_id = Uuid::new_v4();
     let h = build(SendOutcome::Delivered).await;
     insert_device(&h.devices, device_id, "aa:bb:cc:04", Some("Phone")).await;
-    seed(
-        &h.push_repo,
-        OWNER_KIND_DEVICE,
-        "aa:bb:cc:04",
-        "https://push/device",
-    )
-    .await;
+    seed(&h, OWNER_KIND_DEVICE, "aa:bb:cc:04", "https://push/device").await;
 
     handle(
         &h.service,

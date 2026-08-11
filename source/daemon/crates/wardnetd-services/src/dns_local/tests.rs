@@ -71,13 +71,7 @@ fn changed_domains(
 /// Run a future inside an `Admin` task-local context. Every service method
 /// opens with `require_admin()?`, so unscoped calls return `Forbidden`.
 async fn as_admin<F: Future>(fut: F) -> F::Output {
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        fut,
-    )
-    .await
+    auth_context::with_context(AuthContext::system(), fut).await
 }
 
 fn create_zone_req(name: &str) -> CreateZoneRequest {

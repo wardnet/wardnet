@@ -13,7 +13,6 @@ use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use tower::ServiceExt;
-use uuid::Uuid;
 use wardnet_common::api::{CreateNetworkZoneRequest, NetworkZoneView, UpdateNetworkZoneRequest};
 use wardnet_common::network_zone::{AllowedTargetKind, NetworkZone, ZoneProvenance, ZoneStance};
 
@@ -25,7 +24,11 @@ use crate::tests::stubs::{
     StubRuleRequestService, StubStatsService, StubSystemService, StubTlsService, StubTunnelService,
     StubUpdateService, StubZoneExceptionService,
 };
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
 use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 use wardnetd_services::error::AppError;
 use wardnetd_services::{AuthService, LogService, NetworkZoneService};
 
@@ -36,16 +39,21 @@ struct MockAuthService;
 
 #[async_trait]
 impl AuthService for MockAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(Uuid::parse_str(TRUSTED).unwrap()))
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(Some(principal::admin(Uuid::parse_str(TRUSTED).unwrap())))
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
     async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
@@ -276,8 +284,8 @@ async fn delete_zone_returns_deleted_true() {
 
 // ── Auth gate ──────────────────────────────────────────────────────────────
 // The shared `send()` helper always attaches a session cookie, so the tests
-// above cannot see the `AdminAuth` guard. These drive each handler with no
-// credentials: a handler that lost its `_auth: AdminAuth` extractor would
+// above cannot see the `SessionAuth` guard. These drive each handler with no
+// credentials: a handler that lost its `_auth: SessionAuth` extractor would
 // answer 200/201 here instead of 401.
 
 /// Same as `send`, but omits the session cookie so the request is anonymous.

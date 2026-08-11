@@ -316,6 +316,14 @@ impl HostnameResolver for StubHostnameResolver {
     }
 }
 
+struct StubDeviceProber;
+#[async_trait]
+impl crate::device::DeviceProber for StubDeviceProber {
+    async fn probe(&self, _ip: std::net::IpAddr, _ports: &[u16]) -> Vec<u16> {
+        Vec::new()
+    }
+}
+
 struct StubPowerOps;
 #[async_trait]
 impl SystemPowerOps for StubPowerOps {
@@ -359,6 +367,7 @@ fn stub_backends() -> Backends {
         firewall: Arc::new(StubFirewall),
         packet_capture: Arc::new(StubPacketCapture),
         hostname_resolver: Arc::new(StubHostnameResolver),
+        device_prober: Arc::new(StubDeviceProber),
         secret_store: Arc::new(StubSecretStore),
         web_push_sender: Arc::new(StubWebPushSender),
         blocklist_fetcher: Arc::new(StubBlocklistFetcher),

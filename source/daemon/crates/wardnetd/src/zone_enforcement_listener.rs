@@ -83,14 +83,7 @@ async fn with_admin<F>(context: &str, op: F)
 where
     F: std::future::Future<Output = Result<(), wardnetd_services::error::AppError>>,
 {
-    if let Err(e) = wardnetd_services::auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
-        op,
-    )
-    .await
-    {
+    if let Err(e) = wardnetd_services::auth_context::with_context(AuthContext::system(), op).await {
         tracing::warn!(error = %e, "zone enforcement: {context} failed: {e}");
     }
 }

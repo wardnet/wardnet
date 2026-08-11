@@ -18,7 +18,6 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
@@ -60,9 +59,7 @@ async fn runner_loop(
     mut requests: mpsc::Receiver<DomainRouteRequest>,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     // Bootstrap the compiled view so lookups work before the first mutation.
     if let Err(e) = auth_context::with_context(admin_ctx.clone(), profiles.refresh_view()).await {

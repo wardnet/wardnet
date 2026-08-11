@@ -13,7 +13,7 @@ use utoipa_axum::routes;
 
 use wardnet_common::api::TlsStatusResponse;
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::AuthErrors;
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -36,7 +36,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn tls_status(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<TlsStatusResponse>, AppError> {
     Ok(Json(state.tls_service().provisioning_status().await?))
 }

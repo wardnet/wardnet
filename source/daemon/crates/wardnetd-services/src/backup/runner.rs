@@ -10,7 +10,6 @@ use std::time::Duration;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
@@ -63,9 +62,7 @@ async fn runner_loop(
     retain: Duration,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     perform_tick(&service, retain, &admin_ctx).await;
 

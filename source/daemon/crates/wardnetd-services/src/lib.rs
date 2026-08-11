@@ -37,6 +37,7 @@ pub mod system;
 pub mod tls;
 pub mod tunnel;
 pub mod update;
+pub mod user;
 pub mod vpn;
 pub mod zone_enforcement;
 pub mod zone_exception;
@@ -82,6 +83,7 @@ use crate::system::SystemServiceImpl;
 use crate::tls::TlsServiceImpl;
 use crate::tunnel::TunnelServiceImpl;
 use crate::update::UpdateServiceImpl;
+use crate::user::UserServiceImpl;
 use crate::vpn::{VpnProviderRegistry, VpnProviderServiceImpl};
 use crate::zone_enforcement::ZoneEnforcementServiceImpl;
 use crate::zone_exception::ZoneExceptionServiceImpl;
@@ -120,6 +122,7 @@ pub use crate::tls::runner::TlsRenewalRunner;
 pub use crate::tls::{CertActivator, TlsService, TlsStatus};
 pub use crate::tunnel::TunnelService;
 pub use crate::update::UpdateService;
+pub use crate::user::UserService;
 pub use crate::vpn::VpnProviderService;
 pub use crate::zone_enforcement::ZoneEnforcementService;
 pub use crate::zone_exception::ZoneExceptionService;
@@ -152,6 +155,12 @@ pub struct Backends {
     pub firewall: Arc<dyn routing::FirewallManager>,
     pub packet_capture: Arc<dyn device::PacketCapture>,
     pub hostname_resolver: Arc<dyn device::HostnameResolver>,
+    /// Contacts a device on the vendor catalog's TCP ports to identify it
+    /// (issue #1116). Production wires [`device::TcpDeviceProber`]; the mock
+    /// wires a deterministic stand-in. Per ADR 0025 §5 this is only ever
+    /// reached from an explicit per-device admin action — see
+    /// [`device::DeviceProber`]'s invariant.
+    pub device_prober: Arc<dyn device::DeviceProber>,
     pub secret_store: Arc<dyn wardnetd_data::secret_store::SecretStore>,
     /// Delivers Web Push notifications. Wired to a reqwest-backed
     /// implementation in production and to a no-op recorder in `wardnetd-mock`.
@@ -219,6 +228,8 @@ const DOMAIN_ROUTE_QUEUE_CAPACITY: usize = 2048;
 
 pub struct Services {
     pub auth: Arc<dyn AuthService>,
+    /// Household user directory, credentials and enrolment (ADR-0031).
+    pub user: Arc<dyn UserService>,
     pub backup: Arc<dyn BackupService>,
     pub device: Arc<dyn DeviceService>,
     pub dhcp: Arc<dyn DhcpService>,
@@ -334,7 +345,12 @@ pub async fn init_services(
         .admin
         .as_ref()
         .map(|a| (a.username.as_str(), a.password.as_str()));
-    wardnetd_data::bootstrap::bootstrap_admin(&repo_factory.admin(), admin_credentials).await?;
+    wardnetd_data::bootstrap::bootstrap_admin(
+        &repo_factory.user(),
+        &repo_factory.user_credential(),
+        admin_credentials,
+    )
+    .await?;
 
     // Bootstrap setup-wizard + default-policy keys (idempotent — only seeds
     // missing keys, so re-running on upgraded installs is safe).
@@ -480,7 +496,8 @@ fn create_services(
     let backup_config_path = backends.config_path.clone();
     let backup_host_id = backends.host_id.clone();
 
-    let admin_repo = repo_factory.admin();
+    let user_repo = repo_factory.user();
+    let user_credential_repo = repo_factory.user_credential();
     let session_repo = repo_factory.session();
     let api_key_repo = repo_factory.api_key();
     let device_repo = repo_factory.device();
@@ -504,12 +521,28 @@ fn create_services(
     let stats_service: Arc<dyn StatsService> = Arc::new(StatsServiceImpl::new(stats_repo));
 
     let auth_service: Arc<dyn AuthService> = Arc::new(AuthServiceImpl::new(
-        admin_repo,
+        user_repo,
+        user_credential_repo,
         session_repo,
         api_key_repo,
         system_config_repo.clone(),
         config.auth.session_expiry_hours,
         config.auth.remember_me_expiry_hours,
+    ));
+
+    let user_service: Arc<dyn UserService> = Arc::new(UserServiceImpl::new(
+        repo_factory.user(),
+        repo_factory.user_credential(),
+        repo_factory.user_enrolment(),
+        repo_factory.session(),
+        crate::user::OauthConfig {
+            system_config: system_config_repo.clone(),
+            secrets: backup_secret_store.clone(),
+        },
+        Arc::new(
+            crate::user::ReqwestOauthClient::new()
+                .expect("building a reqwest client with a timeout cannot fail"),
+        ),
     ));
 
     let dns_events_repo = repo_factory.dns_events();
@@ -526,6 +559,8 @@ fn create_services(
         Arc::new(DeviceIdentificationServiceImpl::new(
             repo_factory.device_identification(),
             device_repo.clone(),
+            backends.device_prober.clone(),
+            std::time::Duration::from_secs(config.detection.departure_timeout_secs),
         ));
 
     let network_zone_service: Arc<dyn NetworkZoneService> = Arc::new(NetworkZoneServiceImpl::new(
@@ -818,6 +853,7 @@ fn create_services(
 
     Services {
         auth: auth_service,
+        user: user_service,
         backup: backup_service,
         device: device_service,
         dhcp: dhcp_service,

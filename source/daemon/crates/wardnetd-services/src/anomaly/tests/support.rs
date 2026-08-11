@@ -48,13 +48,7 @@ pub async fn test_pool() -> SqlitePool {
 
 /// Run `fut` under the nil-admin context every background caller uses.
 pub async fn as_admin<T>(fut: impl Future<Output = T>) -> T {
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        fut,
-    )
-    .await
+    auth_context::with_context(AuthContext::system(), fut).await
 }
 
 use std::future::Future;

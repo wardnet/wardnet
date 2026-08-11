@@ -1,341 +1,263 @@
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+//! Tests for the one-shot setup path — `setup_admin` and the
+//! `is_setup_completed` signal derived from the wizard step.
 
-use async_trait::async_trait;
+use std::sync::Arc;
 
-use crate::{AuthService, AuthServiceImpl};
-use wardnetd_data::repository::{
-    AdminRepository, ApiKeyRepository, SessionRepository, SystemConfigRepository,
+use wardnet_common::api::WizardStep;
+use wardnet_common::auth::UserRole;
+use wardnetd_data::repository::system_config::SystemConfigRepository;
+use wardnetd_data::repository::user::UserRepository;
+use wardnetd_data::repository::user_credential::UserCredentialRepository;
+
+use crate::auth::{AuthService, AuthServiceImpl};
+use crate::error::AppError;
+use crate::tests::repo_mocks::{
+    MockApiKeyRepo, MockCredentialRepo, MockSessionRepo, MockSystemConfigRepo, MockUserRepo,
 };
 
-// -- Mock repositories ---------------------------------------------------
-
-/// Mock admin repo that tracks created admins.
-///
-/// `exists()` returns `true` once any admin has been `create`-d (or
-/// when seeded via `with_existing_admin`), which mirrors the real
-/// `SQLite` repo's behaviour — `setup_admin`'s 409 guard now reads
-/// this directly instead of the legacy `setup_completed` key.
-struct MockAdminRepo {
-    created: Mutex<Vec<(String, String, String)>>,
-    seeded_exists: Mutex<bool>,
+/// Handles a setup test needs to assert on.
+struct Fixture {
+    svc: AuthServiceImpl,
+    users: Arc<MockUserRepo>,
+    credentials: Arc<MockCredentialRepo>,
+    config: Arc<MockSystemConfigRepo>,
 }
 
-impl MockAdminRepo {
-    fn new() -> Self {
-        Self {
-            created: Mutex::new(Vec::new()),
-            seeded_exists: Mutex::new(false),
-        }
-    }
-
-    fn with_existing_admin() -> Self {
-        Self {
-            created: Mutex::new(Vec::new()),
-            seeded_exists: Mutex::new(true),
-        }
-    }
-}
-
-#[async_trait]
-impl AdminRepository for MockAdminRepo {
-    async fn find_username_by_id(&self, _id: &str) -> anyhow::Result<Option<String>> {
-        Ok(Some("admin".to_owned()))
-    }
-    async fn find_by_username(&self, _username: &str) -> anyhow::Result<Option<(String, String)>> {
-        Ok(None)
-    }
-    async fn create(&self, id: &str, username: &str, password_hash: &str) -> anyhow::Result<()> {
-        self.created.lock().unwrap().push((
-            id.to_owned(),
-            username.to_owned(),
-            password_hash.to_owned(),
-        ));
-        Ok(())
-    }
-    async fn find_first_id(&self) -> anyhow::Result<Option<String>> {
-        Ok(None)
-    }
-    async fn exists(&self) -> anyhow::Result<bool> {
-        Ok(*self.seeded_exists.lock().unwrap() || !self.created.lock().unwrap().is_empty())
-    }
-}
-
-/// Mock session repo (unused in setup tests).
-struct MockSessionRepo;
-
-#[async_trait]
-impl SessionRepository for MockSessionRepo {
-    async fn create(
-        &self,
-        _id: &str,
-        _admin_id: &str,
-        _token_hash: &str,
-        _created_at: &str,
-        _expires_at: &str,
-        _remember_me: bool,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn find_admin_id_by_token_hash(
-        &self,
-        _token_hash: &str,
-        _now: &str,
-    ) -> anyhow::Result<Option<String>> {
-        Ok(None)
-    }
-    async fn delete_expired(&self, _now: &str) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-    async fn delete_by_token_hash(&self, _token_hash: &str) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-    async fn extend_expiry(&self, _token_hash: &str, _new_expires_at: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn rotate_token(
-        &self,
-        _old_token_hash: &str,
-        _new_token_hash: &str,
-        _new_expires_at: &str,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn find_session_for_refresh(
-        &self,
-        _token_hash: &str,
-        _now: &str,
-    ) -> anyhow::Result<Option<(String, bool, String)>> {
-        Ok(None)
-    }
-}
-
-/// Mock API key repo (unused in setup tests).
-struct MockApiKeyRepo;
-
-#[async_trait]
-impl ApiKeyRepository for MockApiKeyRepo {
-    async fn find_all_hashes(&self) -> anyhow::Result<Vec<(String, String)>> {
-        Ok(vec![])
-    }
-    async fn create(&self, _id: &str, _l: &str, _h: &str, _c: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-    async fn update_last_used(&self, _id: &str, _now: &str) -> anyhow::Result<()> {
-        Ok(())
-    }
-}
-
-/// Mock system config repo backed by an in-memory `HashMap`.
-///
-/// Exposes `setup_completed` as a typed mutex to keep the existing
-/// assertions readable; everything else (`wizard_step`, `default_policy`,
-/// `router_mac` …) is stored in `store`.
-struct MockSystemConfigRepo {
-    store: Mutex<HashMap<String, String>>,
-    setup_completed: Mutex<bool>,
-}
-
-impl MockSystemConfigRepo {
-    fn new(completed: bool) -> Self {
-        let mut store = HashMap::new();
-        if completed {
-            store.insert("setup_completed".to_owned(), "true".to_owned());
-        }
-        Self {
-            store: Mutex::new(store),
-            setup_completed: Mutex::new(completed),
-        }
-    }
-}
-
-#[async_trait]
-impl SystemConfigRepository for MockSystemConfigRepo {
-    async fn get(&self, key: &str) -> anyhow::Result<Option<String>> {
-        if key == "setup_completed" {
-            let completed = *self.setup_completed.lock().unwrap();
-            return Ok(Some(if completed { "true" } else { "false" }.to_owned()));
-        }
-        Ok(self.store.lock().unwrap().get(key).cloned())
-    }
-    async fn set(&self, key: &str, value: &str) -> anyhow::Result<()> {
-        if key == "setup_completed" {
-            *self.setup_completed.lock().unwrap() = value == "true";
-        }
-        self.store
-            .lock()
-            .unwrap()
-            .insert(key.to_owned(), value.to_owned());
-        Ok(())
-    }
-    async fn delete(&self, key: &str) -> anyhow::Result<()> {
-        self.store.lock().unwrap().remove(key);
-        Ok(())
-    }
-    async fn device_count(&self) -> anyhow::Result<i64> {
-        Ok(0)
-    }
-    async fn tunnel_count(&self) -> anyhow::Result<i64> {
-        Ok(0)
-    }
-    async fn db_size_bytes(&self) -> anyhow::Result<u64> {
-        Ok(0)
-    }
-}
-
-// -- Helpers --------------------------------------------------------------
-
-fn make_service(
-    admin_exists: bool,
-) -> (
-    AuthServiceImpl,
-    Arc<MockAdminRepo>,
-    Arc<MockSystemConfigRepo>,
-) {
-    let admin_repo = Arc::new(if admin_exists {
-        MockAdminRepo::with_existing_admin()
-    } else {
-        MockAdminRepo::new()
-    });
-    // `setup_completed` legacy key starts unset; the 409 guard now uses
-    // admin existence so this only matters for tests that exercise
-    // `is_setup_completed` directly.
-    let system_config = Arc::new(MockSystemConfigRepo::new(false));
+/// Build a service over an empty box, optionally with a pre-seeded config key.
+fn fixture(users: MockUserRepo, config: MockSystemConfigRepo) -> Fixture {
+    let users = Arc::new(users);
+    let credentials = Arc::new(MockCredentialRepo::joined_to(Arc::clone(&users)));
+    let config = Arc::new(config);
     let svc = AuthServiceImpl::new(
-        admin_repo.clone(),
-        Arc::new(MockSessionRepo),
-        Arc::new(MockApiKeyRepo),
-        system_config.clone(),
+        Arc::clone(&users) as Arc<dyn UserRepository>,
+        Arc::clone(&credentials) as Arc<dyn UserCredentialRepository>,
+        Arc::new(MockSessionRepo::empty()),
+        Arc::new(MockApiKeyRepo::empty()),
+        Arc::clone(&config) as Arc<dyn SystemConfigRepository>,
         24,
         720,
     );
-    (svc, admin_repo, system_config)
+    Fixture {
+        svc,
+        users,
+        credentials,
+        config,
+    }
 }
 
-// -- Tests ----------------------------------------------------------------
+fn fresh_box() -> Fixture {
+    fixture(MockUserRepo::empty(), MockSystemConfigRepo::empty())
+}
+
+// -- setup_admin ----------------------------------------------------------
 
 #[tokio::test]
 async fn setup_admin_succeeds_when_not_completed() {
-    let (svc, admin_repo, system_config) = make_service(false);
-
-    let result = svc.setup_admin("adminuser", "password123").await;
-    assert!(result.is_ok());
-
-    // Verify admin was created — this is now the canonical "setup of
-    // step 1 is done" signal that drives the 409 guard on retry.
-    let created = admin_repo.created.lock().unwrap();
-    assert_eq!(created.len(), 1);
-    assert_eq!(created[0].1, "adminuser");
-
-    // Verify the legacy setup_completed key is NOT touched here. It
-    // used to flip to true alongside admin creation but that produced
-    // a race window between the two writes; we now derive
-    // setup_completed from wizard_step == Completed instead.
-    assert!(!*system_config.setup_completed.lock().unwrap());
+    let f = fresh_box();
+    assert!(
+        f.svc
+            .setup_admin("operator", "a-good-password")
+            .await
+            .is_ok()
+    );
+    assert_eq!(f.users.count(), 1);
 }
 
 #[tokio::test]
-async fn setup_admin_fails_when_already_completed() {
-    let (svc, _, _) = make_service(true);
-
-    let result = svc.setup_admin("adminuser", "password123").await;
-    assert!(result.is_err());
-
-    let err = result.unwrap_err();
-    let err_msg = err.to_string();
-    assert!(
-        err_msg.contains("setup already completed"),
-        "expected conflict error, got: {err_msg}"
+async fn setup_admin_fails_when_a_user_already_exists() {
+    // The guard reads `users.exists()` directly rather than the legacy
+    // `setup_completed` key, so it cannot disagree with reality after a crash
+    // between the two writes.
+    let f = fixture(
+        MockUserRepo::with_admin("00000000-0000-0000-0000-000000000001", "admin"),
+        MockSystemConfigRepo::empty(),
     );
+    let result = f.svc.setup_admin("second", "a-good-password").await;
+    assert!(matches!(result, Err(AppError::Conflict(_))));
 }
 
 #[tokio::test]
 async fn setup_admin_fails_with_empty_username() {
-    let (svc, _, _) = make_service(false);
-
-    let result = svc.setup_admin("ab", "password123").await;
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("username"));
+    let f = fresh_box();
+    assert!(matches!(
+        f.svc.setup_admin("", "a-good-password").await,
+        Err(AppError::BadRequest(_))
+    ));
 }
 
 #[tokio::test]
 async fn setup_admin_fails_with_long_username() {
-    let (svc, _, _) = make_service(false);
-
-    let long_name = "a".repeat(33);
-    let result = svc.setup_admin(&long_name, "password123").await;
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("username"));
+    let f = fresh_box();
+    let long = "a".repeat(33);
+    assert!(matches!(
+        f.svc.setup_admin(&long, "a-good-password").await,
+        Err(AppError::BadRequest(_))
+    ));
 }
 
 #[tokio::test]
 async fn setup_admin_fails_with_non_alphanumeric_username() {
-    let (svc, _, _) = make_service(false);
-
-    let result = svc.setup_admin("admin@user", "password123").await;
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("username"));
+    let f = fresh_box();
+    assert!(matches!(
+        f.svc.setup_admin("has space", "a-good-password").await,
+        Err(AppError::BadRequest(_))
+    ));
+    assert!(matches!(
+        f.svc.setup_admin("has-dash", "a-good-password").await,
+        Err(AppError::BadRequest(_))
+    ));
 }
 
 #[tokio::test]
 async fn setup_admin_fails_with_short_password() {
-    let (svc, _, _) = make_service(false);
-
-    let result = svc.setup_admin("adminuser", "short").await;
-    assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("password"));
+    let f = fresh_box();
+    assert!(matches!(
+        f.svc.setup_admin("operator", "short").await,
+        Err(AppError::BadRequest(_))
+    ));
 }
 
 #[tokio::test]
-async fn setup_admin_hashes_password() {
-    let (svc, admin_repo, _) = make_service(false);
-
-    svc.setup_admin("adminuser", "mysecretpassword")
+async fn setup_admin_stores_an_argon2_hash_not_the_password() {
+    let f = fresh_box();
+    f.svc
+        .setup_admin("operator", "a-good-password")
         .await
         .unwrap();
 
-    let created = admin_repo.created.lock().unwrap();
-    assert_eq!(created.len(), 1);
+    let user_id = f.users.rows.lock().unwrap()[0].id.clone();
+    let credential = f
+        .credentials
+        .find_password(&user_id)
+        .await
+        .unwrap()
+        .expect("a password credential must exist");
+    let secret = credential
+        .secret
+        .expect("a password credential has a secret");
 
-    let stored_hash = &created[0].2;
-    // Argon2 hashes start with "$argon2".
     assert!(
-        stored_hash.starts_with("$argon2"),
-        "password should be hashed with argon2, got: {stored_hash}"
+        secret.starts_with("$argon2"),
+        "expected an Argon2 PHC string, got {secret:?}"
     );
-    // Ensure the plaintext is NOT stored.
-    assert_ne!(stored_hash, "mysecretpassword");
+    assert!(
+        !secret.contains("a-good-password"),
+        "the plaintext password must never be stored"
+    );
 }
 
 #[tokio::test]
-async fn is_setup_completed_returns_false_initially() {
-    let (svc, _, _) = make_service(false);
+async fn setup_admin_creates_an_admin_role_user() {
+    // Decision 6: the first account is a `role=admin` household user, exactly
+    // equal to the legacy local admin.
+    let f = fresh_box();
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
 
-    let result = svc.is_setup_completed().await.unwrap();
-    assert!(!result);
+    let row = f.users.rows.lock().unwrap()[0].clone();
+    assert_eq!(row.role, UserRole::Admin);
+    assert!(row.enabled);
+}
+
+#[tokio::test]
+async fn setup_admin_lowercases_the_credential_subject() {
+    // The migration lowercases backfilled usernames, so this path must match or
+    // a wizard-created admin would have case-sensitive login while an upgraded
+    // one did not.
+    let f = fresh_box();
+    f.svc
+        .setup_admin("Operator", "a-good-password")
+        .await
+        .unwrap();
+
+    let user_id = f.users.rows.lock().unwrap()[0].id.clone();
+    let credential = f
+        .credentials
+        .find_password(&user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(credential.subject, "operator");
+    // The display name keeps the operator's own capitalisation.
+    assert_eq!(f.users.rows.lock().unwrap()[0].display_name, "Operator");
+}
+
+// -- wizard advance on setup ---------------------------------------------
+
+#[tokio::test]
+async fn setup_admin_advances_wizard_to_network() {
+    let f = fixture(
+        MockUserRepo::empty(),
+        MockSystemConfigRepo::with("wizard_step", WizardStep::Admin.as_storage_str()),
+    );
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
+    assert_eq!(
+        f.config.read("wizard_step").as_deref(),
+        Some(WizardStep::Network.as_storage_str())
+    );
+}
+
+#[tokio::test]
+async fn setup_admin_advances_when_wizard_step_unset() {
+    let f = fresh_box();
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
+    assert_eq!(
+        f.config.read("wizard_step").as_deref(),
+        Some(WizardStep::Network.as_storage_str())
+    );
+}
+
+#[tokio::test]
+async fn setup_admin_leaves_a_further_along_wizard_step_alone() {
+    // If an operator advanced manually before the frontend got there, we must
+    // not rewind them — `advance_wizard` would reject that anyway.
+    let f = fixture(
+        MockUserRepo::empty(),
+        MockSystemConfigRepo::with("wizard_step", WizardStep::Dhcp.as_storage_str()),
+    );
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
+    assert_eq!(
+        f.config.read("wizard_step").as_deref(),
+        Some(WizardStep::Dhcp.as_storage_str())
+    );
+}
+
+// -- is_setup_completed ---------------------------------------------------
+
+#[tokio::test]
+async fn is_setup_completed_returns_false_initially() {
+    let f = fresh_box();
+    assert!(!f.svc.is_setup_completed().await.unwrap());
 }
 
 #[tokio::test]
 async fn is_setup_completed_returns_false_after_setup_admin() {
-    // `is_setup_completed()` now derives from `wizard_step == Completed`,
-    // not from "an admin row exists". After setup_admin, the wizard is
-    // at "network" — operator still needs to walk through the rest of
-    // the wizard before this method reports true.
-    let (svc, _, _) = make_service(false);
-
-    svc.setup_admin("adminuser", "password123").await.unwrap();
-
-    let result = svc.is_setup_completed().await.unwrap();
-    assert!(!result);
+    // Creating the admin is step one of several; setup is not "completed" until
+    // the wizard says so.
+    let f = fresh_box();
+    f.svc
+        .setup_admin("operator", "a-good-password")
+        .await
+        .unwrap();
+    assert!(!f.svc.is_setup_completed().await.unwrap());
 }
 
 #[tokio::test]
 async fn is_setup_completed_returns_true_when_wizard_finished() {
-    let (svc, _, system_config) = make_service(false);
-    // Drive the system_config straight to wizard_step=completed (the
-    // production path is via advance_wizard, exercised in `wizard.rs`).
-    system_config.set_wizard_step("completed").await.unwrap();
-
-    let result = svc.is_setup_completed().await.unwrap();
-    assert!(result);
+    let f = fixture(
+        MockUserRepo::empty(),
+        MockSystemConfigRepo::with("wizard_step", WizardStep::Completed.as_storage_str()),
+    );
+    assert!(f.svc.is_setup_completed().await.unwrap());
 }

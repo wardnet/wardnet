@@ -70,9 +70,7 @@ async fn event_loop(
                         // dropped policy event cannot leave the cache
                         // stale until the next admin change or restart.
                         if let Err(e) = wardnetd_services::auth_context::with_context(
-                            AuthContext::Admin {
-                                admin_id: uuid::Uuid::nil(),
-                            },
+                            AuthContext::system(),
                             routing.handle_default_policy_changed(),
                         )
                         .await
@@ -97,9 +95,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
             device_id, target, ..
         } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
+                AuthContext::system(),
                 routing.apply_rule_for_device(device_id, &target),
             )
             .await
@@ -110,9 +106,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
 
         WardnetEvent::DeviceDiscovered { device_id, ip, .. } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
+                AuthContext::system(),
                 routing.apply_rule_for_discovered_device(device_id, &ip),
             )
             .await
@@ -128,9 +122,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
             ..
         } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
+                AuthContext::system(),
                 routing.handle_ip_change(device_id, &old_ip, &new_ip),
             )
             .await
@@ -143,9 +135,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
             device_id, last_ip, ..
         } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
+                AuthContext::system(),
                 routing.remove_device_routes(device_id, &last_ip),
             )
             .await
@@ -159,9 +149,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
 
         WardnetEvent::TunnelUp { tunnel_id, .. } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
+                AuthContext::system(),
                 routing.handle_tunnel_up(tunnel_id),
             )
             .await
@@ -172,9 +160,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
 
         WardnetEvent::TunnelDown { tunnel_id, .. } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
+                AuthContext::system(),
                 routing.handle_tunnel_down(tunnel_id),
             )
             .await
@@ -185,9 +171,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
 
         WardnetEvent::RouteTableLost { table, .. } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
+                AuthContext::system(),
                 routing.handle_route_table_lost(table),
             )
             .await
@@ -201,9 +185,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         // the routing state.
         WardnetEvent::DefaultPolicyChanged { .. } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
+                AuthContext::system(),
                 routing.handle_default_policy_changed(),
             )
             .await
@@ -214,9 +196,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
 
         WardnetEvent::TunnelDnsOverrideChanged { tunnel_id, .. } => {
             if let Err(e) = wardnetd_services::auth_context::with_context(
-                AuthContext::Admin {
-                    admin_id: uuid::Uuid::nil(),
-                },
+                AuthContext::system(),
                 routing.rebuild_dns_upstream_snapshot(),
             )
             .await

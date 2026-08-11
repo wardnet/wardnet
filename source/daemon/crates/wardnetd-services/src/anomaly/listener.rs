@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::anomaly::{AnomalyReport, AnomalyType};
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::{TUNNEL_DOWN_INTERFACE_ABSENT, WardnetEvent};
@@ -164,9 +163,7 @@ async fn event_loop(
     service: Arc<dyn AnomalyService>,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
     loop {
         tokio::select! {
             () = cancel.cancelled() => break,

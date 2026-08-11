@@ -5,7 +5,7 @@ use utoipa_axum::routes;
 use wardnet_common::anomaly::{AnomalyFilter, ReevaluateSummary};
 use wardnet_common::api::{ApiAnomaly, ListAnomaliesParams, ListAnomaliesResponse};
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::AuthErrors;
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -37,7 +37,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn list_anomalies(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Query(params): Query<ListAnomaliesParams>,
 ) -> Result<Json<ListAnomaliesResponse>, AppError> {
     let filter = AnomalyFilter {
@@ -69,7 +69,7 @@ pub async fn list_anomalies(
 )]
 pub async fn reevaluate_anomalies(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ReevaluateSummary>, AppError> {
     let summary = state.anomaly_service().reevaluate_all().await?;
     Ok(Json(summary))

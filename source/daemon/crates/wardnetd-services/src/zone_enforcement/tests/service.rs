@@ -543,13 +543,7 @@ async fn build() -> Harness {
 }
 
 async fn as_admin<F: Future>(fut: F) -> F::Output {
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        fut,
-    )
-    .await
+    auth_context::with_context(AuthContext::system(), fut).await
 }
 
 /// Insert a device with a fixed MAC/IP into `zone_id` and return its id.

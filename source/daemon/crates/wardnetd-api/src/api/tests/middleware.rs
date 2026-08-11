@@ -1,4 +1,4 @@
-//! Tests for the `AdminAuth` and `ClientIp` middleware extractors.
+//! Tests for the `SessionAuth` and `ClientIp` middleware extractors.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -11,7 +11,6 @@ use axum::http::{Request, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use tower::ServiceExt;
-use uuid::Uuid;
 
 use crate::state::AppState;
 use wardnet_common::api::{DeviceMeResponse, SetMyRuleResponse};
@@ -28,6 +27,10 @@ use crate::tests::stubs::{
     StubNetworkZoneService, StubProviderService, StubRoutingService, StubSystemService,
     StubTunnelService,
 };
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 use wardnetd_services::auth_context;
 
 // ---------------------------------------------------------------------------
@@ -37,30 +40,30 @@ use wardnetd_services::auth_context;
 /// Mock auth service that returns configurable results for session and API key
 /// validation.
 struct MockAuthService {
-    session_result: Option<Uuid>,
-    api_key_result: Option<Uuid>,
+    session_result: Option<AuthenticatedUser>,
+    api_key_result: Option<AuthenticatedUser>,
 }
 
 #[async_trait]
 impl AuthService for MockAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(
-        &self,
-        _username: &str,
-        _password: &str,
-        _remember_me: bool,
-    ) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
 
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(self.session_result)
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(self.session_result.clone())
     }
 
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(self.api_key_result)
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(self.api_key_result.clone())
     }
     async fn setup_admin(&self, _username: &str, _password: &str) -> Result<(), AppError> {
         unimplemented!()
@@ -124,11 +127,11 @@ fn make_state(auth: impl AuthService + 'static) -> AppState {
     )
 }
 
-/// Handler that requires `AdminAuth` and returns the admin UUID.
+/// Handler that requires `SessionAuth` and returns the authenticated user's id.
 async fn admin_only(
-    crate::api::middleware::AdminAuth { admin_id, .. }: crate::api::middleware::AdminAuth,
+    crate::api::middleware::SessionAuth { user, .. }: crate::api::middleware::SessionAuth,
 ) -> impl IntoResponse {
-    admin_id.to_string()
+    user.user_id().to_string()
 }
 
 /// Handler that requires `ClientIp` and returns the IP.
@@ -152,14 +155,14 @@ fn ip_app(state: AppState) -> Router {
 }
 
 // ---------------------------------------------------------------------------
-// AdminAuth tests
+// SessionAuth tests
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn admin_auth_from_session_cookie() {
     let admin_id = Uuid::new_v4();
     let state = make_state(MockAuthService {
-        session_result: Some(admin_id),
+        session_result: Some(principal::admin(admin_id)),
         api_key_result: None,
     });
 
@@ -186,7 +189,7 @@ async fn admin_auth_from_bearer_api_key() {
     let admin_id = Uuid::new_v4();
     let state = make_state(MockAuthService {
         session_result: None,
-        api_key_result: Some(admin_id),
+        api_key_result: Some(principal::admin(admin_id)),
     });
 
     let app = admin_app(state);
@@ -261,7 +264,7 @@ async fn admin_auth_from_bearer_session_token() {
     // `validate_api_key` — otherwise this whole class of caller gets 401.
     let admin_id = Uuid::new_v4();
     let state = make_state(MockAuthService {
-        session_result: Some(admin_id),
+        session_result: Some(principal::admin(admin_id)),
         api_key_result: None,
     });
 
@@ -288,8 +291,8 @@ async fn admin_auth_session_takes_precedence_over_api_key() {
     let session_id = Uuid::new_v4();
     let api_key_id = Uuid::new_v4();
     let state = make_state(MockAuthService {
-        session_result: Some(session_id),
-        api_key_result: Some(api_key_id),
+        session_result: Some(principal::admin(session_id)),
+        api_key_result: Some(principal::admin(api_key_id)),
     });
 
     let app = admin_app(state);
@@ -315,7 +318,7 @@ async fn admin_auth_ignores_empty_session_cookie() {
     let api_key_id = Uuid::new_v4();
     let state = make_state(MockAuthService {
         session_result: None, // won't be called since cookie is empty
-        api_key_result: Some(api_key_id),
+        api_key_result: Some(principal::admin(api_key_id)),
     });
 
     let app = admin_app(state);
@@ -428,6 +431,14 @@ impl DeviceService for MockDeviceService {
         _device_id: &str,
     ) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
+    }
+
+    async fn set_device_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<uuid::Uuid>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
     }
 
     async fn get_device(
@@ -572,13 +583,13 @@ async fn echo_auth_context() -> String {
 // resolve_auth_context tests
 // ---------------------------------------------------------------------------
 
-/// Admin session produces `AuthContext::Admin`.
+/// An admin session produces `AuthContext::User` with `role = Admin`.
 #[tokio::test]
 async fn resolve_auth_context_admin_session() {
     let admin_id = Uuid::new_v4();
     let state = make_state_with_device(
         MockAuthService {
-            session_result: Some(admin_id),
+            session_result: Some(principal::admin(admin_id)),
             api_key_result: None,
         },
         MockDeviceService { device: None },
@@ -608,13 +619,13 @@ async fn resolve_auth_context_admin_session() {
     );
 }
 
-/// A bearer session token (no cookie) produces `AuthContext::Admin`.
+/// A bearer session token (no cookie) produces `AuthContext::User`.
 #[tokio::test]
 async fn resolve_auth_context_admin_from_bearer_session_token() {
     let admin_id = Uuid::new_v4();
     let state = make_state_with_device(
         MockAuthService {
-            session_result: Some(admin_id),
+            session_result: Some(principal::admin(admin_id)),
             api_key_result: None,
         },
         MockDeviceService { device: None },
@@ -640,14 +651,14 @@ async fn resolve_auth_context_admin_from_bearer_session_token() {
     );
 }
 
-/// A bearer API key (session validation misses) produces `AuthContext::Admin`.
+/// A bearer API key (session validation misses) produces `AuthContext::User`.
 #[tokio::test]
 async fn resolve_auth_context_admin_from_bearer_api_key() {
     let admin_id = Uuid::new_v4();
     let state = make_state_with_device(
         MockAuthService {
             session_result: None,
-            api_key_result: Some(admin_id),
+            api_key_result: Some(principal::admin(admin_id)),
         },
         MockDeviceService { device: None },
     );
@@ -719,6 +730,7 @@ async fn resolve_auth_context_known_device_ip() {
         last_ip: "192.168.1.42".to_owned(),
         admin_locked: false,
         zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
+        owner_user_id: None,
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
@@ -783,7 +795,7 @@ async fn resolve_auth_context_no_connect_info_anonymous() {
 }
 
 // ---------------------------------------------------------------------------
-// AdminAuth tests (continued)
+// SessionAuth tests (continued)
 // ---------------------------------------------------------------------------
 
 #[tokio::test]

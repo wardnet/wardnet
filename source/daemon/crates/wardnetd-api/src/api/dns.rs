@@ -12,7 +12,7 @@ use wardnet_common::api::{
     ListQueryLogResponse, ToggleDnsRequest, UpdateDnsConfigRequest,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -39,7 +39,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn get_config(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<DnsConfigResponse>, AppError> {
     let response = state.dns_service().get_config().await?;
     Ok(Json(response))
@@ -60,7 +60,7 @@ pub async fn get_config(
 )]
 pub async fn update_config(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<UpdateDnsConfigRequest>,
 ) -> Result<Json<DnsConfigResponse>, AppError> {
     let response = state.dns_service().update_config(body).await?;
@@ -82,7 +82,7 @@ pub async fn update_config(
 )]
 pub async fn toggle(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<ToggleDnsRequest>,
 ) -> Result<Json<DnsConfigResponse>, AppError> {
     let enabled = body.enabled;
@@ -120,7 +120,7 @@ pub async fn toggle(
 )]
 pub async fn status(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<DnsStatusResponse>, AppError> {
     let config = state.dns_service().get_dns_config().await?;
     let server = state.dns_server();
@@ -146,7 +146,7 @@ pub async fn status(
 )]
 pub async fn flush_cache(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<DnsCacheFlushResponse>, AppError> {
     let cleared = state.dns_server().flush_cache().await;
     Ok(Json(DnsCacheFlushResponse {
@@ -169,7 +169,7 @@ pub async fn flush_cache(
 )]
 pub async fn list_query_log(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Query(params): Query<ListQueryLogParams>,
 ) -> Result<Json<ListQueryLogResponse>, AppError> {
     let response = state.dns_service().list_query_log(params).await?;

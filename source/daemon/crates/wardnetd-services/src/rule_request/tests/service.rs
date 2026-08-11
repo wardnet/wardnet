@@ -16,6 +16,7 @@ use crate::event::EventPublisher;
 use crate::rule_request::{RuleRequestService, RuleRequestServiceImpl};
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
+use wardnet_test_support::principal;
 
 const DEVICE_ID: &str = "00000000-0000-0000-0000-000000000001";
 
@@ -116,6 +117,7 @@ fn sample_device() -> Device {
         last_ip: "192.168.1.100".to_owned(),
         admin_locked: false,
         zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
+        owner_user_id: None,
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
@@ -136,6 +138,14 @@ impl DeviceService for MockDeviceService {
 
     async fn clear_managed(&self, _device_id: &str) -> Result<(), crate::error::AppError> {
         Ok(())
+    }
+
+    async fn set_device_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<uuid::Uuid>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
     }
 
     async fn get_device(
@@ -262,9 +272,7 @@ fn build_with_events(
 }
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap(),
-    }
+    principal::admin_context(Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap())
 }
 
 // --- Tests ------------------------------------------------------------------

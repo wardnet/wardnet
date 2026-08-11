@@ -6,15 +6,15 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
-    ApiError, AssignDeviceZoneRequest, DeviceDetailResponse, DeviceMeResponse, DeviceWithStatus,
-    ListDevicesResponse, RoutingProfileSummary, SetMyRuleRequest, SetMyRuleResponse,
-    UpdateDeviceRequest, ZoneSummary,
+    ApiError, AssignDeviceZoneRequest, DeviceDetailResponse, DeviceMeResponse, DeviceProbeResponse,
+    DeviceWithStatus, ListDevicesResponse, RoutingProfileSummary, SetMyRuleRequest,
+    SetMyRuleResponse, UpdateDeviceRequest, ZoneSummary,
 };
 use wardnet_common::device::DhcpStatus;
 use wardnet_common::routing::RoutingTarget;
 
-use crate::api::middleware::{AdminAuth, ClientIp};
-use crate::api::responses::{AuthErrors, BadRequest, NotFound};
+use crate::api::middleware::{ClientIp, SessionAuth};
+use crate::api::responses::{AuthErrors, BadRequest, Conflict, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
 
@@ -26,6 +26,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(set_my_rule))
         .routes(routes!(get_device, update_device))
         .routes(routes!(assign_device_zone))
+        .routes(routes!(identify_device))
         .routes(routes!(release_device))
 }
 
@@ -63,9 +64,7 @@ pub async fn get_me(
     // Enrich with available tunnels for self-service routing selection.
     // Uses an internal admin context since tunnel listing is admin-only.
     let tunnels = wardnetd_services::auth_context::with_context(
-        wardnet_common::auth::AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
+        wardnet_common::auth::AuthContext::system(),
         state.tunnel_service().list_tunnels(),
     )
     .await
@@ -91,9 +90,7 @@ pub async fn get_me(
         let zone_id = device.zone_id;
         let device_id = device.id;
         response.zone = wardnetd_services::auth_context::with_context(
-            wardnet_common::auth::AuthContext::Admin {
-                admin_id: uuid::Uuid::nil(),
-            },
+            wardnet_common::auth::AuthContext::system(),
             state.network_zone_service().get_zone(zone_id),
         )
         .await
@@ -108,9 +105,7 @@ pub async fn get_me(
         // display. Profile management is admin-only, so — like the tunnel and
         // zone lookups above — resolve under an internal admin context.
         response.routing_profiles = wardnetd_services::auth_context::with_context(
-            wardnet_common::auth::AuthContext::Admin {
-                admin_id: uuid::Uuid::nil(),
-            },
+            wardnet_common::auth::AuthContext::system(),
             async {
                 let svc = state.routing_profile_service();
                 let ids = svc.get_device_profiles(device_id).await?;
@@ -275,7 +270,7 @@ fn enrich_device(
 )]
 pub async fn list_devices(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListDevicesResponse>, AppError> {
     let devices = state.discovery_service().get_all_devices().await?;
     let dhcp_map = build_dhcp_status_map(&state).await?;
@@ -309,7 +304,7 @@ pub async fn list_devices(
 )]
 pub async fn get_device(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
 ) -> Result<Json<DeviceDetailResponse>, AppError> {
     let uuid: Uuid = id
@@ -342,7 +337,7 @@ pub async fn get_device(
 )]
 pub async fn update_device(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
     Json(body): Json<UpdateDeviceRequest>,
 ) -> Result<Json<DeviceDetailResponse>, AppError> {
@@ -403,7 +398,7 @@ pub async fn update_device(
 )]
 pub async fn assign_device_zone(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
     Json(body): Json<AssignDeviceZoneRequest>,
 ) -> Result<Json<DeviceDetailResponse>, AppError> {
@@ -418,6 +413,53 @@ pub async fn assign_device_zone(
     let device = state.discovery_service().get_device_by_id(uuid).await?;
     // Mutation path — see `device_detail`.
     Ok(Json(device_detail(&state, device, false).await?))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/devices/{id}/identify",
+    tag = TAG,
+    description = "Probe a device on the vendor catalog's TCP ports and record whichever \
+                   answered as identification signals, naming the device if one resolves \
+                   to a vendor (issue #1116). This is the only identification signal that \
+                   sends unsolicited traffic to a device, so per ADR 0025 §5 it happens \
+                   only on this explicit per-device admin action — there is no background \
+                   scan and no global toggle. Synchronous: the probe surface is a handful \
+                   of ports contacted concurrently, so it completes in about a second. \
+                   Refused with 409 when the device is not currently on the network, \
+                   because its last known address may since have been handed to someone \
+                   else and the resulting vendor would be recorded against the wrong \
+                   device. Admin only.",
+    params(("id" = Uuid, Path, description = "Device ID")),
+    responses(
+        (status = 200, description = "Probe result and refreshed device detail", body = DeviceProbeResponse),
+        AuthErrors,
+        NotFound,
+        BadRequest,
+        Conflict,
+    ),
+)]
+pub async fn identify_device(
+    State(state): State<AppState>,
+    _auth: SessionAuth,
+    Path(id): Path<String>,
+) -> Result<Json<DeviceProbeResponse>, AppError> {
+    let uuid: Uuid = id
+        .parse()
+        .map_err(|_| AppError::BadRequest("invalid device ID".to_owned()))?;
+
+    let outcome = state
+        .device_identification_service()
+        .probe_device(&uuid.to_string())
+        .await?;
+
+    let device = state.discovery_service().get_device_by_id(uuid).await?;
+    // Mutation path — see `device_detail`.
+    Ok(Json(DeviceProbeResponse {
+        ports_probed: outcome.ports_probed,
+        answering_ports: outcome.answering_ports,
+        device: device_detail(&state, device, false).await?,
+    }))
 }
 
 /// Run one step of the release sequence, tagging any failure with the step's
@@ -527,7 +569,7 @@ async fn release_credentials_and_scoped_rules(
 )]
 pub async fn release_device(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
 ) -> Result<Json<DeviceDetailResponse>, AppError> {
     let uuid: Uuid = id

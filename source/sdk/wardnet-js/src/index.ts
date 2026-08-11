@@ -171,6 +171,7 @@ export type {
   SetMyRuleResponse,
   ListDevicesResponse,
   DeviceDetailResponse,
+  DeviceProbeResponse,
   UpdateDeviceRequest,
   CreateTunnelRequest,
   CreateTunnelResponse,

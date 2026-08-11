@@ -50,6 +50,14 @@ impl DeviceService for MockDeviceService {
         Ok(())
     }
 
+    async fn set_device_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<uuid::Uuid>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+
     async fn get_device(
         &self,
         _device_id: &str,
@@ -370,6 +378,7 @@ fn sample_device(capture_enabled: bool) -> Device {
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: false,
         zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
+        owner_user_id: None,
         dns_capture_enabled: capture_enabled,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,

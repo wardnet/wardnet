@@ -11,7 +11,7 @@ use wardnet_common::vpn_provider::{
     CountryInfo, ProviderAuthMethod, ProviderCredentials, ProviderInfo, ServerFilter, ServerInfo,
 };
 
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 
 use crate::auth_context;
 use crate::error::AppError;
@@ -23,9 +23,10 @@ use crate::{TunnelService, VpnProviderService};
 
 /// Helper to create an admin auth context for tests.
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 // -- Mock VpnProvider ---------------------------------------------------------

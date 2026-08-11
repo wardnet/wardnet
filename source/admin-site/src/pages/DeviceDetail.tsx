@@ -16,6 +16,7 @@ import {
   useDevice,
   useTunnels,
   useUpdateDevice,
+  useIdentifyDevice,
   useReleaseDevice,
   useRoutingProfiles,
   useDeviceRoutingProfiles,
@@ -118,6 +119,9 @@ function DeviceDetailLoaded({
   // Settings card.
   const { data: tunnelData } = useTunnels();
   const updateDevice = useUpdateDevice();
+  // Hoisted here rather than in the card: cards under `components/features/`
+  // stay presentational (commit ce601207).
+  const identifyDevice = useIdentifyDevice();
   const releaseDevice = useReleaseDevice();
 
   // Routing profiles card.
@@ -148,7 +152,12 @@ function DeviceDetailLoaded({
 
   // Server-owned flag (#1181), not inferred from the name — see Devices.tsx.
   const managed = device.managed;
-  const online = managed && isOnline(device.last_seen);
+  // Raw presence, deliberately NOT gated on `managed`: an unadopted device is
+  // precisely the one worth identifying, and the daemon's probe guard is about
+  // whether the address is still this device's, not whether an admin has
+  // adopted it.
+  const present = isOnline(device.last_seen);
+  const online = managed && present;
 
   const status = managed ? (
     <StatusBadge tone={online ? "success" : "neutral"}>
@@ -177,7 +186,17 @@ function DeviceDetailLoaded({
       />
 
       <DeviceIdentityCard device={device} />
-      <DeviceIdentificationCard signals={signals} />
+      <DeviceIdentificationCard
+        // Keyed so the card's transient "nothing answered" state cannot follow
+        // the admin to another device: navigating between two already-cached
+        // devices reconciles this element in place rather than remounting, and
+        // the note would then make a claim about a device never probed.
+        key={device.id}
+        deviceId={device.id}
+        signals={signals}
+        online={present}
+        identify={identifyDevice}
+      />
       <DeviceSettingsCard
         device={device}
         currentRule={currentRule}

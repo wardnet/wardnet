@@ -131,6 +131,7 @@ export {
   useSetMyRule,
   useSetMyCaptureEnabled,
   useUpdateDevice,
+  useIdentifyDevice,
   useReleaseDevice,
   useDnsCaptureSettings,
   useUpdateDnsCaptureSettings,

@@ -14,3 +14,9 @@ workspace = true
 tracing.workspace = true
 # https://crates.io/crates/tracing-subscriber
 tracing-subscriber.workspace = true
+# https://crates.io/crates/uuid
+# Needed by the `principal` helpers, which mint test `AuthContext`s from ids.
+uuid.workspace = true
+# Workspace crate: owns `AuthenticatedUser`, whose constructor these helpers
+# wrap so test stubs across the workspace don't each call it directly.
+wardnet-common.workspace = true

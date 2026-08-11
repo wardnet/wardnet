@@ -11,7 +11,6 @@ use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, put};
 use tower::ServiceExt;
-use uuid::Uuid;
 use wardnet_common::api::{DeviceMeResponse, SetMyRuleResponse};
 use wardnet_common::device::{Device, DeviceSignal, DeviceSignalKind, DeviceType};
 use wardnet_common::routing::RoutingTarget;
@@ -22,9 +21,13 @@ use crate::tests::stubs::{
     StubDnsService, StubEventPublisher, StubLogService, StubNetworkZoneService,
     StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
-use wardnetd_services::device::identification::DeviceIdentificationService;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
+use wardnetd_services::device::identification::{DeviceIdentificationService, ProbeOutcome};
 use wardnetd_services::error::AppError;
 use wardnetd_services::{
     AuthService, DeviceDiscoveryService, DeviceService, DhcpService, TunnelService,
@@ -39,21 +42,26 @@ struct MockAuthService;
 
 #[async_trait]
 impl AuthService for MockAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         Ok(LoginResult {
             token: "t".to_owned(),
             max_age_seconds: 3600,
         })
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(Some(principal::admin(
             Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap(),
-        ))
+        )))
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
     async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
@@ -253,6 +261,14 @@ impl DeviceService for MockDeviceService {
     async fn clear_managed(&self, _device_id: &str) -> Result<(), AppError> {
         self.audit.lock().unwrap().push("clear_managed");
         Ok(())
+    }
+
+    async fn set_device_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<uuid::Uuid>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
     }
 
     async fn get_device(
@@ -594,6 +610,7 @@ fn sample_device() -> Device {
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: false,
         zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
+        owner_user_id: None,
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
@@ -687,18 +704,38 @@ fn build_state_with_tunnel_svc(
 /// failure on the signals table.
 struct MockIdentificationService {
     signals_for: Result<Vec<DeviceSignal>, &'static str>,
+    /// What `probe_device` returns. `Err` stands in for the daemon's
+    /// online-only refusal (issue #1116).
+    probe: Result<ProbeOutcome, &'static str>,
 }
 
 impl MockIdentificationService {
     fn returning(signals: Vec<DeviceSignal>) -> Self {
         Self {
             signals_for: Ok(signals),
+            probe: Ok(ProbeOutcome {
+                ports_probed: vec![4003, 6668],
+                answering_ports: vec![6668],
+            }),
         }
     }
 
     fn failing() -> Self {
         Self {
             signals_for: Err("signals table is gone"),
+            probe: Ok(ProbeOutcome {
+                ports_probed: Vec::new(),
+                answering_ports: Vec::new(),
+            }),
+        }
+    }
+
+    /// A service that refuses every probe, as the daemon does for a device
+    /// that has left the network.
+    fn refusing_probe() -> Self {
+        Self {
+            signals_for: Ok(Vec::new()),
+            probe: Err("device is not currently on the network"),
         }
     }
 }
@@ -737,6 +774,11 @@ impl DeviceIdentificationService for MockIdentificationService {
     async fn reconcile_from_catalog(&self) -> Result<usize, AppError> {
         Ok(0)
     }
+    async fn probe_device(&self, _device_id: &str) -> Result<ProbeOutcome, AppError> {
+        self.probe
+            .clone()
+            .map_err(|e| AppError::Conflict(e.to_owned()))
+    }
 }
 
 /// Build a state whose device detail carries identification signals.
@@ -774,6 +816,10 @@ fn device_router(state: AppState) -> Router {
         .route(
             "/api/devices/{id}/release",
             axum::routing::post(crate::api::devices::release_device),
+        )
+        .route(
+            "/api/devices/{id}/identify",
+            axum::routing::post(crate::api::devices::identify_device),
         )
         .with_state(state)
 }
@@ -2156,4 +2202,62 @@ async fn release_revokes_every_artefact_the_device_actually_has() {
     // And `clear_managed` is LAST, so the "no admin artefacts exist" invariant
     // is only asserted once every artefact above is actually gone.
     assert_eq!(calls.last(), Some(&"clear_managed"), "calls={calls:?}");
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/devices/{id}/identify  (issue #1116)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn identify_returns_what_was_probed_alongside_what_answered() {
+    // `ports_probed` is what lets a client distinguish "we contacted these and
+    // none answered" from "nothing happened".
+    let device = sample_device();
+    let state =
+        build_state_with_identification(device, MockIdentificationService::returning(Vec::new()));
+    let app = device_router(state);
+
+    let (status, json) = post_json(
+        app,
+        "/api/devices/00000000-0000-0000-0000-000000000001/identify",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["ports_probed"], serde_json::json!([4003, 6668]));
+    assert_eq!(json["answering_ports"], serde_json::json!([6668]));
+    // The refreshed detail rides along so a caller sees new signals without a
+    // second round trip.
+    assert!(json["device"]["device"].is_object());
+}
+
+#[tokio::test]
+async fn identify_surfaces_the_online_only_refusal_as_409() {
+    // The daemon refuses a probe for a departed device — its last known address
+    // may since have been handed to someone else. The status has to be
+    // distinguishable so the UI can explain rather than say "failed".
+    let device = sample_device();
+    let state =
+        build_state_with_identification(device, MockIdentificationService::refusing_probe());
+    let app = device_router(state);
+
+    let (status, _) = post_json(
+        app,
+        "/api/devices/00000000-0000-0000-0000-000000000001/identify",
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CONFLICT);
+}
+
+#[tokio::test]
+async fn identify_rejects_a_malformed_device_id() {
+    let device = sample_device();
+    let state =
+        build_state_with_identification(device, MockIdentificationService::returning(Vec::new()));
+    let app = device_router(state);
+
+    let (status, _) = post_json(app, "/api/devices/not-a-uuid/identify").await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }

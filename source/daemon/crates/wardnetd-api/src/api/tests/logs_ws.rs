@@ -8,7 +8,6 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use tower::ServiceExt;
-use uuid::Uuid;
 
 use wardnetd_services::AuthService;
 use wardnetd_services::LogService;
@@ -23,6 +22,10 @@ use crate::tests::stubs::{
     StubRoutingService, StubRuleRequestService, StubStatsService, StubSystemService,
     StubTunnelService, StubUpdateService, StubZoneExceptionService,
 };
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 
 // ---------------------------------------------------------------------------
 // Mock auth that approves every token
@@ -32,17 +35,22 @@ struct AlwaysAuthService;
 
 #[async_trait]
 impl AuthService for AlwaysAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(Uuid::new_v4()))
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(Some(principal::some_admin()))
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(Uuid::new_v4()))
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(Some(principal::some_admin()))
     }
     async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
         unimplemented!()

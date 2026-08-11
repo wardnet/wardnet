@@ -6,7 +6,6 @@ use std::time::Duration;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::anomaly::AnomalyType;
 use wardnet_common::auth::AuthContext;
 
@@ -78,9 +77,7 @@ async fn run(
     reevaluate_interval: Duration,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
     let schedule = service.schedule();
     let now = Instant::now();
 

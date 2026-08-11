@@ -20,7 +20,7 @@ use wardnet_common::api::{
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    AlwaysAdminAuth, StubBackupService, StubDeviceService, StubDhcpServer, StubDhcpService,
+    AlwaysSessionAuth, StubBackupService, StubDeviceService, StubDhcpServer, StubDhcpService,
     StubDiscoveryService, StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService,
     StubEventPublisher, StubLogService, StubNetworkZoneService, StubProviderService,
     StubRoutingService, StubSystemService, StubTunnelService,
@@ -133,7 +133,7 @@ impl TlsService for MockTls {
 
 fn make_state(ddns: Arc<dyn DdnsService>, tls: Arc<dyn TlsService>) -> AppState {
     AppState::new(
-        Arc::new(AlwaysAdminAuth),
+        Arc::new(AlwaysSessionAuth),
         Arc::new(StubBackupService),
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),

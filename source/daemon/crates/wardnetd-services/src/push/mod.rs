@@ -41,7 +41,7 @@ use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
 use wardnet_common::rule_request::RuleRequestKind;
-use wardnetd_data::repository::push::{OWNER_KIND_ADMIN, OWNER_KIND_DEVICE};
+use wardnetd_data::repository::push::{OWNER_KIND_DEVICE, OWNER_KIND_USER};
 use wardnetd_data::repository::{
     DeviceRepository, NewNotification, NewPushSubscription, NotificationRepository, PushRepository,
     StoredNotification, StoredPushSubscription, SystemConfigRepository, TunnelRepository,
@@ -266,7 +266,7 @@ impl PushServiceImpl {
     /// an error if the caller is anonymous.
     fn caller_owner() -> Result<(&'static str, String), AppError> {
         match auth_context::current() {
-            AuthContext::Admin { admin_id } => Ok((OWNER_KIND_ADMIN, admin_id.to_string())),
+            AuthContext::User(user) => Ok((OWNER_KIND_USER, user.user_id().to_string())),
             AuthContext::Device { mac } => Ok((OWNER_KIND_DEVICE, mac)),
             AuthContext::Anonymous => {
                 Err(AppError::Forbidden("authentication required".to_owned()))
@@ -459,7 +459,7 @@ impl PushService for PushServiceImpl {
     // scatter the per-event copy.
     #[allow(clippy::too_many_lines)]
     async fn handle_event(&self, event: &WardnetEvent) -> Result<(), AppError> {
-        // Invoked by the daemon event listener under `AuthContext::Admin`.
+        // Invoked by the daemon event listener under `AuthContext::system()`.
         auth_context::require_admin()?;
 
         match event {

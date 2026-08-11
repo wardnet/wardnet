@@ -27,13 +27,7 @@ use crate::tests::mac_from;
 
 /// Run a future under admin auth context (required by all routing service methods).
 async fn as_admin<F: std::future::Future>(f: F) -> F::Output {
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        f,
-    )
-    .await
+    auth_context::with_context(AuthContext::system(), f).await
 }
 
 // -- Constants ----------------------------------------------------------------
@@ -65,6 +59,14 @@ impl DeviceRepository for MockDeviceRepo {
         _cutoff: &str,
     ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
         Ok(Vec::new())
+    }
+
+    async fn set_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
     }
 
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
@@ -969,6 +971,7 @@ fn sample_device(id: Uuid, ip: &str) -> Device {
         last_ip: ip.to_owned(),
         admin_locked: false,
         zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
+        owner_user_id: None,
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,

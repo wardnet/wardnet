@@ -3,7 +3,6 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use crate::db_maintenance_runner::{
@@ -166,9 +165,7 @@ impl MaintenanceService for MockMaintenance {
 }
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
+    AuthContext::system()
 }
 
 fn today() -> chrono::NaiveDate {
