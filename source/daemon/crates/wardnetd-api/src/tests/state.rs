@@ -48,6 +48,15 @@ async fn default_identification_service_is_a_silent_no_op() {
         .await
         .is_ok()
     );
+    assert!(
+        svc.record_signal_for_ip(
+            "192.168.1.10".parse().unwrap(),
+            DeviceSignalKind::MdnsService,
+            "_googlecast._tcp.local."
+        )
+        .await
+        .is_ok()
+    );
     assert_eq!(svc.reconcile_from_catalog().await.unwrap(), 0);
     assert!(svc.signals_for("dev-1").await.unwrap().is_empty());
 }

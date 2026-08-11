@@ -1,6 +1,6 @@
 use crate::vendor_catalog::{
-    lookup_mdns_service, lookup_oui_override, lookup_tcp_port, lookup_vendor_class, probe_ports,
-    vendors,
+    lookup_mdns_service, lookup_oui_override, lookup_tcp_port, lookup_vendor_class,
+    mdns_service_types, probe_ports, vendors,
 };
 
 #[test]
@@ -120,6 +120,34 @@ fn probe_ports_are_sorted_and_bounded() {
         ports.len() < 20,
         "probe surface grew unexpectedly large: {ports:?}"
     );
+}
+
+#[test]
+fn mdns_service_types_are_sorted_bounded_and_resolvable() {
+    let types = mdns_service_types();
+    let mut sorted = types.clone();
+    sorted.sort_unstable();
+    assert_eq!(types, sorted, "browse set must be deterministic");
+
+    // The observer issues one browse per entry, so the set is a passive-traffic
+    // commitment the same way `probe_ports` bounds the active-probe surface.
+    assert!(
+        !types.is_empty(),
+        "catalog declares mDNS services but the browse set is empty"
+    );
+    assert!(
+        types.len() < 40,
+        "mDNS browse surface grew unexpectedly large: {types:?}"
+    );
+
+    // Every type the observer browses must resolve back to a vendor — otherwise
+    // the observation is recorded but never names anyone.
+    for ty in types {
+        assert!(
+            lookup_mdns_service(ty).is_some(),
+            "browsed service type {ty} does not resolve to a vendor"
+        );
+    }
 }
 
 #[test]

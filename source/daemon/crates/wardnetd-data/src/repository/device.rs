@@ -35,6 +35,33 @@ pub trait DeviceRepository: Send + Sync {
     /// Find a device by its most recently observed IP address.
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>>;
 
+    /// Find **every** device whose `last_ip` equals `ip`.
+    ///
+    /// Unlike [`find_by_ip`](Self::find_by_ip), which resolves a shared address
+    /// to the most-recently-seen claimant, this exposes the full set so a caller
+    /// can detect an ambiguous mapping. `last_ip` is not unique — a departed
+    /// device keeps its row until discovery clears it — so a recycled address
+    /// can transiently belong to more than one row. The mDNS observer uses this
+    /// to skip attributing a vendor when zero or more than one device claims an
+    /// address (issue #1115).
+    ///
+    /// An empty `ip` (the "no known address" sentinel of departed rows) returns
+    /// an empty set, never the departed rows that share it.
+    ///
+    /// The default implementation filters [`find_all`](Self::find_all); the
+    /// `SQLite` implementation overrides it with an indexed `last_ip` lookup.
+    async fn find_all_by_ip(&self, ip: &str) -> anyhow::Result<Vec<Device>> {
+        if ip.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .find_all()
+            .await?
+            .into_iter()
+            .filter(|d| d.last_ip == ip)
+            .collect())
+    }
+
     /// Find a device by its primary key.
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Device>>;
 

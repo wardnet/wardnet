@@ -109,6 +109,60 @@ async fn find_by_ip_returns_most_recently_seen_on_collision() {
     );
 }
 
+// The mDNS observer (issue #1115) needs the *full* set of devices on an address,
+// not just the most-recently-seen one, so it can skip attributing a vendor when
+// the mapping is ambiguous. `find_all_by_ip` returns every row sharing the IP.
+#[tokio::test]
+async fn find_all_by_ip_returns_every_device_on_a_shared_address() {
+    let pool = test_pool().await;
+    insert_device_seen_at(
+        &pool,
+        DEV1,
+        "aa:bb:cc:dd:ee:01",
+        "192.168.1.10",
+        "2026-03-07T00:00:00Z",
+    )
+    .await;
+    insert_device_seen_at(
+        &pool,
+        DEV2,
+        "aa:bb:cc:dd:ee:02",
+        "192.168.1.10",
+        "2026-03-08T00:00:00Z",
+    )
+    .await;
+    insert_device(&pool, DEV3, "aa:bb:cc:dd:ee:03", "192.168.1.20").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    let shared = repo.find_all_by_ip("192.168.1.10").await.unwrap();
+    assert_eq!(
+        shared.len(),
+        2,
+        "both claimants of the address are returned"
+    );
+
+    let lone = repo.find_all_by_ip("192.168.1.20").await.unwrap();
+    assert_eq!(lone.len(), 1);
+    assert_eq!(lone[0].id.to_string(), DEV3);
+
+    assert!(
+        repo.find_all_by_ip("10.0.0.99").await.unwrap().is_empty(),
+        "an unclaimed address matches nothing"
+    );
+}
+
+// The empty-string sentinel of departed rows must never match, exactly as in
+// `find_by_ip` — otherwise every departed device would resolve to one address.
+#[tokio::test]
+async fn find_all_by_ip_empty_returns_none() {
+    let pool = test_pool().await;
+    insert_device_seen_at(&pool, DEV1, "aa:bb:cc:dd:ee:01", "", "2026-03-07T00:00:00Z").await;
+    insert_device_seen_at(&pool, DEV2, "aa:bb:cc:dd:ee:02", "", "2026-03-08T00:00:00Z").await;
+    let repo = SqliteDeviceRepository::new(pool);
+
+    assert!(repo.find_all_by_ip("").await.unwrap().is_empty());
+}
+
 // Regression for issue #831: clearing a departed device's `last_ip` must make
 // its row unresolvable by that IP so it can never again be returned for a live
 // device's source address.
