@@ -38,7 +38,6 @@ use futures::stream::select_all;
 use mdns_sd::{IfKind, ResolvedService, ServiceDaemon, ServiceEvent};
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 
 use wardnet_common::auth::AuthContext;
 use wardnet_common::device::DeviceSignalKind;
@@ -193,9 +192,10 @@ async fn record_resolved(identification: &dyn DeviceIdentificationService, info:
     for scoped in &info.addresses {
         let ip = scoped.to_ip_addr();
         let result = auth_context::with_context(
-            AuthContext::Admin {
-                admin_id: Uuid::nil(),
-            },
+            // `system()` rather than a hand-rolled nil-UUID variant: it is the
+            // reserved system actor, and going through the constructor keeps
+            // background work distinguishable from a real person in audit logs.
+            AuthContext::system(),
             identification.record_signal_for_ip(ip, DeviceSignalKind::MdnsService, &info.ty_domain),
         )
         .await;

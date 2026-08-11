@@ -583,7 +583,7 @@ async fn echo_auth_context() -> String {
 // resolve_auth_context tests
 // ---------------------------------------------------------------------------
 
-/// Admin session produces `AuthContext::Admin`.
+/// An admin session produces `AuthContext::User` with `role = Admin`.
 #[tokio::test]
 async fn resolve_auth_context_admin_session() {
     let admin_id = Uuid::new_v4();
@@ -619,7 +619,7 @@ async fn resolve_auth_context_admin_session() {
     );
 }
 
-/// A bearer session token (no cookie) produces `AuthContext::Admin`.
+/// A bearer session token (no cookie) produces `AuthContext::User`.
 #[tokio::test]
 async fn resolve_auth_context_admin_from_bearer_session_token() {
     let admin_id = Uuid::new_v4();
@@ -651,7 +651,7 @@ async fn resolve_auth_context_admin_from_bearer_session_token() {
     );
 }
 
-/// A bearer API key (session validation misses) produces `AuthContext::Admin`.
+/// A bearer API key (session validation misses) produces `AuthContext::User`.
 #[tokio::test]
 async fn resolve_auth_context_admin_from_bearer_api_key() {
     let admin_id = Uuid::new_v4();

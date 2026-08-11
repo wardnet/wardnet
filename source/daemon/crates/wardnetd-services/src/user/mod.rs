@@ -3,17 +3,12 @@
 
 pub mod ceremony;
 pub mod oauth;
-pub mod passkey;
 pub mod service;
 
 pub use ceremony::{CEREMONY_TTL, CeremonyStore};
 pub use oauth::{
     OauthClient, OauthConfig, OauthProvider, PendingOauth, ProviderEndpoints, ProviderIdentity,
     ProviderStatus, ReqwestOauthClient,
-};
-pub use passkey::{
-    KEY_PASSKEY_RP_ID, PasskeyMetadata, PasskeyRelyingParty, PasskeyUnavailable,
-    PendingAuthentication, PendingRegistration,
 };
 pub use service::{
     EnrolmentInvite, EnrolmentSummary, NewUser, UserProfile, UserService, UserServiceImpl,

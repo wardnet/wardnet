@@ -14,9 +14,6 @@ use crate::user::oauth::{
     OauthClient, OauthConfig, OauthProvider, PendingOauth, ProviderEndpoints, ProviderIdentity,
     ProviderStatus, new_pkce_pair, new_state,
 };
-use crate::user::passkey::{
-    PasskeyMetadata, PasskeyRelyingParty, PendingAuthentication, PendingRegistration,
-};
 use wardnetd_data::repository::session::SessionRepository;
 use wardnetd_data::repository::user::{DuplicateUserEmailError, UserRepository, UserRow};
 use wardnetd_data::repository::user_credential::{
@@ -234,56 +231,6 @@ pub trait UserService: Send + Sync {
     /// only credential depended on a reachable provider would be unreachable
     /// during a WAN outage.
     async fn unlink_oauth(&self, user_id: Uuid, provider: OauthProvider) -> Result<u64, AppError>;
-
-    /// Begin registering a passkey for the calling user.
-    ///
-    /// `request_host` is the `Host` the request arrived at. Returns `412` when
-    /// passkeys cannot work here — no canonical hostname, or a host that is not
-    /// the pinned Relying Party ID (ADR-0031 §8). The returned JSON is passed
-    /// straight to `navigator.credentials.create()`.
-    async fn start_passkey_registration(
-        &self,
-        request_host: &str,
-    ) -> Result<serde_json::Value, AppError>;
-
-    /// Finish registering a passkey.
-    ///
-    /// `label` names the credential in the list ("Pixel 8"). The response is the
-    /// browser's `PublicKeyCredential`.
-    async fn finish_passkey_registration(
-        &self,
-        request_host: &str,
-        label: Option<&str>,
-        credential: serde_json::Value,
-    ) -> Result<(), AppError>;
-
-    /// Begin a passkey sign-in.
-    ///
-    /// **Unauthenticated** (`.agents/auth.md` category (b)): a sign-in entry
-    /// point. Discoverable credentials mean no username is supplied — the
-    /// authenticator decides which passkey to offer.
-    async fn start_passkey_authentication(
-        &self,
-        request_host: &str,
-    ) -> Result<serde_json::Value, AppError>;
-
-    /// Finish a passkey sign-in, returning the authenticated user.
-    ///
-    /// **Unauthenticated** (category (b)): this IS the credential check.
-    async fn finish_passkey_authentication(
-        &self,
-        request_host: &str,
-        credential: serde_json::Value,
-    ) -> Result<(UserProfile, UserRole), AppError>;
-
-    /// Delete every passkey in the household and unpin the Relying Party ID.
-    ///
-    /// The explicit admin recovery for an RP-ID divergence — a box that moved to
-    /// a new hostname. Deliberately not automatic: silently re-pinning would
-    /// invalidate every passkey with no explanation, and doing nothing would
-    /// leave sign-in mysteriously broken. Local passwords are untouched, which
-    /// is why this is recoverable at all.
-    async fn reset_passkeys(&self) -> Result<u64, AppError>;
 }
 
 /// What the sign-in surface may render.
@@ -316,11 +263,6 @@ pub struct UserServiceImpl {
     pending_oauth: CeremonyStore<PendingOauth>,
     /// Provider endpoints, overridable so tests can point at `wiremock`.
     endpoints: Vec<(OauthProvider, ProviderEndpoints)>,
-    passkeys: PasskeyRelyingParty,
-    /// Open passkey registration ceremonies, keyed by challenge id.
-    pending_registration: CeremonyStore<PendingRegistration>,
-    /// Open passkey authentication ceremonies.
-    pending_authentication: CeremonyStore<PendingAuthentication>,
 }
 
 impl UserServiceImpl {
@@ -332,7 +274,6 @@ impl UserServiceImpl {
         oauth_config: OauthConfig,
         oauth_client: Arc<dyn OauthClient>,
     ) -> Self {
-        let passkeys = PasskeyRelyingParty::new(oauth_config.system_config.clone());
         Self {
             users,
             credentials,
@@ -340,9 +281,6 @@ impl UserServiceImpl {
             sessions,
             oauth_config,
             oauth_client,
-            passkeys,
-            pending_registration: CeremonyStore::new(),
-            pending_authentication: CeremonyStore::new(),
             pending_oauth: CeremonyStore::new(),
             endpoints: vec![
                 (
@@ -517,36 +455,6 @@ impl UserServiceImpl {
             ));
         }
         Ok(Some(trimmed.to_lowercase()))
-    }
-
-    /// The `webauthn-rs` credential ids of a user's existing passkeys.
-    ///
-    /// Passed as the exclude-list at registration so an authenticator offers to
-    /// update an existing passkey rather than silently creating a second one for
-    /// the same account on the same device.
-    async fn user_passkey_ids(
-        &self,
-        user_id: &str,
-    ) -> Result<Vec<webauthn_rs::prelude::CredentialID>, AppError> {
-        let summaries = self
-            .credentials
-            .list_for_user(user_id)
-            .await
-            .map_err(AppError::Internal)?;
-
-        Ok(summaries
-            .into_iter()
-            .filter(|c| {
-                c.kind == wardnetd_data::repository::user_credential::CredentialKind::Passkey
-            })
-            .filter_map(|c| {
-                use base64::Engine;
-                base64::engine::general_purpose::URL_SAFE_NO_PAD
-                    .decode(&c.subject)
-                    .ok()
-                    .map(Into::into)
-            })
-            .collect())
     }
 
     /// Read a user or return `404`.
@@ -1280,8 +1188,7 @@ impl UserService for UserServiceImpl {
         // could start a ceremony with their own provider account, obtain
         // `(state, code)`, and get a signed-in admin's browser to redeem it —
         // attaching the attacker's account to the admin's user and handing them
-        // the household. `finish_passkey_registration` refuses on the same
-        // mismatch.
+        // the household.
         //
         // A `None` owner means the ceremony was started unauthenticated, i.e.
         // as a sign-in. Those are not linkable, so refuse rather than adopt.
@@ -1359,335 +1266,4 @@ impl UserService for UserServiceImpl {
         );
         Ok(removed)
     }
-
-    async fn start_passkey_registration(
-        &self,
-        request_host: &str,
-    ) -> Result<serde_json::Value, AppError> {
-        auth_context::require_authenticated()?;
-        let user_id = Self::caller()?;
-        let user = self.load(user_id).await?;
-
-        let fqdn = self.oauth_config.canonical_fqdn().await?;
-        let webauthn = self
-            .passkeys
-            .for_request(fqdn.as_deref(), request_host)
-            .await?;
-
-        // Existing passkeys are excluded so the authenticator offers to *update*
-        // rather than silently creating a second credential for the same user on
-        // the same device.
-        let existing = self.user_passkey_ids(&user.id).await?;
-
-        let (challenge, state) = webauthn
-            .start_passkey_registration(
-                webauthn_rs::prelude::Uuid::from_bytes(*user_id.as_bytes()),
-                // The account name the authenticator shows. Email when we have
-                // one, because that is what a person recognises in a passkey
-                // picker; the display name otherwise.
-                user.email.as_deref().unwrap_or(&user.display_name),
-                &user.display_name,
-                Some(existing),
-            )
-            .map_err(|e| map_webauthn_error(&e))?;
-
-        let challenge_id = new_state();
-        self.pending_registration
-            .insert(challenge_id.clone(), PendingRegistration { user_id, state });
-
-        // The challenge id rides along in the response so the browser can hand
-        // it back; the ceremony state itself never leaves the daemon.
-        let mut value = serde_json::to_value(&challenge).map_err(|e| {
-            AppError::Internal(anyhow::anyhow!("failed to serialise challenge: {e}"))
-        })?;
-        if let Some(obj) = value.as_object_mut() {
-            obj.insert(
-                "challengeId".to_owned(),
-                serde_json::Value::String(challenge_id),
-            );
-        }
-        Ok(value)
-    }
-
-    async fn finish_passkey_registration(
-        &self,
-        request_host: &str,
-        label: Option<&str>,
-        credential: serde_json::Value,
-    ) -> Result<(), AppError> {
-        auth_context::require_authenticated()?;
-        let user_id = Self::caller()?;
-
-        let (challenge_id, credential) = split_challenge_id(credential)?;
-        let pending = self
-            .pending_registration
-            .take(&challenge_id)
-            .ok_or_else(|| {
-                AppError::Unauthorized(
-                    "that passkey registration is no longer valid; please try again".to_owned(),
-                )
-            })?;
-
-        // The ceremony belongs to whoever started it. Without this, a caller
-        // could complete somebody else's registration and attach the credential
-        // to their own account.
-        if pending.user_id != user_id {
-            return Err(AppError::Forbidden(
-                "that registration was started by a different user".to_owned(),
-            ));
-        }
-
-        let fqdn = self.oauth_config.canonical_fqdn().await?;
-        let webauthn = self
-            .passkeys
-            .for_request(fqdn.as_deref(), request_host)
-            .await?;
-
-        let registration: webauthn_rs::prelude::RegisterPublicKeyCredential =
-            serde_json::from_value(credential).map_err(|e| {
-                AppError::BadRequest(format!("malformed passkey registration response: {e}"))
-            })?;
-
-        let passkey = webauthn
-            .finish_passkey_registration(&registration, &pending.state)
-            .map_err(|e| map_webauthn_error(&e))?;
-
-        let metadata = PasskeyMetadata {
-            // A fresh credential has no observed assertion yet. The backup flags
-            // are not knowable here (see `PasskeyMetadata`) and are filled in on
-            // first sign-in rather than guessed.
-            sign_count: 0,
-            backup_eligible: None,
-            backup_state: None,
-            credential: passkey.clone(),
-        };
-
-        let now = chrono::Utc::now().to_rfc3339();
-        let row = wardnetd_data::repository::user_credential::CredentialRow {
-            id: Uuid::new_v4().to_string(),
-            user_id: user_id.to_string(),
-            kind: wardnetd_data::repository::user_credential::CredentialKind::Passkey,
-            // The base64url credential id is the login key, which is what makes
-            // a discoverable sign-in resolvable without a username.
-            subject: base64_url(passkey.cred_id().as_ref()),
-            // The COSE public key lives in `metadata`, not `secret`: it is a
-            // public key, and putting it in `secret` would imply it needs the
-            // same handling as a password hash.
-            secret: None,
-            label: label.map(str::to_owned),
-            metadata: serde_json::to_string(&metadata).map_err(|e| {
-                AppError::Internal(anyhow::anyhow!("failed to serialise passkey: {e}"))
-            })?,
-            created_at: now,
-            last_used_at: None,
-        };
-
-        self.credentials.insert(&row).await.map_err(|e| {
-            if e.downcast_ref::<wardnetd_data::repository::user_credential::CredentialAlreadyLinkedError>()
-                .is_some()
-            {
-                return AppError::Conflict("that passkey is already registered".to_owned());
-            }
-            AppError::Internal(e)
-        })?;
-
-        tracing::info!(user_id = %user_id, "passkey registered");
-        Ok(())
-    }
-
-    async fn start_passkey_authentication(
-        &self,
-        request_host: &str,
-    ) -> Result<serde_json::Value, AppError> {
-        // Documented exception (category (b)): a sign-in entry point.
-        let fqdn = self.oauth_config.canonical_fqdn().await?;
-        let webauthn = self
-            .passkeys
-            .for_request(fqdn.as_deref(), request_host)
-            .await?;
-
-        // Discoverable credentials: no allow-list, so the authenticator decides
-        // which passkey to offer and no username is needed. That also means this
-        // request discloses nothing about which accounts exist.
-        let (challenge, state) = webauthn
-            .start_discoverable_authentication()
-            .map_err(|e| map_webauthn_error(&e))?;
-
-        let challenge_id = new_state();
-        self.pending_authentication
-            .insert(challenge_id.clone(), PendingAuthentication { state });
-
-        let mut value = serde_json::to_value(&challenge).map_err(|e| {
-            AppError::Internal(anyhow::anyhow!("failed to serialise challenge: {e}"))
-        })?;
-        if let Some(obj) = value.as_object_mut() {
-            obj.insert(
-                "challengeId".to_owned(),
-                serde_json::Value::String(challenge_id),
-            );
-        }
-        Ok(value)
-    }
-
-    async fn finish_passkey_authentication(
-        &self,
-        request_host: &str,
-        credential: serde_json::Value,
-    ) -> Result<(UserProfile, UserRole), AppError> {
-        // Documented exception (category (b)): this IS the credential check.
-        let (challenge_id, credential) = split_challenge_id(credential)?;
-        let pending = self
-            .pending_authentication
-            .take(&challenge_id)
-            .ok_or_else(|| {
-                AppError::Unauthorized(
-                    "that sign-in attempt is no longer valid; please try again".to_owned(),
-                )
-            })?;
-
-        let fqdn = self.oauth_config.canonical_fqdn().await?;
-        let webauthn = self
-            .passkeys
-            .for_request(fqdn.as_deref(), request_host)
-            .await?;
-
-        let assertion: webauthn_rs::prelude::PublicKeyCredential =
-            serde_json::from_value(credential)
-                .map_err(|e| AppError::BadRequest(format!("malformed passkey assertion: {e}")))?;
-
-        // Resolve which credential the authenticator used, then look it up. The
-        // browser tells us the credential id; the signature is what proves it.
-        let cred_id = base64_url(assertion.raw_id.as_ref());
-        let login = self
-            .credentials
-            .find_for_login(
-                wardnetd_data::repository::user_credential::CredentialKind::Passkey,
-                &cred_id,
-            )
-            .await
-            .map_err(AppError::Internal)?
-            .ok_or_else(|| {
-                AppError::Unauthorized("that passkey is not registered here".to_owned())
-            })?;
-
-        let mut metadata: PasskeyMetadata = serde_json::from_str(&login.credential.metadata)
-            .map_err(|e| {
-                AppError::Internal(anyhow::anyhow!(
-                    "stored passkey metadata is unreadable: {e}"
-                ))
-            })?;
-
-        let result = webauthn
-            .finish_discoverable_authentication(
-                &assertion,
-                pending.state,
-                &[(&metadata.credential).into()],
-            )
-            .map_err(|e| map_webauthn_error(&e))?;
-
-        // A counter that went backwards is the signal of a cloned credential.
-        // `webauthn-rs` reports it; refusing and logging loudly is the whole
-        // point of persisting the counter at all.
-        if result.counter() > 0 && result.counter() < metadata.sign_count {
-            tracing::error!(
-                user_id = %login.credential.user_id,
-                stored = metadata.sign_count,
-                presented = result.counter(),
-                "passkey signature counter regressed; refusing the sign-in"
-            );
-            return Err(AppError::Unauthorized(
-                "that passkey failed verification".to_owned(),
-            ));
-        }
-
-        // Write the counter and backup state back, so the next check has
-        // something current to compare against.
-        metadata.credential.update_credential(&result);
-        metadata.sign_count = result.counter();
-        metadata.backup_state = Some(result.backup_state());
-        metadata.backup_eligible = Some(result.backup_eligible());
-        let now = chrono::Utc::now().to_rfc3339();
-        if let Ok(json) = serde_json::to_string(&metadata)
-            && let Err(e) = self
-                .credentials
-                .update_metadata(&login.credential.id, &json)
-                .await
-        {
-            tracing::warn!(error = %e, "failed to persist passkey counter");
-        }
-        if let Err(e) = self
-            .credentials
-            .touch_last_used(&login.credential.id, &now)
-            .await
-        {
-            tracing::warn!(error = %e, "failed to record credential last_used_at");
-        }
-
-        let user_id = Uuid::parse_str(&login.credential.user_id)
-            .map_err(|e| AppError::Internal(anyhow::anyhow!("invalid user id: {e}")))?;
-        let profile = UserProfile::from_row(self.load(user_id).await?)?;
-
-        tracing::info!(user_id = %user_id, "passkey sign-in succeeded");
-        Ok((profile, login.role))
-    }
-
-    async fn reset_passkeys(&self) -> Result<u64, AppError> {
-        auth_context::require_admin()?;
-
-        // Every user's passkeys, not just the caller's: an RP-ID divergence
-        // breaks them all, so a per-user reset would leave the household half
-        // broken and confused.
-        let mut removed = 0;
-        for user in self.users.find_all().await.map_err(AppError::Internal)? {
-            removed += self
-                .credentials
-                .delete_by_kind(
-                    &user.id,
-                    wardnetd_data::repository::user_credential::CredentialKind::Passkey,
-                )
-                .await
-                .map_err(AppError::Internal)?;
-        }
-
-        // Unpin last. If this failed with the credentials already gone the box
-        // is still usable (passwords are untouched) and the next registration
-        // re-pins; the reverse order could leave passkeys pinned to a hostname
-        // that no longer exists.
-        self.passkeys.unpin().await?;
-
-        tracing::warn!(removed, "passkeys reset: removed={removed}");
-        Ok(removed)
-    }
-}
-
-/// Base64url-encode without padding — how a `WebAuthn` credential id is written.
-fn base64_url(bytes: &[u8]) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
-}
-
-/// Split the `challengeId` the daemon added out of a browser response.
-///
-/// The ceremony state lives server-side; only this opaque handle round-trips, so
-/// nothing about the challenge is client-controlled.
-fn split_challenge_id(
-    mut value: serde_json::Value,
-) -> Result<(String, serde_json::Value), AppError> {
-    let id = value
-        .as_object_mut()
-        .and_then(|o| o.remove("challengeId"))
-        .and_then(|v| v.as_str().map(str::to_owned))
-        .ok_or_else(|| AppError::BadRequest("missing challengeId".to_owned()))?;
-    Ok((id, value))
-}
-
-/// Map a `webauthn-rs` failure to an `AppError`.
-///
-/// Every verification failure is `Unauthorized` with one message. The library
-/// distinguishes many causes — wrong origin, bad signature, failed attestation —
-/// and reporting which would tell an attacker exactly which part of a forged
-/// assertion to fix. The detail goes to the log instead.
-fn map_webauthn_error(err: &webauthn_rs::prelude::WebauthnError) -> AppError {
-    tracing::warn!(error = %err, "webauthn ceremony failed: {err}");
-    AppError::Unauthorized("that passkey failed verification".to_owned())
 }

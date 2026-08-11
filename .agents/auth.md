@@ -12,7 +12,7 @@ names all of them:
 
 | Variant | Who | How it is established |
 |---|---|---|
-| `User { user_id, role }` | A **household user** — a person holding a credential | A session, from any credential kind (password, passkey, Google, GitHub), or an API key |
+| `User { user_id, role }` | A **household user** — a person holding a credential | A session, from any credential kind (password, Google, GitHub), or an API key |
 | `Device { mac }` | A **device** on the LAN | Source IP → `devices` row, no credential involved |
 | `Anonymous` | Nobody identified | Everything else |
 
@@ -86,7 +86,7 @@ set, grep `security(())` in `wardnetd-api/src/api`.
   `refresh`. These *establish* identity and so cannot require it.
 
 The household-identity credential paths — `available_methods`, the OAuth
-start/callback pair, the passkey ceremonies, and enrolment redemption — are
+start/callback pair, and enrolment redemption — are
 implemented on `UserService` and carry the same
 category-(b) exception, documented per method. They have **no HTTP surface
 yet**: the API layer for them is step 10 of #1147 and is not in the tree.
@@ -191,7 +191,7 @@ task rather than a person.
    - **(b) Auth bootstrap** — methods that establish identity in the first
      place, and therefore cannot require it (`login`, `setup_admin`,
      `validate_session`, `validate_api_key`, `wizard_state`, the OAuth and
-     passkey ceremony methods, and enrolment-token redemption).
+     and enrolment-token redemption).
    - **(c) Self-service by IP/device** — methods backing the
      unauthenticated endpoints above, which implement their own
      `AuthContext`-variant checks instead of the blunt `require_admin` /
@@ -218,11 +218,10 @@ than tidiness.
   no provider. Never removable. Unknown identities still pay the
   `DECOY_PASSWORD_HASH` constant-work cost (`auth/password.rs`) so timing
   does not disclose whether a user exists.
-- **Passkey** — `webauthn-rs`, RP ID **pinned** in `system_config` at
-  first registration. Returns `412` unless a pinned RP ID exists and the
-  request `Host` matches it, so passkeys do not work over `:7411` or a
-  bare LAN IP. Divergence from the live canonical FQDN fails loudly and
-  requires an explicit admin "reset passkeys".
+- **Passkey** — **not implemented yet.** ADR-0031 keeps them a first-class
+  credential and `user_credentials.kind` already accepts `'passkey'`, but
+  `webauthn-rs` depends on OpenSSL unconditionally, which the aarch64
+  cross-build cannot satisfy. Tracked in #1194.
 - **Google / GitHub** — each household registers its own OAuth app;
   verification is against the provider's **userinfo** endpoint (no JOSE
   stack). Optional and hidden until configured — `GET /api/auth/methods`

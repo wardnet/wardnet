@@ -23,20 +23,10 @@ corresponding source under GPL-compatible terms, and (per GPLv3's
 anti-tivoization terms) that users of a device you ship can install their
 own modified builds on it.
 
-Two other non-permissive dependencies are in the tree, neither of which
-changes the above:
-
-- [`wireguard-control`](https://crates.io/crates/wireguard-control) is
-  LGPL-2.1-or-later. The linking exception means it does not, on its own,
-  impose GPL terms.
-- The [`webauthn-rs`](https://crates.io/crates/webauthn-rs) family
-  (passkeys — see ADR-0031) is MPL-2.0. MPL is **file-level** copyleft: its
-  obligations attach to the MPL-covered files, and Wardnet links the
-  published crates without modifying them, so nothing is owed beyond what
-  upstream already publishes. MPL-2.0 §3.3 also explicitly permits
-  distributing a larger work under the GPL, which is what the daemon
-  already is. Patching one of those crates rather than consuming it would
-  be a different question.
+One other non-permissive dependency is in the tree, and it does not change the
+above: [`wireguard-control`](https://crates.io/crates/wireguard-control) is
+LGPL-2.1-or-later, whose linking exception means it does not, on its own,
+impose GPL terms.
 
 ## The SDK — MIT
 

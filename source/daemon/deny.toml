@@ -46,22 +46,6 @@ allow = [
     # exception means this one does not, on its own, impose GPL terms on
     # the binary.
     "LGPL-2.1-or-later",
-    # webauthn-rs + webauthn-rs-core + webauthn-rs-proto (passkeys, ADR-0031
-    # §8), and the dev-only webauthn-authenticator-rs that drives their tests.
-    # MPL-2.0 with no permissive alternative offered.
-    #
-    # Acceptable here for two specific reasons. MPL-2.0 is **file-level**
-    # copyleft: its obligations attach to the MPL-covered files themselves, and
-    # we link the published crates without modifying any of them, so nothing is
-    # owed beyond what upstream already publishes. And MPL-2.0 §3.3 explicitly
-    # permits distributing a larger work under the GPL, which is what the daemon
-    # already ships as — so this adds no new constraint on the binary the way
-    # `rustables` did.
-    #
-    # If a future change needs to *patch* one of these crates rather than
-    # consume it, that is a different question and this comment is where to
-    # start.
-    "MPL-2.0",
 ]
 
 # Ring's license is a non-standard BSD-ish blend cargo-deny can't infer

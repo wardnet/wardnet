@@ -150,21 +150,33 @@ ceremony. A link ceremony records **who started it** and refuses a mismatch —
 otherwise an attacker could consent with their own account and have a signed-in
 admin's browser redeem the result.
 
-### 7. The passkey RP ID is pinned, and `:7411` therefore cannot have passkeys
+### 7. Passkeys are deferred, and the reason is a dependency, not a design change
 
-WebAuthn binds a credential to a Relying Party ID. The RP ID is pinned into
-`system_config` at first registration and never silently changed, because
-re-pinning would break every existing passkey in the household with no
-explanation. Divergence from the live canonical FQDN fails loudly with a `412`
-naming the hostname to use, and the recovery is an explicit admin "reset
-passkeys" that clears the credentials *and* the pin. `allow_subdomains(true)`, so
-one passkey covers the published-app subdomains #1149 adds.
+The model above keeps passkeys first-class and that stands — `user_credentials`
+already accepts `kind = 'passkey'`. The implementation is **not in the first
+delivery**, because `webauthn-rs` 0.5 depends on OpenSSL unconditionally
+(`webauthn-rs-core` declares `openssl` and `openssl-sys` as plain dependencies,
+not behind a feature), and the daemon cross-compiles to
+`aarch64-unknown-linux-gnu` with no target libssl. An earlier draft of this ADR
+asserted the crate was pure Rust and coexisted with the existing
+rustls/aws-lc-rs provider; **that was wrong**, and it is recorded here rather
+than quietly deleted because it is the kind of premise worth checking before it
+is built on. Tracked in #1194.
 
-The honest consequence: the plain-HTTP pre-provisioning surface on `:7411`, and
-any bare-LAN-IP access, cannot do passkeys at all. **This is why the local
-password can never be removed** — it is the only credential that works on a box
-with no certificate and no public hostname, and it is the floor that makes the
-WAN-down guarantee true by construction.
+Two design consequences hold whenever it does land, and they are worth keeping
+written down now:
+
+The RP ID must be **pinned** at first registration and never silently changed,
+because WebAuthn binds a credential to a domain: re-pinning breaks every
+existing passkey in the household with no explanation. Divergence from the live
+canonical FQDN has to fail loudly, with an explicit admin "reset passkeys" as
+the recovery.
+
+And passkeys **cannot** work on the plain-HTTP `:7411` surface or a bare LAN IP,
+because WebAuthn requires a secure context and a real domain. That is not a gap
+to close later — it is why the local password can never be removed. It is the
+only credential that works on a box with no certificate and no public hostname,
+which makes the WAN-down guarantee true by construction rather than by policy.
 
 ### 8. Enrolment sets a *first* credential and never replaces one
 

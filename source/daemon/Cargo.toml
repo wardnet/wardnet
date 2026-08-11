@@ -289,21 +289,6 @@ p256 = { version = "0.13", features = ["ecdsa", "pem", "pkcs8"] }
 # https://crates.io/crates/der — encode the `.mobileconfig` bytes as the CMS
 # encapsulated content (OctetString → Any).
 der = { version = "0.7", features = ["oid"] }
-# https://crates.io/crates/webauthn-rs — passkey registration and
-# authentication (ADR-0031 §8). Pure Rust, so it coexists with the existing
-# rustls/aws-lc-rs provider rather than dragging in OpenSSL.
-#
-# `resident-key-support` is required for **discoverable** credentials, which is
-# what makes sign-in a single button with no username field. We deliberately do
-# NOT enable `danger-allow-state-serialisation`: registration and
-# authentication state stays in memory for the life of one ceremony (see
-# `user::ceremony`), because a persisted challenge that fails to delete is a
-# replay primitive.
-# `conditional-ui` is what exposes the *discoverable* authentication API
-# (`start_discoverable_authentication`), which is how sign-in works with no
-# username field at all: the authenticator decides which passkey to offer, so
-# the request also discloses nothing about which accounts exist.
-webauthn-rs = { version = "0.5", features = ["resident-key-support", "conditional-ui"] }
 # https://crates.io/crates/const-oid — the id-data / SHA-256 OIDs the CMS
 # structure references.
 const-oid = "0.9"
@@ -325,14 +310,6 @@ sd-notify = "0.5"
 
 # https://crates.io/crates/tempfile
 tempfile = "=3.27"
-# https://crates.io/crates/webauthn-authenticator-rs — a *software*
-# authenticator for the passkey tests. `softpasskey` does real COSE keygen and
-# signing, so the tests drive `webauthn-rs`'s genuine verification path instead
-# of a stub of it. Dev-only; nothing in the shipped daemon depends on it.
-webauthn-authenticator-rs = { version = "0.5", default-features = false, features = ["softpasskey"] }
-# https://crates.io/crates/url — the origin type the soft authenticator takes.
-# Dev-only: production builds URLs through `reqwest::Url`, which re-exports this.
-url = "2"
 # https://crates.io/crates/wiremock — mock HTTP server for DDNS provider tests
 # (mock bridge + mock Cloudflare). Dev/test only.
 wiremock = "0.6"

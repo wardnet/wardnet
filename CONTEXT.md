@@ -10,7 +10,7 @@
 
 ## Identity and access
 
-**Household user** — A person in the house, holding a credential, who may own devices. Rows in `users`; identity is **box-local** and never delegated to wardnet-cloud (see [0031-household-identity.md](docs/adr/0031-household-identity.md)). Roles are **`admin`** and **`member`**; a `role=admin` household user is *exactly* equal to the legacy local admin. Credentials are uniform rows in `user_credentials` — local password (Argon2id), passkey, Google, GitHub — and a user may hold several. Local password is the **floor**: it works with the WAN unplugged and with no provider configured, and is never removable.
+**Household user** — A person in the house, holding a credential, who may own devices. Rows in `users`; identity is **box-local** and never delegated to wardnet-cloud (see [0031-household-identity.md](docs/adr/0031-household-identity.md)). Roles are **`admin`** and **`member`**; a `role=admin` household user is *exactly* equal to the legacy local admin. Credentials are uniform rows in `user_credentials` — local password (Argon2id), Google, GitHub, and (once #1194 unblocks the OpenSSL dependency) passkey — and a user may hold several. Local password is the **floor**: it works with the WAN unplugged and with no provider configured, and is never removable.
 
 **Local admin** — The break-glass credential: the account the setup wizard creates. After the #1147 backfill it is simply a household user with `role=admin` and a `password` credential, so "local admin" now names a *situation* (the credential you fall back to) rather than a separate table.
 
@@ -130,7 +130,7 @@
 
 ## Household identity (issues #1147–#1149)
 
-**Household user** — A person on the box: a row in the daemon's own `users` table with credentials (local password, Google, GitHub, or passkey). Distinct from the cloud **tenant**, which is the subscriber/billing identity and stays 1:1 with an account (wardnet-cloud ADR-0009). The directory is **box-local**: federated logins are verified by the Pi against the provider directly, and the cloud may *pre-fill* the owner's email at setup but is **never** a credential — nothing in wardnet-cloud can grant access to a home network, and that property is deliberate. The cost, accepted knowingly: **account recovery is local only**. See [0031-household-identity.md](docs/adr/0031-household-identity.md).
+**Household user** — A person on the box: a row in the daemon's own `users` table with credentials (local password, Google, or GitHub; passkeys are deferred by #1194). Distinct from the cloud **tenant**, which is the subscriber/billing identity and stays 1:1 with an account (wardnet-cloud ADR-0009). The directory is **box-local**: federated logins are verified by the Pi against the provider directly, and the cloud may *pre-fill* the owner's email at setup but is **never** a credential — nothing in wardnet-cloud can grant access to a home network, and that property is deliberate. The cost, accepted knowingly: **account recovery is local only**. See [0031-household-identity.md](docs/adr/0031-household-identity.md).
 
 **Admin role** — The only role in v1; every other **Household user** is simply a user. There are no groups: a household is 2–6 people and a per-app allow-list is honest at that size. A signed-in admin-role user resolves to the same `AuthContext::Admin` as the **Local admin** — two credentials, one authority, not a tier above admin.
 

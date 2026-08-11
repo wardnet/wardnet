@@ -73,8 +73,6 @@ x25519-dalek.workspace = true
 rand.workspace = true
 # https://crates.io/crates/reqwest
 reqwest.workspace = true
-# https://crates.io/crates/webauthn-rs — passkey ceremonies (ADR-0031 §8).
-webauthn-rs.workspace = true
 # https://crates.io/crates/ipnetwork
 ipnetwork.workspace = true
 # https://crates.io/crates/sysinfo
@@ -130,11 +128,6 @@ minisign.workspace = true
 tempfile.workspace = true
 # https://crates.io/crates/wiremock — mock bridge + mock Cloudflare HTTP servers for DDNS provider tests
 wiremock.workspace = true
-# https://crates.io/crates/webauthn-authenticator-rs — software authenticator
-# driving the passkey tests through real signing.
-webauthn-authenticator-rs.workspace = true
-# https://crates.io/crates/url — origin type for the soft authenticator.
-url.workspace = true
 # https://crates.io/crates/criterion — micro-benchmark harness for the DNS component benches (see benches/)
 criterion.workspace = true
 # In-memory log capture for asserting rendered message text in push tests.
