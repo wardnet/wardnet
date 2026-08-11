@@ -5466,7 +5466,7 @@ __metadata:
     lucide-react: "npm:1.24.0"
     prettier: "npm:3.9.6"
     react: "npm:19.2.8"
-    react-dom: "npm:19.2.7"
+    react-dom: "npm:19.2.8"
     react-router: "npm:8.3.0"
     tailwindcss: "npm:4.3.3"
     typescript: "npm:6.0.3"
@@ -5519,7 +5519,7 @@ __metadata:
     next-themes: "npm:0.4.6"
     prettier: "npm:3.9.6"
     react: "npm:19.2.8"
-    react-dom: "npm:19.2.7"
+    react-dom: "npm:19.2.8"
     react-is: "npm:^19.2.8"
     react-router: "npm:8.3.0"
     recharts: "npm:^3.10.1"
@@ -5605,7 +5605,7 @@ __metadata:
     lucide-react: "npm:1.24.0"
     prettier: "npm:3.9.6"
     react: "npm:19.2.8"
-    react-dom: "npm:19.2.7"
+    react-dom: "npm:19.2.8"
     react-markdown: "npm:10.1.0"
     react-router: "npm:8.3.0"
     remark-gfm: "npm:4.0.1"
@@ -5677,7 +5677,7 @@ __metadata:
     lucide-react: "npm:1.24.0"
     prettier: "npm:3.9.6"
     react: "npm:19.2.8"
-    react-dom: "npm:19.2.7"
+    react-dom: "npm:19.2.8"
     react-leaflet: "npm:^5.0.0"
     react-router: "npm:8.3.0"
     tailwindcss: "npm:4.3.3"
@@ -10207,14 +10207,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react-dom@npm:19.2.7":
-  version: 19.2.7
-  resolution: "react-dom@npm:19.2.7"
+"react-dom@npm:19.2.8":
+  version: 19.2.8
+  resolution: "react-dom@npm:19.2.8"
   dependencies:
     scheduler: "npm:^0.27.0"
   peerDependencies:
-    react: ^19.2.7
-  checksum: 10c0/970ff600f6e80d47d39e2f226f12f226173b3cba3382efc97c5f0cd663de9af38c7a4c11c213fb936094faeac83060d660247accaa96b752180d5b951b9cfecb
+    react: ^19.2.8
+  checksum: 10c0/41ba2247b76f687fcfe5bbc99f514d6b851d8c8041c2f5ded36ed05bd7fdc5208cacbac9de51e3e6633e77f96f44cec9f0d4a5a55184dba4e00738f224439134
   languageName: node
   linkType: hard
 
