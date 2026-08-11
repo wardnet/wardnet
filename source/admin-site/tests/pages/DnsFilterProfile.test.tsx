@@ -85,6 +85,20 @@ vi.mock("@/components/compound/BlocklistTable", () => ({
     <div>
       <span>bl-count:{blocklists.length}</span>
       <button onClick={onAdd}>bl-add</button>
+      {/* The real table anchors each row with `blocklist-<id>` so an anomaly
+          deep link can scroll to it; the stub reproduces that, inside a `tr`,
+          because the anchor hook highlights the row via `closest("tr")`. */}
+      <table>
+        <tbody>
+          {blocklists.map((b) => (
+            <tr key={b.id}>
+              <td>
+                <div id={`blocklist-${b.id}`} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       {blocklists[0] && (
         <>
           <button onClick={() => onEdit(blocklists[0])}>bl-edit</button>
