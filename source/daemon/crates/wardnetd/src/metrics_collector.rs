@@ -236,9 +236,7 @@ async fn collection_loop(
             || instruments.disk_free_bytes.is_some();
 
         if needs_app_metrics {
-            let admin_ctx = AuthContext::Admin {
-                admin_id: uuid::Uuid::nil(),
-            };
+            let admin_ctx = AuthContext::system();
             match auth_context::with_context(admin_ctx, system_service.status()).await {
                 Ok(status) => {
                     if let Some(gauge) = &instruments.device_count {

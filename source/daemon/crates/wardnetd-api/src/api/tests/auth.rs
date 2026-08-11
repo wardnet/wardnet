@@ -11,7 +11,6 @@ use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::routing::post;
 use tower::ServiceExt;
-use uuid::Uuid;
 
 use crate::state::AppState;
 use crate::tests::stubs::{
@@ -20,9 +19,13 @@ use crate::tests::stubs::{
     StubNetworkZoneService, StubProviderService, StubRoutingService, StubSystemService,
     StubTunnelService,
 };
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
 use wardnetd_services::AuthService;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 use wardnetd_services::error::AppError;
 
 // ---------------------------------------------------------------------------
@@ -36,15 +39,15 @@ struct MockAuthService {
 
 #[async_trait]
 impl AuthService for MockAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(
-        &self,
-        _username: &str,
-        _password: &str,
-        _remember_me: bool,
-    ) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         match &self.login_result {
             Ok(r) => Ok(LoginResult {
                 token: r.token.clone(),
@@ -54,11 +57,11 @@ impl AuthService for MockAuthService {
         }
     }
 
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
 
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
 
@@ -100,17 +103,22 @@ struct MockRefreshAuthService {
 
 #[async_trait]
 impl AuthService for MockRefreshAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        // Always return a valid admin so the AdminAuth extractor passes.
-        Ok(Some(Uuid::nil()))
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        // Always return a valid admin so the SessionAuth extractor passes.
+        Ok(Some(principal::admin(Uuid::nil())))
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
     async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
@@ -169,10 +177,15 @@ impl InMemorySessionAuthService {
 
 #[async_trait]
 impl AuthService for InMemorySessionAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         let token = "integration-session-token".to_owned();
         self.tokens.lock().unwrap().insert(token.clone());
         Ok(LoginResult {
@@ -180,11 +193,21 @@ impl AuthService for InMemorySessionAuthService {
             max_age_seconds: 86400,
         })
     }
-    async fn validate_session(&self, token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(self.tokens.lock().unwrap().contains(token).then(Uuid::nil))
+    async fn validate_session(&self, token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(self
+            .tokens
+            .lock()
+            .unwrap()
+            .contains(token)
+            .then(|| principal::admin(Uuid::nil())))
     }
-    async fn validate_api_key(&self, key: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(self.api_keys.lock().unwrap().contains(key).then(Uuid::nil))
+    async fn validate_api_key(&self, key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(self
+            .api_keys
+            .lock()
+            .unwrap()
+            .contains(key)
+            .then(|| principal::admin(Uuid::nil())))
     }
     async fn logout_session(&self, token: &str) -> Result<(), AppError> {
         self.tokens.lock().unwrap().remove(token);
@@ -569,7 +592,7 @@ async fn refresh_success_returns_204_and_set_cookie() {
 
 #[tokio::test]
 async fn refresh_via_bearer_token_returns_204() {
-    // Covers the bearer-token branch of AdminAuth::session_token extraction.
+    // Covers the bearer-token branch of SessionAuth::session_token extraction.
     let state = make_state(MockRefreshAuthService {
         refresh_result: Ok(()),
     });
@@ -752,7 +775,7 @@ async fn logout_without_session_returns_401() {
 }
 
 /// End-to-end session-revocation flow through the real handlers and the
-/// `AdminAuth` extractor: login issues a cookie, logout revokes it server-side,
+/// `SessionAuth` extractor: login issues a cookie, logout revokes it server-side,
 /// and replaying the old cookie afterwards is rejected with 401.
 #[tokio::test]
 async fn login_then_logout_then_old_cookie_is_rejected() {
@@ -802,7 +825,7 @@ async fn login_then_logout_then_old_cookie_is_rejected() {
 
 #[tokio::test]
 async fn refresh_without_session_returns_401() {
-    // MockAuthService.validate_session returns Ok(None) → AdminAuth extractor rejects.
+    // MockAuthService.validate_session returns Ok(None) → SessionAuth extractor rejects.
     let state = make_state(MockAuthService {
         login_result: Ok(LoginResult {
             token: "unused".to_owned(),

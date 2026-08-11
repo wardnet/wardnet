@@ -2183,7 +2183,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Return the authenticated admin's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store. */
+        /** @description Return the authenticated household user's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store, and to decide which admin-only surfaces to render. Available to any authenticated user, including members reading their own profile. */
         get: operations["get_api_users_me"];
         put?: never;
         post?: never;
@@ -2823,6 +2823,19 @@ export interface components {
             manufacturer?: string | null;
             manufacturer_source?: null | components["schemas"]["ManufacturerSource"];
             name?: string | null;
+            /**
+             * Format: uuid
+             * @description Which household user this device belongs to, if an admin has assigned
+             *     one.
+             *
+             *     **Attribution, never authority** (ADR-0031 §4). It answers "whose iPad
+             *     is this?" so notifications and per-person views can be built, and it is
+             *     deliberately a plain `Option<Uuid>` with no path into an `AuthContext`:
+             *     a device caller resolves to `AuthContext::Device` whatever its owner's
+             *     role is. `ON DELETE SET NULL`, because deleting a person must not delete
+             *     the household's hardware.
+             */
+            owner_user_id?: string | null;
             /**
              * Format: uuid
              * @description The Network Zone this device belongs to (exactly one). Sticky: set from
@@ -3744,7 +3757,23 @@ export interface components {
         ManufacturerSource: "ieee" | "catalog" | "signal";
         /** @description Response for GET /api/users/me. */
         MeResponse: {
-            /** @description Username of the authenticated admin. */
+            /** @description The authenticated user's display name. Same value as `username`. */
+            display_name: string;
+            /** @description Optional email address. `None` for a local admin created by the wizard
+             *     or the config-file bootstrap, neither of which asks for one. */
+            email?: string | null;
+            /** @description The authenticated user's id. */
+            id: string;
+            /** @description `admin` or `member`. Lets a UI hide admin-only surfaces without probing
+             *     endpoints for 403s. */
+            role: components["schemas"]["UserRole"];
+            /** @description The authenticated user's display name.
+             *
+             *     Kept under the name `username` **additively** (ADR-0031 §8): existing
+             *     clients — the setup wizard's review step among them — read this field,
+             *     and for a backfilled local admin it is exactly the old
+             *     `admins.username`. New clients should prefer `display_name`, which is
+             *     the same value under an honest name. */
             username: string;
         };
         /** @description Response for GET /api/network/status. */
@@ -4799,6 +4828,15 @@ export interface components {
             /** @description Whether the most recent probe reached the upstream. */
             reachable: boolean;
         };
+        /**
+         * @description A household user's role (ADR-0031 §11).
+         *
+         *     `Admin` is *exactly* equal to the legacy local admin — no deny-list, no
+         *     second tier. Deliberately only two values: a household is 2–6 people, and
+         *     an allow-list is honest at that size.
+         * @enum {string}
+         */
+        UserRole: "admin" | "member";
         /** @description Request body for POST /api/providers/:id/validate. */
         ValidateCredentialsRequest: {
             /** @description Credentials to validate against the provider. */
@@ -4953,6 +4991,15 @@ export interface operations {
             };
             /** @description Invalid credentials */
             401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Too many login attempts; see the `Retry-After` header */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17454,7 +17501,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Authenticated admin identity */
+            /** @description Authenticated user identity */
             200: {
                 headers: {
                     [name: string]: unknown;

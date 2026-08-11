@@ -13,7 +13,7 @@ use wardnet_common::api::{
 use wardnet_common::device::DhcpStatus;
 use wardnet_common::routing::RoutingTarget;
 
-use crate::api::middleware::{AdminAuth, ClientIp};
+use crate::api::middleware::{ClientIp, SessionAuth};
 use crate::api::responses::{AuthErrors, BadRequest, Conflict, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -64,9 +64,7 @@ pub async fn get_me(
     // Enrich with available tunnels for self-service routing selection.
     // Uses an internal admin context since tunnel listing is admin-only.
     let tunnels = wardnetd_services::auth_context::with_context(
-        wardnet_common::auth::AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
+        wardnet_common::auth::AuthContext::system(),
         state.tunnel_service().list_tunnels(),
     )
     .await
@@ -92,9 +90,7 @@ pub async fn get_me(
         let zone_id = device.zone_id;
         let device_id = device.id;
         response.zone = wardnetd_services::auth_context::with_context(
-            wardnet_common::auth::AuthContext::Admin {
-                admin_id: uuid::Uuid::nil(),
-            },
+            wardnet_common::auth::AuthContext::system(),
             state.network_zone_service().get_zone(zone_id),
         )
         .await
@@ -109,9 +105,7 @@ pub async fn get_me(
         // display. Profile management is admin-only, so — like the tunnel and
         // zone lookups above — resolve under an internal admin context.
         response.routing_profiles = wardnetd_services::auth_context::with_context(
-            wardnet_common::auth::AuthContext::Admin {
-                admin_id: uuid::Uuid::nil(),
-            },
+            wardnet_common::auth::AuthContext::system(),
             async {
                 let svc = state.routing_profile_service();
                 let ids = svc.get_device_profiles(device_id).await?;
@@ -276,7 +270,7 @@ fn enrich_device(
 )]
 pub async fn list_devices(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListDevicesResponse>, AppError> {
     let devices = state.discovery_service().get_all_devices().await?;
     let dhcp_map = build_dhcp_status_map(&state).await?;
@@ -310,7 +304,7 @@ pub async fn list_devices(
 )]
 pub async fn get_device(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
 ) -> Result<Json<DeviceDetailResponse>, AppError> {
     let uuid: Uuid = id
@@ -343,7 +337,7 @@ pub async fn get_device(
 )]
 pub async fn update_device(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
     Json(body): Json<UpdateDeviceRequest>,
 ) -> Result<Json<DeviceDetailResponse>, AppError> {
@@ -404,7 +398,7 @@ pub async fn update_device(
 )]
 pub async fn assign_device_zone(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
     Json(body): Json<AssignDeviceZoneRequest>,
 ) -> Result<Json<DeviceDetailResponse>, AppError> {
@@ -447,7 +441,7 @@ pub async fn assign_device_zone(
 )]
 pub async fn identify_device(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
 ) -> Result<Json<DeviceProbeResponse>, AppError> {
     let uuid: Uuid = id
@@ -575,7 +569,7 @@ async fn release_credentials_and_scoped_rules(
 )]
 pub async fn release_device(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
 ) -> Result<Json<DeviceDetailResponse>, AppError> {
     let uuid: Uuid = id

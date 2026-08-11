@@ -11,7 +11,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::broadcast;
-use uuid::Uuid;
 use wardnet_common::api::{
     CreateTunnelRequest, CreateTunnelResponse, DeleteTunnelResponse, DeviceMeResponse,
     ListCountriesResponse, ListProvidersResponse, ListServersRequest, ListServersResponse,
@@ -42,7 +41,10 @@ use wardnetd_services::{
     TunnelService, VpnProviderService,
 };
 
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
 use wardnetd_api::state::AppState;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 
 // ---------------------------------------------------------------------------
 // StubAuthService
@@ -90,16 +92,21 @@ impl BackupService for StubBackupService {
 
 #[async_trait]
 impl AuthService for StubAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
     async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
@@ -157,6 +164,14 @@ impl DeviceService for StubDeviceService {
         _device_id: &str,
     ) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
+    }
+
+    async fn set_device_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<uuid::Uuid>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
     }
 
     async fn get_device(

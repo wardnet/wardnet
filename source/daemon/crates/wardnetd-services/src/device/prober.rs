@@ -41,7 +41,7 @@ const TOTAL_PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 ///
 /// The invariant is doc-enforced. `auth_context::require_admin()` does *not*
 /// enforce it: a background runner can mint
-/// `AuthContext::Admin { admin_id: Uuid::nil() }` — exactly what the DHCP
+/// `AuthContext::system()` — exactly what the DHCP
 /// server does today to record signals — so the auth gate would wave such a
 /// caller straight through. Review against this comment is what holds the line.
 ///

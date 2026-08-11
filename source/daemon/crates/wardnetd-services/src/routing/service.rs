@@ -95,7 +95,7 @@ pub trait RoutingService: Send + Sync {
     /// the listener needing direct repository access.
     /// Admin-gated like every other method — the impl calls
     /// `auth_context::require_admin()?` first. The listener drives it under
-    /// `auth_context::with_context(AuthContext::Admin { .. })` so that guard is
+    /// `auth_context::with_context(AuthContext::system())` so that guard is
     /// satisfied even though the call originates outside the HTTP request path.
     async fn apply_rule_for_device(
         &self,
@@ -108,7 +108,7 @@ pub trait RoutingService: Send + Sync {
     /// Used by the routing listener to handle `DeviceDiscovered` events.
     /// Admin-gated like every other method — the impl calls
     /// `auth_context::require_admin()?` first. The listener drives it under
-    /// `auth_context::with_context(AuthContext::Admin { .. })` so that guard is
+    /// `auth_context::with_context(AuthContext::system())` so that guard is
     /// satisfied even though the call originates outside the HTTP request path.
     async fn apply_rule_for_discovered_device(
         &self,
@@ -254,7 +254,7 @@ pub trait RoutingService: Send + Sync {
     ///
     /// Admin-gated like every other method — callers outside the HTTP
     /// request path drive it under
-    /// `auth_context::with_context(AuthContext::Admin { .. })`.
+    /// `auth_context::with_context(AuthContext::system())`.
     async fn rebuild_dns_device_upstream_snapshot(&self) -> Result<(), AppError>;
 }
 

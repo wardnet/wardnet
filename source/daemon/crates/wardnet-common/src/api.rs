@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::auth::UserRole;
 use crate::backup::{BackupStatus, BundleManifest, LocalSnapshot};
 use crate::device::{Device, DeviceSignal, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
@@ -63,8 +64,24 @@ pub struct LoginResponse {
 /// Response for GET /api/users/me.
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct MeResponse {
-    /// Username of the authenticated admin.
+    /// The authenticated user's display name.
+    ///
+    /// Kept under the name `username` **additively** (ADR-0031 §8): existing
+    /// clients — the setup wizard's review step among them — read this field,
+    /// and for a backfilled local admin it is exactly the old
+    /// `admins.username`. New clients should prefer `display_name`, which is
+    /// the same value under an honest name.
     pub username: String,
+    /// The authenticated user's id.
+    pub id: String,
+    /// The authenticated user's display name. Same value as `username`.
+    pub display_name: String,
+    /// Optional email address. `None` for a local admin created by the wizard
+    /// or the config-file bootstrap, neither of which asks for one.
+    pub email: Option<String>,
+    /// `admin` or `member`. Lets a UI hide admin-only surfaces without probing
+    /// endpoints for 403s.
+    pub role: UserRole,
 }
 
 /// Minimal tunnel info exposed to self-service users for routing selection.

@@ -11,7 +11,6 @@ use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, put};
 use tower::ServiceExt;
-use uuid::Uuid;
 use wardnet_common::api::{DeviceMeResponse, SetMyRuleResponse};
 use wardnet_common::device::{Device, DeviceSignal, DeviceSignalKind, DeviceType};
 use wardnet_common::routing::RoutingTarget;
@@ -22,8 +21,12 @@ use crate::tests::stubs::{
     StubDnsService, StubEventPublisher, StubLogService, StubNetworkZoneService,
     StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
 };
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
 use wardnetd_services::LogService;
 use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 use wardnetd_services::device::identification::{DeviceIdentificationService, ProbeOutcome};
 use wardnetd_services::error::AppError;
 use wardnetd_services::{
@@ -39,21 +42,26 @@ struct MockAuthService;
 
 #[async_trait]
 impl AuthService for MockAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         Ok(LoginResult {
             token: "t".to_owned(),
             max_age_seconds: 3600,
         })
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(Some(principal::admin(
             Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap(),
-        ))
+        )))
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
     async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {
@@ -253,6 +261,14 @@ impl DeviceService for MockDeviceService {
     async fn clear_managed(&self, _device_id: &str) -> Result<(), AppError> {
         self.audit.lock().unwrap().push("clear_managed");
         Ok(())
+    }
+
+    async fn set_device_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<uuid::Uuid>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
     }
 
     async fn get_device(
@@ -594,6 +610,7 @@ fn sample_device() -> Device {
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: false,
         zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
+        owner_user_id: None,
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,

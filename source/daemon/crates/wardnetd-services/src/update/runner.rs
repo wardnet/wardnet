@@ -6,7 +6,6 @@ use std::time::Duration;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use crate::auth_context;
@@ -50,9 +49,7 @@ async fn runner_loop(
     check_interval: Duration,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     // Initial check runs immediately.
     perform_tick(&service, &admin_ctx).await;

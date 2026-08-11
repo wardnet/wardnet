@@ -195,6 +195,19 @@ pub trait DeviceRepository: Send + Sync {
     /// found. The `zone_id` FK (`ON DELETE RESTRICT`) rejects unknown zones.
     async fn assign_zone(&self, device_id: &str, zone_id: &str) -> anyhow::Result<bool>;
 
+    /// Assign or clear a device's owning household user.
+    ///
+    /// `None` clears the assignment. Returns `true` if a row was updated,
+    /// `false` if the device was not found. The `owner_user_id` FK
+    /// (`ON DELETE SET NULL`) rejects unknown users, so a bad id surfaces as an
+    /// error rather than a dangling reference.
+    ///
+    /// This is **attribution, not authorization** (ADR-0031 §4): nothing about
+    /// the owner's role affects what the device may do. See
+    /// `build-support/check-auth-constructors.sh`.
+    async fn set_owner(&self, device_id: &str, owner_user_id: Option<&str>)
+    -> anyhow::Result<bool>;
+
     /// Return the total number of devices.
     async fn count(&self) -> anyhow::Result<i64>;
 

@@ -18,7 +18,7 @@ use wardnet_common::api::{
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    AlwaysAdminAuth, StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer,
+    AlwaysSessionAuth, StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer,
     StubDhcpService, StubDiscoveryService, StubDnsFilterService, StubDnsLocalService,
     StubDnsServer, StubDnsService, StubEventPublisher, StubLogService, StubNetworkZoneService,
     StubProviderService, StubRoutingService, StubRuleRequestService, StubStatsService,
@@ -149,7 +149,7 @@ impl InboundWgService for MockInboundWg {
 
 fn make_state(inbound_wg: Arc<dyn InboundWgService>) -> AppState {
     AppState::new(
-        Arc::new(AlwaysAdminAuth),
+        Arc::new(AlwaysSessionAuth),
         Arc::new(StubBackupService),
         Arc::new(StubDeviceService),
         Arc::new(StubDhcpService),

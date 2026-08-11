@@ -22,7 +22,7 @@ use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    AlwaysAdminAuth, StubBackupService, StubDdnsService, StubDhcpServer, StubDhcpService,
+    AlwaysSessionAuth, StubBackupService, StubDdnsService, StubDhcpServer, StubDhcpService,
     StubDiscoveryService, StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService,
     StubEventPublisher, StubLogService, StubNetworkZoneService, StubProviderService,
     StubRoutingService, StubRuleRequestService, StubStatsService, StubSystemService,
@@ -175,6 +175,7 @@ fn me_device() -> Device {
         last_ip: "192.168.1.10".to_owned(),
         admin_locked: false,
         zone_id: Uuid::nil(),
+        owner_user_id: None,
         dns_capture_enabled: false,
         dns_capture_cap_count: 0,
         dns_capture_cap_days: 0,
@@ -201,6 +202,14 @@ impl DeviceService for MeDeviceService {
         _device_id: &str,
     ) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
+    }
+
+    async fn set_device_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<uuid::Uuid>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
     }
 
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
@@ -296,7 +305,7 @@ impl DeviceService for MeDeviceService {
 
 fn make_state(private_dns: MockPrivateDns, device: MeDeviceService) -> AppState {
     AppState::new(
-        Arc::new(AlwaysAdminAuth),
+        Arc::new(AlwaysSessionAuth),
         Arc::new(StubBackupService),
         Arc::new(device),
         Arc::new(StubDhcpService),

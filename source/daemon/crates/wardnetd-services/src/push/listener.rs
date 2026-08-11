@@ -70,13 +70,8 @@ async fn handle_event(event: &WardnetEvent, push: &dyn PushService) {
     // Deliver under an admin context: `handle_event` opens with
     // `require_admin`, matching how other background listeners drive
     // auth-gated services (see `routing_listener`).
-    if let Err(error) = crate::auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: uuid::Uuid::nil(),
-        },
-        push.handle_event(event),
-    )
-    .await
+    if let Err(error) =
+        crate::auth_context::with_context(AuthContext::system(), push.handle_event(event)).await
     {
         tracing::warn!(%error, "push listener: failed to handle event");
     }

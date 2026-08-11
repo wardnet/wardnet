@@ -39,10 +39,11 @@ pub async fn with_context<F: Future>(ctx: AuthContext, f: F) -> F::Output {
     AUTH_CONTEXT.scope(ctx, f).await
 }
 
-/// Require that the current caller is an admin.
+/// Require that the current caller is a household user with `role = Admin`.
 ///
-/// Returns `Ok(())` if the task-local [`AuthContext`] is [`AuthContext::Admin`],
-/// otherwise returns `Err(AppError::Forbidden)`.
+/// One honest predicate at every one of the ~250 call sites: a `role = admin`
+/// household user is *exactly* equal to the legacy local admin (ADR-0031 §2),
+/// so there is no deny-list and no second tier to get wrong here.
 pub fn require_admin() -> Result<(), crate::error::AppError> {
     let ctx = try_current().unwrap_or(AuthContext::Anonymous);
     if !ctx.is_admin() {
@@ -57,9 +58,17 @@ pub fn require_admin() -> Result<(), crate::error::AppError> {
 ///
 /// Returns `Ok(())` if authenticated, `Err(AppError::Forbidden)` if anonymous
 /// or no context is set.
+///
+/// This is deliberately a **positive** match — an allow-list of the principals
+/// that may pass — and not `!matches!(ctx, Anonymous)`. A negative match admits
+/// every principal added in the future without a single compile error, and
+/// several callers of this guard then branch on `AuthContext::Device` and let
+/// everything else fall through to the *admin* path. `is_authenticated()` is
+/// an exhaustive match with no wildcard arm, so any new variant must be routed
+/// by a human who has read those callers.
 pub fn require_authenticated() -> Result<(), crate::error::AppError> {
     let ctx = try_current().unwrap_or(AuthContext::Anonymous);
-    if matches!(ctx, AuthContext::Anonymous) {
+    if !ctx.is_authenticated() {
         return Err(crate::error::AppError::Forbidden(
             "authentication required".to_owned(),
         ));

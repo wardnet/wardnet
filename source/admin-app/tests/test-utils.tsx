@@ -63,6 +63,9 @@ export function makeDevice(overrides: Partial<Device> = {}): Device {
     last_ip: "10.232.1.10",
     admin_locked: false,
     zone_id: "zone-1",
+    // Unowned by default: affinity is an explicit admin assignment, and a test
+    // that cares about ownership should say so rather than inherit it.
+    owner_user_id: null,
     dns_capture_enabled: false,
     dns_capture_cap_count: 0,
     dns_capture_cap_days: 0,

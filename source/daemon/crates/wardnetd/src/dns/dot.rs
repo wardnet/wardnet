@@ -460,9 +460,7 @@ async fn handle_connection(
 
     // The listener is a background component: like the runners, it calls
     // the auth-gated service under the nil-admin context.
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
     let grant =
         match auth_context::with_context(admin_ctx, ctx.private_dns.resolve_token(token)).await {
             Ok(Some(grant)) => grant,

@@ -15,7 +15,6 @@ use std::time::Duration;
 use tokio::sync::broadcast;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 
@@ -118,9 +117,7 @@ async fn runner_loop(
     mut event_rx: broadcast::Receiver<WardnetEvent>,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     let mut recheck = tokio::time::interval(RECHECK_INTERVAL);
     recheck.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);

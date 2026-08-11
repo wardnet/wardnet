@@ -1,5 +1,5 @@
 use super::test_pool;
-use crate::repository::push::{OWNER_KIND_ADMIN, OWNER_KIND_DEVICE};
+use crate::repository::push::{OWNER_KIND_DEVICE, OWNER_KIND_USER};
 use crate::repository::{NewPushSubscription, PushRepository, SqlitePushRepository};
 
 fn sub<'a>(
@@ -19,9 +19,27 @@ fn sub<'a>(
     }
 }
 
+/// Insert a household user so `list_admins`' join to `users` resolves.
+async fn seed_user(pool: &sqlx::SqlitePool, id: &str, role: &str, enabled: bool) {
+    sqlx::query(
+        "INSERT INTO users (id, display_name, email, role, enabled, created_at, updated_at) \
+         VALUES (?, ?, NULL, ?, ?, ?, ?)",
+    )
+    .bind(id)
+    .bind(id)
+    .bind(role)
+    .bind(enabled)
+    .bind("2026-07-01T00:00:00Z")
+    .bind("2026-07-01T00:00:00Z")
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
 async fn upsert_on_duplicate_endpoint_updates_owner_and_keys() {
     let pool = test_pool().await;
+    seed_user(&pool, "admin-uuid", "admin", true).await;
     let repo = SqlitePushRepository::new(pool);
 
     // A device subscribes.
@@ -37,7 +55,7 @@ async fn upsert_on_duplicate_endpoint_updates_owner_and_keys() {
     // rotated keys. This must move ownership, not create a second row.
     let mut promoted = sub(
         "s2",
-        OWNER_KIND_ADMIN,
+        OWNER_KIND_USER,
         "admin-uuid",
         "https://push/endpoint-1",
     );
@@ -57,8 +75,16 @@ async fn upsert_on_duplicate_endpoint_updates_owner_and_keys() {
 }
 
 #[tokio::test]
-async fn list_admins_returns_only_admin_rows() {
+async fn list_admins_returns_only_enabled_admin_role_owners() {
+    // `owner_kind = 'user'` is not enough on its own: it covers members too.
+    // The query joins `users` and filters `role = 'admin' AND enabled = 1`, so
+    // this pins all three exclusions — device-owned, member-owned, and
+    // disabled-admin-owned.
     let pool = test_pool().await;
+    seed_user(&pool, "admin-1", "admin", true).await;
+    seed_user(&pool, "admin-2", "admin", true).await;
+    seed_user(&pool, "member-1", "member", true).await;
+    seed_user(&pool, "admin-off", "admin", false).await;
     let repo = SqlitePushRepository::new(pool);
 
     repo.upsert(sub(
@@ -69,16 +95,24 @@ async fn list_admins_returns_only_admin_rows() {
     ))
     .await
     .unwrap();
-    repo.upsert(sub("a1", OWNER_KIND_ADMIN, "admin-1", "https://push/a1"))
+    repo.upsert(sub("a1", OWNER_KIND_USER, "admin-1", "https://push/a1"))
         .await
         .unwrap();
-    repo.upsert(sub("a2", OWNER_KIND_ADMIN, "admin-2", "https://push/a2"))
+    repo.upsert(sub("a2", OWNER_KIND_USER, "admin-2", "https://push/a2"))
+        .await
+        .unwrap();
+    repo.upsert(sub("m1", OWNER_KIND_USER, "member-1", "https://push/m1"))
+        .await
+        .unwrap();
+    repo.upsert(sub("ao", OWNER_KIND_USER, "admin-off", "https://push/ao"))
         .await
         .unwrap();
 
     let admins = repo.list_admins().await.unwrap();
-    assert_eq!(admins.len(), 2);
-    assert!(admins.iter().all(|s| s.owner_kind == OWNER_KIND_ADMIN));
+    let mut keys: Vec<&str> = admins.iter().map(|s| s.owner_key.as_str()).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, vec!["admin-1", "admin-2"]);
+    assert!(admins.iter().all(|s| s.owner_kind == OWNER_KIND_USER));
 }
 
 #[tokio::test]
@@ -121,16 +155,12 @@ async fn delete_by_owner_vs_endpoint() {
 #[tokio::test]
 async fn delete_by_owner_and_endpoint_is_owner_scoped() {
     let pool = test_pool().await;
+    seed_user(&pool, "admin-1", "admin", true).await;
     let repo = SqlitePushRepository::new(pool);
 
-    repo.upsert(sub(
-        "a1",
-        OWNER_KIND_ADMIN,
-        "admin-1",
-        "https://push/shared",
-    ))
-    .await
-    .unwrap();
+    repo.upsert(sub("a1", OWNER_KIND_USER, "admin-1", "https://push/shared"))
+        .await
+        .unwrap();
 
     // A different owner supplying the same endpoint must NOT delete it.
     let removed = repo
@@ -142,7 +172,7 @@ async fn delete_by_owner_and_endpoint_is_owner_scoped() {
 
     // The real owner can delete it.
     let removed = repo
-        .delete_by_owner_and_endpoint(OWNER_KIND_ADMIN, "admin-1", "https://push/shared")
+        .delete_by_owner_and_endpoint(OWNER_KIND_USER, "admin-1", "https://push/shared")
         .await
         .unwrap();
     assert_eq!(removed, 1);

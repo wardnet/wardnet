@@ -68,13 +68,7 @@ async fn build() -> Harness {
 
 /// Run a future inside an `Admin` task-local context.
 async fn as_admin<F: Future>(fut: F) -> F::Output {
-    auth_context::with_context(
-        AuthContext::Admin {
-            admin_id: Uuid::nil(),
-        },
-        fut,
-    )
-    .await
+    auth_context::with_context(AuthContext::system(), fut).await
 }
 
 async fn insert_device(devices: &Arc<dyn DeviceRepository>, id: Uuid) {

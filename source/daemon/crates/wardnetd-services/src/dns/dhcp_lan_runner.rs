@@ -69,9 +69,7 @@ async fn runner_loop(
     mut event_rx: broadcast::Receiver<WardnetEvent>,
     cancel: CancellationToken,
 ) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
 
     loop {
         tokio::select! {

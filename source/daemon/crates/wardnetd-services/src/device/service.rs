@@ -7,7 +7,7 @@ use uuid::Uuid;
 use wardnet_common::api::{
     DeviceMeResponse, DnsCaptureSettingsResponse, DnsEventItem, SetMyRuleResponse,
 };
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, UserRole};
 use wardnet_common::device::{Device, DeviceConnectionMode};
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::network_zone::AllowedTargetKind;
@@ -72,6 +72,20 @@ pub trait DeviceService: Send + Sync {
     ///
     /// Requires admin privileges via the [`AuthContext`].
     async fn update_admin_locked(&self, device_id: &str, locked: bool) -> Result<(), AppError>;
+
+    /// Assign or clear a device's owning household user (ADR-0031 §4).
+    ///
+    /// Admin-only, and **attribution only**: the owner's role has no effect on
+    /// what the device may do. A device caller still resolves to
+    /// `AuthContext::Device` no matter who owns it — see the regression test in
+    /// `device/tests/owner.rs` and `build-support/check-auth-constructors.sh`.
+    ///
+    /// `None` clears the assignment.
+    async fn set_device_owner(
+        &self,
+        device_id: &str,
+        owner_user_id: Option<Uuid>,
+    ) -> Result<(), AppError>;
 
     /// Return current DNS capture settings and storage stats for a device.
     ///
@@ -283,7 +297,7 @@ impl DeviceServiceImpl {
         admin_locked: bool,
     ) -> Result<(), AppError> {
         match ctx {
-            AuthContext::Admin { .. } => Ok(()),
+            AuthContext::User(user) if user.role() == UserRole::Admin => Ok(()),
             AuthContext::Device { mac } if mac == device_mac => {
                 if admin_locked {
                     Err(AppError::Forbidden(
@@ -293,9 +307,14 @@ impl DeviceServiceImpl {
                     Ok(())
                 }
             }
-            _ => Err(AppError::Forbidden(
-                "not authorised to modify this device".to_owned(),
-            )),
+            // Enumerated, never `_ =>`: this is the `admin_locked` gate, so a
+            // new principal must be routed by a human rather than defaulting
+            // into either the allow or the deny side by accident. A `member`
+            // household user lands here — they have no admin-surface access,
+            // and the admin arm above skips `admin_locked`.
+            AuthContext::User(_) | AuthContext::Device { .. } | AuthContext::Anonymous => Err(
+                AppError::Forbidden("not authorised to modify this device".to_owned()),
+            ),
         }
     }
 }
@@ -369,8 +388,10 @@ impl DeviceService for DeviceServiceImpl {
             .map_err(AppError::Internal)?;
 
         let changed_by = match &ctx {
-            AuthContext::Admin { .. } => RuleCreator::Admin,
-            _ => RuleCreator::User,
+            AuthContext::User(user) if user.role() == UserRole::Admin => RuleCreator::Admin,
+            AuthContext::User(_) | AuthContext::Device { .. } | AuthContext::Anonymous => {
+                RuleCreator::User
+            }
         };
         self.events.publish(WardnetEvent::RoutingRuleChanged {
             device_id: device.id,
@@ -420,8 +441,10 @@ impl DeviceService for DeviceServiceImpl {
             .map_err(AppError::Internal)?;
 
         let changed_by = match &ctx {
-            AuthContext::Admin { .. } => RuleCreator::Admin,
-            _ => RuleCreator::User,
+            AuthContext::User(user) if user.role() == UserRole::Admin => RuleCreator::Admin,
+            AuthContext::User(_) | AuthContext::Device { .. } | AuthContext::Anonymous => {
+                RuleCreator::User
+            }
         };
 
         // An ADMIN-set routing rule promotes the device to managed (issue
@@ -509,6 +532,32 @@ impl DeviceService for DeviceServiceImpl {
                 timestamp: chrono::Utc::now(),
             });
         }
+        Ok(())
+    }
+
+    async fn set_device_owner(
+        &self,
+        device_id: &str,
+        owner_user_id: Option<Uuid>,
+    ) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        let owner = owner_user_id.map(|id| id.to_string());
+        let updated = self
+            .devices
+            .set_owner(device_id, owner.as_deref())
+            .await
+            .map_err(AppError::Internal)?;
+
+        if !updated {
+            return Err(AppError::NotFound("device not found".to_owned()));
+        }
+
+        tracing::info!(
+            device_id = %device_id,
+            owner_user_id = ?owner,
+            "device owner assigned"
+        );
         Ok(())
     }
 

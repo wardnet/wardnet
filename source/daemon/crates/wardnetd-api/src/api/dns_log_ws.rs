@@ -1,6 +1,6 @@
 //! WebSocket endpoint for the live DNS query stream.
 //!
-//! Unlike `logs_ws`, this handler **explicitly takes** an [`AdminAuth`]
+//! Unlike `logs_ws`, this handler **explicitly takes** an [`SessionAuth`]
 //! extractor — un-authenticated callers get 401 *before* the WS upgrade
 //! happens. This is the gate `/api/dns/log/stream` was designed against
 //! (see issue #321 for the existing un-gated `system/logs/stream` bug).
@@ -12,7 +12,7 @@ use serde::Deserialize;
 use tokio::sync::broadcast;
 use wardnet_common::api::QueryLogEvent;
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::state::AppState;
 
 /// Client command sent over the WebSocket to filter the broadcast stream
@@ -40,7 +40,7 @@ enum ClientCommand {
 /// so unauthenticated clients see 401 instead of an upgrade.
 pub async fn dns_log_ws(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
     let rx = match state.dns_service().subscribe_query_stream() {

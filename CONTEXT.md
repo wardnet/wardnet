@@ -10,9 +10,17 @@
 
 ## Identity and access
 
-**Device-keyed** — Identified by MAC address / LAN IP. Non-admin users have no credentials; their identity is their device on the network. Push subscriptions and self-service routing rules are device-keyed.
+**Household user** — A person in the house, holding a credential, who may own devices. Rows in `users`; identity is **box-local** and never delegated to wardnet-cloud (see [0031-household-identity.md](docs/adr/0031-household-identity.md)). Roles are **`admin`** and **`member`**; a `role=admin` household user is *exactly* equal to the legacy local admin. Credentials are uniform rows in `user_credentials` — local password (Argon2id), Google, GitHub, and (once #1194 unblocks the OpenSSL dependency) passkey — and a user may hold several. Local password is the **floor**: it works with the WAN unplugged and with no provider configured, and is never removable.
 
-**Admin session** — Credential-based (username + password). Required for any admin surface. Push subscriptions on the admin mobile PWA are **admin-account-keyed** (to the admin account UUID, not the ephemeral session token, so they survive session rotation and logout).
+**Local admin** — The break-glass credential: the account the setup wizard creates. After the #1147 backfill it is simply a household user with `role=admin` and a `password` credential, so "local admin" now names a *situation* (the credential you fall back to) rather than a separate table.
+
+**Enrolment token** — A single-use, hashed, expiring token an admin issues to add a household user. The member redeems it and sets their own credential, so **the admin never learns a member's password**. Purged alongside expired sessions by `session_cleanup_runner`, which sweeps both on its hourly tick via `UserService::cleanup_expired_enrolments`. The two sweeps are handled independently, so one failing does not stop the other.
+
+**Device affinity** — `devices.owner_user_id`: an *attribution* fact set by an admin, saying which household user a device belongs to. Today it is **stored and returned, and nothing consumes it**: the per-person views it is intended to enable (whose DNS filter profile applies, which published apps are listed, how the query log attributes traffic) belong to later child epics and are not implemented. **It is never a credential** — a device owned by an `admin`-role user still resolves to a `Device` principal and is refused by admin-only endpoints. `AuthenticatedUser`'s fields are private so a bare `user_id` cannot become a principal, and `build-support/check-auth-constructors.sh` fails CI if its constructor is called outside session/API-key validation.
+
+**Device-keyed** — Identified by MAC address / LAN IP. A device principal has no credential; its identity is its presence on the network. Push subscriptions and self-service routing rules are device-keyed. Distinct from device affinity: affinity says *whose* a device is, device-keying says *what* the caller is.
+
+**Admin session** — A session issued to a household user, from any of their credentials. Required for any admin surface when the user's role is `admin`. Push subscriptions on the admin mobile PWA are **user-account-keyed** (to the household user's UUID, not the ephemeral session token, so they survive session rotation and logout).
 
 **Admin lock** — Flag set by an admin on a device that prevents the device owner from changing their own routing rule. Read-only state visible in the user PWA.
 
@@ -122,7 +130,7 @@
 
 ## Household identity (issues #1147–#1149)
 
-**Household user** — A person on the box: a row in the daemon's own `users` table with credentials (local password, Google, GitHub, or passkey). Distinct from the cloud **tenant**, which is the subscriber/billing identity and stays 1:1 with an account (wardnet-cloud ADR-0009). The directory is **box-local**: federated logins are verified by the Pi against the provider directly, and the cloud may *pre-fill* the owner's email at setup but is **never** a credential — nothing in wardnet-cloud can grant access to a home network, and that property is deliberate. The cost, accepted knowingly: **account recovery is local only**. See [0031-household-identity.md](docs/adr/0031-household-identity.md).
+**Household user** — A person on the box: a row in the daemon's own `users` table with credentials (local password, Google, or GitHub; passkeys are deferred by #1194). Distinct from the cloud **tenant**, which is the subscriber/billing identity and stays 1:1 with an account (wardnet-cloud ADR-0009). The directory is **box-local**: federated logins are verified by the Pi against the provider directly, and the cloud may *pre-fill* the owner's email at setup but is **never** a credential — nothing in wardnet-cloud can grant access to a home network, and that property is deliberate. The cost, accepted knowingly: **account recovery is local only**. See [0031-household-identity.md](docs/adr/0031-household-identity.md).
 
 **Admin role** — The only role in v1; every other **Household user** is simply a user. There are no groups: a household is 2–6 people and a per-app allow-list is honest at that size. A signed-in admin-role user resolves to the same `AuthContext::Admin` as the **Local admin** — two credentials, one authority, not a tier above admin.
 
@@ -178,7 +186,7 @@
 
 **Cloud gateway** — The per-scope north-south edge the daemon HTTPS-es into to reach wardnet-cloud (wardnet-cloud ADR-0014 / inforge ADR-0032): one **global** gateway fronting the **tenants service**, and one gateway per region fronting that region's **regional plane** (DDNS + Tunneller). The target service is the first path segment (`/tenants/…`, `/ddns/…`, `/tunneller/…`) and the gateway forwards the path unmodified, so the daemon's Ed25519 **PoP** signature is computed over the full prefixed path it puts on the wire. TLS is an ordinary public server certificate; the daemon presents no client certificate (the cloud's internal mesh mTLS is invisible to it).
 
-**Vanity name** — A user's chosen slug (e.g. `alice`) forming the flat, region-free user host `<vanity>.my.wardnet.services`. Validated `[a-z0-9-]`, 3–32 chars. The region is deliberately *not* in the name (it lives in the record's value and in infra names only), so a user can be migrated between regions without changing their host, bookmarks, or certificate. Per-service hosts nest under it: `<service>.<vanity>.my.wardnet.services`. See [0005-two-domain-strategy.md](docs/adr/0005-two-domain-strategy.md).
+**Vanity name** (also **slug**, the name used in code) — A tenant's chosen label (e.g. `alice`, `happy-einstein`) forming the flat, region-free user host `<vanity>.my.wardnet.services`. Validated `[a-z0-9-]`, 3–32 chars, no leading/trailing hyphen, unreserved. The region is deliberately *not* in the name (it lives in the record's value and in infra names only), so a user can be migrated between regions without changing their host, bookmarks, or certificate. Per-service hosts nest under it: `<service>.<vanity>.my.wardnet.services`. See [0005-two-domain-strategy.md](docs/adr/0005-two-domain-strategy.md).
 
 **Global naming authority** — The strongly-consistent registry of **slugs**, owned by the global **tenants** service (a *separate global Postgres*, distinct from each region's operational DB) whose `UNIQUE` slug constraint *is* the cross-region allocation lock. Because slugs form one flat global namespace, a single authority must answer availability and guarantee one-winner allocation across regions. The daemon never touches it directly — it asks the **tenants** service over HTTP (`GET /api/ddns/check` → tenants availability). Availability is a read against this registry — *not* DNS and *not* a cache. DNS stays purely the resolution layer. Deliberately not Cloudflare KV (eventual consistency breaks atomic reserve) / D1 / DNS-as-registry. See [0004-global-naming-authority.md](docs/adr/0004-global-naming-authority.md).
 
@@ -304,7 +312,7 @@ binary is still preserved — one step back, not a history.
 
 **Network** — A registered presence on the wardnet cloud: a **slug** + region + assigned `<slug>.my.wardnet.services` FQDN, owned by a **tenant**. The unit the **DDNS service** publishes for. The daemon persists `network_id` / `slug` in `system_config` after **network registration**.
 
-**Slug** — A tenant's chosen vanity label (e.g. `happy-einstein`) forming the flat, region-free host `<slug>.my.wardnet.services`. Validated `[a-z0-9-]`, 3–32 chars, no leading/trailing hyphen, unreserved. (Synonym for the older **vanity name**.)
+**Slug** — See **Vanity name** in *Infrastructure*. One concept, one entry; `slug` is the name the code uses and `vanity name` the name the docs grew up with.
 
 **Enrollment code** — A one-time code emailed to a **tenant**'s account address that the daemon requests on the operator's behalf (`POST /api/ddns/enrollment-code` → tenants `POST /tenants/v1/verification-codes {email, purpose:"enrollment"}`). Submitting it to *enroll* binds the **daemon identity** to the tenant. Replaces the old reinstall **magic-link**: a fresh box wipes-and-re-enrolls (no migration).
 

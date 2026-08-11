@@ -5,7 +5,6 @@ use tokio::sync::{broadcast, mpsc};
 use tokio::time::interval;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 
 use wardnet_common::auth::AuthContext;
 use wardnet_common::config::DetectionConfig;
@@ -22,9 +21,7 @@ use crate::garp_learning;
 /// so no `AuthContext` is set by default; `Uuid::nil()` marks the work as
 /// system-initiated in audit logs (see `.agents/auth.md`).
 fn system_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    }
+    AuthContext::system()
 }
 
 /// Background device detection orchestrator.

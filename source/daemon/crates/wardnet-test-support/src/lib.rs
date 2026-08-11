@@ -9,6 +9,8 @@ use std::sync::{Arc, Mutex, Once};
 
 use tracing_subscriber::fmt::MakeWriter;
 
+pub mod principal;
+
 /// Where the current thread's capture, if any, wants its log lines.
 struct Sink {
     buf: Arc<Mutex<Vec<u8>>>,

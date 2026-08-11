@@ -28,7 +28,7 @@ use wardnet_common::api::{
     ListSnapshotsResponse, RestorePreviewResponse,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -57,7 +57,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn status(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<BackupStatusResponse>, AppError> {
     Ok(Json(state.backup_service().status().await?))
 }
@@ -84,7 +84,7 @@ pub async fn status(
 )]
 pub async fn export(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<ExportBackupRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let bytes = state.backup_service().export(body).await?;
@@ -126,7 +126,7 @@ pub async fn export(
 )]
 pub async fn preview_import(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     mut multipart: Multipart,
 ) -> Result<Json<RestorePreviewResponse>, AppError> {
     let (bundle, passphrase) = extract_multipart_fields(&mut multipart).await?;
@@ -157,7 +157,7 @@ pub async fn preview_import(
 )]
 pub async fn apply_import(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<ApplyImportRequest>,
 ) -> Result<Json<ApplyImportResponse>, AppError> {
     Ok(Json(state.backup_service().apply_import(body).await?))
@@ -177,7 +177,7 @@ pub async fn apply_import(
 )]
 pub async fn list_snapshots(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListSnapshotsResponse>, AppError> {
     Ok(Json(state.backup_service().list_snapshots().await?))
 }

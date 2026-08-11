@@ -11,7 +11,6 @@ use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, patch};
 use tower::ServiceExt;
-use uuid::Uuid;
 use wardnet_common::rule_request::{DeviceRuleRequest, RuleRequestKind, RuleRequestStatus};
 
 use crate::state::AppState;
@@ -21,9 +20,13 @@ use crate::tests::stubs::{
     StubProviderService, StubRoutingService, StubSystemService, StubTunnelService,
     StubZoneExceptionService,
 };
+use uuid::Uuid;
+use wardnet_common::auth::{AuthenticatedUser, UserRole};
+use wardnet_test_support::principal;
 use wardnetd_services::LogService;
 use wardnetd_services::RuleRequestService;
 use wardnetd_services::auth::service::LoginResult;
+use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 use wardnetd_services::error::AppError;
 
 // --- MockAuthService — validates any session as admin -----------------------
@@ -32,21 +35,26 @@ struct MockAuthService;
 
 #[async_trait]
 impl wardnetd_services::AuthService for MockAuthService {
-    async fn current_admin_username(&self) -> Result<String, AppError> {
-        Ok("admin".to_owned())
+    async fn current_user(&self) -> Result<CurrentUser, AppError> {
+        Ok(CurrentUser {
+            user_id: Uuid::nil(),
+            display_name: "admin".to_owned(),
+            email: None,
+            role: UserRole::Admin,
+        })
     }
-    async fn login(&self, _u: &str, _p: &str, _remember_me: bool) -> Result<LoginResult, AppError> {
+    async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
     async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
         unimplemented!()
     }
-    async fn validate_session(&self, _token: &str) -> Result<Option<Uuid>, AppError> {
-        Ok(Some(
+    async fn validate_session(&self, _token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
+        Ok(Some(principal::admin(
             Uuid::parse_str("00000000-0000-0000-0000-000000000099").unwrap(),
-        ))
+        )))
     }
-    async fn validate_api_key(&self, _key: &str) -> Result<Option<Uuid>, AppError> {
+    async fn validate_api_key(&self, _key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
         Ok(None)
     }
     async fn setup_admin(&self, _u: &str, _p: &str) -> Result<(), AppError> {

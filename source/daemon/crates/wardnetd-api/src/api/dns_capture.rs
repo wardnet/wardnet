@@ -6,7 +6,7 @@ use wardnet_common::api::{
     ApiError, DeviceCaptureToggleRequest, DnsCaptureSettingsRequest, DnsCaptureSettingsResponse,
 };
 
-use crate::api::middleware::{AdminAuth, ClientIp};
+use crate::api::middleware::{ClientIp, SessionAuth};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
 
@@ -41,7 +41,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn get_dns_capture_settings(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
 ) -> Result<Json<DnsCaptureSettingsResponse>, AppError> {
     let response = state.device_service().get_dns_capture_settings(&id).await?;
@@ -67,7 +67,7 @@ pub async fn get_dns_capture_settings(
 )]
 pub async fn update_dns_capture_settings(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<String>,
     Json(body): Json<DnsCaptureSettingsRequest>,
 ) -> Result<Json<DnsCaptureSettingsResponse>, AppError> {

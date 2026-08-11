@@ -9,7 +9,7 @@ use wardnet_common::api::{
     CreateDhcpReservationRequest, PreviewDhcpConfigRequest, ToggleDhcpRequest,
     UpdateDhcpConfigRequest,
 };
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 use wardnet_common::dhcp::{DhcpLease, DhcpLeaseLog, DhcpLeaseStatus, DhcpReservation};
 
 use tokio::sync::broadcast;
@@ -371,6 +371,7 @@ impl MockDeviceRepository {
             last_ip: "0.0.0.0".to_owned(),
             admin_locked: false,
             zone_id,
+            owner_user_id: None,
             dns_capture_enabled: false,
             dns_capture_cap_count: 0,
             dns_capture_cap_days: 0,
@@ -399,6 +400,14 @@ impl DeviceRepository for MockDeviceRepository {
         _cutoff: &str,
     ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
         Ok(Vec::new())
+    }
+
+    async fn set_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
     }
 
     async fn find_by_mac(&self, mac: &str) -> anyhow::Result<Option<Device>> {
@@ -611,9 +620,10 @@ fn zone_fixture(subnet: Option<&str>, member_isolation: bool) -> NetworkZone {
 
 /// Helper to create an admin auth context for tests.
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 /// Build a `DhcpServiceImpl` with mock dependencies.

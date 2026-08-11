@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use chrono::Utc;
 use uuid::Uuid;
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 use wardnet_common::stats::{StatsBucket, StatsQuery, StatsTopEntry, StatsTopQuery};
 use wardnetd_data::repository::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 
@@ -14,9 +14,10 @@ use crate::error::AppError;
 use crate::stats::service::{StatsService, StatsServiceImpl};
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 // ── In-memory mock ─────────────────────────────────────────────────────────────

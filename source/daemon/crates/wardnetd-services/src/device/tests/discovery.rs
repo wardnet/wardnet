@@ -14,7 +14,7 @@ use wardnet_common::network_zone::{
 };
 use wardnet_common::routing::RoutingRule;
 
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 
 use crate::DeviceDiscoveryService;
 use crate::auth_context;
@@ -31,9 +31,10 @@ use wardnetd_data::repository::{
 
 /// Helper to create an admin auth context for tests.
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 /// Helper to create a device auth context for tests.
@@ -129,6 +130,14 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(pruned)
     }
 
+    async fn set_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
         let devices = self.devices.lock().unwrap();
         Ok(devices.iter().find(|d| d.last_ip == ip).cloned())
@@ -186,6 +195,7 @@ impl DeviceRepository for MockDeviceRepo {
             last_ip: device.last_ip.clone(),
             admin_locked: false,
             zone_id: device.zone_id.parse().unwrap(),
+            owner_user_id: None,
             dns_capture_enabled: false,
             dns_capture_cap_count: 1000,
             dns_capture_cap_days: 7,
@@ -642,6 +652,7 @@ fn sample_device(id: &str, mac: &str, ip: &str) -> Device {
         last_ip: ip.to_owned(),
         admin_locked: false,
         zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
+        owner_user_id: None,
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
@@ -2222,9 +2233,7 @@ async fn process_observation_accepts_nil_admin_context() {
     let h = build_harness();
     let obs = sample_observation("aa:bb:cc:dd:ee:01", "192.168.1.10");
 
-    let nil_admin = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+    let nil_admin = AuthContext::system();
     let result = auth_context::with_context(nil_admin, h.svc.process_observation(&obs)).await;
     assert!(
         matches!(result, Ok(ObservationResult::NewDevice { .. })),

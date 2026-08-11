@@ -122,9 +122,7 @@ fn drain_pending(rx: &mut tokio::sync::broadcast::Receiver<WardnetEvent>) {
 }
 
 async fn rebuild(routing: &dyn RoutingService) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: uuid::Uuid::nil(),
-    };
+    let admin_ctx = AuthContext::system();
     if let Err(e) = wardnetd_services::auth_context::with_context(
         admin_ctx,
         routing.rebuild_dns_device_upstream_snapshot(),

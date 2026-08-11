@@ -1,9 +1,16 @@
-//! Background runner that periodically purges expired admin-session rows.
+//! Background runner that periodically purges expired sessions **and expired
+//! enrolment tokens**.
 //!
-//! Reads always filter on `expires_at > now`, so expired sessions are never
-//! honored — but the rows would otherwise accumulate indefinitely. This
-//! runner calls the auth-gated [`AuthService::cleanup_expired_sessions`] on a
-//! fixed interval (hourly in production) to reclaim that dead storage.
+//! Reads always filter on `expires_at > now`, so neither an expired session nor
+//! a stale invitation is ever honoured — but the rows would otherwise
+//! accumulate indefinitely. This runner calls the auth-gated
+//! [`AuthService::cleanup_expired_sessions`] and
+//! [`UserService::cleanup_expired_enrolments`] on a fixed interval (hourly in
+//! production) to reclaim that dead storage.
+//!
+//! The two are swept together because they expire on the same kind of schedule
+//! and neither is urgent; a second runner would double the timers for no gain.
+//! One failing must not skip the other, so each is handled independently.
 //!
 //! Lifecycle mirrors the other daemon runners: spawned at boot, stopped via
 //! the cancellation token on shutdown. Like [`DnsQueryLogRunner`], the
@@ -17,11 +24,11 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
-use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
 
 use crate::AuthService;
 use crate::auth_context;
+use crate::user::UserService;
 
 /// Production cleanup interval.
 const CLEANUP_INTERVAL: Duration = Duration::from_hours(1);
@@ -38,8 +45,12 @@ impl SessionCleanupRunner {
     /// The `parent` span is used as the parent for the
     /// `session_cleanup_runner` child span, ensuring all log output includes
     /// the root version field.
-    pub fn start(service: Arc<dyn AuthService>, parent: &tracing::Span) -> Self {
-        Self::start_with_interval(service, CLEANUP_INTERVAL, parent)
+    pub fn start(
+        service: Arc<dyn AuthService>,
+        users: Arc<dyn UserService>,
+        parent: &tracing::Span,
+    ) -> Self {
+        Self::start_with_interval(service, users, CLEANUP_INTERVAL, parent)
     }
 
     /// Start the runner with a custom interval. Production callers use
@@ -47,13 +58,15 @@ impl SessionCleanupRunner {
     /// without waiting.
     pub fn start_with_interval(
         service: Arc<dyn AuthService>,
+        users: Arc<dyn UserService>,
         interval: Duration,
         parent: &tracing::Span,
     ) -> Self {
         let cancel = CancellationToken::new();
         let span = tracing::info_span!(parent: parent, "session_cleanup_runner");
 
-        let handle = tokio::spawn(runner_loop(service, interval, cancel.clone()).instrument(span));
+        let handle =
+            tokio::spawn(runner_loop(service, users, interval, cancel.clone()).instrument(span));
 
         Self { cancel, handle }
     }
@@ -66,10 +79,13 @@ impl SessionCleanupRunner {
     }
 }
 
-async fn runner_loop(service: Arc<dyn AuthService>, interval: Duration, cancel: CancellationToken) {
-    let admin_ctx = AuthContext::Admin {
-        admin_id: Uuid::nil(),
-    };
+async fn runner_loop(
+    service: Arc<dyn AuthService>,
+    users: Arc<dyn UserService>,
+    interval: Duration,
+    cancel: CancellationToken,
+) {
+    let admin_ctx = AuthContext::system();
 
     let mut ticker = tokio::time::interval(interval);
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -96,6 +112,31 @@ async fn runner_loop(service: Arc<dyn AuthService>, interval: Duration, cancel: 
                     }
                     Err(e) => {
                         tracing::error!(error = %e, "failed to purge expired sessions: error={e}");
+                    }
+                }
+
+                // Handled separately so a session-cleanup failure does not
+                // leave stale invitations sitting there, and vice versa.
+                match auth_context::with_context(
+                    admin_ctx.clone(),
+                    users.cleanup_expired_enrolments(),
+                )
+                .await
+                {
+                    Ok(deleted) if deleted > 0 => {
+                        tracing::info!(
+                            deleted,
+                            "purged expired enrolment tokens: deleted={deleted}"
+                        );
+                    }
+                    Ok(_) => {
+                        tracing::debug!("no expired enrolment tokens to purge");
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            error = %e,
+                            "failed to purge expired enrolment tokens: error={e}"
+                        );
                     }
                 }
             }

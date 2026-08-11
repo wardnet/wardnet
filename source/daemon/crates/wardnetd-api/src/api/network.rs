@@ -7,7 +7,7 @@ use wardnet_common::api::{
     NetworkStatusResponse,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::AuthErrors;
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -38,7 +38,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn status(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<NetworkStatusResponse>, AppError> {
     let response = state.system_service().network_status().await?;
     Ok(Json(response))
@@ -66,7 +66,7 @@ pub async fn status(
 )]
 pub async fn discover_gateway_mac(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(body): Json<DiscoverGatewayMacRequest>,
 ) -> Result<Json<DiscoverGatewayMacResponse>, AppError> {
     let response = state.system_service().discover_gateway_mac(body).await?;
@@ -90,7 +90,7 @@ pub async fn discover_gateway_mac(
 )]
 pub async fn dhcp_self_probe(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<DhcpSelfProbeResponse>, AppError> {
     let response = state.system_service().dhcp_self_probe().await?;
     Ok(Json(response))

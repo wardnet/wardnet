@@ -57,6 +57,16 @@
               }
             }
           },
+          "429": {
+            "description": "Too many login attempts; see the `Retry-After` header",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Internal server error",
             "content": {
@@ -24365,11 +24375,11 @@
         "tags": [
           "users"
         ],
-        "description": "Return the authenticated admin's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store.",
+        "description": "Return the authenticated household user's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store, and to decide which admin-only surfaces to render. Available to any authenticated user, including members reading their own profile.",
         "operationId": "me",
         "responses": {
           "200": {
-            "description": "Authenticated admin identity",
+            "description": "Authenticated user identity",
             "content": {
               "application/json": {
                 "schema": {
@@ -26105,6 +26115,14 @@
               "string",
               "null"
             ]
+          },
+          "owner_user_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Which household user this device belongs to, if an admin has assigned\none.\n\n**Attribution, never authority** (ADR-0031 §4). It answers \"whose iPad\nis this?\" so notifications and per-person views can be built, and it is\ndeliberately a plain `Option<Uuid>` with no path into an `AuthContext`:\na device caller resolves to `AuthContext::Device` whatever its owner's\nrole is. `ON DELETE SET NULL`, because deleting a person must not delete\nthe household's hardware."
           },
           "zone_id": {
             "type": "string",
@@ -28346,12 +28364,34 @@
         "type": "object",
         "description": "Response for GET /api/users/me.",
         "required": [
-          "username"
+          "username",
+          "id",
+          "display_name",
+          "role"
         ],
         "properties": {
+          "display_name": {
+            "type": "string",
+            "description": "The authenticated user's display name. Same value as `username`."
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional email address. `None` for a local admin created by the wizard\nor the config-file bootstrap, neither of which asks for one."
+          },
+          "id": {
+            "type": "string",
+            "description": "The authenticated user's id."
+          },
+          "role": {
+            "$ref": "#/components/schemas/UserRole",
+            "description": "`admin` or `member`. Lets a UI hide admin-only surfaces without probing\nendpoints for 403s."
+          },
           "username": {
             "type": "string",
-            "description": "Username of the authenticated admin."
+            "description": "The authenticated user's display name.\n\nKept under the name `username` **additively** (ADR-0031 §8): existing\nclients — the setup wizard's review step among them — read this field,\nand for a backfilled local admin it is exactly the old\n`admins.username`. New clients should prefer `display_name`, which is\nthe same value under an honest name."
           }
         }
       },
@@ -31142,6 +31182,14 @@
             "description": "Whether the most recent probe reached the upstream."
           }
         }
+      },
+      "UserRole": {
+        "type": "string",
+        "description": "A household user's role (ADR-0031 §11).\n\n`Admin` is *exactly* equal to the legacy local admin — no deny-list, no\nsecond tier. Deliberately only two values: a household is 2–6 people, and\nan allow-list is honest at that size.",
+        "enum": [
+          "admin",
+          "member"
+        ]
       },
       "ValidateCredentialsRequest": {
         "type": "object",

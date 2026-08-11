@@ -20,7 +20,7 @@ use wardnet_common::api::{
     UpdateDomainRoutingRuleResponse, UpdateRoutingProfileRequest, UpdateRoutingProfileResponse,
 };
 
-use crate::api::middleware::AdminAuth;
+use crate::api::middleware::SessionAuth;
 use crate::api::responses::{AuthErrors, BadRequest, Conflict, NotFound};
 use crate::state::AppState;
 use wardnetd_services::error::AppError;
@@ -50,7 +50,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
 )]
 pub async fn list_profiles(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
 ) -> Result<Json<ListRoutingProfilesResponse>, AppError> {
     let profiles = state.routing_profile_service().list_profiles().await?;
     Ok(Json(ListRoutingProfilesResponse { profiles }))
@@ -72,7 +72,7 @@ pub async fn list_profiles(
 )]
 pub async fn create_profile(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Json(req): Json<CreateRoutingProfileRequest>,
 ) -> Result<(axum::http::StatusCode, Json<CreateRoutingProfileResponse>), AppError> {
     let profile = state
@@ -103,7 +103,7 @@ pub async fn create_profile(
 )]
 pub async fn get_profile(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<GetRoutingProfileResponse>, AppError> {
     let profile = state.routing_profile_service().get_profile(id).await?;
@@ -128,7 +128,7 @@ pub async fn get_profile(
 )]
 pub async fn update_profile(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateRoutingProfileRequest>,
 ) -> Result<Json<UpdateRoutingProfileResponse>, AppError> {
@@ -160,7 +160,7 @@ pub async fn update_profile(
 )]
 pub async fn delete_profile(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeleteRoutingProfileResponse>, AppError> {
     state.routing_profile_service().delete_profile(id).await?;
@@ -185,7 +185,7 @@ pub async fn delete_profile(
 )]
 pub async fn list_rules(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ListDomainRoutingRulesResponse>, AppError> {
     let rules = state.routing_profile_service().list_rules(id).await?;
@@ -209,7 +209,7 @@ pub async fn list_rules(
 )]
 pub async fn create_rule(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
     Json(req): Json<CreateDomainRoutingRuleRequest>,
 ) -> Result<
@@ -249,7 +249,7 @@ pub async fn create_rule(
 )]
 pub async fn update_rule(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateDomainRoutingRuleRequest>,
 ) -> Result<Json<UpdateDomainRoutingRuleResponse>, AppError> {
@@ -277,7 +277,7 @@ pub async fn update_rule(
 )]
 pub async fn delete_rule(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<DeleteDomainRoutingRuleResponse>, AppError> {
     state.routing_profile_service().delete_rule(id).await?;
@@ -301,7 +301,7 @@ pub async fn delete_rule(
 )]
 pub async fn get_device_profiles(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(device_id): Path<Uuid>,
 ) -> Result<Json<GetDeviceRoutingProfilesResponse>, AppError> {
     let profile_ids = state
@@ -327,7 +327,7 @@ pub async fn get_device_profiles(
 )]
 pub async fn set_device_profiles(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(device_id): Path<Uuid>,
     Json(req): Json<SetDeviceRoutingProfilesRequest>,
 ) -> Result<Json<SetDeviceRoutingProfilesResponse>, AppError> {
@@ -354,7 +354,7 @@ pub async fn set_device_profiles(
 )]
 pub async fn get_profile_devices(
     State(state): State<AppState>,
-    _auth: AdminAuth,
+    _auth: SessionAuth,
     Path(id): Path<Uuid>,
 ) -> Result<Json<ListProfileDevicesResponse>, AppError> {
     let device_ids = state

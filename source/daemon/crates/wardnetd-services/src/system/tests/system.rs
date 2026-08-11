@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 use wardnet_common::api::LastShutdownState;
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 
 use crate::auth_context;
 use crate::error::AppError;
@@ -157,9 +157,10 @@ impl TunnelRepository for MockTunnelRepo {
 // -- Helpers --------------------------------------------------------------
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 /// Counts calls to `reboot()` / `poweroff()` so the request_*

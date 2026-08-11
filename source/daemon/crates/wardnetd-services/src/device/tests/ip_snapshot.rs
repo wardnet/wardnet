@@ -51,6 +51,14 @@ impl DeviceRepository for MockDeviceRepo {
         Ok(Vec::new())
     }
 
+    async fn set_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        Ok(true)
+    }
+
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
         unimplemented!("not exercised by DeviceIpSnapshot")
     }
@@ -169,6 +177,7 @@ fn sample_device(id: &str, ip: &str, last_seen: &str) -> Device {
         last_ip: ip.to_owned(),
         admin_locked: false,
         zone_id: "00000000-0000-0000-0000-000000000201".parse().unwrap(),
+        owner_user_id: None,
         dns_capture_enabled: false,
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,

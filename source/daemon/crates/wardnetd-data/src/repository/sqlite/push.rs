@@ -94,10 +94,21 @@ impl PushRepository for SqlitePushRepository {
     }
 
     async fn list_admins(&self) -> anyhow::Result<Vec<StoredPushSubscription>> {
+        // Joined to `users` and filtered on `role`, not merely on the owner
+        // discriminator. Before household identity every user-owned
+        // subscription belonged to the single admin, so `owner_kind = 'admin'`
+        // was the whole test; now a `member` owns subscriptions too, and
+        // fanning admin notifications out to them would leak the household's
+        // administrative activity to whoever holds the fewest privileges.
+        //
+        // `enabled = 1` for the same reason the login join filters it: a
+        // disabled account must stop receiving as well as stop authenticating.
         let rows = sqlx::query_as::<_, DbPushSubscriptionRow>(
-            "SELECT id, owner_kind, owner_key, endpoint, p256dh, auth, created_at \
-             FROM push_subscriptions \
-             WHERE owner_kind = 'admin' ORDER BY created_at ASC",
+            "SELECT p.id, p.owner_kind, p.owner_key, p.endpoint, p.p256dh, p.auth, p.created_at \
+             FROM push_subscriptions p \
+             JOIN users u ON u.id = p.owner_key \
+             WHERE p.owner_kind = 'user' AND u.role = 'admin' AND u.enabled = 1 \
+             ORDER BY p.created_at ASC",
         )
         .fetch_all(&self.pools.read)
         .await?;

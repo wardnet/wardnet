@@ -61,6 +61,56 @@ async fn conflict_returns_409_with_detail() {
 }
 
 #[tokio::test]
+async fn too_many_requests_returns_429_with_detail() {
+    let (status, json) = error_response(AppError::TooManyRequests {
+        message: "try again shortly".to_owned(),
+        retry_after_seconds: 12,
+    })
+    .await;
+
+    assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(json["error"], "too many requests");
+    assert_eq!(json["detail"], "try again shortly");
+}
+
+/// `Retry-After` is part of the 429 contract, not decoration: a client that
+/// cannot read the delay retries immediately and extends its own lockout. The
+/// header is set on a separate code path from the status, so it needs its own
+/// assertion rather than riding along with the body test above.
+#[tokio::test]
+async fn too_many_requests_sets_retry_after_header() {
+    let response = AppError::TooManyRequests {
+        message: "slow down".to_owned(),
+        retry_after_seconds: 34,
+    }
+    .into_response();
+
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        response
+            .headers()
+            .get(axum::http::header::RETRY_AFTER)
+            .expect("a 429 must carry Retry-After"),
+        "34"
+    );
+}
+
+/// Every other variant must leave the header off entirely — a stray
+/// `Retry-After` on a 4xx tells a client to retry something it should not.
+#[tokio::test]
+async fn other_errors_omit_retry_after_header() {
+    let response = AppError::Conflict("already exists".to_owned()).into_response();
+
+    assert!(
+        response
+            .headers()
+            .get(axum::http::header::RETRY_AFTER)
+            .is_none(),
+        "only 429 should carry Retry-After"
+    );
+}
+
+#[tokio::test]
 async fn internal_returns_500_without_detail() {
     let (status, json) =
         error_response(AppError::Internal(anyhow::anyhow!("secret details"))).await;

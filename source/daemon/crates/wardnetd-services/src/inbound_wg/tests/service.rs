@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use uuid::Uuid;
-use wardnet_common::auth::AuthContext;
+use wardnet_common::auth::{AuthContext, AuthenticatedUser, UserRole};
 
 use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
 
@@ -55,6 +55,7 @@ impl MockDeviceService {
             last_ip: "192.168.1.50".to_owned(),
             admin_locked: false,
             zone_id: Uuid::new_v4(),
+            owner_user_id: None,
             dns_capture_enabled: false,
             dns_capture_cap_count: 0,
             dns_capture_cap_days: 0,
@@ -78,6 +79,14 @@ impl DeviceService for MockDeviceService {
 
     async fn clear_managed(&self, _device_id: &str) -> Result<(), crate::error::AppError> {
         Ok(())
+    }
+
+    async fn set_device_owner(
+        &self,
+        _device_id: &str,
+        _owner_user_id: Option<uuid::Uuid>,
+    ) -> Result<(), AppError> {
+        unimplemented!()
     }
 
     async fn get_device(&self, device_id: &str) -> Result<Option<Device>, AppError> {
@@ -172,9 +181,10 @@ impl DeviceService for MockDeviceService {
 }
 
 fn admin_ctx() -> AuthContext {
-    AuthContext::Admin {
-        admin_id: Uuid::new_v4(),
-    }
+    AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ))
 }
 
 // -- Mock InboundWgPeerRepository -----------------------------------------
