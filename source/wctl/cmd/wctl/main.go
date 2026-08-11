@@ -5,9 +5,12 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	wardnet "wardnet.network/go"
@@ -18,7 +21,12 @@ import (
 var version = "dev"
 
 func main() {
-	if err := rootCmd().Execute(); err != nil {
+	// Cancelling the root context on a signal is what stops `logs --follow`
+	// cleanly; every other command inherits the same interruptibility.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := rootCmd().ExecuteContext(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		os.Exit(exitCode(err))
 	}
@@ -47,6 +55,10 @@ func rootCmd() *cobra.Command {
 		newStatusCmd(c),
 		newDevicesCmd(c),
 		newTunnelsCmd(c),
+		newDNSCmd(c),
+		newDHCPCmd(c),
+		newLogsCmd(c),
+		newSystemCmd(c),
 		newUpdateCmd(c),
 		newBackupCmd(c),
 		newSelfUpdateCmd(c),

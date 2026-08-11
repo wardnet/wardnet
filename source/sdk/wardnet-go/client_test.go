@@ -170,3 +170,57 @@ func TestInvalidIDNoRequest(t *testing.T) {
 		t.Error("expected error for invalid device id")
 	}
 }
+
+func TestSystemRecentErrors(t *testing.T) {
+	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/system/errors" {
+			t.Errorf("path = %q", r.URL.Path)
+		}
+		writeJSON(w, `{"errors":[{"timestamp":"2026-08-01T00:00:00Z","code":"tunnel_start_failed",
+			"severity":"error","component":"tunnel","message":"handshake timed out",
+			"hint":"check the endpoint"}]}`)
+	}))
+
+	diags, err := c.System.RecentErrors(context.Background())
+	if err != nil {
+		t.Fatalf("RecentErrors: %v", err)
+	}
+	if len(diags) != 1 {
+		t.Fatalf("diagnostics = %d, want 1", len(diags))
+	}
+	if diags[0].Code != "tunnel_start_failed" || diags[0].Severity != "error" {
+		t.Errorf("unexpected diagnostic: %+v", diags[0])
+	}
+}
+
+func TestSystemRestart(t *testing.T) {
+	var called bool
+	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		if r.Method != http.MethodPost || r.URL.Path != "/api/system/restart" {
+			t.Errorf("%s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	if err := c.System.Restart(context.Background()); err != nil {
+		t.Fatalf("Restart: %v", err)
+	}
+	if !called {
+		t.Error("daemon never called")
+	}
+}
+
+func TestSystemRestartError(t *testing.T) {
+	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":"forbidden"}`)
+	}))
+
+	err := c.System.Restart(context.Background())
+	var apiErr *wardnet.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("error = %v, want a 403 APIError", err)
+	}
+}
