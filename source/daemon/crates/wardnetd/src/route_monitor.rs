@@ -10,16 +10,31 @@ use wardnet_common::event::WardnetEvent;
 
 use wardnetd_services::event::EventPublisher;
 
-/// Minimum routing table number managed by Wardnet.
+/// Lowest routing table number managed by Wardnet.
 ///
-/// Tables below 100 are kernel defaults (local, main, default) and must not
-/// be treated as Wardnet-managed.
+/// `RoutingServiceImpl::table_for_index` maps tunnel interface index *n* to
+/// table `100 + n`, so 100 is the first table we ever file a route in.
 const WARDNET_MIN_TABLE: u32 = 100;
+
+/// Highest routing table number managed by Wardnet.
+///
+/// The kernel reserves the top four tables — 252 (`compat`), 253 (`default`),
+/// 254 (`main`) and 255 (`local`) — so Wardnet's range stops just below them.
+/// Treating those as ours republishes ordinary kernel routing churn as a
+/// Wardnet fault: a live Pi logged `detected route deletion in wardnet-managed
+/// table table=254` for a routine change to `main`, raising a spurious
+/// `RouteTableLost` diagnostic.
+///
+/// 252 earns its place twice. Besides being reserved, it is the value the
+/// kernel stamps into the u8 `header.table` for any table id too wide to fit
+/// there, so a deletion in someone else's table 1000 arriving without an
+/// `RTA_TABLE` attribute resolves to 252 through `route_table`'s fallback.
+const WARDNET_MAX_TABLE: u32 = 251;
 
 /// Background task that subscribes to kernel route change events via netlink.
 ///
 /// Watches for `RTM_DELROUTE` messages on Wardnet-managed routing tables
-/// (tables >= 100). When such a deletion is detected — typically because the
+/// (100..=251). When such a deletion is detected — typically because the
 /// interface was removed or recreated externally — it publishes a
 /// [`WardnetEvent::RouteTableLost`] so the routing service can re-add the
 /// route.
@@ -46,7 +61,7 @@ impl RouteMonitor {
         let cancel_clone = cancel.clone();
         let handle = tokio::spawn(
             async move {
-                tracing::info!("route monitor started, watching for route deletions on tables >= {WARDNET_MIN_TABLE}");
+                tracing::info!("route monitor started, watching for route deletions on tables {WARDNET_MIN_TABLE}..={WARDNET_MAX_TABLE}");
                 loop {
                     tokio::select! {
                         () = cancel_clone.cancelled() => break,
@@ -79,14 +94,14 @@ impl RouteMonitor {
 
 /// Inspect a netlink route message and publish `RouteTableLost` if it's a
 /// deletion from a Wardnet-managed table.
-fn handle_message(payload: RouteNetlinkMessage, events: &dyn EventPublisher) {
+pub(crate) fn handle_message(payload: RouteNetlinkMessage, events: &dyn EventPublisher) {
     let RouteNetlinkMessage::DelRoute(route) = payload else {
         return;
     };
 
     let table = crate::policy_router_netlink::route_table(&route);
 
-    if table < WARDNET_MIN_TABLE {
+    if !(WARDNET_MIN_TABLE..=WARDNET_MAX_TABLE).contains(&table) {
         return;
     }
 
