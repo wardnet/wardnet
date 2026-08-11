@@ -4,8 +4,9 @@
 //! has something to display without requiring a real Pi deployment:
 //! devices (laptop, phone, TV, tablet, `IoT`) spread across the Trusted /
 //! `IoT` / Guest zones with one cross-zone casting exception, `WireGuard`
-//! tunnels, a
-//! disabled DNS blocklist with a few custom rules, and a single routing rule.
+//! tunnels, DNS blocklists (the migration-seeded ones disabled, plus one
+//! enabled list stuck failing to refresh so the anomalies UI has something to
+//! show) with a few custom rules, and a single routing rule.
 //!
 //! Admin credentials are **not** seeded — the setup wizard runs on every
 //! mock launch so developers can exercise that flow repeatedly.
@@ -19,8 +20,9 @@ use wardnet_common::zone_exception::{
 };
 use wardnetd_data::RepositoryFactory;
 use wardnetd_data::repository::{
-    AllowlistRow, CustomRuleRow, DeviceRow, DeviceSignalRow, DhcpLeaseRow, DhcpReservationRow,
-    IntradayStatRow, NewNotification, QueryLogRow, RoutingProfileRow, RoutingRuleRow, TunnelRow,
+    AllowlistRow, BlocklistRow, CustomRuleRow, DeviceRow, DeviceSignalRow, DhcpLeaseRow,
+    DhcpReservationRow, IntradayStatRow, NewNotification, QueryLogRow, RoutingProfileRow,
+    RoutingRuleRow, TunnelRow,
 };
 use wardnetd_data::{oui, vendor_catalog};
 
@@ -601,6 +603,41 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
             comment: Some("demo custom rule".to_owned()),
         })
         .await?;
+
+    // A blocklist stuck failing to refresh — what raises the
+    // `blocklist_refresh_failing` anomaly. Unlike the migration-seeded lists
+    // this one is *enabled*, because the detector only reports enabled lists:
+    // a disabled list is never refreshed, so its stale counter is not a live
+    // problem. Nothing fetches it — the mock runs no refresh runner, and the
+    // host is deliberately unresolvable.
+    //
+    // The id is fixed rather than random so the deep link the anomalies UI
+    // builds (`/dns/filter/profiles/<profile>#blocklist-<id>`) is stable
+    // across restarts while iterating on it.
+    let failing_blocklist_id = "00000000-0000-0000-0000-0000000001a1".to_owned();
+    dns_filter_repo
+        .create_blocklist(&BlocklistRow {
+            id: failing_blocklist_id.clone(),
+            profile_id: ad_blocking_profile_id.clone(),
+            name: "HaGeZi Pro".to_owned(),
+            url: "https://blocklists.invalid/hagezi-pro.txt".to_owned(),
+            enabled: true,
+            cron_schedule: "0 4 * * *".to_owned(),
+        })
+        .await?;
+    // Past the default alert threshold of 5, so the anomaly is open on the
+    // engine's first pass rather than after a wait. Recorded through the same
+    // call the refresh runner uses — each increments the counter — so the
+    // seeded state is reachable by the real code path, not written behind it.
+    for _ in 0..7 {
+        dns_filter_repo
+            .set_blocklist_error(
+                Uuid::parse_str(&failing_blocklist_id)?,
+                Some("dns error: failed to lookup address information"),
+            )
+            .await?;
+    }
+    tracing::debug!("seeded a failing blocklist: 'HaGeZi Pro' (7 consecutive failures)");
 
     // ------------------------------------------------------------------
     // DNS query log fixture — 24 h of synthetic queries spread across the
