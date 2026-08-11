@@ -131,6 +131,7 @@ export {
   useSetMyRule,
   useSetMyCaptureEnabled,
   useUpdateDevice,
+  useReleaseDevice,
   useDnsCaptureSettings,
   useUpdateDnsCaptureSettings,
 } from "./hooks/useDevices";

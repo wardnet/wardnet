@@ -38,6 +38,18 @@ struct MockDeviceService {
 
 #[async_trait]
 impl DeviceService for MockDeviceService {
+    async fn clear_rule(&self, _device_id: &str) -> Result<(), crate::error::AppError> {
+        Ok(())
+    }
+
+    async fn mark_managed(&self, _device_id: &str) -> Result<(), crate::error::AppError> {
+        Ok(())
+    }
+
+    async fn clear_managed(&self, _device_id: &str) -> Result<(), crate::error::AppError> {
+        Ok(())
+    }
+
     async fn get_device(
         &self,
         _device_id: &str,
@@ -362,6 +374,7 @@ fn sample_device(capture_enabled: bool) -> Device {
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
         connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
+        managed: false,
     }
 }
 

@@ -126,6 +126,7 @@ struct ServerState {
     running: AtomicBool,
     stopped: AtomicBool,
     view_updates: AtomicUsize,
+    invalidated: std::sync::Mutex<Vec<String>>,
 }
 
 struct MockDnsServer {
@@ -159,7 +160,13 @@ impl DnsServer for MockDnsServer {
     async fn update_authoritative_view(&self, _view: AuthoritativeView) {
         self.state.view_updates.fetch_add(1, Ordering::SeqCst);
     }
-    async fn invalidate_domain(&self, _domain: &str) {}
+    async fn invalidate_subtree(&self, domain: &str) {
+        self.state
+            .invalidated
+            .lock()
+            .unwrap()
+            .push(domain.to_owned());
+    }
 }
 
 async fn poll_until(f: impl Fn() -> bool) -> bool {
@@ -194,14 +201,21 @@ async fn runner_starts_server_loads_view_and_rebuilds_on_event() {
     );
     let after_start = state.view_updates.load(Ordering::SeqCst);
 
-    // A local-DNS change rebuilds the authoritative view.
+    // A local-DNS change rebuilds the authoritative view and evicts the
+    // changed domain's whole subtree — a rule or zone on `lab` governs
+    // everything under it, so leaving subdomains cached would keep them
+    // resolving the old way (issue #1184).
     events.publish(WardnetEvent::DnsLocalChanged {
-        domain: Some("nas.lab".to_owned()),
+        domain: "nas.lab".to_owned(),
         timestamp: chrono::Utc::now(),
     });
     assert!(
         poll_until(|| state.view_updates.load(Ordering::SeqCst) > after_start).await,
         "DnsLocalChanged should rebuild the authoritative view"
+    );
+    assert!(
+        poll_until(|| state.invalidated.lock().unwrap().as_slice() == ["nas.lab"]).await,
+        "DnsLocalChanged should evict the changed domain's subtree"
     );
 
     runner.shutdown().await;

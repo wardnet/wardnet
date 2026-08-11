@@ -268,7 +268,11 @@ describe("DeviceDetail", () => {
   });
 
   it("renders an online managed device", () => {
-    loadDevice({ name: "My Laptop", last_seen: new Date().toISOString() });
+    loadDevice({
+      name: "My Laptop",
+      managed: true,
+      last_seen: new Date().toISOString(),
+    });
     renderWithProviders(<DeviceDetail />);
     expect(screen.getByTestId("item-label")).toHaveTextContent("My Laptop");
     expect(screen.getByTestId("status-badge")).toHaveTextContent("Online");
@@ -346,13 +350,17 @@ describe("DeviceDetail", () => {
   });
 
   it("renders an offline managed device", () => {
-    loadDevice({ name: "Old Device", last_seen: "2000-01-01T00:00:00Z" });
+    loadDevice({
+      name: "Old Device",
+      managed: true,
+      last_seen: "2000-01-01T00:00:00Z",
+    });
     renderWithProviders(<DeviceDetail />);
     expect(screen.getByTestId("status-badge")).toHaveTextContent("Offline");
   });
 
   it("renders a discovered (unmanaged) device and falls back to hostname label", () => {
-    loadDevice({ name: null, hostname: "living-room-tv" });
+    loadDevice({ name: null, managed: false, hostname: "living-room-tv" });
     renderWithProviders(<DeviceDetail />);
     expect(screen.getByTestId("status-badge")).toHaveTextContent("Discovered");
     expect(screen.getByTestId("item-label")).toHaveTextContent(
@@ -405,7 +413,7 @@ describe("DeviceDetail", () => {
   });
 
   it("treats an invalid last_seen as offline for managed devices", () => {
-    loadDevice({ name: "Weird", last_seen: "not-a-date" });
+    loadDevice({ name: "Weird", managed: true, last_seen: "not-a-date" });
     renderWithProviders(<DeviceDetail />);
     expect(screen.getByTestId("status-badge")).toHaveTextContent("Offline");
   });

@@ -9,6 +9,7 @@ mod dns_events;
 mod dns_filter;
 mod dns_local;
 mod inbound_wg;
+mod managed_backfill;
 mod network_zone;
 mod notification;
 mod private_dns;

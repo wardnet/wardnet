@@ -55,6 +55,9 @@ struct MockDeviceRepo {
     /// When set, `clear_last_ip` returns an error, exercising the departure
     /// sweep's failure-tolerant path.
     fail_clear_last_ip: std::sync::atomic::AtomicBool,
+    /// When set, `delete_unmanaged_before` returns an error, exercising the
+    /// retention prune's failure path (#1181).
+    fail_delete_unmanaged: std::sync::atomic::AtomicBool,
 }
 
 impl MockDeviceRepo {
@@ -76,12 +79,56 @@ impl MockDeviceRepo {
             hostname_updates: Mutex::new(Vec::new()),
             name_type_updates: Mutex::new(Vec::new()),
             fail_clear_last_ip: std::sync::atomic::AtomicBool::new(false),
+            fail_delete_unmanaged: std::sync::atomic::AtomicBool::new(false),
         }
     }
 }
 
 #[async_trait]
 impl DeviceRepository for MockDeviceRepo {
+    async fn delete_rule_for_device(&self, _device_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn set_managed(&self, id: &str, managed: bool) -> anyhow::Result<()> {
+        let mut devices = self.devices.lock().unwrap();
+        if let Some(d) = devices.iter_mut().find(|d| d.id.to_string() == id) {
+            d.managed = managed;
+        }
+        Ok(())
+    }
+
+    /// Mirrors the real DELETE ... RETURNING: removes the matching rows from
+    /// the backing store and returns what was removed, so the eviction tests
+    /// exercise the same "row is gone" postcondition production has.
+    async fn delete_unmanaged_before(
+        &self,
+        cutoff: &str,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
+        if self
+            .fail_delete_unmanaged
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("delete_unmanaged_before failed");
+        }
+        let cutoff: chrono::DateTime<chrono::Utc> = cutoff.parse()?;
+        let mut devices = self.devices.lock().unwrap();
+        let mut pruned = Vec::new();
+        devices.retain(|d| {
+            if !d.managed && d.last_seen < cutoff {
+                pruned.push(wardnetd_data::repository::PrunedDevice {
+                    id: d.id.to_string(),
+                    mac: d.mac.clone(),
+                    last_seen: d.last_seen.to_rfc3339(),
+                });
+                false
+            } else {
+                true
+            }
+        });
+        Ok(pruned)
+    }
+
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
         let devices = self.devices.lock().unwrap();
         Ok(devices.iter().find(|d| d.last_ip == ip).cloned())
@@ -143,6 +190,9 @@ impl DeviceRepository for MockDeviceRepo {
             dns_capture_cap_count: 1000,
             dns_capture_cap_days: 7,
             connection_mode: device.connection_mode,
+            // Mirrors the SQLite repo: `insert` omits `managed`, so a freshly
+            // discovered device always starts unmanaged (#1181).
+            managed: false,
         });
         Ok(())
     }
@@ -228,9 +278,12 @@ impl DeviceRepository for MockDeviceRepo {
         // Update the in-memory device so subsequent find_by_id returns updated data.
         let mut devices = self.devices.lock().unwrap();
         if let Some(d) = devices.iter_mut().find(|d| d.id.to_string() == id) {
-            if let Some(n) = name {
-                d.name = Some(n.to_owned());
-            }
+            // Assigned unconditionally, mirroring the real repo's
+            // `SET name = ?`: a `None` here means "write NULL" (the caller has
+            // already resolved partial-update semantics), not "leave it alone".
+            // The mock used to skip `None`, which made clearing a name silently
+            // untestable.
+            d.name = name.map(str::to_owned);
             if let Ok(dt) = serde_json::from_str(&format!("\"{device_type}\"")) {
                 d.device_type = dt;
             }
@@ -593,6 +646,7 @@ fn sample_device(id: &str, mac: &str, ip: &str) -> Device {
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
         connection_mode: DeviceConnectionMode::Lan,
+        managed: false,
     }
 }
 
@@ -682,6 +736,10 @@ impl TestHarness {
 
     async fn resolve_hostname(&self, mac: &str, ip: &str) -> Result<(), AppError> {
         auth_context::with_context(admin_ctx(), self.svc.resolve_hostname(mac, ip)).await
+    }
+
+    async fn prune_unmanaged_devices(&self) -> Result<u64, AppError> {
+        auth_context::with_context(admin_ctx(), self.svc.prune_unmanaged_devices()).await
     }
 }
 
@@ -2264,4 +2322,279 @@ async fn new_device_with_a_public_oui_is_named_from_the_ieee_table() {
         }
         other => panic!("expected NewDevice, got {other:?}"),
     }
+}
+
+// ── Retention prune (issue #1181) ────────────────────────────────────────────
+
+const DEVICE_ID_1: &str = "00000000-0000-0000-0000-0000000f0001";
+const DEVICE_ID_2: &str = "00000000-0000-0000-0000-0000000f0002";
+const DEVICE_ID_3: &str = "00000000-0000-0000-0000-0000000f0003";
+const MAC_1: &str = "aa:bb:cc:dd:ef:01";
+const MAC_2: &str = "aa:bb:cc:dd:ef:02";
+const MAC_3: &str = "aa:bb:cc:dd:ef:03";
+
+/// A device last seen well outside the 30-day retention window.
+fn stale_device(id: &str, mac: &str, ip: &str) -> Device {
+    let mut device = sample_device(id, mac, ip);
+    device.last_seen = chrono::Utc::now() - chrono::Duration::days(90);
+    device
+}
+
+/// Push a device's `last_seen` back outside the retention window, undoing the
+/// refresh an observation performs.
+fn age_out(harness: &TestHarness, id: &str) {
+    let mut devices = harness.repo.devices.lock().unwrap();
+    let device = devices
+        .iter_mut()
+        .find(|d| d.id.to_string() == id)
+        .expect("device present");
+    device.last_seen = chrono::Utc::now() - chrono::Duration::days(90);
+}
+
+#[tokio::test]
+async fn prune_requires_admin() {
+    let harness =
+        build_harness_with_devices(vec![stale_device(DEVICE_ID_1, MAC_1, "192.168.1.10")]);
+
+    // Anonymous, and as the device itself: neither may trigger a prune.
+    let result = harness.svc.prune_unmanaged_devices().await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+
+    let result =
+        auth_context::with_context(device_ctx(MAC_1), harness.svc.prune_unmanaged_devices()).await;
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
+
+    // And nothing was deleted while we were checking.
+    assert_eq!(harness.repo.find_all().await.unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn prune_deletes_stale_unmanaged_and_keeps_the_rest() {
+    let mut managed_stale = stale_device(DEVICE_ID_2, MAC_2, "192.168.1.11");
+    managed_stale.managed = true;
+
+    let harness = build_harness_with_devices(vec![
+        stale_device(DEVICE_ID_1, MAC_1, "192.168.1.10"),
+        managed_stale,
+        // Unmanaged but seen recently — `sample_device`'s own timestamp is
+        // inside the window relative to nothing, so stamp it explicitly.
+        {
+            let mut d = sample_device(DEVICE_ID_3, MAC_3, "192.168.1.12");
+            d.last_seen = chrono::Utc::now();
+            d
+        },
+    ]);
+
+    assert_eq!(harness.prune_unmanaged_devices().await.unwrap(), 1);
+
+    let remaining: Vec<String> = harness
+        .repo
+        .find_all()
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|d| d.id.to_string())
+        .collect();
+    assert!(!remaining.contains(&DEVICE_ID_1.to_owned()));
+    assert!(
+        remaining.contains(&DEVICE_ID_2.to_owned()),
+        "managed is exempt at any age"
+    );
+    assert!(
+        remaining.contains(&DEVICE_ID_3.to_owned()),
+        "recent is exempt"
+    );
+}
+
+/// The load-bearing test.
+///
+/// Deleting the row without evicting the MAC from `state` leaves the entry
+/// behind with `gone = true`. The next observation then takes the `Reappear`
+/// arm carrying a dangling `device_id`, `update_last_seen_and_ip` matches zero
+/// rows and returns `Ok(())` **silently**, and `handle_unknown_mac` is never
+/// reached — so the device is never re-inserted. It becomes invisible in the UI
+/// while its traffic flows unattributed, until the daemon restarts.
+///
+/// Observing the MAC after a prune must therefore yield `NewDevice`, not
+/// `Reappeared`.
+#[tokio::test]
+async fn prune_evicts_pruned_mac_from_memory_so_it_is_rediscovered_not_resurrected() {
+    let harness =
+        build_harness_with_devices(vec![stale_device(DEVICE_ID_1, MAC_1, "192.168.1.10")]);
+
+    // Populate the in-memory maps the way a running daemon would: restore
+    // marks every device gone, and an observation registers live tracking.
+    harness.restore_devices().await.unwrap();
+    harness
+        .process_observation(&sample_observation(MAC_1, "192.168.1.10"))
+        .await
+        .unwrap();
+    // The observation legitimately refreshed `last_seen`, so age the row again
+    // — the point of this test is the eviction, not the predicate.
+    age_out(&harness, DEVICE_ID_1);
+
+    assert_eq!(harness.prune_unmanaged_devices().await.unwrap(), 1);
+
+    let result = harness
+        .process_observation(&sample_observation(MAC_1, "192.168.1.10"))
+        .await
+        .unwrap();
+
+    assert!(
+        matches!(result, ObservationResult::NewDevice { .. }),
+        "a pruned MAC must be rediscovered as new, not resurrected as a ghost \
+         pointing at a deleted row; got {result:?}"
+    );
+
+    // And the re-insert really happened, rather than the silent zero-row update.
+    assert!(harness.repo.find_by_mac(MAC_1).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn prune_repo_error_propagates_as_internal_and_evicts_nothing() {
+    let harness =
+        build_harness_with_devices(vec![stale_device(DEVICE_ID_1, MAC_1, "192.168.1.10")]);
+    harness.restore_devices().await.unwrap();
+    harness
+        .process_observation(&sample_observation(MAC_1, "192.168.1.10"))
+        .await
+        .unwrap();
+    age_out(&harness, DEVICE_ID_1);
+
+    harness
+        .repo
+        .fail_delete_unmanaged
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let result = harness.prune_unmanaged_devices().await;
+    assert!(matches!(result, Err(AppError::Internal(_))));
+
+    // The row survived, so the in-memory entry must survive with it — evicting
+    // on a failed delete would produce the mirror-image bug: a live device
+    // re-inserted as a duplicate row under a MAC that already has one.
+    harness
+        .repo
+        .fail_delete_unmanaged
+        .store(false, std::sync::atomic::Ordering::SeqCst);
+    let result = harness
+        .process_observation(&sample_observation(MAC_1, "192.168.1.10"))
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            result,
+            ObservationResult::Seen(_) | ObservationResult::Reappeared(_)
+        ),
+        "the device is still tracked; got {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn prune_with_nothing_to_delete_is_a_no_op() {
+    let harness =
+        build_harness_with_devices(vec![sample_device(DEVICE_ID_1, MAC_1, "192.168.1.10")]);
+    // `sample_device`'s last_seen is a fixed past date, so pin it inside the
+    // window explicitly rather than depending on when the suite runs.
+    harness.repo.devices.lock().unwrap()[0].last_seen = chrono::Utc::now();
+
+    assert_eq!(harness.prune_unmanaged_devices().await.unwrap(), 0);
+    assert_eq!(harness.repo.find_all().await.unwrap().len(), 1);
+}
+
+// ── Managed promotion (issue #1181) ──────────────────────────────────────────
+
+#[tokio::test]
+async fn admin_rename_promotes_the_device_to_managed() {
+    let device = sample_device(DEVICE_ID_1, MAC_1, "192.168.1.10");
+    let id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+    assert!(
+        !h.repo
+            .find_by_id(&id.to_string())
+            .await
+            .unwrap()
+            .unwrap()
+            .managed
+    );
+
+    auth_context::with_context(
+        admin_ctx(),
+        h.svc.update_device(id, Some("Living Room TV"), None),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        h.repo
+            .find_by_id(&id.to_string())
+            .await
+            .unwrap()
+            .unwrap()
+            .managed
+    );
+}
+
+#[tokio::test]
+async fn a_device_renaming_itself_does_not_promote_it() {
+    // The exclusion the whole feature depends on. `update_device` is
+    // `require_authenticated`, so a device may rename itself — and a guest
+    // doing that is the device asking, not the admin deciding. Promoting here
+    // would make every guest phone permanently exempt from retention.
+    let device = sample_device(DEVICE_ID_1, MAC_1, "192.168.1.10");
+    let id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    auth_context::with_context(
+        device_ctx(MAC_1),
+        h.svc.update_device(id, Some("My Phone"), None),
+    )
+    .await
+    .unwrap();
+
+    let stored = h.repo.find_by_id(&id.to_string()).await.unwrap().unwrap();
+    assert_eq!(
+        stored.name,
+        Some("My Phone".to_owned()),
+        "the rename lands..."
+    );
+    assert!(!stored.managed, "...but it does not promote");
+}
+
+#[tokio::test]
+async fn a_blank_name_clears_the_name_to_null() {
+    // An empty string would persist as a name that renders as no label while
+    // still counting as named — the ambiguity `managed` exists to remove — and
+    // the release handler needs a way to genuinely unname a device.
+    let mut device = sample_device(DEVICE_ID_1, MAC_1, "192.168.1.10");
+    device.name = Some("Living Room TV".to_owned());
+    let id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    auth_context::with_context(admin_ctx(), h.svc.update_device(id, Some("   "), None))
+        .await
+        .unwrap();
+
+    let stored = h.repo.find_by_id(&id.to_string()).await.unwrap().unwrap();
+    assert_eq!(stored.name, None);
+}
+
+#[tokio::test]
+async fn omitting_the_name_still_preserves_it() {
+    // Guard against the blank-clears-it rule above swallowing the existing
+    // partial-update contract: `None` means "leave the name alone", and is
+    // distinct from `Some("")`.
+    let mut device = sample_device(DEVICE_ID_1, MAC_1, "192.168.1.10");
+    device.name = Some("Living Room TV".to_owned());
+    let id = device.id;
+    let h = build_harness_with_devices(vec![device]);
+
+    auth_context::with_context(
+        admin_ctx(),
+        h.svc.update_device(id, None, Some(DeviceType::Tv)),
+    )
+    .await
+    .unwrap();
+
+    let stored = h.repo.find_by_id(&id.to_string()).await.unwrap().unwrap();
+    assert_eq!(stored.name, Some("Living Room TV".to_owned()));
 }

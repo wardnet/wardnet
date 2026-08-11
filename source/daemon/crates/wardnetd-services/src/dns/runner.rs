@@ -147,15 +147,11 @@ async fn runner_loop(
                     Ok(WardnetEvent::DnsLocalChanged { domain, .. }) => {
                         let view = build_authoritative_view(&dns_local, &admin_ctx).await;
                         server.update_authoritative_view(view).await;
-                        if let Some(ref d) = domain {
-                            server.invalidate_domain(d).await;
-                            tracing::debug!(
-                                domain = %d,
-                                "rebuilt authoritative view and evicted domain cache"
-                            );
-                        } else {
-                            tracing::debug!("rebuilt authoritative view (zone-level change)");
-                        }
+                        server.invalidate_subtree(&domain).await;
+                        tracing::debug!(
+                            domain = %domain,
+                            "rebuilt authoritative view and evicted domain subtree from cache"
+                        );
                     }
                     Ok(_) => {}
                     Err(broadcast::error::RecvError::Lagged(n)) => {

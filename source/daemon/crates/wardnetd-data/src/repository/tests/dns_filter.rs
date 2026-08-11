@@ -988,3 +988,39 @@ async fn import_dedupes_and_counts_stored_rows() {
     );
     assert_eq!(repo.load_blocklist_domains(target).await.unwrap().len(), 2);
 }
+
+/// The domains table must stay `WITHOUT ROWID`.
+///
+/// It is the largest object in the database by a wide margin, and it is
+/// nothing but its primary key — so an implicit rowid stores every row twice,
+/// once in the table btree and once in the PK autoindex. Measured at 37% of
+/// the table's total footprint, ~186 MB at the 2.4M rows a threat-intel feed
+/// brings. A migration that recreates this table without the clause would
+/// hand that back silently, and it would also break
+/// `delete_domains_in_batches`, which identifies rows by the primary key
+/// precisely because there is no rowid to identify them by.
+#[tokio::test]
+async fn blocked_domains_table_is_without_rowid() {
+    let pool = test_pool().await;
+
+    let sql: String = sqlx::query_scalar(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' \
+         AND name = 'dns_filter_blocked_domains'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        sql.to_uppercase().contains("WITHOUT ROWID"),
+        "dns_filter_blocked_domains must be WITHOUT ROWID, got: {sql}"
+    );
+
+    // The property the batched delete depends on, stated directly.
+    let has_rowid = sqlx::query_scalar::<_, i64>("SELECT rowid FROM dns_filter_blocked_domains")
+        .fetch_optional(&pool)
+        .await;
+    assert!(
+        has_rowid.is_err(),
+        "a WITHOUT ROWID table must not expose a rowid"
+    );
+}

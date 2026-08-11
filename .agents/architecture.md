@@ -155,16 +155,17 @@ Authoritative answers fully short-circuit the pipeline (no cache store, no filte
 
 ### Event-driven rebuild
 
-`DnsLocalServiceImpl` publishes `WardnetEvent::DnsLocalChanged` after every mutation:
-- Zone mutations set `domain: None` — triggers a full view rebuild, no per-domain eviction.
-- Record and forwarding-rule mutations set `domain: Some(domain)` — triggers a view rebuild **and** evicts that domain from the DNS response cache.
+`DnsLocalServiceImpl` publishes `WardnetEvent::DnsLocalChanged` after every mutation. `domain` carries the **subtree the change governs** — the zone name for a zone mutation, the record or rule domain otherwise — and a mutation that moves a domain (a rename) emits twice, once for the vacated name and once for the claimed one.
 
-`DnsRunner` handles `DnsLocalChanged` by calling `DnsServer::update_authoritative_view` (atomic ArcSwap swap) and, if `domain` is `Some`, `DnsServer::invalidate_domain`.
+`DnsRunner` handles the event by calling `DnsServer::update_authoritative_view` (atomic ArcSwap swap) and `DnsServer::invalidate_subtree`.
+
+Eviction is **subtree-scoped**, not exact-name (issue #1184). Every form of local DNS applies to a whole subtree — a forwarding rule and an authoritative zone match by suffix, a wildcard record covers everything below its suffix — while the cache is consulted *before* any of them (step 1, ahead of the step-3 forward). Evicting only the exact name therefore left every already-cached subdomain resolving the old way until its TTL expired, so a new forwarding rule looked stored, enabled, and correct in the UI while doing nothing to the names that motivated it. A wildcard domain (`*.suffix`) evicts its suffix subtree; over-eviction costs one re-resolution, under-eviction costs correctness.
 
 ### Background runners call auth-gated services, never repositories
 
 Background runners (`DnsRunner`, `DnsFilterRunner`, `DnsQueryLogRunner`,
-`DbMaintenanceRunner`, `DhcpLanRunner`) hold `Arc<dyn *Service>` trait
+`DbMaintenanceRunner`, `DeviceRetentionRunner`, `DhcpLanRunner`) hold
+`Arc<dyn *Service>` trait
 objects, **not** repository handles. Each runs its service calls under an
 admin auth context:
 
@@ -509,5 +510,64 @@ path — so idempotent by construction) publishes a dedicated
 `is_default_for_new` at a restrictive Guest zone (the #735 lever). Approve =
 existing `PUT /api/devices/{id}/zone`. Note `DeviceDiscovered` is **not** a
 valid first-ever signal (it also fires on every reconnect).
+
+## Managed devices + retention subsystem (issue #1181)
+
+See [ADR 0032](../docs/adr/0032-managed-devices-and-retention.md) for the
+reasoning; this is the shape.
+
+`devices.managed` is an explicit, latching column — **never** derived from
+`name`. It is promoted by any *admin* configuration act and cleared only by an
+explicit release. That gives the invariant everything else rests on:
+
+> `managed = 0` implies no admin artefacts exist for this device.
+
+which is why `DeviceRetentionRunner` can delete an unmanaged row without
+checking anything else.
+
+### Promotion
+
+Routed through `DeviceService::mark_managed` (per the
+single-service-per-repository rule) from `PrivateDnsService::grant_device`,
+`InboundWgService::add_peer`, and `RoutingProfileService::set_device_profiles`.
+Services that already hold `DeviceRepository` directly — `dhcp`,
+`network_zone`, `zone_exception`, `dns_filter` — call `set_managed` on it
+rather than acquiring a second handle; do not extend those holdings to new
+services.
+
+Two call sites are reachable by a **non-admin** caller and gate promotion on
+the auth context, not on the write succeeding:
+`DeviceDiscoveryService::update_device` (a device may rename itself) and
+`DeviceService::set_rule` (a device may set its own routing). Promoting there
+would make every guest device permanently exempt from retention.
+
+**Adding a new per-device table? Decide whether it promotes.** If an admin
+creates the row, it must — otherwise the prune will cascade it away 30 days
+after the device was last seen, silently.
+
+### Release (`POST /api/devices/{id}/release`)
+
+Lives in `wardnetd-api/src/api/devices.rs`, **not** in `DeviceService`, and
+that is forced: `InboundWgServiceImpl` and `PrivateDnsServiceImpl` both hold
+`Arc<dyn DeviceService>`, so the reverse edge would be an `Arc` cycle and a
+construction-order deadlock.
+
+It reverts every artefact and sets `managed = 0` **last**, so a partial failure
+leaves the device still managed — never half-released with a live credential it
+is no longer recorded as owning. Every step is idempotent, so a retry
+completes.
+
+### Prune (`DeviceDiscoveryService::prune_unmanaged_devices`)
+
+Lives on the *discovery* service because deleting the row is only half the job.
+**Delete first, then evict from memory, holding `lock_for_mac(mac)` across
+both.** Skipping the eviction leaves the pruned MAC in `state` with
+`gone = true`, so the next observation takes the `Reappear` arm with a dangling
+`device_id`; `update_last_seen_and_ip` then matches zero rows and returns
+`Ok(())` silently, `handle_unknown_mac` is never reached, and the device is
+invisible in the UI while its traffic flows unattributed until restart.
+Evicting first is wrong the other way — an observation in the window re-inserts
+from the not-yet-deleted row. Also evicts `ip_history` and `device_locks`,
+which nothing bounded before.
 
 [`NetworkZone`]: ../source/daemon/crates/wardnet-common/src/network_zone.rs

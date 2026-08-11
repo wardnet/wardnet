@@ -174,11 +174,14 @@ pub enum WardnetEvent {
         timestamp: DateTime<Utc>,
     },
     /// A local DNS zone, custom record, or forwarding rule was created,
-    /// updated, or deleted. `domain` is set for record and rule mutations
-    /// (the specific domain that changed); `None` for zone mutations
-    /// (which require a view rebuild but no per-domain cache eviction).
+    /// updated, or deleted. `domain` is the subtree the change governs — the
+    /// record or rule domain, or the zone name for a zone mutation. Every
+    /// one of those is applied to the whole subtree below the name, so
+    /// subscribers evict their caches the same way (issue #1184). A mutation
+    /// that moves a domain emits twice, once for the old name and once for
+    /// the new.
     DnsLocalChanged {
-        domain: Option<String>,
+        domain: String,
         timestamp: DateTime<Utc>,
     },
     /// Private DNS state changed: the feature was enabled or disabled, or a

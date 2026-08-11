@@ -68,6 +68,7 @@ use wardnetd_services::auth::SessionCleanupRunner;
 use wardnetd_services::cloud::TunnelerRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::ddns::runner::DdnsUpdateRunner;
+use wardnetd_services::device::DeviceRetentionRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::dhcp_lan_runner::DhcpLanRunner;
@@ -906,6 +907,13 @@ async fn run(
     let db_maintenance_runner =
         DbMaintenanceRunner::start(services.maintenance.clone(), &root_span);
 
+    // Delete unmanaged devices absent for over 30 days, once per day (#1181).
+    // Only unmanaged devices are eligible — `managed = false` implies no admin
+    // artefacts reference the device — so this can never revoke a working
+    // configuration.
+    let device_retention_runner =
+        DeviceRetentionRunner::start(services.discovery.clone(), &root_span);
+
     // Settle any `update_pending_version` marker left behind by an install
     // that restarted us. Must run before the update runner's first check so a
     // status poll never observes a version still "pending" that is in fact
@@ -1323,6 +1331,7 @@ async fn run(
     dns_query_log_runner.shutdown().await;
     dns_capture_runner.shutdown().await;
     db_maintenance_runner.shutdown().await;
+    device_retention_runner.shutdown().await;
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;
     stats_flush_runner.shutdown().await;
@@ -1637,21 +1646,31 @@ fn init_tracing(
         // only systemd's own start/stop lines, and every daemon-side problem is
         // invisible unless someone knows to read the rotating file.
         //
-        // Level alone is not the filter. WARN is not a reliable "an operator
-        // should look at this" signal here: on a live gateway 97% of WARN+
-        // events are one-per-failed-lookup noise from the DNS recursor, so a
-        // plain `LevelFilter::WARN` would push ~30k lines/day into the journal
-        // and bury the ~30 that matter. `journal_suppressed_targets` carries
-        // the exclusions; see its doc comment for the measurements.
+        // Level alone is not the filter, in either direction. WARN is not a
+        // reliable "an operator should look at this" signal here: on a live
+        // gateway 97% of WARN+ events are one-per-failed-lookup noise from the
+        // DNS recursor, so a plain `LevelFilter::WARN` would push ~30k lines/day
+        // into the journal and bury the ~30 that matter. Nor is it a reliable
+        // "nothing to see here" signal: the daily maintenance sequence reports
+        // success at INFO, so a journal filtered on level alone looks identical
+        // whether that sequence ran or silently stopped running.
+        // `journal_suppressed_targets` carries the exclusions and
+        // `journal_info_targets` the inclusions; see their doc comments.
         //
         // ANSI off: journald stores the bytes verbatim, and escape codes make
         // `journalctl` output and log greps unreadable.
         let journal_suppressed = config.logging.journal_suppressed_targets.clone();
+        let journal_info = config.logging.journal_info_targets.clone();
         let stderr_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
             .with_ansi(false)
             .with_filter(FilterFn::new(move |meta| {
-                LoggingConfig::journal_allows(*meta.level(), meta.target(), &journal_suppressed)
+                LoggingConfig::journal_allows(
+                    *meta.level(),
+                    meta.target(),
+                    &journal_suppressed,
+                    &journal_info,
+                )
             }));
         registry.with(file_layer).with(stderr_layer).init();
     }

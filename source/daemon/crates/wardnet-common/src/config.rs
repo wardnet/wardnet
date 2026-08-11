@@ -266,6 +266,25 @@ pub struct LoggingConfig {
     /// other units' logs and burying the ~30 genuinely actionable events
     /// (routing/route-monitor/sqlx) they are supposed to make visible.
     pub journal_suppressed_targets: Vec<String>,
+    /// Tracing targets whose INFO events are mirrored to stderr (and therefore
+    /// into journald) alongside the WARN-and-above slice.
+    ///
+    /// Matched as a prefix, exactly like [`Self::journal_suppressed_targets`],
+    /// which takes precedence when a target appears in both.
+    ///
+    /// The journal slice is otherwise WARN-and-above, on the reasoning that
+    /// anything an operator has to act on is at least a warning. Periodic
+    /// housekeeping breaks that assumption: a run that reclaims nothing and a
+    /// run that never happened both emit no warning, so a healthy-looking
+    /// journal is exactly what a stalled maintenance job produces. The only
+    /// evidence that separates the two is the successful-run record — an INFO
+    /// event by every other measure.
+    ///
+    /// Membership is therefore reserved for targets that emit a bounded,
+    /// countable number of INFO events per day. The two here run once per
+    /// calendar day and log a single summary line each; anything per-request or
+    /// per-query belongs in the log file, not the journal.
+    pub journal_info_targets: Vec<String>,
 }
 
 impl Default for LoggingConfig {
@@ -297,34 +316,66 @@ impl Default for LoggingConfig {
                 "hickory_resolver".to_owned(),
                 "wardnetd::dns::pipeline".to_owned(),
             ],
+            // The daily database maintenance sequence (incremental vacuum, WAL
+            // checkpoint, `PRAGMA optimize`) and the daily query-log retention
+            // pass. Four INFO lines per day between them, and they are the only
+            // record that the housekeeping which keeps the database from
+            // growing without bound actually ran.
+            journal_info_targets: vec![
+                "wardnetd_services::db_maintenance_runner".to_owned(),
+                "wardnetd_services::dns::query_log_runner".to_owned(),
+            ],
         }
     }
+}
+
+/// Whether `target` starts with any entry in `prefixes`.
+///
+/// Empty entries are skipped: an empty prefix matches every target, so a
+/// stray `""` in either list would turn a targeted rule into a blanket one —
+/// never what a config typo means to say.
+fn has_prefix(target: &str, prefixes: &[String]) -> bool {
+    prefixes
+        .iter()
+        .any(|p| !p.is_empty() && target.starts_with(p.as_str()))
 }
 
 impl LoggingConfig {
     /// Whether an event at `level` from `target` belongs in the slice mirrored
     /// to stderr, and so into journald.
     ///
-    /// `suppressed` holds target **prefixes** (normally
-    /// [`Self::journal_suppressed_targets`]), so `hickory_resolver` also covers
-    /// `hickory_resolver::recursor::handle`. Suppression applies at WARN only —
-    /// ERROR always passes, whatever the target.
+    /// Both lists hold target **prefixes**, so `hickory_resolver` also covers
+    /// `hickory_resolver::recursor::handle`:
     ///
-    /// Level alone is not the filter, because WARN is not a dependable "an
-    /// operator should look at this" signal here — see
+    /// * `suppressed` (normally [`Self::journal_suppressed_targets`]) drops
+    ///   WARN events that would otherwise pass. ERROR always passes, whatever
+    ///   the target.
+    /// * `info_targets` (normally [`Self::journal_info_targets`]) raises INFO
+    ///   events that would otherwise be dropped, for the handful of daily
+    ///   housekeeping summaries whose *absence* is the thing worth noticing.
+    ///
+    /// `suppressed` wins when a target appears in both — a deny-list entry is
+    /// the more specific statement of intent, and the alternative silently
+    /// re-admits exactly what an operator asked to be rid of.
+    ///
+    /// Level alone is not the filter in either direction, because WARN is not a
+    /// dependable "an operator should look at this" signal here — see
     /// [`Self::journal_suppressed_targets`] for the measured breakdown.
     ///
     /// Lives here rather than next to the subscriber setup in `wardnetd`: that
     /// crate is Linux-only (it links netlink), so a predicate defined there
     /// cannot be unit-tested on a developer machine.
     #[must_use]
-    pub fn journal_allows(level: tracing::Level, target: &str, suppressed: &[String]) -> bool {
+    pub fn journal_allows(
+        level: tracing::Level,
+        target: &str,
+        suppressed: &[String],
+        info_targets: &[String],
+    ) -> bool {
         // `tracing`'s `Level` ordering runs ERROR < WARN < INFO < DEBUG <
         // TRACE, so `<=` reads as "at least this severe".
-        if level > tracing::Level::WARN {
-            return false;
-        }
-        // Suppression applies to WARN only. The list targets crates that log
+        //
+        // ERROR is unconditional. The suppression list targets crates that log
         // one WARN per failed DNS lookup; an ERROR from those same crates is a
         // different animal and rare enough to be worth seeing — across seven
         // days of production logs the daemon emitted no ERROR events at all,
@@ -332,9 +383,13 @@ impl LoggingConfig {
         if level <= tracing::Level::ERROR {
             return true;
         }
-        !suppressed
-            .iter()
-            .any(|prefix| target.starts_with(prefix.as_str()))
+        if level > tracing::Level::INFO {
+            return false;
+        }
+        if has_prefix(target, suppressed) {
+            return false;
+        }
+        level <= tracing::Level::WARN || has_prefix(target, info_targets)
     }
 
     /// Build an `EnvFilter`-compatible directive string from this config.

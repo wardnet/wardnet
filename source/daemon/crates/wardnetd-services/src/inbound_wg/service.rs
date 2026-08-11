@@ -573,14 +573,19 @@ impl InboundWgService for InboundWgServiceImpl {
             )));
         }
 
-        // Only a *managed* device — one an admin has named — can be granted
-        // remote access; a bare discovered device must be adopted (named)
-        // first. The admin UI filters unmanaged devices out of the picker, so
-        // this is defense-in-depth. The peer's user-facing label is that
-        // admin-set name (never a free-text param).
+        // A peer's user-facing label is the device's admin-set name (never a
+        // free-text param), so a device must be named before it can be granted
+        // remote access.
+        //
+        // This is a *naming* requirement, not a managed-state one. Since #1181
+        // those are separate: `managed` is its own column, and granting remote
+        // access is itself one of the acts that promotes a device to managed
+        // (below) — so requiring `managed` here would be circular. The admin UI
+        // filters nameless devices out of the picker, making this
+        // defense-in-depth.
         let Some(name) = device.name.clone() else {
             return Err(AppError::Conflict(format!(
-                "device {device_id} is unmanaged - name (adopt) it before granting remote access"
+                "device {device_id} has no name - name it before granting remote access"
             )));
         };
 
@@ -633,6 +638,17 @@ impl InboundWgService for InboundWgServiceImpl {
             }
             return Err(AppError::Internal(error));
         }
+
+        // Issuing a Remote peer credential is an admin configuration act, so
+        // the device becomes managed and thereby exempt from the retention
+        // prune (issue #1181). Promotion comes after the interface accepted the
+        // peer, so the compensating rollback above doesn't leave a device
+        // marked managed for a credential that never existed.
+        //
+        // A roaming device is precisely the one that stays off the LAN longest,
+        // so without this the prune would cascade its `inbound_wg_peers` row
+        // away 30 days later and silently revoke its remote access.
+        self.devices.mark_managed(&device_id.to_string()).await?;
 
         // Assemble the full client config server-side (the private key never
         // leaves this method's memory otherwise). The server public key is the

@@ -126,7 +126,12 @@ describe("Devices", () => {
     useDevices.mockReturnValue({
       data: {
         devices: [
-          makeDevice({ id: "d1", name: "Managed", last_seen: recent }),
+          makeDevice({
+            id: "d1",
+            name: "Managed",
+            managed: true,
+            last_seen: recent,
+          }),
           makeDevice({ id: "d2", name: null, last_seen: "not-a-date" }),
           makeDevice({ id: "d3", name: null, last_seen: undefined }),
         ],
@@ -179,6 +184,7 @@ describe("Devices", () => {
           makeDevice({
             id: "d1",
             name: "Alpha",
+            managed: true,
             hostname: "alpha",
             last_ip: "10.0.0.1",
             last_seen: recent,
@@ -186,6 +192,7 @@ describe("Devices", () => {
           makeDevice({
             id: "d2",
             name: null,
+            managed: false,
             hostname: "beta",
             mac: "11:22:33:44:55:66",
             last_ip: "10.0.0.2",
@@ -272,8 +279,14 @@ describe("Devices — the dead-end help must not fire on a present device", () =
     useDevices.mockReturnValue({
       data: {
         devices: [
-          // Unmanaged: name is null, so the "managed" group excludes it.
-          makeDevice({ id: "d0", mac: "5c:e7:53:4e:ec:db", name: null }),
+          // Unmanaged, so the "managed" group excludes it. Since #1181 that
+          // is the server's `managed` flag, not an inference from `name`.
+          makeDevice({
+            id: "d0",
+            mac: "5c:e7:53:4e:ec:db",
+            name: null,
+            managed: false,
+          }),
         ],
       },
       isLoading: false,
@@ -295,13 +308,15 @@ describe("Devices — the dead-end help must not fire on a present device", () =
 
   it("shows the plain filter message when nothing is searched", async () => {
     useDevices.mockReturnValue({
-      data: { devices: [makeDevice({ id: "d0", name: "Named" })] },
+      data: {
+        devices: [makeDevice({ id: "d0", name: "Named", managed: true })],
+      },
       isLoading: false,
       isError: false,
     });
     renderWithProviders(<Devices />);
 
-    // "Unmanaged" excludes the only (named) device, with no search active.
+    // "Unmanaged" excludes the only (managed) device, with no search active.
     await userEvent.click(screen.getByText("group-unmanaged-0"));
 
     expect(

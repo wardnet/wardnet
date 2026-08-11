@@ -321,8 +321,17 @@ async fn startup_vacuum_skip_line_names_the_freelist_and_threshold() {
         logs.contains("under threshold (25000); skipping VACUUM"),
         "skip line must name the freelist threshold, got: {logs}"
     );
+    // The observed count is named, not merely attached as a field. Parsed
+    // rather than compared against a literal: migrations that drop a table
+    // leave pages on the freelist of a fresh database, so the figure is an
+    // artefact of the current migration set — what matters is that the line
+    // reports it and that it is genuinely under the threshold.
+    let freelist = logs
+        .split_once("freelist (")
+        .and_then(|(_, rest)| rest.split_once(')'))
+        .and_then(|(n, _)| n.parse::<i64>().ok());
     assert!(
-        logs.contains("freelist (0)"),
+        matches!(freelist, Some(n) if n < 25_000),
         "skip line must name the observed freelist, got: {logs}"
     );
 

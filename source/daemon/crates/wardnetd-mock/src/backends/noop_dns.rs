@@ -52,5 +52,5 @@ impl DnsServer for NoopDnsServer {
 
     async fn update_authoritative_view(&self, _view: wardnetd_services::dns::AuthoritativeView) {}
 
-    async fn invalidate_domain(&self, _domain: &str) {}
+    async fn invalidate_subtree(&self, _domain: &str) {}
 }

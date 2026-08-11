@@ -49,6 +49,25 @@ export class DeviceService {
     return this.api.put("/devices/{id}", { path: { id }, body });
   }
 
+  /**
+   * Stop managing a device — revert every admin-set configuration to default
+   * and return it to unmanaged (admin only, issue #1181).
+   *
+   * **Destructive.** This revokes the device's Private-DNS grant and its
+   * Remote peer credential, disconnecting it. It also clears the device's
+   * name, admin lock, DNS capture, routing rule and profiles, DNS-filter
+   * settings, DHCP reservation, and zone exceptions, and returns it to the
+   * default-for-new zone.
+   *
+   * Once unmanaged the device becomes subject to device retention and is
+   * deleted after 30 days away. Idempotent: a retry after a partial failure
+   * completes, and a failure part-way leaves the device still managed rather
+   * than half-released.
+   */
+  async release(id: string): Promise<DeviceDetailResponse> {
+    return this.api.post("/devices/{id}/release", { path: { id } });
+  }
+
   /** Get DNS capture settings and storage stats for a device (admin only). */
   async getDnsCaptureSettings(id: string): Promise<DnsCaptureSettingsResponse> {
     return this.api.get("/devices/{id}/dns-capture", { path: { id } });

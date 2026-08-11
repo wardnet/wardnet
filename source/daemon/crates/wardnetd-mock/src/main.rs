@@ -43,6 +43,7 @@ use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
 use wardnetd_services::anomaly::{AnomaliesDetectionEngine, AnomalyListener};
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
+use wardnetd_services::device::DeviceRetentionRunner;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::HttpBlocklistFetcher;
@@ -436,6 +437,12 @@ async fn run(
     let db_maintenance_runner =
         DbMaintenanceRunner::start(services.maintenance.clone(), &tracing::Span::current());
 
+    // Device retention (#1181). Runs here too so the mock daemon exercises the
+    // same day-rollover path as production; with a fresh mock DB there is never
+    // anything 30 days stale to delete, so it is a no-op in practice.
+    let device_retention_runner =
+        DeviceRetentionRunner::start(services.discovery.clone(), &tracing::Span::current());
+
     // Drain the in-memory stats buffer into stats_intraday so the fake DNS
     // queries emitted by FakeEventEmitter show up in the live stats charts.
     // Use a 5-minute maintenance interval (vs 1 h in production) and no
@@ -514,6 +521,7 @@ async fn run(
     dns_query_log_runner.shutdown().await;
     dns_capture_runner.shutdown().await;
     db_maintenance_runner.shutdown().await;
+    device_retention_runner.shutdown().await;
     stats_flush_runner.shutdown().await;
 
     Ok(())

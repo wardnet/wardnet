@@ -179,11 +179,30 @@ fn me_device() -> Device {
         dns_capture_cap_count: 0,
         dns_capture_cap_days: 0,
         connection_mode: DeviceConnectionMode::Lan,
+        managed: false,
     }
 }
 
 #[async_trait]
 impl DeviceService for MeDeviceService {
+    async fn clear_rule(&self, _device_id: &str) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn mark_managed(
+        &self,
+        _device_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn clear_managed(
+        &self,
+        _device_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
     async fn get_device_for_ip(&self, _ip: &str) -> Result<DeviceMeResponse, AppError> {
         Ok(DeviceMeResponse {
             device: self.known.then(me_device),

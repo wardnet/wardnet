@@ -52,6 +52,21 @@ struct MockDeviceRepo {
 
 #[async_trait]
 impl DeviceRepository for MockDeviceRepo {
+    async fn delete_rule_for_device(&self, _device_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn set_managed(&self, _id: &str, _managed: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn delete_unmanaged_before(
+        &self,
+        _cutoff: &str,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
+        Ok(Vec::new())
+    }
+
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>> {
         Ok(self.devices.iter().find(|d| d.last_ip == ip).cloned())
     }
@@ -958,6 +973,7 @@ fn sample_device(id: Uuid, ip: &str) -> Device {
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
         connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
+        managed: false,
     }
 }
 

@@ -134,6 +134,16 @@ you're about to make, rather than the whole set.
   Also why **per-entity errors are anomalies, not columns**: an open anomaly
   whose `subject_id` is a tunnel *is* that tunnel's current error, so there is
   no `tunnels.last_error`.
+- **[Managed devices + retention](.agents/architecture.md#managed-devices--retention-subsystem-issue-1181)** —
+  `devices.managed` as an explicit **latching** column (never derived from
+  `name`), promoted by any *admin* configuration act and cleared only by an
+  explicit **release**; the `DeviceRetentionRunner` that deletes unmanaged
+  devices absent over 30 days; why the release orchestration lives in the API
+  handler (an `Arc` cycle with `InboundWgService` / `PrivateDnsService`); and
+  why the prune must **delete then evict** the MAC from discovery's in-memory
+  maps. Invariant: **`managed = 0` implies no admin artefacts exist**, which is
+  what makes the prune safe. A new per-device table must decide whether it
+  promotes. See [ADR 0032](docs/adr/0032-managed-devices-and-retention.md).
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

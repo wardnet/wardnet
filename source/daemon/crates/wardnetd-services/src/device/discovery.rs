@@ -33,6 +33,16 @@ struct DeviceMemoryState {
     gone: bool,
 }
 
+/// How long an unmanaged device may stay absent before its row is deleted.
+///
+/// Hard-coded rather than configurable, matching the existing retention
+/// precedent (`INTRADAY_RETENTION`, `NOTIFICATION_RETENTION_CAP`). Issue #1181
+/// asked for a configurable TTL; that deviation is deliberate and recorded in
+/// `docs/adr/0032-managed-devices-and-retention.md`.
+///
+/// Managed devices are exempt at any age.
+pub const DEVICE_RETENTION_DAYS: i64 = 30;
+
 /// How far back the IP-flap detector looks.
 const FLAP_WINDOW: std::time::Duration = std::time::Duration::from_mins(1);
 
@@ -193,6 +203,21 @@ pub trait DeviceDiscoveryService: Send + Sync {
         device_id: Uuid,
         timeout: std::time::Duration,
     ) -> Result<Option<Uuid>, AppError>;
+
+    /// Delete unmanaged devices absent for longer than
+    /// [`DEVICE_RETENTION_DAYS`], returning how many rows were removed.
+    ///
+    /// Only unmanaged devices are eligible, which is what makes the delete
+    /// safe: `managed = false` implies no admin artefact references the device
+    /// (see [`crate::device::service::DeviceService::mark_managed`]). Managed
+    /// devices are never auto-deleted at any age.
+    ///
+    /// Lives on the discovery service rather than [`DeviceService`] because
+    /// deleting the row is only half the job — the device must also be evicted
+    /// from this service's in-memory maps, which nothing else can reach.
+    ///
+    /// [`DeviceService`]: crate::device::service::DeviceService
+    async fn prune_unmanaged_devices(&self) -> Result<u64, AppError>;
 }
 
 /// Default implementation of [`DeviceDiscoveryService`].
@@ -1055,6 +1080,13 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             .to_owned();
 
         let name_to_write = match name {
+            // An explicitly blank name means "clear it", stored as NULL. An
+            // empty string would otherwise persist as a name that renders as no
+            // label at all while still counting as named — the ambiguity the
+            // `managed` column was introduced to remove (#1181), and the state
+            // the release handler needs in order to actually unname a device.
+            // Distinct from `None`, which means "leave the name alone".
+            Some(n) if n.trim().is_empty() => None,
             Some(n) => Some(n),
             None => current
                 .as_ref()
@@ -1067,6 +1099,18 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             .update_name_and_type(&id.to_string(), name_to_write, &type_str)
             .await
             .map_err(AppError::Internal)?;
+
+        // Promote to managed — but only for an ADMIN rename. This method is
+        // also the self-service path (`require_authenticated`, above, admits an
+        // `AuthContext::Device` renaming itself); a device naming itself is the
+        // device asking, not the admin deciding, and promoting on it would make
+        // every guest device permanently exempt from retention.
+        if matches!(ctx, AuthContext::Admin { .. }) {
+            self.devices
+                .set_managed(&id.to_string(), true)
+                .await
+                .map_err(AppError::Internal)?;
+        }
 
         self.devices
             .find_by_id(&id.to_string())
@@ -1223,5 +1267,76 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             }
             None => Ok(None),
         }
+    }
+
+    async fn prune_unmanaged_devices(&self) -> Result<u64, AppError> {
+        auth_context::require_admin()?;
+
+        let cutoff =
+            (chrono::Utc::now() - chrono::Duration::days(DEVICE_RETENTION_DAYS)).to_rfc3339();
+
+        let pruned = self
+            .devices
+            .delete_unmanaged_before(&cutoff)
+            .await
+            .map_err(AppError::Internal)?;
+
+        for device in &pruned {
+            // Hold the per-mac lock across the eviction so an observation for
+            // this MAC cannot interleave and re-populate `state` from the row
+            // we just deleted.
+            //
+            // Ordering matters, and not merely for tidiness. The row is deleted
+            // FIRST, then the memory is evicted. Reversed, an observation
+            // landing in the window between the two reaches
+            // `handle_unknown_mac`, finds the row still present, and re-inserts
+            // it into `state` — leaving a live entry pointing at a row that is
+            // about to vanish.
+            //
+            // Skipping the eviction entirely is worse still: the pruned MAC
+            // would linger in `state` with `gone = true`, so the next
+            // observation takes the `Reappear` arm carrying a now-dangling
+            // `device_id`. `update_last_seen_and_ip` matches zero rows and
+            // returns `Ok(())` silently, `handle_unknown_mac` is never reached,
+            // and the device is never re-inserted — invisible in the UI while
+            // its traffic flows unattributed, until the daemon restarts.
+            let mac_lock = self.lock_for_mac(&device.mac).await;
+            {
+                let _guard = mac_lock.lock().await;
+                self.state.write().await.remove(&device.mac);
+                self.ip_history.write().await.remove(&device.mac);
+            }
+            // Drop the guard before removing the lock entry itself, so no other
+            // task is left holding an `Arc` to a mutex this map no longer owns.
+            // This also bounds `device_locks` and `ip_history`, which nothing
+            // pruned before now.
+            self.device_locks.lock().await.remove(&device.mac);
+
+            tracing::info!(
+                device_id = %device.id,
+                mac = %device.mac,
+                last_seen = %device.last_seen,
+                "pruned unmanaged device {} (mac {}, last seen {})",
+                device.id,
+                device.mac,
+                device.last_seen,
+            );
+        }
+
+        let deleted = pruned.len() as u64;
+        if deleted > 0 {
+            tracing::info!(
+                deleted,
+                retention_days = DEVICE_RETENTION_DAYS,
+                "device retention deleted {deleted} unmanaged device(s) absent over {DEVICE_RETENTION_DAYS} days",
+            );
+        } else {
+            tracing::debug!(
+                retention_days = DEVICE_RETENTION_DAYS,
+                "device retention found no unmanaged devices absent over {DEVICE_RETENTION_DAYS} days",
+            );
+        }
+
+        Ok(deleted)
     }
 }

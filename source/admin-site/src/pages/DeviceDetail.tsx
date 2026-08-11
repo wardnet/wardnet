@@ -8,6 +8,7 @@ import { DeviceDnsCaptureCard } from "@/components/features/DeviceDnsCaptureCard
 import { DeviceIdentityCard } from "@/components/features/DeviceIdentityCard";
 import { DeviceIdentificationCard } from "@/components/features/DeviceIdentificationCard";
 import { DeviceNetworkCard } from "@/components/features/DeviceNetworkCard";
+import { DeviceReleaseCard } from "@/components/features/DeviceReleaseCard";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
 import { DeviceRoutingProfilesCard } from "@/components/features/DeviceRoutingProfilesCard";
 import { DeviceZoneCard } from "@/components/features/DeviceZoneCard";
@@ -15,6 +16,7 @@ import {
   useDevice,
   useTunnels,
   useUpdateDevice,
+  useReleaseDevice,
   useRoutingProfiles,
   useDeviceRoutingProfiles,
   useSetDeviceRoutingProfiles,
@@ -116,6 +118,7 @@ function DeviceDetailLoaded({
   // Settings card.
   const { data: tunnelData } = useTunnels();
   const updateDevice = useUpdateDevice();
+  const releaseDevice = useReleaseDevice();
 
   // Routing profiles card.
   const { data: profilesData } = useRoutingProfiles();
@@ -143,7 +146,8 @@ function DeviceDetailLoaded({
   const restoreReservation = useCreateReservation({ silent: true });
   const deleteReservation = useDeleteReservation();
 
-  const managed = device.name != null;
+  // Server-owned flag (#1181), not inferred from the name — see Devices.tsx.
+  const managed = device.managed;
   const online = managed && isOnline(device.last_seen);
 
   const status = managed ? (
@@ -210,6 +214,7 @@ function DeviceDetailLoaded({
         restoreReservation={restoreReservation}
         deleteReservation={deleteReservation}
       />
+      <DeviceReleaseCard device={device} release={releaseDevice} />
     </div>
   );
 }

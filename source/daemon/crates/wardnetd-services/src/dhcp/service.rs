@@ -934,6 +934,27 @@ impl DhcpService for DhcpServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
+        // Pinning an address is an admin configuration act, so the device it
+        // names is promoted to managed (issue #1181) and becomes exempt from
+        // the retention prune.
+        //
+        // Reservations are MAC-keyed and may legitimately pre-register a MAC no
+        // device row exists for yet; that lookup simply misses and nothing is
+        // promoted. Nothing is orphaned in that case either — the reservation
+        // row is keyed by MAC, not by `devices.id`, so it survives and keeps
+        // working regardless of the device row's fate.
+        if let Some(device) = self
+            .devices
+            .find_by_mac(mac)
+            .await
+            .map_err(AppError::Internal)?
+        {
+            self.devices
+                .set_managed(&device.id.to_string(), true)
+                .await
+                .map_err(AppError::Internal)?;
+        }
+
         let reservation = self
             .dhcp
             .find_reservation_by_mac(mac)

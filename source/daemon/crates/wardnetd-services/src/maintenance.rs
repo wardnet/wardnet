@@ -13,7 +13,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use wardnetd_data::repository::{MaintenanceRepository, WalCheckpointOutcome};
+use wardnetd_data::repository::{
+    IncrementalVacuumOutcome, MaintenanceRepository, WalCheckpointOutcome,
+};
 
 use crate::auth_context;
 use crate::error::AppError;
@@ -24,8 +26,9 @@ use crate::error::AppError;
 #[async_trait]
 pub trait MaintenanceService: Send + Sync {
     /// Release free database pages back to the filesystem in a single
-    /// bounded step. Returns the number of pages reclaimed (best-effort).
-    async fn run_incremental_vacuum(&self) -> Result<u64, AppError>;
+    /// bounded step. Returns the run's outcome so the caller can log what
+    /// happened — including the case where nothing was reclaimed.
+    async fn run_incremental_vacuum(&self) -> Result<IncrementalVacuumOutcome, AppError>;
 
     /// Truncate the WAL sidecar back to ~0 via
     /// `PRAGMA wal_checkpoint(TRUNCATE)`. Returns the checkpoint outcome so
@@ -34,6 +37,14 @@ pub trait MaintenanceService: Send + Sync {
 
     /// Refresh the query planner's statistics via `PRAGMA optimize`.
     async fn run_optimize(&self) -> Result<(), AppError>;
+
+    /// The UTC calendar date the daily sequence last completed, or `None` if
+    /// it has never run. Read once at startup so a restart resumes the
+    /// schedule instead of restarting it.
+    async fn last_maintenance_day(&self) -> Result<Option<chrono::NaiveDate>, AppError>;
+
+    /// Record `day` as the date the daily sequence last completed.
+    async fn record_maintenance_day(&self, day: chrono::NaiveDate) -> Result<(), AppError>;
 }
 
 pub struct MaintenanceServiceImpl {
@@ -49,7 +60,7 @@ impl MaintenanceServiceImpl {
 
 #[async_trait]
 impl MaintenanceService for MaintenanceServiceImpl {
-    async fn run_incremental_vacuum(&self) -> Result<u64, AppError> {
+    async fn run_incremental_vacuum(&self) -> Result<IncrementalVacuumOutcome, AppError> {
         auth_context::require_admin()?;
         self.repo
             .incremental_vacuum()
@@ -68,5 +79,21 @@ impl MaintenanceService for MaintenanceServiceImpl {
     async fn run_optimize(&self) -> Result<(), AppError> {
         auth_context::require_admin()?;
         self.repo.optimize().await.map_err(AppError::Internal)
+    }
+
+    async fn last_maintenance_day(&self) -> Result<Option<chrono::NaiveDate>, AppError> {
+        auth_context::require_admin()?;
+        self.repo
+            .last_maintenance_day()
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    async fn record_maintenance_day(&self, day: chrono::NaiveDate) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.repo
+            .record_maintenance_day(day)
+            .await
+            .map_err(AppError::Internal)
     }
 }

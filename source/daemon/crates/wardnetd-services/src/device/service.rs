@@ -144,6 +144,49 @@ pub trait DeviceService: Send + Sync {
     /// revocation) — no auth check (matches this file's existing internal-method
     /// convention for `get_device` / `get_device_capture_settings`).
     async fn clear_remote_connection_mode(&self, device_id: &str) -> Result<(), AppError>;
+
+    /// Promote a device to **managed** — an admin has decided to control its
+    /// configuration.
+    ///
+    /// Called by every admin configuration act (naming, locking, an
+    /// admin-created routing rule or profile, DNS filter settings, DNS capture,
+    /// a Private-DNS grant, a Remote peer credential, a DHCP reservation, a
+    /// zone exception, an explicit zone reassignment). Idempotent, and a no-op
+    /// if the device does not exist — a promotion must never be the thing that
+    /// fails an otherwise-successful configuration change.
+    ///
+    /// Routed through this service rather than each caller writing
+    /// [`DeviceRepository`] directly, per the single-service-per-repository
+    /// rule. **Self-service acts must not call this**: a device configuring
+    /// itself is the device asking, not the admin deciding, and promoting on it
+    /// would make every guest device permanently exempt from retention.
+    async fn mark_managed(&self, device_id: &str) -> Result<(), AppError>;
+
+    /// Delete a device's routing rule, returning it to "no rule" — the state a
+    /// never-configured device is in, where it follows the gateway's global
+    /// default policy.
+    ///
+    /// Deliberately not `set_rule(Direct)`. That writes an explicit persisted
+    /// choice that *overrides* the default policy rather than deferring to it,
+    /// and it is validated against the device's zone allow-list — so on a
+    /// tunnel-only zone it is rejected outright, which would make releasing
+    /// such a device impossible. Deleting cannot conflict with a zone.
+    ///
+    /// Publishes `RoutingRuleChanged` carrying the *global default policy*, so
+    /// the routing listener tears down the device's per-device rules and leaves
+    /// it on the default path. Idempotent. Requires admin.
+    async fn clear_rule(&self, device_id: &str) -> Result<(), AppError>;
+
+    /// Demote a device back to unmanaged.
+    ///
+    /// **Only** the release handler (`POST /api/devices/{id}/release`) may call
+    /// this, and only as its final step, after every managed setting has been
+    /// reverted to default. Calling it with configuration still in place breaks
+    /// the invariant device retention relies on — `managed = false` implies no
+    /// admin artefacts exist — and the device's rows would be silently deleted
+    /// 30 days after it was last seen, taking a live Private-DNS grant or
+    /// Remote peer credential with them.
+    async fn clear_managed(&self, device_id: &str) -> Result<(), AppError>;
 }
 
 /// Default implementation of [`DeviceService`] backed by [`DeviceRepository`].
@@ -380,6 +423,26 @@ impl DeviceService for DeviceServiceImpl {
             AuthContext::Admin { .. } => RuleCreator::Admin,
             _ => RuleCreator::User,
         };
+
+        // An ADMIN-set routing rule promotes the device to managed (issue
+        // #1181); a self-service one deliberately does not — that is the device
+        // asking, not the admin deciding, and promoting on it would make every
+        // guest device permanently exempt from the retention prune. Gated on
+        // the same `ctx` that decides `changed_by`, so the two can't disagree.
+        //
+        // The stored `created_by` is not usable as this signal:
+        // `upsert_user_rule` hard-codes `'user'` regardless of caller, so an
+        // admin-set rule is indistinguishable in the row. That is also why the
+        // migration's `created_by = 'admin'` backfill clause matches nothing
+        // today — it is the correct predicate, kept for the day rules record
+        // their true author.
+        if changed_by == RuleCreator::Admin {
+            self.devices
+                .set_managed(device_id, true)
+                .await
+                .map_err(AppError::Internal)?;
+        }
+
         self.events.publish(WardnetEvent::RoutingRuleChanged {
             device_id: device.id,
             target,
@@ -425,6 +488,18 @@ impl DeviceService for DeviceServiceImpl {
             .update_admin_locked(device_id, locked)
             .await
             .map_err(AppError::Internal)?;
+
+        // Locking promotes to managed (issue #1181). Unlocking does not: it
+        // returns the flag to its default, so it is a revert rather than a
+        // configuration act — and `managed` is latching anyway, so a device
+        // locked then unlocked stays managed until explicitly released. Gating
+        // on `locked` also mirrors the migration's `admin_locked = 1` backfill.
+        if locked {
+            self.devices
+                .set_managed(device_id, true)
+                .await
+                .map_err(AppError::Internal)?;
+        }
 
         // Notify the affected device (push): its routing was locked/unlocked.
         if let Ok(id) = uuid::Uuid::parse_str(device_id) {
@@ -498,6 +573,22 @@ impl DeviceService for DeviceServiceImpl {
                 .map_err(AppError::Internal)?
                 .is_some_and(|d| d.dns_capture_enabled)
         };
+
+        // Enabling capture promotes to managed (issue #1181), mirroring the
+        // migration's `dns_capture_enabled = 1` backfill. Disabling is a revert
+        // to default and promotes nothing; `managed` is latching, so a device
+        // whose capture was enabled then disabled stays managed until released.
+        //
+        // Keyed on `now_enabled`, not `enabled`: a caller adjusting only the
+        // caps on an already-capturing device is still configuring capture on
+        // it. Note `set_my_capture_enabled` — the self-service path — is a
+        // separate method and deliberately promotes nothing.
+        if now_enabled {
+            self.devices
+                .set_managed(device_id, true)
+                .await
+                .map_err(AppError::Internal)?;
+        }
 
         let () = self
             .events
@@ -680,5 +771,68 @@ impl DeviceService for DeviceServiceImpl {
                 .map_err(AppError::Internal)?;
         }
         Ok(())
+    }
+
+    async fn clear_rule(&self, device_id: &str) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        let device_uuid: Uuid = device_id
+            .parse()
+            .map_err(|_| AppError::NotFound("device not found".to_owned()))?;
+
+        let previous = self
+            .devices
+            .find_rule_for_device(device_id)
+            .await
+            .map_err(AppError::Internal)?;
+
+        self.devices
+            .delete_rule_for_device(device_id)
+            .await
+            .map_err(AppError::Internal)?;
+
+        // Nothing to tear down if there was no rule; skipping the publish also
+        // keeps the release quiet for the common case.
+        if previous.is_none() {
+            return Ok(());
+        }
+
+        // Publish the target the device now follows — the global default policy
+        // — rather than the rule we removed, so the routing listener applies
+        // the right end state instead of re-installing what we just deleted.
+        let target = self
+            .system_config
+            .get_default_policy()
+            .await
+            .map_err(AppError::Internal)?
+            .and_then(|raw| serde_json::from_str::<RoutingTarget>(&raw).ok())
+            .unwrap_or(RoutingTarget::Direct);
+
+        self.events.publish(WardnetEvent::RoutingRuleChanged {
+            device_id: device_uuid,
+            target,
+            previous_target: previous.map(|r| r.target),
+            changed_by: RuleCreator::Admin,
+            timestamp: chrono::Utc::now(),
+        });
+        Ok(())
+    }
+
+    async fn mark_managed(&self, device_id: &str) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        self.devices
+            .set_managed(device_id, true)
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    async fn clear_managed(&self, device_id: &str) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        self.devices
+            .set_managed(device_id, false)
+            .await
+            .map_err(AppError::Internal)
     }
 }

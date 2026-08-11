@@ -48,6 +48,9 @@ export function makeDevice(overrides: Partial<Device> = {}): Device {
     dhcp_status: "lease",
     current_rule: null,
     connection_mode: "lan",
+    // Unmanaged by default: that is what a freshly discovered device is, and
+    // it keeps `managed: true` an explicit opt-in in the tests that need it.
+    managed: false,
     ...overrides,
   };
 }
