@@ -39,8 +39,4 @@ describe("useSystemStatus", () => {
     });
     expect(systemService.acknowledgeShutdown).toHaveBeenCalledOnce();
   });
-
-  it("fetches recent errors through SystemService", async () => {
-    expect(client.request).not.toHaveBeenCalled();
-  });
 });

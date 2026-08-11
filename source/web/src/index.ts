@@ -170,7 +170,10 @@ export {
 // Hooks — anomalies
 export { useAnomalies, useReevaluateAnomalies } from "./hooks/useAnomalies";
 export { anomalySubjectLink } from "./lib/anomaly";
-export { blocklistFailureSummary, blocklistRetryAt } from "./lib/blocklistRetry";
+export {
+  blocklistFailureSummary,
+  blocklistRetryAt,
+} from "./lib/blocklistRetry";
 export type { AnomalyLink, AnomalyRouteMap } from "./lib/anomaly";
 
 // Hooks — system

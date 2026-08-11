@@ -19,7 +19,6 @@ export class SystemService {
     return this.api.get("/system/status");
   }
 
-
   /**
    * Ask the daemon to exit so the supervisor restarts it.
    *

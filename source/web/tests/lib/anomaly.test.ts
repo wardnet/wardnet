@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { Anomaly } from "@wardnet/js";
-import { anomalySubjectLink, type AnomalyRouteMap } from "../../src/lib/anomaly";
+import {
+  anomalySubjectLink,
+  type AnomalyRouteMap,
+} from "../../src/lib/anomaly";
 
 /** Stands in for the desktop admin site, which has detail routes. */
 const RICH: AnomalyRouteMap = {
@@ -78,7 +81,11 @@ describe("anomalySubjectLink", () => {
 
   it("falls back for an anomaly type it has no precise route for", () => {
     const link = anomalySubjectLink(
-      anomaly({ type: "dhcp_conflict", component: "dhcp", subject_id: "1.2.3.4" }),
+      anomaly({
+        type: "dhcp_conflict",
+        component: "dhcp",
+        subject_id: "1.2.3.4",
+      }),
       RICH,
     );
     expect(link?.href).toBe("/tunnels");
@@ -96,7 +103,11 @@ describe("anomalySubjectLink", () => {
     );
     expect(
       anomalySubjectLink(
-        anomaly({ type: "tunnel_unhealthy", component: "tunnel", subject_id: "t" }),
+        anomaly({
+          type: "tunnel_unhealthy",
+          component: "tunnel",
+          subject_id: "t",
+        }),
         RICH,
       )?.label,
     ).toBe("Open the tunnel");

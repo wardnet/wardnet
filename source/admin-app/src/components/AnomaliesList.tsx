@@ -5,8 +5,8 @@ import { ChevronRightIcon } from "lucide-react";
 import { SectionLabel } from "@/components/SectionLabel";
 import { ADMIN_APP_ANOMALY_ROUTES } from "@/lib/anomalyRoutes";
 
-function severityVariant(severity: string): "danger" | "warn" | "info" {
-  if (severity === "error") return "danger";
+function severityVariant(severity: string): "down" | "warn" | "info" {
+  if (severity === "error") return "down";
   if (severity === "warning") return "warn";
   return "info";
 }

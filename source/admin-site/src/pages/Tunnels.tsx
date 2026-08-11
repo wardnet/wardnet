@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { TunnelGrid } from "@/components/compound/TunnelGrid";
 import type { TunnelTestOutcome } from "@/components/compound/TunnelCard";
-import type { Anomaly } from "@wardnet/js";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
 import {
@@ -41,17 +40,17 @@ export default function Tunnels() {
   // One anomaly listing serves every card: index the open ones by the tunnel
   // they are about, rather than each card asking the daemon about itself.
   const anomaliesByTunnel = useMemo(() => {
-    const byTunnel: Record<string, Anomaly> = {};
-    for (const anomaly of anomaliesData?.anomalies ?? []) {
-      if (
-        anomaly.subject_id &&
-        (anomaly.type === "tunnel_start_failed" ||
-          anomaly.type === "tunnel_unhealthy")
-      ) {
-        byTunnel[anomaly.subject_id] ??= anomaly;
-      }
-    }
-    return byTunnel;
+    const entries = (anomaliesData?.anomalies ?? [])
+      .filter(
+        (a) =>
+          a.subject_id !== null &&
+          (a.type === "tunnel_start_failed" || a.type === "tunnel_unhealthy"),
+      )
+      // Oldest first, so a tunnel with more than one open anomaly keeps the
+      // newest — `Object.fromEntries` lets the last entry win.
+      .reverse()
+      .map((a) => [a.subject_id as string, a] as const);
+    return Object.fromEntries(entries);
   }, [anomaliesData]);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);

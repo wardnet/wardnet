@@ -12,7 +12,6 @@ export type AnomalyType =
   | "dhcp_conflict"
   | "route_table_lost"
   | "blocklist_refresh_failing"
-  // eslint-disable-next-line @typescript-eslint/ban-types
   | (string & {});
 
 /** How serious an anomaly is. */

@@ -52,9 +52,7 @@ describe("blocklistRetryAt", () => {
     [8, 360],
     [99, 360],
   ])("waits %i failures -> %i minutes", (failures, minutes) => {
-    const at = blocklistRetryAt(
-      blocklist({ consecutive_failures: failures }),
-    );
+    const at = blocklistRetryAt(blocklist({ consecutive_failures: failures }));
     const expected = new Date(Date.parse(LAST_ERROR) + minutes * 60_000);
     expect(at?.toISOString()).toBe(expected.toISOString());
   });
@@ -70,9 +68,9 @@ describe("blocklistFailureSummary", () => {
   it("reads as a sentence with the count and the wait", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(LAST_ERROR));
-    expect(blocklistFailureSummary(blocklist({ consecutive_failures: 7 }))).toBe(
-      "failed 7 times, next retry in 5h",
-    );
+    expect(
+      blocklistFailureSummary(blocklist({ consecutive_failures: 7 })),
+    ).toBe("failed 7 times, next retry in 5h");
   });
 
   it("says once rather than 1 times", () => {
@@ -86,8 +84,8 @@ describe("blocklistFailureSummary", () => {
   it("says retrying shortly once the wait has elapsed", () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date(Date.parse(LAST_ERROR) + 24 * 3_600_000));
-    expect(blocklistFailureSummary(blocklist({ consecutive_failures: 3 }))).toBe(
-      "failed 3 times, retrying shortly",
-    );
+    expect(
+      blocklistFailureSummary(blocklist({ consecutive_failures: 3 })),
+    ).toBe("failed 3 times, retrying shortly");
   });
 });

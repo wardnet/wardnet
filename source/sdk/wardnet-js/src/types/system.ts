@@ -55,4 +55,3 @@ export interface SetDefaultPolicyRequest {
 export interface SetDefaultPolicyResponse {
   policy: string;
 }
-

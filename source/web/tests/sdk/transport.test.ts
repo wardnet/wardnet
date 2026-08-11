@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   BackupService,
-  SystemService,
   WardnetClient,
   AnomalyService,
   type Anomaly,
@@ -119,7 +118,7 @@ describe("AnomalyService.list", () => {
           severity: "error",
           component: "dns",
           subject_id: "bl-1",
-          message: "Blocklist \"HaGeZi\" has failed to refresh 7 times",
+          message: 'Blocklist "HaGeZi" has failed to refresh 7 times',
           hint: "check the URL is still reachable",
           details: { profile_id: "p-1" },
           opened_at: "2026-08-01T00:00:00Z",
@@ -134,7 +133,9 @@ describe("AnomalyService.list", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const anomalies = new AnomalyService(new WardnetClient({ baseUrl: "/api" }));
+    const anomalies = new AnomalyService(
+      new WardnetClient({ baseUrl: "/api" }),
+    );
     const result = await anomalies.list();
 
     const [url] = fetchMock.mock.calls[0];
@@ -150,7 +151,9 @@ describe("AnomalyService.list", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const anomalies = new AnomalyService(new WardnetClient({ baseUrl: "/api" }));
+    const anomalies = new AnomalyService(
+      new WardnetClient({ baseUrl: "/api" }),
+    );
     await anomalies.list({ status: "all", subject_id: "tun-1", limit: 5 });
 
     const [url] = fetchMock.mock.calls[0];
@@ -167,7 +170,9 @@ describe("AnomalyService.reevaluate", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const anomalies = new AnomalyService(new WardnetClient({ baseUrl: "/api" }));
+    const anomalies = new AnomalyService(
+      new WardnetClient({ baseUrl: "/api" }),
+    );
     const result = await anomalies.reevaluate();
 
     const [url, init] = fetchMock.mock.calls[0];
