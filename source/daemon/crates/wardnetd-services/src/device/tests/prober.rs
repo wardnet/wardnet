@@ -37,7 +37,7 @@ const CLOSED_PORT: u16 = 1;
 async fn an_answering_port_is_reported_and_a_closed_one_is_not() {
     let (_listener, open) = listening_port().await;
 
-    let answering = TcpDeviceProber::default()
+    let answering = TcpDeviceProber
         .probe(IpAddr::V4(Ipv4Addr::LOCALHOST), &[open, CLOSED_PORT])
         .await;
 
@@ -55,7 +55,7 @@ async fn answering_ports_come_back_sorted() {
     let mut expected = vec![first, second];
     expected.sort_unstable();
 
-    let answering = TcpDeviceProber::default()
+    let answering = TcpDeviceProber
         .probe(IpAddr::V4(Ipv4Addr::LOCALHOST), &[second, first])
         .await;
 
@@ -64,7 +64,7 @@ async fn answering_ports_come_back_sorted() {
 
 #[tokio::test]
 async fn probing_nothing_contacts_nothing() {
-    let answering = TcpDeviceProber::default()
+    let answering = TcpDeviceProber
         .probe(IpAddr::V4(Ipv4Addr::LOCALHOST), &[])
         .await;
 
@@ -83,7 +83,7 @@ async fn a_black_holed_address_is_bounded_rather_than_hanging() {
     // (~75 s on Linux) and hold the synchronous handler open.
     let started = Instant::now();
 
-    let answering = TcpDeviceProber::default()
+    let answering = TcpDeviceProber
         .probe(IpAddr::V4(Ipv4Addr::new(240, 0, 0, 1)), &[4003, 6053])
         .await;
 
@@ -107,7 +107,7 @@ async fn every_requested_port_is_contacted() {
     let mut expected = vec![first, second, third];
     expected.sort_unstable();
 
-    let answering = TcpDeviceProber::default()
+    let answering = TcpDeviceProber
         .probe(IpAddr::V4(Ipv4Addr::LOCALHOST), &expected)
         .await;
 
@@ -123,9 +123,7 @@ async fn a_v6_loopback_listener_answers_too() {
         .unwrap();
     let port = listener.local_addr().unwrap().port();
 
-    let answering = TcpDeviceProber::default()
-        .probe("::1".parse().unwrap(), &[port])
-        .await;
+    let answering = TcpDeviceProber.probe("::1".parse().unwrap(), &[port]).await;
 
     assert_eq!(answering, vec![port]);
 }

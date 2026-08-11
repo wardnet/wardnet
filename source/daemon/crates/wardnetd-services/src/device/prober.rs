@@ -60,32 +60,7 @@ pub trait DeviceProber: Send + Sync {
 }
 
 /// Default [`DeviceProber`]: one bounded TCP connect per port, all concurrent.
-pub struct TcpDeviceProber {
-    port_timeout: Duration,
-    total_timeout: Duration,
-}
-
-impl Default for TcpDeviceProber {
-    fn default() -> Self {
-        Self {
-            port_timeout: PORT_CONNECT_TIMEOUT,
-            total_timeout: TOTAL_PROBE_TIMEOUT,
-        }
-    }
-}
-
-impl TcpDeviceProber {
-    /// Build a prober with explicit bounds. Production uses [`Default`]; the
-    /// timeouts are injectable so a test can drive the wall-clock cap without
-    /// sleeping for [`TOTAL_PROBE_TIMEOUT`].
-    #[must_use]
-    pub fn with_timeouts(port_timeout: Duration, total_timeout: Duration) -> Self {
-        Self {
-            port_timeout,
-            total_timeout,
-        }
-    }
-}
+pub struct TcpDeviceProber;
 
 #[async_trait]
 impl DeviceProber for TcpDeviceProber {
@@ -94,7 +69,7 @@ impl DeviceProber for TcpDeviceProber {
             .iter()
             .map(|&port| async move {
                 let connected =
-                    tokio::time::timeout(self.port_timeout, TcpStream::connect((ip, port)))
+                    tokio::time::timeout(PORT_CONNECT_TIMEOUT, TcpStream::connect((ip, port)))
                         .await
                         .is_ok_and(|result| result.is_ok());
                 connected.then_some(port)
@@ -102,7 +77,7 @@ impl DeviceProber for TcpDeviceProber {
             .collect();
 
         let mut answering = collect_until(
-            tokio::time::Instant::now() + self.total_timeout,
+            tokio::time::Instant::now() + TOTAL_PROBE_TIMEOUT,
             &mut attempts,
         )
         .await;

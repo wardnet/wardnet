@@ -15,6 +15,7 @@ const { deviceService } = vi.hoisted(() => ({
     update: vi.fn(),
     getDnsCaptureSettings: vi.fn(),
     updateDnsCaptureSettings: vi.fn(),
+    identify: vi.fn(),
   },
 }));
 vi.mock("../../src/lib/sdk", () => ({ deviceService }));
@@ -36,6 +37,7 @@ import {
   useSetMyRule,
   useSetMyCaptureEnabled,
   useUpdateDevice,
+  useIdentifyDevice,
   useDnsCaptureSettings,
   useUpdateDnsCaptureSettings,
 } from "../../src/hooks/useDevices";
@@ -119,6 +121,95 @@ describe("useDevices", () => {
     });
     expect(deviceService.update).toHaveBeenCalledWith("d1", { name: "TV" });
     expect(toast.success).toHaveBeenCalledWith("Saved!");
+  });
+
+  it("reports how many ports answered an identification probe", async () => {
+    deviceService.identify.mockResolvedValue({
+      ports_probed: [4003, 6053, 6668, 8009],
+      answering_ports: [6668],
+      device: {},
+    });
+
+    const { result } = renderHook(() => useIdentifyDevice(), {
+      wrapper: createQueryWrapper(),
+    });
+    await act(async () => {
+      await result.current.mutateAsync("d1");
+    });
+
+    expect(deviceService.identify).toHaveBeenCalledWith("d1");
+    expect(toast.success).toHaveBeenCalledWith("Identified: 1 port answered");
+  });
+
+  it("pluralises the answering-port count", async () => {
+    deviceService.identify.mockResolvedValue({
+      ports_probed: [4003, 6053, 6668, 8009],
+      answering_ports: [6053, 6668],
+      device: {},
+    });
+
+    const { result } = renderHook(() => useIdentifyDevice(), {
+      wrapper: createQueryWrapper(),
+    });
+    await act(async () => {
+      await result.current.mutateAsync("d1");
+    });
+
+    expect(toast.success).toHaveBeenCalledWith("Identified: 2 ports answered");
+  });
+
+  it("says plainly when a probe found nothing", async () => {
+    // An empty result is a real outcome, not a silent no-op — without this the
+    // admin cannot tell a probe that found nothing from a broken button.
+    deviceService.identify.mockResolvedValue({
+      ports_probed: [4003, 6053, 6668, 8009],
+      answering_ports: [],
+      device: {},
+    });
+
+    const { result } = renderHook(() => useIdentifyDevice(), {
+      wrapper: createQueryWrapper(),
+    });
+    await act(async () => {
+      await result.current.mutateAsync("d1");
+    });
+
+    expect(toast.success).toHaveBeenCalledWith(
+      "No known ports answered (tried 4)",
+    );
+  });
+
+  it("names the reason when the daemon refuses a probe as offline", async () => {
+    // The 409 is reachable in normal use: the button's enabled state comes from
+    // `last_seen` at render time and the detail query does not poll. Reporting
+    // a bare failure would hide something the admin can act on.
+    deviceService.identify.mockRejectedValue(
+      Object.assign(new Error("conflict"), { status: 409 }),
+    );
+
+    const { result } = renderHook(() => useIdentifyDevice(), {
+      wrapper: createQueryWrapper(),
+    });
+    await act(async () => {
+      await expect(result.current.mutateAsync("d1")).rejects.toThrow();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "This device is no longer on the network, so Wardnet did not contact it",
+    );
+  });
+
+  it("falls back to a generic message for any other probe failure", async () => {
+    deviceService.identify.mockRejectedValue(new Error("boom"));
+
+    const { result } = renderHook(() => useIdentifyDevice(), {
+      wrapper: createQueryWrapper(),
+    });
+    await act(async () => {
+      await expect(result.current.mutateAsync("d1")).rejects.toThrow();
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("Failed to identify device");
   });
 
   it("reads and updates DNS capture settings", async () => {

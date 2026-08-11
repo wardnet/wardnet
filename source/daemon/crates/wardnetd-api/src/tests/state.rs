@@ -49,6 +49,13 @@ async fn default_identification_service_is_a_silent_no_op() {
         .is_ok()
     );
     assert_eq!(svc.reconcile_from_catalog().await.unwrap(), 0);
+    // A probe against the default service reports an empty surface rather than
+    // failing: the identification card renders its "nothing answered" copy from
+    // this shape, and a build that has not wired identification must not make
+    // the button look broken (issue #1116).
+    let probe = svc.probe_device("dev-1").await.unwrap();
+    assert!(probe.ports_probed.is_empty());
+    assert!(probe.answering_ports.is_empty());
     assert!(svc.signals_for("dev-1").await.unwrap().is_empty());
 }
 
