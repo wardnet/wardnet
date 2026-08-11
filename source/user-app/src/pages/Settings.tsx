@@ -1,5 +1,3 @@
-import { useEffect, useRef } from "react";
-import { useLocation } from "react-router";
 import { WifiOffIcon } from "lucide-react";
 import {
   ApiErrorAlert,
@@ -19,6 +17,7 @@ import {
   usePushNotifications,
   useSetMyCaptureEnabled,
 } from "@wardnet/web";
+import { useHashScrollTarget } from "@/hooks/useHashScrollTarget";
 
 /**
  * Notifications card (issue #594): enable/disable Web Push for this browser.
@@ -121,33 +120,21 @@ const PRIVATE_DNS_HASH = "#private-dns";
  */
 function PrivateDns() {
   const { data: me, isLoading } = usePrivateDnsMe();
-  const { hash: routerHash } = useLocation();
-  const cardRef = useRef<HTMLDivElement>(null);
 
   // The push deep-links to `/settings#private-dns`, but this card is the last
   // of four — without this the member taps "Private DNS is ready" and lands on
   // the DNS-capture toggle with the setup steps off-screen.
   //
-  // `useLocation().hash` alone is not enough. When the app is already open on
-  // /settings the service worker calls `existing.navigate(…#private-dns)`,
-  // which is a fragment-only, same-document navigation: it fires `hashchange`,
-  // never `popstate`, and `BrowserRouter` only listens to the latter — so the
-  // router's hash would stay stale in exactly the case this exists for. Listen
-  // for `hashchange` too and read `window.location` there. The card shell
-  // renders in every state, so the ref is always attached.
-  useEffect(() => {
-    // Named `fragment` rather than `hash`: the `security` ESLint plugin's
-    // timing-attack heuristic keys off the identifier, and a URL fragment is
-    // not a secret.
-    const scrollIfTargeted = (fragment: string) => {
-      if (fragment !== PRIVATE_DNS_HASH) return;
-      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    };
-    scrollIfTargeted(routerHash || window.location.hash);
-    const onHashChange = () => scrollIfTargeted(window.location.hash);
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, [routerHash]);
+  // The three cards above are all data-driven and expand as their queries
+  // resolve, so a scroll fired once at mount lands on the card's "Loading…"
+  // line and is then pushed back below the fold by its own siblings (#1176).
+  // `useHashScrollTarget` holds the position while the page settles instead;
+  // `isLoading` re-arms it for a query that resolves after that window. The
+  // card shell renders in every state, so the ref is always attached.
+  const cardRef = useHashScrollTarget<HTMLDivElement>(
+    PRIVATE_DNS_HASH,
+    isLoading,
+  );
 
   // Each branch names a distinct server state. In particular a granted device
   // can still come back with no hostname: `/private-dns/me` resolves the domain
