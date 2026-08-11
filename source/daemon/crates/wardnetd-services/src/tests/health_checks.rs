@@ -118,7 +118,7 @@ impl DnsServer for MockDnsServer {
     async fn update_config(&self, _config: DnsConfig) {}
     async fn update_authoritative_view(&self, _view: crate::dns::authoritative::AuthoritativeView) {
     }
-    async fn invalidate_domain(&self, _domain: &str) {}
+    async fn invalidate_subtree(&self, _domain: &str) {}
 }
 
 fn dns_check(enabled: bool, running: bool, fail: bool) -> DnsServerHealthCheck {
