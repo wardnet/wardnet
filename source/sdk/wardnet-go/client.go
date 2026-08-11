@@ -22,12 +22,26 @@ const defaultTimeout = 120 * time.Second
 type Client struct {
 	rest *rest.ClientWithResponses
 
+	// baseURL, httpClient, token, and userAgent are retained for the log
+	// stream, which upgrades to a WebSocket and so cannot go through the
+	// generated REST client.
+	baseURL    string
+	httpClient *http.Client
+	token      string
+	userAgent  string
+
 	// System reports daemon health and runtime status.
 	System *SystemService
 	// Devices lists discovered devices and manages their routing.
 	Devices *DevicesService
 	// Tunnels manages WireGuard tunnels.
 	Tunnels *TunnelsService
+	// DNS configures the resolver and its filtering rules.
+	DNS *DNSService
+	// DHCP configures the DHCP server, its leases, and its reservations.
+	DHCP *DHCPService
+	// Logs downloads and streams daemon logs.
+	Logs *LogsService
 	// Update drives the auto-update subsystem.
 	Update *UpdateService
 	// Backup exports and restores encrypted configuration bundles.
@@ -37,7 +51,7 @@ type Client struct {
 }
 
 type options struct {
-	httpClient rest.HttpRequestDoer
+	httpClient *http.Client
 	token      string
 	userAgent  string
 }
@@ -108,10 +122,19 @@ func New(baseURL string, opts ...Option) (*Client, error) {
 		return nil, err
 	}
 
-	c := &Client{rest: rc}
+	c := &Client{
+		rest:       rc,
+		baseURL:    baseURL,
+		httpClient: hc,
+		token:      o.token,
+		userAgent:  o.userAgent,
+	}
 	c.System = &SystemService{c: c}
 	c.Devices = &DevicesService{c: c}
 	c.Tunnels = &TunnelsService{c: c}
+	c.DNS = &DNSService{c: c}
+	c.DHCP = &DHCPService{c: c}
+	c.Logs = &LogsService{c: c}
 	c.Update = &UpdateService{c: c}
 	c.Backup = &BackupService{c: c}
 	c.Auth = &AuthService{c: c}

@@ -25,6 +25,19 @@ pub struct DeviceRow {
     pub connection_mode: DeviceConnectionMode,
 }
 
+/// A device row removed by the retention prune.
+///
+/// Carries just enough to log the deletion and to evict the device from the
+/// discovery service's in-memory maps — which the caller *must* do, keyed by
+/// `mac`, or the next observation of that MAC resolves to a dangling
+/// `device_id` (issue #1181).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PrunedDevice {
+    pub id: String,
+    pub mac: String,
+    pub last_seen: String,
+}
+
 /// Data access for devices and their routing rules.
 ///
 /// Provides lookups by IP and ID, routing rule queries, and upserts.
@@ -34,6 +47,33 @@ pub struct DeviceRow {
 pub trait DeviceRepository: Send + Sync {
     /// Find a device by its most recently observed IP address.
     async fn find_by_ip(&self, ip: &str) -> anyhow::Result<Option<Device>>;
+
+    /// Find **every** device whose `last_ip` equals `ip`.
+    ///
+    /// Unlike [`find_by_ip`](Self::find_by_ip), which resolves a shared address
+    /// to the most-recently-seen claimant, this exposes the full set so a caller
+    /// can detect an ambiguous mapping. `last_ip` is not unique — a departed
+    /// device keeps its row until discovery clears it — so a recycled address
+    /// can transiently belong to more than one row. The mDNS observer uses this
+    /// to skip attributing a vendor when zero or more than one device claims an
+    /// address (issue #1115).
+    ///
+    /// An empty `ip` (the "no known address" sentinel of departed rows) returns
+    /// an empty set, never the departed rows that share it.
+    ///
+    /// The default implementation filters [`find_all`](Self::find_all); the
+    /// `SQLite` implementation overrides it with an indexed `last_ip` lookup.
+    async fn find_all_by_ip(&self, ip: &str) -> anyhow::Result<Vec<Device>> {
+        if ip.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(self
+            .find_all()
+            .await?
+            .into_iter()
+            .filter(|d| d.last_ip == ip)
+            .collect())
+    }
 
     /// Find a device by its primary key.
     async fn find_by_id(&self, id: &str) -> anyhow::Result<Option<Device>>;
@@ -113,6 +153,18 @@ pub trait DeviceRepository: Send + Sync {
     /// device appears at most once; devices with no rule are simply absent.
     async fn find_all_rules(&self) -> anyhow::Result<Vec<RoutingRule>>;
 
+    /// Delete a device's routing rule, returning to "no rule" — which means
+    /// the device follows the gateway's global default policy.
+    ///
+    /// Distinct from writing a `Direct` rule: that is an explicit persisted
+    /// choice that *overrides* the default policy, and it is also subject to
+    /// the device's zone allow-list, so it can be rejected outright by a
+    /// tunnel-only zone. Deleting is the true revert-to-default and cannot
+    /// conflict with a zone. Used by the release flow (issue #1181).
+    ///
+    /// No-op if the device has no rule.
+    async fn delete_rule_for_device(&self, device_id: &str) -> anyhow::Result<()>;
+
     /// Insert or update a user-created routing rule for a device.
     async fn upsert_user_rule(
         &self,
@@ -161,4 +213,23 @@ pub trait DeviceRepository: Send + Sync {
 
     /// Return IDs of all devices that have DNS capture enabled.
     async fn find_all_capture_enabled_ids(&self) -> anyhow::Result<Vec<String>>;
+
+    /// Set the `managed` flag for a device.
+    ///
+    /// Idempotent, and a no-op if the device does not exist. Promotion
+    /// (`managed = true`) is called from every admin configuration act;
+    /// demotion is reached only through an explicit release, which first
+    /// reverts all managed configuration to default. See issue #1181.
+    async fn set_managed(&self, id: &str, managed: bool) -> anyhow::Result<()>;
+
+    /// Delete unmanaged devices last seen before the given ISO timestamp,
+    /// returning the rows that were removed.
+    ///
+    /// Only unmanaged devices are eligible: `managed = 0` implies no admin
+    /// artefact references the device, so the delete cannot orphan a row.
+    /// Managed devices are never auto-deleted at any age.
+    ///
+    /// The caller is responsible for evicting each returned `mac` from the
+    /// discovery service's in-memory state — see [`PrunedDevice`].
+    async fn delete_unmanaged_before(&self, cutoff: &str) -> anyhow::Result<Vec<PrunedDevice>>;
 }

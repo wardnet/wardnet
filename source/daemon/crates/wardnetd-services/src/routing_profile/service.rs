@@ -26,6 +26,7 @@ use wardnetd_data::repository::{
 
 use crate::TunnelService;
 use crate::auth_context;
+use crate::device::service::DeviceService;
 use crate::error::AppError;
 
 use super::view::{CompiledRule, DeviceRoutingContext, RoutingView};
@@ -100,6 +101,12 @@ pub trait RoutingProfileService: Send + Sync {
 pub struct RoutingProfileServiceImpl {
     repo: Arc<dyn RoutingProfileRepository>,
     tunnels: Arc<dyn TunnelService>,
+    /// Used only to promote a device to managed when a profile is assigned to
+    /// it (issue #1181), per the single-service-per-repository rule. Safe to
+    /// hold: [`DeviceService`] does not depend on this service, so there is no
+    /// `Arc` cycle — unlike the release orchestration, which had to live in the
+    /// API handler for exactly that reason.
+    devices: Arc<dyn DeviceService>,
     /// Enforcement sink drained by the domain-route runner.
     sink: mpsc::Sender<DomainRouteRequest>,
     /// Lock-free compiled view consulted by [`Self::note_resolution`].
@@ -111,11 +118,13 @@ impl RoutingProfileServiceImpl {
     pub fn new(
         repo: Arc<dyn RoutingProfileRepository>,
         tunnels: Arc<dyn TunnelService>,
+        devices: Arc<dyn DeviceService>,
         sink: mpsc::Sender<DomainRouteRequest>,
     ) -> Self {
         Self {
             repo,
             tunnels,
+            devices,
             sink,
             view: Arc::new(ArcSwap::from_pointee(RoutingView::new())),
         }
@@ -351,6 +360,13 @@ impl RoutingProfileService for RoutingProfileServiceImpl {
             .set_device_profiles(device_id, profile_ids)
             .await
             .map_err(AppError::Internal)?;
+
+        // Assigning routing profiles is an admin configuration act, so the
+        // device is promoted to managed and thereby exempt from the retention
+        // prune (issue #1181) — `routing_device_profile` rows are `device_id`-
+        // keyed and would otherwise be cascaded away with the device.
+        self.devices.mark_managed(&device_id.to_string()).await?;
+
         self.refresh_view().await?;
         Ok(())
     }

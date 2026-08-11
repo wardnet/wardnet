@@ -65,6 +65,19 @@ type Device struct {
 	// Rule is the device's own routing rule. Nil means it has no rule of its
 	// own and follows the gateway default policy.
 	Rule *RoutingTarget `json:"rule"`
+	// Managed reports whether an admin has decided to control this device's
+	// configuration (issue #1181).
+	//
+	// Set by any admin configuration act — naming, locking, a routing rule or
+	// profile, DNS filter settings, DNS capture, a Private-DNS grant, a Remote
+	// peer credential, a DHCP reservation, a zone exception, an explicit zone
+	// reassignment. Deliberately not derived from Name: a device can be
+	// configured without ever being named.
+	//
+	// Latching: it never clears on its own, only through Release. Only
+	// unmanaged devices are subject to device retention (deleted after 30 days
+	// away).
+	Managed bool `json:"managed"`
 }
 
 // List returns every discovered device.
@@ -131,6 +144,33 @@ func (s *DevicesService) SetRule(ctx context.Context, id string, target RoutingT
 	return deviceFromREST(&resp.JSON200.Device, resp.JSON200.CurrentRule)
 }
 
+// Release stops managing a device: it reverts every admin-set configuration to
+// default and returns the device to unmanaged (issue #1181).
+//
+// Destructive. It revokes the device's Private-DNS grant and its Remote peer
+// credential, disconnecting it, and clears the device's name, admin lock, DNS
+// capture, routing rule and profiles, DNS-filter settings, DHCP reservation,
+// and zone exceptions, returning it to the default-for-new zone.
+//
+// Once unmanaged the device becomes subject to device retention and is deleted
+// after 30 days away. Idempotent: a retry after a partial failure completes,
+// and a failure part-way leaves the device still managed rather than
+// half-released.
+func (s *DevicesService) Release(ctx context.Context, id string) (*Device, error) {
+	uid, err := parseUUID(id, "device")
+	if err != nil {
+		return nil, err
+	}
+	resp, err := s.c.rest.ReleaseDeviceWithResponse(ctx, uid)
+	if err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, apiError(resp.HTTPResponse, resp.Body)
+	}
+	return deviceFromREST(&resp.JSON200.Device, resp.JSON200.CurrentRule)
+}
+
 // deviceFromREST maps the generated device onto the public type. rule is the
 // authoritative routing rule for the device — for the detail endpoints this is
 // the response's top-level current_rule, not the mirror nested on the device.
@@ -161,6 +201,7 @@ func deviceFromREST(d *rest.DeviceWithStatus, rule *rest.RoutingTarget) (*Device
 		ConnectionMode: ConnectionMode(d.ConnectionMode),
 		DHCPStatus:     DHCPStatus(d.DhcpStatus),
 		Rule:           r,
+		Managed:        d.Managed,
 	}, nil
 }
 

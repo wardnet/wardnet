@@ -67,6 +67,23 @@ pub trait DeviceIdentificationService: Send + Sync {
         value: &str,
     ) -> Result<(), AppError>;
 
+    /// Record a signal against whichever device currently holds `ip`.
+    ///
+    /// The mDNS observer resolves a browse result to a device by its last
+    /// observed IP, since a service advertisement carries an address, not a
+    /// MAC. `last_ip` is not unique across the devices table — a departed
+    /// device keeps its row until discovery clears it — so an address can
+    /// transiently map to more than one device. Rather than guess (ADR 0025,
+    /// decision on mDNS: a wrong attribution is worse than no signal), an IP
+    /// that resolves to zero or to more than one device is skipped with a debug
+    /// log and `Ok(())` is returned.
+    async fn record_signal_for_ip(
+        &self,
+        ip: IpAddr,
+        kind: DeviceSignalKind,
+        value: &str,
+    ) -> Result<(), AppError>;
+
     /// Every signal recorded for a device, most recent first.
     async fn signals_for(&self, device_id: &str) -> Result<Vec<DeviceSignal>, AppError>;
 
@@ -212,6 +229,45 @@ impl DeviceIdentificationService for DeviceIdentificationServiceImpl {
             .map_err(AppError::Internal)?
         else {
             tracing::debug!(%mac, ?kind, "identification: no device for MAC yet, dropping signal");
+            return Ok(());
+        };
+
+        self.record_signal(&device.id.to_string(), kind, value)
+            .await
+    }
+
+    async fn record_signal_for_ip(
+        &self,
+        ip: IpAddr,
+        kind: DeviceSignalKind,
+        value: &str,
+    ) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        // `last_ip` is not unique: a departed device keeps its row until
+        // discovery clears the address, so DHCP recycling an IP to a new device
+        // leaves two rows sharing it. `find_by_ip` resolves that by taking the
+        // most-recently-seen row — a reasonable guess for the DNS attribution
+        // path, but the wrong call here. An mDNS advertisement that names a
+        // vendor would stamp that name on whichever device won the tie, and a
+        // confident-but-wrong manufacturer is the exact failure #1099 was filed
+        // about. So resolve the full set (an indexed `last_ip` lookup) and
+        // attribute only when exactly one device claims the address; zero or
+        // many is ambiguous and skipped.
+        let matches = self
+            .devices
+            .find_all_by_ip(&ip.to_string())
+            .await
+            .map_err(AppError::Internal)?;
+
+        let [device] = matches.as_slice() else {
+            let match_count = matches.len();
+            tracing::debug!(
+                %ip,
+                ?kind,
+                match_count,
+                "identification: IP {ip} maps to {match_count} devices, skipping ambiguous mDNS {kind:?} attribution",
+            );
             return Ok(());
         };
 

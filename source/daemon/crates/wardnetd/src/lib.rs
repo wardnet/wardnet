@@ -48,6 +48,7 @@ pub mod health_runner;
 pub mod heartbeat;
 pub mod inbound_wg_peer_monitor;
 pub mod mdns_advertiser;
+pub mod mdns_observer;
 pub mod metrics_collector;
 pub mod profiling;
 pub mod route_monitor;

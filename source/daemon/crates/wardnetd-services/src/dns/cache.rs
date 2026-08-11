@@ -199,13 +199,30 @@ impl DnsCache {
         self.compact_insertion_order();
     }
 
-    /// Remove all cache entries for `domain` across all upstream pools and
-    /// record types. Returns the number of entries removed.
-    pub fn invalidate_domain(&mut self, domain: &str) -> u64 {
-        let d = canonical_domain(domain);
+    /// Remove every cache entry at or below `domain` — the name itself plus
+    /// all of its subdomains — across all upstream pools and record types.
+    /// Returns the number of entries removed.
+    ///
+    /// The scope matches the way local DNS is *applied*: a conditional
+    /// forwarding rule, an authoritative zone, and a wildcard record each
+    /// govern a whole subtree, and the cache is consulted before any of them
+    /// is used. Evicting only the exact name would leave every already-cached
+    /// subdomain resolving the old way until its TTL expired, which for a
+    /// negative answer carrying a parent zone's SOA minimum can be hours.
+    ///
+    /// A wildcard domain (`*.example.com`) is evicted as its suffix subtree.
+    /// That also takes the apex, one name wider than the wildcard actually
+    /// covers; over-eviction costs a single re-resolution, under-eviction
+    /// costs correctness.
+    pub fn invalidate_subtree(&mut self, domain: &str) -> u64 {
+        let d = canonical_domain(domain.strip_prefix("*.").unwrap_or(domain));
         let before = self.entries.len() as u64;
-        self.entries
-            .retain(|(_, cached_domain, _), _| cached_domain != &d);
+        self.entries.retain(|(_, cached_domain, _), _| {
+            cached_domain != &d
+                && !cached_domain
+                    .strip_suffix(d.as_str())
+                    .is_some_and(|prefix| prefix.ends_with('.'))
+        });
         // A mass invalidation can orphan many queue slots at once; reclaim
         // them here rather than leaving the next insert to wade through
         // them under the hot-path write lock.

@@ -438,10 +438,10 @@ impl DnsServer for UdpDnsServer {
         self.pipeline.authoritative_view.swap(Arc::new(view));
     }
 
-    async fn invalidate_domain(&self, domain: &str) {
-        let removed = self.pipeline.cache.write().await.invalidate_domain(domain);
+    async fn invalidate_subtree(&self, domain: &str) {
+        let removed = self.pipeline.cache.write().await.invalidate_subtree(domain);
         if removed > 0 {
-            tracing::debug!(domain, removed, "evicted DNS cache entries for domain");
+            tracing::debug!(domain, removed, "evicted DNS cache entries for subtree");
         }
     }
 

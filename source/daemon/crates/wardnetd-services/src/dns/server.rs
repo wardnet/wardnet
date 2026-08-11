@@ -49,9 +49,11 @@ pub trait DnsServer: Send + Sync {
     /// `DnsLocalChanged` event arrives.
     async fn update_authoritative_view(&self, view: AuthoritativeView);
 
-    /// Evict all cache entries for `domain` so the next query for that
-    /// domain is re-resolved rather than served from a stale cached answer.
-    async fn invalidate_domain(&self, domain: &str);
+    /// Evict every cache entry at or below `domain` — the name and all of
+    /// its subdomains — so the next query for any of them is re-resolved
+    /// rather than served from a stale cached answer. Local DNS is applied
+    /// per subtree, so eviction has to be too.
+    async fn invalidate_subtree(&self, domain: &str);
 
     /// Latest rolling-average latency per configured upstream, produced by the
     /// background prober. One entry per current upstream address (empty until

@@ -35,6 +35,7 @@ const RESTORABLE_KEYS: &[&str] = &[
     "logging.broadcast_capacity",
     "logging.ui_suppressed_targets",
     "logging.journal_suppressed_targets",
+    "logging.journal_info_targets",
     "network.default_policy",
     "auth.session_expiry_hours",
     "auth.remember_me_expiry_hours",

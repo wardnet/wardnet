@@ -6,6 +6,7 @@ import type { DeviceRuleRequest } from "@wardnet/js";
 
 import Settings from "../../src/pages/Settings";
 import { makeDevice, renderWithProviders } from "../test-utils";
+import { FakeResizeObserver } from "../helpers/resizeObserver";
 
 const {
   useMyDevice,
@@ -387,9 +388,12 @@ describe("Settings page", () => {
         // jsdom doesn't implement scrollIntoView, so assign rather than spyOn.
         scrollIntoView = vi.fn();
         Element.prototype.scrollIntoView = scrollIntoView;
+        FakeResizeObserver.reset();
+        vi.stubGlobal("ResizeObserver", FakeResizeObserver);
       });
 
       afterEach(() => {
+        vi.unstubAllGlobals();
         // A raw prototype assignment isn't undone by restoreAllMocks, and a
         // pushed fragment would otherwise leak into every later test — the
         // component reads `window.location.hash` as well as the router's.
@@ -431,6 +435,48 @@ describe("Settings page", () => {
           behavior: "smooth",
           block: "start",
         });
+      });
+
+      it("holds the card in view while the cards above it settle", () => {
+        // The bug (#1176): the scroll fired once at mount, landing on this
+        // card's one-line "Loading…" branch, and the three data-driven cards
+        // above then expanded and pushed it back below the fold. The observer
+        // watches the container the cards share, so their growth re-scrolls.
+        usePrivateDnsMe.mockReturnValue({ data: undefined, isLoading: true });
+        renderWithProviders(<Settings />, { route: "/settings#private-dns" });
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+        const card = screen.getByTestId("private-dns-card");
+        expect(FakeResizeObserver.last.targets).toEqual([
+          card,
+          card.parentElement,
+        ]);
+
+        FakeResizeObserver.last.fire();
+        expect(scrollIntoView).toHaveBeenCalledTimes(2);
+      });
+
+      it("re-scrolls once this card's own grant query resolves", () => {
+        usePrivateDnsMe.mockReturnValue({ data: undefined, isLoading: true });
+        const { rerender } = renderWithProviders(<Settings />, {
+          route: "/settings#private-dns",
+        });
+        expect(scrollIntoView).toHaveBeenCalledTimes(1);
+
+        // Swapping "Loading…" for the setup steps changes what the user came
+        // for, so the landing position is re-taken even if the layout around
+        // the card happens not to move.
+        usePrivateDnsMe.mockReturnValue({
+          data: {
+            enabled: true,
+            granted: true,
+            hostname: "tok.abc.my.wardnet.services",
+          },
+          isLoading: false,
+        });
+        rerender(<Settings />);
+
+        expect(scrollIntoView).toHaveBeenCalledTimes(2);
       });
     });
 

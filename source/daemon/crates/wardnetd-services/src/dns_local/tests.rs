@@ -22,6 +22,7 @@ use wardnetd_data::repository::SqliteDnsLocalRepository;
 use crate::auth_context;
 use crate::dns_local::service::{DnsLocalService, DnsLocalServiceImpl};
 use crate::error::AppError;
+use crate::event::EventPublisher;
 
 async fn test_pool() -> SqlitePool {
     let pool = SqlitePoolOptions::new()
@@ -36,11 +37,35 @@ async fn test_pool() -> SqlitePool {
 }
 
 async fn build() -> DnsLocalServiceImpl {
+    build_with_events().await.0
+}
+
+/// Same service, plus a subscriber on its bus. Used by the tests that assert
+/// which domain a mutation announces, since that domain is what the DNS
+/// runner evicts from the cache.
+async fn build_with_events() -> (
+    DnsLocalServiceImpl,
+    tokio::sync::broadcast::Receiver<wardnet_common::event::WardnetEvent>,
+) {
     let pool = test_pool().await;
     let repo = Arc::new(SqliteDnsLocalRepository::new(pool));
-    let events: Arc<dyn crate::event::EventPublisher> =
-        Arc::new(crate::event::BroadcastEventBus::new(16));
-    DnsLocalServiceImpl::new(repo, events)
+    let bus = Arc::new(crate::event::BroadcastEventBus::new(16));
+    let rx = bus.subscribe();
+    let events: Arc<dyn crate::event::EventPublisher> = bus;
+    (DnsLocalServiceImpl::new(repo, events), rx)
+}
+
+/// Drain the `DnsLocalChanged` domains published so far, in order.
+fn changed_domains(
+    rx: &mut tokio::sync::broadcast::Receiver<wardnet_common::event::WardnetEvent>,
+) -> Vec<String> {
+    let mut domains = Vec::new();
+    while let Ok(event) = rx.try_recv() {
+        if let wardnet_common::event::WardnetEvent::DnsLocalChanged { domain, .. } = event {
+            domains.push(domain);
+        }
+    }
+    domains
 }
 
 /// Run a future inside an `Admin` task-local context. Every service method
@@ -400,6 +425,96 @@ async fn delete_forwarding_rule_missing_is_not_found() {
             .await
             .unwrap_err();
         assert!(matches!(err, AppError::NotFound(_)));
+    })
+    .await;
+}
+
+// ── Change announcements (issue #1184) ─────────────────────────────────
+
+/// The runner evicts the announced domain's subtree, so a zone mutation that
+/// announced nothing left every cached name under the zone untouched.
+#[tokio::test]
+async fn zone_mutations_announce_the_zone_name() {
+    let (svc, mut rx) = build_with_events().await;
+    as_admin(async {
+        let created = svc.create_zone(create_zone_req("lab")).await.unwrap();
+        assert_eq!(
+            changed_domains(&mut rx),
+            ["lab"],
+            "create announces the zone"
+        );
+
+        svc.update_zone(
+            created.zone.id,
+            UpdateZoneRequest {
+                enabled: Some(false),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            changed_domains(&mut rx),
+            ["lab"],
+            "update announces the zone"
+        );
+
+        svc.delete_zone(created.zone.id).await.unwrap();
+        assert_eq!(
+            changed_domains(&mut rx),
+            ["lab"],
+            "delete announces the zone"
+        );
+    })
+    .await;
+}
+
+/// A rename moves the namespace, so both the vacated and the claimed suffix
+/// have to be announced.
+#[tokio::test]
+async fn renaming_a_zone_announces_both_names() {
+    let (svc, mut rx) = build_with_events().await;
+    as_admin(async {
+        let created = svc.create_zone(create_zone_req("lab")).await.unwrap();
+        let _ = changed_domains(&mut rx);
+
+        svc.update_zone(
+            created.zone.id,
+            UpdateZoneRequest {
+                name: Some("lab2".to_owned()),
+                enabled: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(changed_domains(&mut rx), ["lab", "lab2"]);
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn forwarding_rule_mutations_announce_the_rule_domain() {
+    let (svc, mut rx) = build_with_events().await;
+    as_admin(async {
+        let created = svc
+            .create_forwarding_rule(create_rule_req("ecoflow.com"))
+            .await
+            .unwrap();
+        assert_eq!(changed_domains(&mut rx), ["ecoflow.com"]);
+
+        svc.update_forwarding_rule(
+            created.rule.id,
+            UpdateForwardingRuleRequest {
+                upstream: Some("1.1.1.1".to_owned()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(changed_domains(&mut rx), ["ecoflow.com"]);
+
+        svc.delete_forwarding_rule(created.rule.id).await.unwrap();
+        assert_eq!(changed_domains(&mut rx), ["ecoflow.com"]);
     })
     .await;
 }

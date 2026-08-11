@@ -13,6 +13,7 @@ const { deviceService } = vi.hoisted(() => ({
     setMyRule: vi.fn(),
     setMyCaptureEnabled: vi.fn(),
     update: vi.fn(),
+    release: vi.fn(),
     getDnsCaptureSettings: vi.fn(),
     updateDnsCaptureSettings: vi.fn(),
     identify: vi.fn(),
@@ -38,6 +39,7 @@ import {
   useSetMyCaptureEnabled,
   useUpdateDevice,
   useIdentifyDevice,
+  useReleaseDevice,
   useDnsCaptureSettings,
   useUpdateDnsCaptureSettings,
 } from "../../src/hooks/useDevices";
@@ -232,5 +234,36 @@ describe("useDevices", () => {
       enabled: true,
     });
     expect(toast.success).toHaveBeenCalledWith("DNS capture settings saved");
+  });
+
+  it("releases a device and reports success", async () => {
+    deviceService.release.mockResolvedValue({});
+    const { result } = renderHook(() => useReleaseDevice(), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await act(async () => {
+      await result.current.mutateAsync("d1");
+    });
+
+    expect(deviceService.release).toHaveBeenCalledWith("d1");
+    expect(toast.success).toHaveBeenCalledWith("Device released");
+  });
+
+  it("surfaces a failed release rather than reporting success", async () => {
+    // A release revokes credentials; silently swallowing the failure would
+    // leave the admin believing the device was released when it still holds
+    // its Private-DNS grant and Remote peer credential.
+    deviceService.release.mockRejectedValue(new Error("boom"));
+    const { result } = renderHook(() => useReleaseDevice(), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await act(async () => {
+      await expect(result.current.mutateAsync("d1")).rejects.toThrow("boom");
+    });
+
+    expect(toast.error).toHaveBeenCalledWith("Failed to release device");
+    expect(toast.success).not.toHaveBeenCalled();
   });
 });

@@ -14,10 +14,19 @@ interface InstallPromptProps {
  * Home-screen install banner shared by the user and admin PWAs, so both apps
  * promote installation with identical placement and behaviour.
  *
- * Renders in flow at the top of the layout (place it between the connection
- * banner and `<main>`): a card overlaid on the bottom of a `100vh` container
- * gets clipped behind mobile browser chrome — which is exactly where the
- * banner matters, since an installed app never shows it.
+ * Placement is deliberate on two axes:
+ *
+ * - In flow at the top of the layout — place it between the connection banner
+ *   and `<main>`. Pinned to the bottom of a `100vh` shell instead, it lands
+ *   under the mobile browser's own chrome, which is exactly where it matters:
+ *   an installed app never shows the banner.
+ * - Its own stacking context (`relative z-10`). An in-flow element carrying no
+ *   z-index paints below anything positioned that reaches its box, so without
+ *   this the banner stays tappable only for as long as no page content
+ *   overlaps it — and page content stacks as it likes (Leaflet, for one, runs
+ *   its panes and controls from z-index 400 up without opening a stacking
+ *   context around them). #1175 is that failure on the bottom-pinned banner
+ *   this one replaced.
  *
  * Shows only on the app's home route, and only while the browser reports the
  * app as installable; dismissing it hides it for the session.
@@ -44,7 +53,7 @@ export function InstallPrompt({ icon }: InstallPromptProps) {
 
   return (
     <div
-      className="mx-3 mt-3 flex items-center gap-3 rounded-lg border border-line bg-card p-3.5 shadow-pop"
+      className="relative z-10 mx-3 mt-3 flex items-center gap-3 rounded-lg border border-line bg-card p-3.5 shadow-pop"
       style={{
         animation: "wn-install-slide-down 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)",
       }}

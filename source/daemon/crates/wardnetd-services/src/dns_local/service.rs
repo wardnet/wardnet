@@ -92,18 +92,15 @@ impl DnsLocalServiceImpl {
         Self { repo, events }
     }
 
-    fn emit_zone_changed(&self) {
-        use wardnet_common::event::WardnetEvent;
-        self.events.publish(WardnetEvent::DnsLocalChanged {
-            domain: None,
-            timestamp: chrono::Utc::now(),
-        });
-    }
-
+    /// Announce that everything at or below `domain` may resolve differently
+    /// now. Zone names go through here as well as record and rule domains: an
+    /// enabled zone claims its whole namespace, so a zone mutation has the
+    /// same subtree reach as a rule and leaving it unannounced left
+    /// already-cached names under the zone resolving the old way.
     fn emit_domain_changed(&self, domain: String) {
         use wardnet_common::event::WardnetEvent;
         self.events.publish(WardnetEvent::DnsLocalChanged {
-            domain: Some(domain),
+            domain,
             timestamp: chrono::Utc::now(),
         });
     }
@@ -251,7 +248,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
             .create_zone(&row)
             .await
             .map_err(|e| Self::map_repo_err(e, "a zone with this name already exists"))?;
-        self.emit_zone_changed();
+        self.emit_domain_changed(zone.name.clone());
         Ok(CreateZoneResponse {
             zone,
             message: "zone created".to_owned(),
@@ -264,6 +261,8 @@ impl DnsLocalService for DnsLocalServiceImpl {
         req: UpdateZoneRequest,
     ) -> Result<UpdateZoneResponse, AppError> {
         auth_context::require_admin()?;
+        // Capture the pre-update zone to detect renames for cache eviction.
+        let old_zone = self.ensure_zone(id).await?;
         if let Some(name) = req.name.as_deref() {
             Self::validate_zone_name(name)?;
         }
@@ -277,7 +276,12 @@ impl DnsLocalService for DnsLocalServiceImpl {
             .await
             .map_err(|e| Self::map_repo_err(e, "a zone with this name already exists"))?
             .ok_or_else(|| AppError::NotFound(format!("zone {id} not found")))?;
-        self.emit_zone_changed();
+        // A rename moves the namespace: the old suffix stops being ours and
+        // the new one starts, so both subtrees need evicting.
+        if old_zone.name != zone.name {
+            self.emit_domain_changed(old_zone.name);
+        }
+        self.emit_domain_changed(zone.name.clone());
         Ok(UpdateZoneResponse {
             zone,
             message: "zone updated".to_owned(),
@@ -302,7 +306,7 @@ impl DnsLocalService for DnsLocalServiceImpl {
         if !deleted {
             return Err(AppError::NotFound(format!("zone {id} not found")));
         }
-        self.emit_zone_changed();
+        self.emit_domain_changed(zone.name);
         Ok(DeleteZoneResponse {
             message: format!("zone {id} deleted"),
         })

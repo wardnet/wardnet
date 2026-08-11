@@ -10,6 +10,7 @@ mod hostname_resolver;
 mod inbound_wg_interface_wireguard;
 mod linux_watchdog;
 mod mdns_advertiser;
+mod mdns_observer;
 mod metrics_collector;
 mod packet_capture;
 mod pidfile;

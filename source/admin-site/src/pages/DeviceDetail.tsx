@@ -8,6 +8,7 @@ import { DeviceDnsCaptureCard } from "@/components/features/DeviceDnsCaptureCard
 import { DeviceIdentityCard } from "@/components/features/DeviceIdentityCard";
 import { DeviceIdentificationCard } from "@/components/features/DeviceIdentificationCard";
 import { DeviceNetworkCard } from "@/components/features/DeviceNetworkCard";
+import { DeviceReleaseCard } from "@/components/features/DeviceReleaseCard";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
 import { DeviceRoutingProfilesCard } from "@/components/features/DeviceRoutingProfilesCard";
 import { DeviceZoneCard } from "@/components/features/DeviceZoneCard";
@@ -16,6 +17,7 @@ import {
   useTunnels,
   useUpdateDevice,
   useIdentifyDevice,
+  useReleaseDevice,
   useRoutingProfiles,
   useDeviceRoutingProfiles,
   useSetDeviceRoutingProfiles,
@@ -120,6 +122,7 @@ function DeviceDetailLoaded({
   // Hoisted here rather than in the card: cards under `components/features/`
   // stay presentational (commit ce601207).
   const identifyDevice = useIdentifyDevice();
+  const releaseDevice = useReleaseDevice();
 
   // Routing profiles card.
   const { data: profilesData } = useRoutingProfiles();
@@ -147,8 +150,9 @@ function DeviceDetailLoaded({
   const restoreReservation = useCreateReservation({ silent: true });
   const deleteReservation = useDeleteReservation();
 
-  const managed = device.name != null;
-  // Raw presence, deliberately not gated on `managed`: an unnamed device is
+  // Server-owned flag (#1181), not inferred from the name — see Devices.tsx.
+  const managed = device.managed;
+  // Raw presence, deliberately NOT gated on `managed`: an unadopted device is
   // precisely the one worth identifying, and the daemon's probe guard is about
   // whether the address is still this device's, not whether an admin has
   // adopted it.
@@ -229,6 +233,7 @@ function DeviceDetailLoaded({
         restoreReservation={restoreReservation}
         deleteReservation={deleteReservation}
       />
+      <DeviceReleaseCard device={device} release={releaseDevice} />
     </div>
   );
 }

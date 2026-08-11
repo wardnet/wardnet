@@ -181,6 +181,19 @@ cd source/sdk/wardnet-go && go test ./...          # Go SDK the CLI is built on
 ../sdk/wardnet-go` directive, so local SDK edits are picked up without a
 publish step.
 
+Every command takes `--json`, so anything the admin UI shows is also
+scriptable: `status`, `devices`, `tunnels`, `dns`, `dhcp`, `logs`, `system`,
+`update`, and `backup`. Two of those have shapes worth knowing:
+
+- `wctl logs` writes the stored log file to stdout; `wctl logs --follow`
+  streams live entries to **stderr** until interrupted, leaving stdout free
+  for the surrounding pipeline. `--level` and `--target` filter the live
+  stream server-side.
+- The `dns` blocklist, allowlist, and rule subcommands are scoped to a DNS
+  filter profile. `--profile` takes a name or an ID and defaults to
+  `Ad Blocking`, so `wctl dns blocklists list` shows the same lists as the
+  admin UI's Ad Blocking page.
+
 Outside consumers `go get wardnet.network/go`, which resolves through a
 generated mirror. Go finds a module by subtracting the `go-import` meta tag's
 root-path from the module path, so a module named `wardnet.network/go` has to

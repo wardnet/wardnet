@@ -198,3 +198,16 @@ pub fn probe_ports() -> Vec<u16> {
     ports.sort_unstable();
     ports
 }
+
+/// Every mDNS service type the catalog can attribute — the complete set the
+/// passive observer browses for, and by construction its upper bound.
+///
+/// Returned lowercased and without the `.local.` domain (e.g. `_govee._tcp`),
+/// exactly as declared in `vendors.toml`; the observer appends the domain the
+/// mDNS browse query expects. Sorted so the browse set is deterministic.
+#[must_use]
+pub fn mdns_service_types() -> Vec<&'static str> {
+    let mut types: Vec<&'static str> = CATALOG.by_mdns.keys().map(String::as_str).collect();
+    types.sort_unstable();
+    types
+}

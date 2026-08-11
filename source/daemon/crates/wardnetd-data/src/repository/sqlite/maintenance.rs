@@ -4,7 +4,9 @@ use async_trait::async_trait;
 use sqlx::SqlitePool;
 
 use crate::db::DbPools;
-use crate::repository::maintenance::{MaintenanceRepository, WalCheckpointOutcome};
+use crate::repository::maintenance::{
+    IncrementalVacuumOutcome, MaintenanceRepository, VacuumStop, WalCheckpointOutcome,
+};
 
 /// How many pages a single `PRAGMA incremental_vacuum(N)` call is
 /// allowed to reclaim. Tuned for a Raspberry Pi: ~8 MiB at the `SQLite`
@@ -39,6 +41,14 @@ const ANALYSIS_LIMIT: u32 = 400;
 /// tick retry; `journal_size_limit` keeps the file capped meanwhile.
 const CHECKPOINT_BUSY_TIMEOUT_MS: u32 = 1_000;
 
+/// `system_config` key holding the date of the last completed daily
+/// maintenance sequence.
+const LAST_MAINTENANCE_DAY_KEY: &str = "db_maintenance_last_run_day";
+
+/// Storage format for [`LAST_MAINTENANCE_DAY_KEY`]. ISO 8601 so the value
+/// sorts and reads correctly when someone inspects the table by hand.
+const DAY_FMT: &str = "%Y-%m-%d";
+
 pub struct SqliteMaintenanceRepository {
     pools: DbPools,
 }
@@ -53,11 +63,30 @@ impl SqliteMaintenanceRepository {
     pub fn new_pools(pools: DbPools) -> Self {
         Self { pools }
     }
+
+    /// Pages currently on the freelist — space the database owns but the
+    /// filesystem has not got back.
+    ///
+    /// Read on the writer pool, like every other step of the vacuum: reading it
+    /// from a second connection would sample a different WAL snapshot than the
+    /// one the pragma is about to act on.
+    async fn freelist_count(&self) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar("PRAGMA freelist_count")
+            .fetch_one(&self.pools.write)
+            .await?)
+    }
+
+    /// Size of the database file, in pages.
+    async fn page_count(&self) -> anyhow::Result<i64> {
+        Ok(sqlx::query_scalar("PRAGMA page_count")
+            .fetch_one(&self.pools.write)
+            .await?)
+    }
 }
 
 #[async_trait]
 impl MaintenanceRepository for SqliteMaintenanceRepository {
-    async fn incremental_vacuum(&self) -> anyhow::Result<u64> {
+    async fn incremental_vacuum(&self) -> anyhow::Result<IncrementalVacuumOutcome> {
         // `PRAGMA incremental_vacuum(N)` is a no-op on databases created with
         // `auto_vacuum=NONE`, so it is safe to call unconditionally.
         //
@@ -73,6 +102,14 @@ impl MaintenanceRepository for SqliteMaintenanceRepository {
         // returned to the filesystem, which is the thing being asked for.
         let stmt = format!("PRAGMA incremental_vacuum({INCREMENTAL_VACUUM_CHUNK_PAGES})");
         let mut reclaimed: i64 = 0;
+        let mut chunks: u32 = 0;
+
+        // Errors propagate rather than defaulting: a read that fails because
+        // the writer is busy must not be mistaken for "freelist is empty,
+        // nothing to do", which would silently skip the whole daily reclaim.
+        // The caller logs it and the next tick retries.
+        let mut free: i64 = self.freelist_count().await?;
+        let freelist_before = free;
 
         // Chunked rather than one big call: each `PRAGMA` takes and releases
         // the writer, so the DNS query log and stats flushes interleave instead
@@ -81,41 +118,42 @@ impl MaintenanceRepository for SqliteMaintenanceRepository {
         // whose freelist never reaches one chunk still has to get its pages
         // back, and `PRAGMA incremental_vacuum(N)` already reclaims only
         // `min(N, freelist)` so a partial final chunk costs nothing.
-        for _ in 0..INCREMENTAL_VACUUM_MAX_CHUNKS {
-            // Errors propagate rather than defaulting: a read that fails
-            // because the writer is busy must not be mistaken for "freelist is
-            // empty, nothing to do", which would silently skip the whole daily
-            // reclaim. The caller logs it and the next tick retries.
-            let free: i64 = sqlx::query_scalar("PRAGMA freelist_count")
-                .fetch_one(&self.pools.write)
-                .await?;
+        let stop = loop {
             if free <= 0 {
-                break;
+                break VacuumStop::Drained;
             }
-            let pages_before: i64 = sqlx::query_scalar("PRAGMA page_count")
-                .fetch_one(&self.pools.write)
-                .await?;
+            if chunks >= INCREMENTAL_VACUUM_MAX_CHUNKS {
+                break VacuumStop::BudgetExhausted;
+            }
+            let pages_before: i64 = self.page_count().await?;
 
             sqlx::query(sqlx::AssertSqlSafe(stmt.clone()))
                 .execute(&self.pools.write)
                 .await?;
+            chunks += 1;
 
-            let pages_after: i64 = sqlx::query_scalar("PRAGMA page_count")
-                .fetch_one(&self.pools.write)
-                .await?;
+            let pages_after: i64 = self.page_count().await?;
             let freed = pages_before - pages_after;
             if freed <= 0 {
                 // Nothing came back this pass: `auto_vacuum=NONE`, or every
                 // remaining free page sits below a pointer-map page that
                 // cannot be relocated yet. Stop rather than spinning the
                 // writer for the rest of the budget.
-                break;
+                break VacuumStop::Stalled;
             }
             reclaimed += freed;
             tokio::task::yield_now().await;
-        }
+            free = self.freelist_count().await?;
+        };
 
-        Ok(u64::try_from(reclaimed).unwrap_or(0))
+        Ok(IncrementalVacuumOutcome {
+            reclaimed_pages: u64::try_from(reclaimed).unwrap_or(0),
+            freelist_before,
+            freelist_after: self.freelist_count().await?,
+            page_count_after: self.page_count().await?,
+            chunks,
+            stop,
+        })
     }
 
     async fn wal_checkpoint_truncate(&self) -> anyhow::Result<WalCheckpointOutcome> {
@@ -176,6 +214,31 @@ impl MaintenanceRepository for SqliteMaintenanceRepository {
         .execute(&mut *conn)
         .await?;
         sqlx::query("PRAGMA optimize").execute(&mut *conn).await?;
+        Ok(())
+    }
+
+    async fn last_maintenance_day(&self) -> anyhow::Result<Option<chrono::NaiveDate>> {
+        let raw: Option<String> =
+            sqlx::query_scalar("SELECT value FROM system_config WHERE key = ?")
+                .bind(LAST_MAINTENANCE_DAY_KEY)
+                .fetch_optional(&self.pools.read)
+                .await?;
+        // An unparseable value reads as "never ran" rather than raising: the
+        // only consequence is one extra maintenance sequence, which then
+        // overwrites the bad value. Failing the read instead would strand the
+        // schedule on a single corrupt row forever.
+        Ok(raw.and_then(|s| chrono::NaiveDate::parse_from_str(&s, DAY_FMT).ok()))
+    }
+
+    async fn record_maintenance_day(&self, day: chrono::NaiveDate) -> anyhow::Result<()> {
+        sqlx::query(
+            "INSERT INTO system_config (key, value) VALUES (?, ?) \
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        )
+        .bind(LAST_MAINTENANCE_DAY_KEY)
+        .bind(day.format(DAY_FMT).to_string())
+        .execute(&self.pools.write)
+        .await?;
         Ok(())
     }
 

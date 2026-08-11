@@ -1438,6 +1438,17 @@ impl DnsFilterService for DnsFilterServiceImpl {
             .await
             .map_err(AppError::Internal)?;
 
+        // Both writes above create `device_id`-keyed rows, so the device is now
+        // carrying admin artefacts and must be managed (issue #1181) — that is
+        // exactly the invariant the retention prune relies on. Promotion is
+        // unconditional, including for a settings row that merely *disables*
+        // filtering: it is the row's existence, not its value, that the prune
+        // would otherwise leave orphaned.
+        self.device_repo
+            .set_managed(&device_id.to_string(), true)
+            .await
+            .map_err(AppError::Internal)?;
+
         let settings = self
             .repo
             .find_device_settings(device_id)

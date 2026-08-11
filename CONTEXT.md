@@ -90,6 +90,14 @@
 
 **Derived MAC** (neighbour MAC) — One of the several addresses a single chipset derives from one base MAC. Espressif assigns Wi-Fi STA, Wi-Fi AP, Bluetooth and Ethernet as base+0/+1/+2/+3. This is why the MAC printed in a vendor's mobile app — often the **Bluetooth** one — is not the address the device associated with over Wi-Fi, and why an admin comparing the two is unknowingly comparing different identifiers. Wardnet's device search answers this by offering devices within ±4 of a missed exact MAC search as clearly-labelled *possible* matches.
 
+## Managed devices and retention (issue #1181)
+
+**Managed device** — A `Device` whose configuration an admin has decided to control. Promotion is automatic on *any* admin configuration act — naming, locking, a routing rule or profile, DNS filter settings, DNS capture, a **Private-DNS grant**, a **Remote peer** credential, a DHCP reservation, a **Cross-zone exception**, or an explicit zone reassignment. It is deliberately *not* inferred from the name alone. A device's own self-service acts never promote it — that is the device asking, not the admin deciding. Managed is **latching**: it never demotes automatically, only through an explicit **release**. Only unmanaged devices are subject to **device retention**. See [0032-managed-devices-and-retention.md](docs/adr/0032-managed-devices-and-retention.md).
+
+**Release** ("Stop managing") — The admin action that reverts every managed configuration to default and returns the device to unmanaged. Destructive and confirmed: it revokes remote access.
+
+**Device retention** — Unmanaged devices absent longer than 30 days are deleted. Managed devices are never auto-deleted at any age.
+
 ## Remote access (inbound WireGuard + published access)
 
 **Remote peer** — A `Device`, previously discovered on the LAN, that an admin has explicitly granted an inbound WireGuard credential (issue #810). Not a separate identity: the credential (`inbound_wg_peers.device_id`, one per device) attaches to the device's existing row, so it participates in **Routing rule**, **Network Zone** enforcement, and DNS capture exactly like any LAN device — there is deliberately no separate device concept for it. There is no way to grant remote access to a device that has never connected to the LAN; the MAC needed to link the credential can't be known in advance, since modern OSes randomize the MAC presented to a network the device hasn't associated with before. Distinguished from a device currently on the LAN only by its live `connection_mode` (`lan` | `remote`), which flips with whichever path — LAN or tunnel — most recently observed the device; it is not a permanent record of how the device was first discovered.

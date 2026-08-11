@@ -59,6 +59,7 @@ impl MockDeviceService {
             dns_capture_cap_count: 0,
             dns_capture_cap_days: 0,
             connection_mode: DeviceConnectionMode::Lan,
+            managed: false,
         };
         self.devices.lock().unwrap().insert(id.to_string(), device);
         id
@@ -67,6 +68,18 @@ impl MockDeviceService {
 
 #[async_trait]
 impl DeviceService for MockDeviceService {
+    async fn clear_rule(&self, _device_id: &str) -> Result<(), crate::error::AppError> {
+        Ok(())
+    }
+
+    async fn mark_managed(&self, _device_id: &str) -> Result<(), crate::error::AppError> {
+        Ok(())
+    }
+
+    async fn clear_managed(&self, _device_id: &str) -> Result<(), crate::error::AppError> {
+        Ok(())
+    }
+
     async fn get_device(&self, device_id: &str) -> Result<Option<Device>, AppError> {
         Ok(self.devices.lock().unwrap().get(device_id).cloned())
     }

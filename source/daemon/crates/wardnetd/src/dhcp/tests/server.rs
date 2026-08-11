@@ -2091,6 +2091,15 @@ impl wardnetd_services::device::DeviceIdentificationService for RecordingIdentif
         Ok(())
     }
 
+    async fn record_signal_for_ip(
+        &self,
+        _ip: std::net::IpAddr,
+        _kind: DeviceSignalKind,
+        _value: &str,
+    ) -> Result<(), AppError> {
+        unimplemented!("the DHCP path records by MAC")
+    }
+
     async fn signals_for(
         &self,
         _device_id: &str,

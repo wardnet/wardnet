@@ -3215,6 +3215,199 @@
         }
       }
     },
+    "/api/devices/{id}/release": {
+      "post": {
+        "tags": [
+          "devices"
+        ],
+        "description": "Stop managing a device (issue #1181). Reverts every admin-set configuration to default and returns the device to unmanaged, after which it becomes subject to device retention and is deleted once it has been absent for 30 days. Destructive: this revokes the device's Private-DNS grant and its Remote peer credential, disconnecting it. Idempotent — each step is a no-op when there is nothing to revert, so a retry after a partial failure completes. Admin only.",
+        "operationId": "release_device",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Device ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated device detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceDetailResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devices/{id}/zone": {
       "put": {
         "tags": [
@@ -25833,7 +26026,8 @@
           "dns_capture_enabled",
           "dns_capture_cap_count",
           "dns_capture_cap_days",
-          "connection_mode"
+          "connection_mode",
+          "managed"
         ],
         "properties": {
           "admin_locked": {
@@ -25884,6 +26078,10 @@
           },
           "mac": {
             "type": "string"
+          },
+          "managed": {
+            "type": "boolean",
+            "description": "Whether an admin has decided to control this device's configuration.\n\nSet by *any* admin configuration act (naming, locking, a routing rule or\nprofile, DNS filter settings, DNS capture, a Private-DNS grant, a Remote\npeer credential, a DHCP reservation, a zone exception, an explicit zone\nreassignment) and deliberately **not** inferred from `name` — a device\ncan be configured without ever being named, and clearing a name must not\nsilently revoke its remote access.\n\nLatching: never demotes automatically, only through an explicit release\n(`POST /api/devices/{id}/release`), which first reverts every managed\nsetting to default. That upholds the invariant device retention depends\non — `managed = false` implies no admin artefacts exist — so pruning a\nlong-absent unmanaged device can never orphan a row. See issue #1181 and\n`docs/adr/0032-managed-devices-and-retention.md`."
           },
           "manufacturer": {
             "type": [

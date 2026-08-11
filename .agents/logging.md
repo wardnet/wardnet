@@ -34,6 +34,38 @@ tracing::info!("device detected: mac={mac}, ip={ip}", mac = obs.mac, ip = obs.ip
 7. `debug` level — include counts and operational details: `"flushed {count} timestamps"`.
 8. `trace` level — rarely used, for packet-level details during development.
 
+## Where a line ends up
+
+Three sinks, three different filters — a line that is "logged" is not
+necessarily a line anyone will see:
+
+| Sink | Carries |
+|---|---|
+| Rotating log file + `OTel` | everything the subscriber's `EnvFilter` admits (INFO and above by default) |
+| Admin UI live stream | the same, minus `logging.ui_suppressed_targets` |
+| stderr → journald (`journalctl -u wardnetd`) | ERROR always; WARN minus `logging.journal_suppressed_targets`; INFO **only** from `logging.journal_info_targets` |
+
+The journal is the narrow one, and it is what an operator reads on a box
+they are debugging. If you are writing the line that answers *"is this
+background job still running?"*, an `info!` is not enough on its own —
+add the module's target prefix to `journal_info_targets`
+(`wardnet-common/src/config.rs`).
+
+Keep that list to targets emitting a **bounded, countable** number of
+INFO events per day. Per-request or per-query lines belong in the log
+file; a target added here at DEBUG-adjacent volume evicts other units'
+logs from the journal.
+
+## Report the boring outcome
+
+A periodic job that only logs when something goes wrong is
+indistinguishable from one that has stopped running. Log the successful
+case too, with the numbers that let a reader tell "nothing to do" from
+"could not do anything" — see `run_vacuum` in
+`wardnetd-services/src/db_maintenance_runner.rs`, which reports pages
+reclaimed, the freelist on both sides, and why the loop stopped, every
+run, including the runs that reclaim nothing.
+
 ## Performance
 
 Tracing macros are zero-cost when the level is filtered out. The level check happens first — if disabled, no arguments are evaluated, no strings are formatted.

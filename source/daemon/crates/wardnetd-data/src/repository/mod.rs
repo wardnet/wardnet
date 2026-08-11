@@ -26,7 +26,7 @@ pub mod zone_exception;
 
 pub use admin::AdminRepository;
 pub use api_key::ApiKeyRepository;
-pub use device::{DeviceRepository, DeviceRow};
+pub use device::{DeviceRepository, DeviceRow, PrunedDevice};
 pub use device_identification::{DeviceIdentificationRepository, DeviceSignalRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
 pub use dns::{DnsRepository, QueryLogFilter, QueryLogRow};
@@ -40,7 +40,9 @@ pub use dns_local::{
     ZoneUpdate,
 };
 pub use inbound_wg::{InboundWgPeerRepository, InboundWgPeerRow};
-pub use maintenance::{MaintenanceRepository, WalCheckpointOutcome};
+pub use maintenance::{
+    IncrementalVacuumOutcome, MaintenanceRepository, VacuumStop, WalCheckpointOutcome,
+};
 pub use network_zone::NetworkZoneRepository;
 pub use notification::{NewNotification, NotificationRepository, StoredNotification};
 pub use private_dns::{PrivateDnsGrantRepository, PrivateDnsGrantRow};

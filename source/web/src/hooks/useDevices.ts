@@ -124,6 +124,36 @@ export function useIdentifyDevice() {
   });
 }
 
+/**
+ * Stop managing a device: revert every admin-set configuration to default and
+ * return it to unmanaged (issue #1181).
+ *
+ * Destructive — it revokes the device's Private-DNS grant and Remote peer
+ * credential — so callers must confirm before firing.
+ *
+ * Invalidates broadly rather than just the device: a release touches DHCP
+ * reservations, zone exceptions, DNS-filter settings, routing profiles and the
+ * device's zone, so any cached view of those is stale afterwards.
+ */
+export function useReleaseDevice() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deviceService.release(id),
+    onSuccess: (_data, id) => {
+      toast.success("Device released");
+      qc.invalidateQueries({ queryKey: ["devices"] });
+      qc.invalidateQueries({ queryKey: ["devices", id] });
+      qc.invalidateQueries({ queryKey: ["dhcp"] });
+      qc.invalidateQueries({ queryKey: ["zone-exceptions"] });
+      qc.invalidateQueries({ queryKey: ["dns-filter"] });
+      qc.invalidateQueries({ queryKey: ["routing-profiles"] });
+      qc.invalidateQueries({ queryKey: ["private-dns"] });
+      qc.invalidateQueries({ queryKey: ["inbound-wg"] });
+    },
+    onError: () => toast.error("Failed to release device"),
+  });
+}
+
 export function useDnsCaptureSettings(id: string) {
   return useQuery({
     queryKey: ["devices", id, "dns-capture"],

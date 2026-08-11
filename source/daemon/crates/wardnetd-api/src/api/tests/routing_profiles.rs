@@ -65,6 +65,7 @@ async fn app() -> Router {
     let service = Arc::new(RoutingProfileServiceImpl::new(
         repo,
         Arc::new(StubTunnelService),
+        Arc::new(crate::tests::stubs::StubDeviceService),
         tx,
     ));
 

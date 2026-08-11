@@ -22,8 +22,16 @@ vi.mock("@/hooks/useIpGeolocation", () => ({ useIpGeolocation }));
 // react-leaflet renders a real Leaflet map that jsdom can't drive; stub the
 // pieces Home uses as inert DOM so the rest of the card is exercised.
 vi.mock("react-leaflet", () => ({
-  MapContainer: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="map">{children}</div>
+  MapContainer: ({
+    children,
+    className,
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+  }) => (
+    <div data-testid="map" className={className}>
+      {children}
+    </div>
   ),
   TileLayer: () => <div data-testid="tile" />,
   Marker: () => <div data-testid="marker" />,
@@ -180,6 +188,15 @@ describe("Home page", () => {
     expect(screen.getByText("ISP AB")).toBeInTheDocument();
     // geo.country_code === tunnel.country_code ⇒ Match.
     expect(screen.getByText("Match")).toBeInTheDocument();
+  });
+
+  it("isolates the map so its layers stay inside the card", () => {
+    // Leaflet's panes/controls run from z-index 400 to 1000 and its container
+    // opens no stacking context of its own, so without this they are stacked
+    // against the app shell rather than against the map (#1175).
+    setMyDevice();
+    renderWithProviders(<Home />);
+    expect(screen.getByTestId("map")).toHaveClass("isolate");
   });
 
   it("shows a Mismatch pill when the geo country differs from the tunnel", () => {

@@ -71,6 +71,22 @@ export interface Device {
   current_rule: RoutingTarget | null;
   /** How the device is currently reachable (LAN vs. inbound WireGuard). */
   connection_mode: DeviceConnectionMode;
+  /**
+   * Whether an admin has decided to control this device's configuration
+   * (issue #1181).
+   *
+   * Set by *any* admin configuration act — naming, locking, a routing rule or
+   * profile, DNS filter settings, DNS capture, a Private-DNS grant, a Remote
+   * peer credential, a DHCP reservation, a zone exception, an explicit zone
+   * reassignment. Deliberately **not** derived from `name`: a device can be
+   * configured without ever being named, so rendering managed-ness from the
+   * name alone is wrong in both directions.
+   *
+   * Latching — it never clears on its own, only through
+   * {@link DeviceService.release}. Only unmanaged devices are subject to
+   * device retention (deleted after 30 days away).
+   */
+  managed: boolean;
 }
 
 /**

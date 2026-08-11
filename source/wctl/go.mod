@@ -6,6 +6,7 @@ toolchain go1.26.5
 
 require (
 	github.com/BurntSushi/toml v1.6.0
+	github.com/coder/websocket v1.8.15
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.45.0
 	wardnet.network/go v0.0.0
