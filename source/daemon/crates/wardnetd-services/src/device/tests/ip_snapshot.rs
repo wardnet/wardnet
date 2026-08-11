@@ -36,6 +36,21 @@ impl MockDeviceRepo {
 
 #[async_trait]
 impl DeviceRepository for MockDeviceRepo {
+    async fn delete_rule_for_device(&self, _device_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn set_managed(&self, _id: &str, _managed: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn delete_unmanaged_before(
+        &self,
+        _cutoff: &str,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
+        Ok(Vec::new())
+    }
+
     async fn find_by_ip(&self, _ip: &str) -> anyhow::Result<Option<Device>> {
         unimplemented!("not exercised by DeviceIpSnapshot")
     }
@@ -158,6 +173,7 @@ fn sample_device(id: &str, ip: &str, last_seen: &str) -> Device {
         dns_capture_cap_count: 1000,
         dns_capture_cap_days: 7,
         connection_mode: DeviceConnectionMode::Lan,
+        managed: false,
     }
 }
 

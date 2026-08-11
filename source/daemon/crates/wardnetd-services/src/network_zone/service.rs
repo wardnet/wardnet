@@ -486,6 +486,22 @@ impl NetworkZoneService for NetworkZoneServiceImpl {
             return Err(AppError::NotFound(format!("device {device_id} not found")));
         }
 
+        // An explicit zone reassignment is an admin configuration act, so it
+        // promotes to managed (issue #1181). Note this is the *only* way a zone
+        // promotes: zone membership is sticky and set at discovery from the
+        // default-for-new zone, so `zone_id` alone cannot distinguish "an admin
+        // moved this device" from "the default-for-new flag was later
+        // re-pointed" — which is why the migration deliberately does not
+        // backfill managed from zone membership.
+        //
+        // The no-op early return above means re-assigning a device to the zone
+        // it is already in promotes nothing, which is what the release handler
+        // relies on when it resets the zone before clearing `managed`.
+        self.devices
+            .set_managed(&device_id.to_string(), true)
+            .await
+            .map_err(AppError::Internal)?;
+
         self.events.publish(WardnetEvent::DeviceZoneChanged {
             device_id,
             old_zone_id,

@@ -375,6 +375,7 @@ impl MockDeviceRepository {
             dns_capture_cap_count: 0,
             dns_capture_cap_days: 0,
             connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
+            managed: false,
         };
         self.by_mac
             .lock()
@@ -385,6 +386,21 @@ impl MockDeviceRepository {
 
 #[async_trait]
 impl DeviceRepository for MockDeviceRepository {
+    async fn delete_rule_for_device(&self, _device_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn set_managed(&self, _id: &str, _managed: bool) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn delete_unmanaged_before(
+        &self,
+        _cutoff: &str,
+    ) -> anyhow::Result<Vec<wardnetd_data::repository::PrunedDevice>> {
+        Ok(Vec::new())
+    }
+
     async fn find_by_mac(&self, mac: &str) -> anyhow::Result<Option<Device>> {
         Ok(self
             .by_mac

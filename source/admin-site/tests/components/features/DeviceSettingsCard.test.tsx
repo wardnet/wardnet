@@ -160,23 +160,40 @@ describe("DeviceSettingsCard editing", () => {
     });
   });
 
-  it("labels the save 'Save' until a name will actually promote the device", async () => {
+  it("always labels the save 'Save', named or not (#1181)", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DeviceSettingsCard
-        {...cardProps({ device: makeDevice({ name: null }) })}
+        {...cardProps({ device: makeDevice({ name: null, managed: false }) })}
       />,
     );
     await user.click(screen.getByTestId("device-settings-edit"));
-    // No name yet — saving just persists settings, so it isn't a "promotion",
-    // and the form hints how to manage the device.
+    // Since #1181, saving ANY admin setting here promotes the device — not
+    // only a name — so a label that singled out naming would describe the
+    // wrong thing on most saves.
     expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
-    expect(screen.getByText(/name to manage it/i)).toBeInTheDocument();
-    // Entering a name turns the save into an actual promotion.
+    expect(screen.getByText(/will manage this device/i)).toBeInTheDocument();
+
     await user.type(screen.getByLabelText("Friendly name"), "Alice phone");
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "To Managed Device" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("button", { name: "To Managed Device" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("drops the manage hint once the device is already managed", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(
+      <DeviceSettingsCard
+        {...cardProps({ device: makeDevice({ name: null, managed: true }) })}
+      />,
+    );
+    await user.click(screen.getByTestId("device-settings-edit"));
+    // Managed is the server's flag, not `name != null` — this device has no
+    // name and is still managed (e.g. it holds a Private-DNS grant).
+    expect(
+      screen.queryByText(/will manage this device/i),
+    ).not.toBeInTheDocument();
   });
 
   it("saves an unnamed device's settings without forcing a name", async () => {
@@ -199,7 +216,7 @@ describe("DeviceSettingsCard editing", () => {
     );
   });
 
-  it("promotes and sends the name once one is entered", async () => {
+  it("sends the name once one is entered", async () => {
     const user = userEvent.setup();
     renderWithProviders(
       <DeviceSettingsCard
@@ -208,7 +225,7 @@ describe("DeviceSettingsCard editing", () => {
     );
     await user.click(screen.getByTestId("device-settings-edit"));
     await user.type(screen.getByLabelText("Friendly name"), "Alice phone");
-    await user.click(screen.getByRole("button", { name: "To Managed Device" }));
+    await user.click(screen.getByTestId("device-settings-save"));
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
     expect(mutateAsync).toHaveBeenCalledWith(
       expect.objectContaining({

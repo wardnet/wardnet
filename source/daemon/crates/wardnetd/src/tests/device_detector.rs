@@ -153,6 +153,10 @@ impl MockDiscovery {
 
 #[async_trait]
 impl DeviceDiscoveryService for MockDiscovery {
+    async fn prune_unmanaged_devices(&self) -> Result<u64, wardnetd_services::error::AppError> {
+        Ok(0)
+    }
+
     async fn process_peer_observation(
         &self,
         _device_id: Uuid,

@@ -1,4 +1,5 @@
 mod db_maintenance_runner;
+mod device_retention_runner;
 mod entitlement;
 mod error;
 mod event;

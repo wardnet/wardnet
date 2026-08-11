@@ -135,6 +135,24 @@ impl AuthService for AlwaysAdminAuth {
 pub struct StubDeviceService;
 #[async_trait]
 impl DeviceService for StubDeviceService {
+    async fn clear_rule(&self, _device_id: &str) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn mark_managed(
+        &self,
+        _device_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn clear_managed(
+        &self,
+        _device_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
     async fn get_device(
         &self,
         _device_id: &str,
@@ -470,10 +488,21 @@ impl wardnetd_services::DnsFilterService for StubDnsFilterService {
     }
     async fn update_device_settings(
         &self,
-        _device_id: Uuid,
-        _r: UpdateDeviceFilterSettingsRequest,
+        device_id: Uuid,
+        r: UpdateDeviceFilterSettingsRequest,
     ) -> Result<UpdateDeviceFilterSettingsResponse, AppError> {
-        unimplemented!()
+        // Echoes the request back rather than `unimplemented!()`: the release
+        // handler resets a device's filter settings as one of its steps
+        // (#1181), so a panicking stub would make that whole path untestable.
+        Ok(UpdateDeviceFilterSettingsResponse {
+            settings: wardnet_common::dns_filter::DeviceDnsFilterSettings {
+                device_id,
+                enabled: r.enabled,
+                profile_ids: r.profile_ids,
+                updated_at: chrono::Utc::now(),
+            },
+            message: "device filter settings updated".to_owned(),
+        })
     }
     async fn get_filter_config(&self) -> Result<DnsFilterConfigResponse, AppError> {
         unimplemented!()
@@ -589,6 +618,10 @@ impl wardnetd_services::DnsLocalService for StubDnsLocalService {
 pub struct StubDiscoveryService;
 #[async_trait]
 impl DeviceDiscoveryService for StubDiscoveryService {
+    async fn prune_unmanaged_devices(&self) -> Result<u64, wardnetd_services::error::AppError> {
+        Ok(0)
+    }
+
     async fn process_peer_observation(
         &self,
         _device_id: uuid::Uuid,
@@ -793,7 +826,7 @@ pub struct StubNetworkZoneService;
 impl StubNetworkZoneService {
     /// A Trusted-like zone used to satisfy the return types of the create /
     /// update / get stubs.
-    fn stub_zone() -> NetworkZone {
+    pub(crate) fn stub_zone() -> NetworkZone {
         NetworkZone {
             id: Uuid::parse_str("00000000-0000-0000-0000-000000000201").unwrap(),
             name: "Trusted".to_owned(),
@@ -1406,4 +1439,95 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubRuleRequestService),
         Arc::new(StubZoneExceptionService),
     )
+}
+
+/// A permissive `RoutingProfileService` for handler tests.
+///
+/// `AppState`'s default is a `Noop` that reports "not configured", and the real
+/// impl is `require_admin`-guarded — neither works in a handler test, which
+/// establishes no ambient auth context. This one just succeeds, so a handler
+/// that resets a device's profiles (the release flow, #1181) can be exercised.
+pub struct StubRoutingProfileService;
+
+#[async_trait]
+impl wardnetd_services::routing_profile::RoutingProfileService for StubRoutingProfileService {
+    async fn list_profiles(
+        &self,
+    ) -> Result<Vec<wardnet_common::routing_profile::RoutingProfile>, AppError> {
+        Ok(Vec::new())
+    }
+    async fn get_profile(
+        &self,
+        _id: Uuid,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, AppError> {
+        Err(AppError::NotFound("profile not found".to_owned()))
+    }
+    async fn create_profile(
+        &self,
+        _name: &str,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, AppError> {
+        unimplemented!()
+    }
+    async fn rename_profile(
+        &self,
+        _id: Uuid,
+        _name: &str,
+    ) -> Result<wardnet_common::routing_profile::RoutingProfile, AppError> {
+        unimplemented!()
+    }
+    async fn delete_profile(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn list_rules(
+        &self,
+        _profile_id: Uuid,
+    ) -> Result<Vec<wardnet_common::routing_profile::DomainRoutingRule>, AppError> {
+        Ok(Vec::new())
+    }
+    async fn create_rule(
+        &self,
+        _profile_id: Uuid,
+        _pattern: &str,
+        _target: wardnet_common::routing_profile::DomainRoutingTarget,
+        _enabled: bool,
+    ) -> Result<wardnet_common::routing_profile::DomainRoutingRule, AppError> {
+        unimplemented!()
+    }
+    async fn update_rule(
+        &self,
+        _id: Uuid,
+        _pattern: Option<String>,
+        _target: Option<wardnet_common::routing_profile::DomainRoutingTarget>,
+        _enabled: Option<bool>,
+    ) -> Result<wardnet_common::routing_profile::DomainRoutingRule, AppError> {
+        unimplemented!()
+    }
+    async fn delete_rule(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn get_device_profiles(&self, _device_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+        Ok(Vec::new())
+    }
+    async fn set_device_profiles(
+        &self,
+        _device_id: Uuid,
+        _profile_ids: &[Uuid],
+    ) -> Result<(), AppError> {
+        Ok(())
+    }
+    async fn list_profile_devices(&self, _profile_id: Uuid) -> Result<Vec<Uuid>, AppError> {
+        Ok(Vec::new())
+    }
+    async fn refresh_view(&self) -> Result<(), AppError> {
+        Ok(())
+    }
+    fn note_resolution(
+        &self,
+        _device_id: Uuid,
+        _device_ip: std::net::IpAddr,
+        _name: &str,
+        _answer_ips: &[std::net::IpAddr],
+        _ttl_secs: u32,
+    ) {
+    }
 }

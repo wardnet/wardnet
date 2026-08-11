@@ -129,6 +129,7 @@ fn sample_device() -> Device {
         dns_capture_cap_count: 500,
         dns_capture_cap_days: 14,
         connection_mode: wardnet_common::device::DeviceConnectionMode::Lan,
+        managed: false,
     }
 }
 
@@ -181,6 +182,24 @@ impl MockDnsEventsDeviceService {
 
 #[async_trait]
 impl DeviceService for MockDnsEventsDeviceService {
+    async fn clear_rule(&self, _device_id: &str) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn mark_managed(
+        &self,
+        _device_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn clear_managed(
+        &self,
+        _device_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
     async fn get_device(
         &self,
         _device_id: &str,

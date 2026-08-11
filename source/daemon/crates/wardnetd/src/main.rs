@@ -67,6 +67,7 @@ use wardnetd_services::auth::SessionCleanupRunner;
 use wardnetd_services::cloud::TunnelerRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::ddns::runner::DdnsUpdateRunner;
+use wardnetd_services::device::DeviceRetentionRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
 use wardnetd_services::diagnostics::DiagnosticStore;
 use wardnetd_services::diagnostics::listener::DiagnosticsListener;
@@ -907,6 +908,13 @@ async fn run(
     let db_maintenance_runner =
         DbMaintenanceRunner::start(services.maintenance.clone(), &root_span);
 
+    // Delete unmanaged devices absent for over 30 days, once per day (#1181).
+    // Only unmanaged devices are eligible — `managed = false` implies no admin
+    // artefacts reference the device — so this can never revoke a working
+    // configuration.
+    let device_retention_runner =
+        DeviceRetentionRunner::start(services.discovery.clone(), &root_span);
+
     // Settle any `update_pending_version` marker left behind by an install
     // that restarted us. Must run before the update runner's first check so a
     // status poll never observes a version still "pending" that is in fact
@@ -1322,6 +1330,7 @@ async fn run(
     dns_query_log_runner.shutdown().await;
     dns_capture_runner.shutdown().await;
     db_maintenance_runner.shutdown().await;
+    device_retention_runner.shutdown().await;
     update_runner.shutdown().await;
     backup_cleanup_runner.shutdown().await;
     stats_flush_runner.shutdown().await;

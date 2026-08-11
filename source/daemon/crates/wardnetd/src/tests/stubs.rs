@@ -141,6 +141,24 @@ pub struct StubDeviceService;
 
 #[async_trait]
 impl DeviceService for StubDeviceService {
+    async fn clear_rule(&self, _device_id: &str) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn mark_managed(
+        &self,
+        _device_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn clear_managed(
+        &self,
+        _device_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
     async fn get_device(
         &self,
         _device_id: &str,
@@ -230,6 +248,10 @@ pub struct StubDiscoveryService;
 
 #[async_trait]
 impl DeviceDiscoveryService for StubDiscoveryService {
+    async fn prune_unmanaged_devices(&self) -> Result<u64, wardnetd_services::error::AppError> {
+        Ok(0)
+    }
+
     async fn process_peer_observation(
         &self,
         _device_id: uuid::Uuid,
