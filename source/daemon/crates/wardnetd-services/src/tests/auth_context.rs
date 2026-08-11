@@ -108,11 +108,10 @@ async fn guard_by_principal_truth_table() {
     let principals = principals();
 
     for (guard, name, expected) in TABLE {
-        let ctx = principals
-            .iter()
-            .find(|(n, _)| n == name)
-            .map(|(_, c)| c.clone())
-            .unwrap_or_else(|| panic!("the table names a principal that does not exist: {name}"));
+        let ctx = principals.iter().find(|(n, _)| n == name).map_or_else(
+            || panic!("the table names a principal that does not exist: {name}"),
+            |(_, c)| c.clone(),
+        );
 
         let actual = guard.admits(ctx).await;
         assert_eq!(

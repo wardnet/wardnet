@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 /// Long enough for a person to complete a provider consent screen or a
 /// platform authenticator prompt, short enough that an abandoned ceremony is
 /// not a standing target.
-pub const CEREMONY_TTL: Duration = Duration::from_secs(5 * 60);
+pub const CEREMONY_TTL: Duration = Duration::from_mins(5);
 
 /// Hard cap on concurrent open ceremonies.
 ///
@@ -125,7 +125,7 @@ impl<T> CeremonyStore<T> {
     /// Number of open ceremonies. Test-facing.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.entries.lock().map(|e| e.len()).unwrap_or(0)
+        self.entries.lock().map_or(0, |e| e.len())
     }
 
     /// Whether there are no open ceremonies.

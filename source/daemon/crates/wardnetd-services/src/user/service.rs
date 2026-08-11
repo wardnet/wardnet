@@ -371,8 +371,10 @@ impl UserServiceImpl {
         self.endpoints
             .iter()
             .find(|(p, _)| *p == provider)
-            .map(|(_, e)| e.clone())
-            .unwrap_or_else(|| ProviderEndpoints::production(provider))
+            .map_or_else(
+                || ProviderEndpoints::production(provider),
+                |(_, e)| e.clone(),
+            )
     }
 
     /// Everything needed to talk to a provider, or a clear refusal.
@@ -430,15 +432,15 @@ impl UserServiceImpl {
 
         let identity = self
             .oauth_client
-            .exchange_and_identify(
+            .exchange_and_identify(crate::user::oauth::OauthExchange {
                 provider,
-                &self.endpoints_for(provider),
-                &client_id,
-                &client_secret,
-                &redirect_uri,
+                endpoints: &self.endpoints_for(provider),
+                client_id: &client_id,
+                client_secret: &client_secret,
+                redirect_uri: &redirect_uri,
                 code,
-                &pending.pkce_verifier,
-            )
+                pkce_verifier: &pending.pkce_verifier,
+            })
             .await?;
 
         Ok((provider, identity, pending.started_by))
@@ -1387,7 +1389,7 @@ impl UserService for UserServiceImpl {
                 &user.display_name,
                 Some(existing),
             )
-            .map_err(map_webauthn_error)?;
+            .map_err(|e| map_webauthn_error(&e))?;
 
         let challenge_id = new_state();
         self.pending_registration
@@ -1448,7 +1450,7 @@ impl UserService for UserServiceImpl {
 
         let passkey = webauthn
             .finish_passkey_registration(&registration, &pending.state)
-            .map_err(map_webauthn_error)?;
+            .map_err(|e| map_webauthn_error(&e))?;
 
         let metadata = PasskeyMetadata {
             // A fresh credential has no observed assertion yet. The backup flags
@@ -1509,7 +1511,7 @@ impl UserService for UserServiceImpl {
         // request discloses nothing about which accounts exist.
         let (challenge, state) = webauthn
             .start_discoverable_authentication()
-            .map_err(map_webauthn_error)?;
+            .map_err(|e| map_webauthn_error(&e))?;
 
         let challenge_id = new_state();
         self.pending_authentication
@@ -1581,7 +1583,7 @@ impl UserService for UserServiceImpl {
                 pending.state,
                 &[(&metadata.credential).into()],
             )
-            .map_err(map_webauthn_error)?;
+            .map_err(|e| map_webauthn_error(&e))?;
 
         // A counter that went backwards is the signal of a cloned credential.
         // `webauthn-rs` reports it; refusing and logging loudly is the whole
@@ -1605,14 +1607,13 @@ impl UserService for UserServiceImpl {
         metadata.backup_state = Some(result.backup_state());
         metadata.backup_eligible = Some(result.backup_eligible());
         let now = chrono::Utc::now().to_rfc3339();
-        if let Ok(json) = serde_json::to_string(&metadata) {
-            if let Err(e) = self
+        if let Ok(json) = serde_json::to_string(&metadata)
+            && let Err(e) = self
                 .credentials
                 .update_metadata(&login.credential.id, &json)
                 .await
-            {
-                tracing::warn!(error = %e, "failed to persist passkey counter");
-            }
+        {
+            tracing::warn!(error = %e, "failed to persist passkey counter");
         }
         if let Err(e) = self
             .credentials
@@ -1686,7 +1687,7 @@ fn split_challenge_id(
 /// distinguishes many causes — wrong origin, bad signature, failed attestation —
 /// and reporting which would tell an attacker exactly which part of a forged
 /// assertion to fix. The detail goes to the log instead.
-fn map_webauthn_error(err: webauthn_rs::prelude::WebauthnError) -> AppError {
+fn map_webauthn_error(err: &webauthn_rs::prelude::WebauthnError) -> AppError {
     tracing::warn!(error = %err, "webauthn ceremony failed: {err}");
     AppError::Unauthorized("that passkey failed verification".to_owned())
 }

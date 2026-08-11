@@ -429,7 +429,7 @@ async fn sign_in_starts_without_any_username() {
         .and_then(|k| k.get("allowCredentials"));
 
     assert!(
-        allow.is_none() || allow.is_some_and(|a| a.as_array().is_some_and(Vec::is_empty)),
+        allow.is_none_or(|a| a.as_array().is_some_and(Vec::is_empty)),
         "a discoverable sign-in must not enumerate credentials: {challenge}"
     );
 }

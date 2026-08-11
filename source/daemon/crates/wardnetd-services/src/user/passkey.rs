@@ -183,12 +183,11 @@ impl PasskeyRelyingParty {
     ) -> Result<Webauthn, AppError> {
         let canonical = canonical_fqdn.ok_or(PasskeyUnavailable::NoCanonicalHostname)?;
 
-        let rp_id = match self.pinned_rp_id().await? {
-            Some(pinned) => pinned,
-            None => {
-                self.pin(canonical).await?;
-                canonical.to_owned()
-            }
+        let rp_id = if let Some(pinned) = self.pinned_rp_id().await? {
+            pinned
+        } else {
+            self.pin(canonical).await?;
+            canonical.to_owned()
         };
 
         // The `Host` header may carry a port; the RP ID never does.
@@ -214,11 +213,9 @@ impl PasskeyRelyingParty {
         })?;
 
         WebauthnBuilder::new(&rp_id, &origin)
-            .and_then(|b| {
-                // One passkey should cover the published-app subdomains #1149
-                // adds, rather than forcing a fresh registration per app.
-                Ok(b.allow_subdomains(true).rp_name("Wardnet").build()?)
-            })
+            // One passkey should cover the published-app subdomains #1149
+            // adds, rather than forcing a fresh registration per app.
+            .and_then(|b| b.allow_subdomains(true).rp_name("Wardnet").build())
             .map_err(|e| AppError::Internal(anyhow::anyhow!("failed to build webauthn: {e}")))
     }
 }

@@ -234,6 +234,25 @@ struct TokenResponse {
     access_token: String,
 }
 
+/// Everything one authorization-code exchange needs.
+///
+/// Grouped into a struct rather than passed as seven positional arguments —
+/// the same reasoning as `NewPushSubscription`. Four of them are `&str` and
+/// two of those are secrets, so a transposed pair would compile silently and
+/// fail at the provider.
+#[derive(Debug, Clone, Copy)]
+pub struct OauthExchange<'a> {
+    pub provider: OauthProvider,
+    pub endpoints: &'a ProviderEndpoints,
+    pub client_id: &'a str,
+    pub client_secret: &'a str,
+    pub redirect_uri: &'a str,
+    /// The authorization code the provider handed the browser.
+    pub code: &'a str,
+    /// The PKCE verifier whose challenge went out with the authorize request.
+    pub pkce_verifier: &'a str,
+}
+
 /// Talks to a provider. A trait so the service can be tested without a network
 /// and so `wiremock` has something to stand in front of.
 #[async_trait::async_trait]
@@ -242,13 +261,7 @@ pub trait OauthClient: Send + Sync {
     /// the provider's view of the user.
     async fn exchange_and_identify(
         &self,
-        provider: OauthProvider,
-        endpoints: &ProviderEndpoints,
-        client_id: &str,
-        client_secret: &str,
-        redirect_uri: &str,
-        code: &str,
-        pkce_verifier: &str,
+        exchange: OauthExchange<'_>,
     ) -> Result<ProviderIdentity, AppError>;
 }
 
@@ -275,14 +288,18 @@ impl ReqwestOauthClient {
 impl OauthClient for ReqwestOauthClient {
     async fn exchange_and_identify(
         &self,
-        provider: OauthProvider,
-        endpoints: &ProviderEndpoints,
-        client_id: &str,
-        client_secret: &str,
-        redirect_uri: &str,
-        code: &str,
-        pkce_verifier: &str,
+        exchange: OauthExchange<'_>,
     ) -> Result<ProviderIdentity, AppError> {
+        let OauthExchange {
+            provider,
+            endpoints,
+            client_id,
+            client_secret,
+            redirect_uri,
+            code,
+            pkce_verifier,
+        } = exchange;
+
         let form = [
             ("grant_type", "authorization_code"),
             ("code", code),
@@ -300,12 +317,12 @@ impl OauthClient for ReqwestOauthClient {
             .form(&form)
             .send()
             .await
-            .map_err(map_provider_error)?
+            .map_err(|e| map_provider_error(&e))?
             .error_for_status()
-            .map_err(map_provider_error)?
+            .map_err(|e| map_provider_error(&e))?
             .json()
             .await
-            .map_err(map_provider_error)?;
+            .map_err(|e| map_provider_error(&e))?;
 
         let response = self
             .http
@@ -314,13 +331,14 @@ impl OauthClient for ReqwestOauthClient {
             .header(reqwest::header::ACCEPT, "application/json")
             .send()
             .await
-            .map_err(map_provider_error)?
+            .map_err(|e| map_provider_error(&e))?
             .error_for_status()
-            .map_err(map_provider_error)?;
+            .map_err(|e| map_provider_error(&e))?;
 
         match provider {
             OauthProvider::Google => {
-                let info: GoogleUserinfo = response.json().await.map_err(map_provider_error)?;
+                let info: GoogleUserinfo =
+                    response.json().await.map_err(|e| map_provider_error(&e))?;
                 Ok(ProviderIdentity {
                     subject: info.sub,
                     label: info.email.clone(),
@@ -328,7 +346,7 @@ impl OauthClient for ReqwestOauthClient {
                 })
             }
             OauthProvider::Github => {
-                let user: GithubUser = response.json().await.map_err(map_provider_error)?;
+                let user: GithubUser = response.json().await.map_err(|e| map_provider_error(&e))?;
                 Ok(ProviderIdentity {
                     // The numeric id, stringified — never the login, which is
                     // renameable and reusable.
@@ -346,7 +364,7 @@ impl OauthClient for ReqwestOauthClient {
 /// Deliberately **not** `Unauthorized`: the caller's credentials were not
 /// rejected, the provider was unreachable or broke. Reporting 401 would send a
 /// household hunting for a password problem during somebody else's outage.
-fn map_provider_error(err: reqwest::Error) -> AppError {
+fn map_provider_error(err: &reqwest::Error) -> AppError {
     if err.is_timeout() {
         return AppError::UpstreamUnavailable("the identity provider timed out".to_owned());
     }

@@ -178,7 +178,9 @@ impl UserRepository for MockUserRepo {
             .unwrap()
             .iter()
             .filter(|r| r.enabled && r.role == UserRole::Admin)
-            .count() as i64)
+            .count()
+            .try_into()
+            .unwrap_or(i64::MAX))
     }
 
     async fn exists(&self) -> anyhow::Result<bool> {
@@ -437,7 +439,9 @@ impl UserCredentialRepository for MockCredentialRepo {
             .unwrap()
             .iter()
             .filter(|r| r.user_id == user_id && r.kind == kind)
-            .count() as i64)
+            .count()
+            .try_into()
+            .unwrap_or(i64::MAX))
     }
 }
 

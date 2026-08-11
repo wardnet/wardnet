@@ -44,7 +44,7 @@ const BASE_BACKOFF: Duration = Duration::from_secs(2);
 /// password would be locked out for days by a handful of attempts; with it, the
 /// worst case is a one-minute wait per try, which still reduces an online
 /// attacker to a negligible rate.
-const MAX_BACKOFF: Duration = Duration::from_secs(60);
+const MAX_BACKOFF: Duration = Duration::from_mins(1);
 
 /// How long a quiet counter is kept before it is forgotten.
 ///
@@ -52,7 +52,7 @@ const MAX_BACKOFF: Duration = Duration::from_secs(60);
 /// the map cannot grow without bound from a stream of distinct subjects, which
 /// is otherwise a trivially-reachable memory-exhaustion vector on a device with
 /// a Raspberry Pi's RAM.
-const ENTRY_TTL: Duration = Duration::from_secs(15 * 60);
+const ENTRY_TTL: Duration = Duration::from_mins(15);
 
 /// Hard cap on tracked counters, enforced when pruning cannot free space.
 ///
