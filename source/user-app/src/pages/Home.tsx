@@ -192,7 +192,15 @@ function VerifyCard({ activeTunnel }: { activeTunnel: TunnelSummary | null }) {
           </div>
         ) : geo ? (
           <>
+            {/* Leaflet runs its own layers from z-index 400 (panes) to 1000
+                (controls) on a container it only ever gives
+                `position: relative` — no stacking context, so that ladder is
+                resolved against the app shell rather than against the map.
+                The scroll area's clipping keeps it in today; `isolate` makes
+                the containment the map's own property instead of an accident
+                of the layout above it. */}
             <MapContainer
+              className="isolate"
               center={[geo.latitude, geo.longitude]}
               zoom={8}
               dragging={false}
