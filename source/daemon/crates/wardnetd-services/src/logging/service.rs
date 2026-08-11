@@ -7,7 +7,6 @@ use serde::Serialize;
 use tokio::sync::broadcast;
 
 use crate::auth_context;
-use crate::diagnostics::{Diagnostic, RecentDiagnostics};
 use crate::error::AppError;
 
 use super::component::{BoxedLayer, LogComponent};
@@ -27,17 +26,11 @@ pub struct LogFileInfo {
 }
 
 /// Unified log service: orchestrates log components, exposes WebSocket
-/// streaming, recent errors, and log file management.
+/// streaming and log file management.
 #[async_trait]
 pub trait LogService: Send + Sync {
     /// Subscribe to receive live log entries over WebSocket.
     fn subscribe(&self) -> Result<broadcast::Receiver<LogEntry>, AppError>;
-
-    /// Return the most recent admin-facing diagnostics (oldest first).
-    ///
-    /// These come from the domain event bus via the diagnostics listener, not
-    /// from scraping the log stream — see [`crate::diagnostics`].
-    fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError>;
 
     /// List all available log files with metadata.
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError>;
@@ -63,15 +56,10 @@ pub trait LogService: Send + Sync {
     fn stop_all(&self);
 }
 
-/// Production implementation that orchestrates the [`LogStream`] component and
-/// exposes the recent-diagnostics buffer.
-///
-/// The stream is a tracing [`LogComponent`]; diagnostics are not — they are
-/// fed out-of-band by the diagnostics listener, so the service only reads them.
+/// Production implementation that orchestrates the [`LogStream`] component.
 pub struct LogServiceImpl {
     stream: Arc<dyn LogStream>,
     stream_component: Arc<dyn LogComponent>,
-    diagnostics: Arc<dyn RecentDiagnostics>,
     log_path: PathBuf,
 }
 
@@ -80,21 +68,13 @@ impl LogServiceImpl {
     ///
     /// `stream` must also implement [`LogComponent`]
     /// ([`LogStreamService`](super::stream::LogStreamService) satisfies both).
-    /// `diagnostics` is the read handle onto the shared
-    /// [`DiagnosticStore`](crate::diagnostics::DiagnosticStore) that the
-    /// diagnostics listener writes to.
-    pub fn new<S>(
-        stream: Arc<S>,
-        diagnostics: Arc<dyn RecentDiagnostics>,
-        log_path: PathBuf,
-    ) -> Self
+    pub fn new<S>(stream: Arc<S>, log_path: PathBuf) -> Self
     where
         S: LogStream + LogComponent + 'static,
     {
         Self {
             stream: stream.clone() as Arc<dyn LogStream>,
             stream_component: stream as Arc<dyn LogComponent>,
-            diagnostics,
             log_path,
         }
     }
@@ -105,11 +85,6 @@ impl LogService for LogServiceImpl {
     fn subscribe(&self) -> Result<broadcast::Receiver<LogEntry>, AppError> {
         auth_context::require_admin()?;
         Ok(self.stream.subscribe())
-    }
-
-    fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
-        auth_context::require_admin()?;
-        Ok(self.diagnostics.recent())
     }
 
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {

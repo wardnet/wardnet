@@ -68,6 +68,21 @@ pub struct DnsFilterConfig {
     /// blocked in any of them is blocked. Treat as a set: the order across
     /// the get/set roundtrip is not preserved.
     pub default_profile_ids: Vec<Uuid>,
+    /// How many consecutive failed refreshes a blocklist must accumulate
+    /// before the admin is alerted. `0` disables the alert entirely.
+    ///
+    /// Paired with the refresh backoff (`5m` doubling to a `6h` cap), the
+    /// default of 5 is roughly 75 minutes of sustained failure — long enough
+    /// that a transient upstream blip or a reboot mid-refresh does not page
+    /// anyone.
+    #[serde(default = "default_blocklist_failure_alert_threshold")]
+    pub blocklist_failure_alert_threshold: u32,
+}
+
+/// Default for [`DnsFilterConfig::blocklist_failure_alert_threshold`].
+#[must_use]
+pub const fn default_blocklist_failure_alert_threshold() -> u32 {
+    5
 }
 
 impl Default for DnsFilterConfig {
@@ -75,6 +90,7 @@ impl Default for DnsFilterConfig {
         Self {
             enabled: true,
             default_profile_ids: Vec::new(),
+            blocklist_failure_alert_threshold: default_blocklist_failure_alert_threshold(),
         }
     }
 }

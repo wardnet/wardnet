@@ -361,6 +361,7 @@ impl DnsFilterService for MockDnsFilterService {
             config: DnsFilterConfig {
                 enabled: true,
                 default_profile_ids: vec![PROFILE_ID],
+                blocklist_failure_alert_threshold: 5,
             },
             filters_ready: true,
             pending_blocklists: 0,
@@ -374,6 +375,7 @@ impl DnsFilterService for MockDnsFilterService {
             config: DnsFilterConfig {
                 enabled: true,
                 default_profile_ids: vec![PROFILE_ID],
+                blocklist_failure_alert_threshold: 5,
             },
             filters_ready: true,
             pending_blocklists: 0,

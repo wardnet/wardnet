@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::anomaly::{Anomaly, AnomalyQueryStatus, AnomalySeverity, AnomalyType};
 use crate::backup::{BackupStatus, BundleManifest, LocalSnapshot};
 use crate::device::{Device, DeviceSignal, DeviceType, DhcpStatus};
 use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
@@ -1558,6 +1559,88 @@ pub struct UpdateDnsFilterConfigRequest {
     pub enabled: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_profile_ids: Option<Vec<Uuid>>,
+    /// Consecutive failed refreshes before a blocklist alerts. `0` disables.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blocklist_failure_alert_threshold: Option<u32>,
+}
+
+// ---------------------------------------------------------------------------
+// Anomaly API types
+// ---------------------------------------------------------------------------
+
+/// An anomaly as served by the HTTP API.
+///
+/// `severity`, `component` and `hint` are derived from `anomaly_type` rather
+/// than stored, so they are materialised here for clients that would otherwise
+/// need their own copy of the catalogue.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ApiAnomaly {
+    pub id: Uuid,
+    /// Stable machine-readable class identifier, e.g. `tunnel_start_failed`.
+    #[serde(rename = "type")]
+    pub anomaly_type: AnomalyType,
+    /// One of `error`, `warning`, `info`.
+    pub severity: AnomalySeverity,
+    /// The subsystem that raised it.
+    pub component: String,
+    /// The entity this anomaly is about — a tunnel id, a blocklist id — or
+    /// `null` for box-wide conditions.
+    #[schema(required)]
+    pub subject_id: Option<String>,
+    /// Plain-language description of what happened.
+    pub message: String,
+    /// What the admin can do about it.
+    pub hint: String,
+    /// Detector-authored payload. Best-effort: no key is guaranteed beyond
+    /// those the owning detector documents. Clients use it to deep link to the
+    /// subject (a blocklist's `profile_id`, for instance).
+    #[schema(required, value_type = Option<Object>)]
+    pub details: Option<serde_json::Value>,
+    pub opened_at: DateTime<Utc>,
+    /// When the condition was last observed.
+    pub last_seen_at: DateTime<Utc>,
+    /// How many times it has been observed since it opened.
+    pub occurrences: u32,
+    /// `null` while the anomaly is still open.
+    #[schema(required)]
+    pub resolved_at: Option<DateTime<Utc>>,
+}
+
+impl From<Anomaly> for ApiAnomaly {
+    fn from(a: Anomaly) -> Self {
+        Self {
+            id: a.id,
+            severity: a.anomaly_type.severity(),
+            component: a.anomaly_type.component().to_owned(),
+            hint: a.anomaly_type.hint().to_owned(),
+            anomaly_type: a.anomaly_type,
+            subject_id: a.subject_id,
+            message: a.message,
+            details: a.details,
+            opened_at: a.opened_at,
+            last_seen_at: a.last_seen_at,
+            occurrences: a.occurrences,
+            resolved_at: a.resolved_at,
+        }
+    }
+}
+
+/// Response for GET /api/anomalies.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListAnomaliesResponse {
+    pub anomalies: Vec<ApiAnomaly>,
+}
+
+/// Query parameters for GET /api/anomalies.
+#[derive(Debug, Clone, Default, Deserialize, utoipa::IntoParams)]
+pub struct ListAnomaliesParams {
+    /// Which anomalies to return. Defaults to `open`.
+    pub status: Option<AnomalyQueryStatus>,
+    /// Restrict to anomalies about one entity — how a per-entity surface asks
+    /// "what is currently wrong with *this*".
+    pub subject_id: Option<String>,
+    /// Maximum rows, clamped to 1..=200. Defaults to 50.
+    pub limit: Option<u32>,
 }
 
 // ---------------------------------------------------------------------------

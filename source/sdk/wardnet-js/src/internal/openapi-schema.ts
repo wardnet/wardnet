@@ -9,6 +9,40 @@
 // change breaks the build here instead of drifting silently.
 
 export interface paths {
+    "/api/anomalies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List anomalies: typed conditions raised by daemon components, each with a message and a remediation hint. Defaults to the ones still open, which is what the dashboard shows. Filter by `subject_id` to ask what is currently wrong with one entity — a tunnel card uses this to surface that tunnel's error. Admin only. */
+        get: operations["get_api_anomalies"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/anomalies/reevaluate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Re-check every open anomaly against the world and resolve the ones whose condition no longer holds, instead of waiting for the next scheduled pass. Resolving an anomaly that was alerted also sends the matching recovery notification. Admin only. */
+        post: operations["post_api_anomalies_reevaluate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -1753,23 +1787,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/system/errors": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description Return the most recent admin-facing diagnostics: typed error conditions raised by daemon components, each with a message and a remediation hint. Fed by the domain event bus rather than by scraping log lines. Powers the dashboard's "recent errors" panel. Admin only. */
-        get: operations["get_api_system_errors"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/system/logs/download": {
         parameters: {
             query?: never;
@@ -2241,28 +2258,68 @@ export interface components {
             profile_id: string;
             reason?: string | null;
         };
-        /** @description API-layer mirror of [`wardnetd_services::diagnostics::Diagnostic`] that
-         *     carries an `OpenAPI` schema. The service-layer type lives in a crate that
-         *     does not depend on `utoipa`; mirroring it here keeps the schema boundary
-         *     aligned with the HTTP API without leaking the docs dependency into the
-         *     services crate. The `code` and `severity` enums are flattened to their
-         *     stable string forms. */
-        ApiDiagnostic: {
-            /** @description Stable machine-readable class identifier, e.g. `tunnel_start_failed`. */
-            code: string;
+        /** @enum {string} */
+        AnomalyQueryStatus: "open" | "resolved" | "all";
+        /**
+         * @description How serious an [`Anomaly`] is. Deliberately separate from tracing log
+         *     levels: severity here is a product judgement about admin impact, not a
+         *     logging verbosity knob.
+         * @enum {string}
+         */
+        AnomalySeverity: "error" | "warning" | "info";
+        /**
+         * @description The hardcoded anomaly catalogue.
+         *
+         *     Adding an anomaly means adding a variant here, giving it a severity,
+         *     component, hint and landing page, and registering a detector for it in
+         *     `wardnetd_services::anomaly::AnomalyDetectorRegistry`. The registry is
+         *     keyed by this type, so a variant without a detector is a wiring bug rather
+         *     than a silently inert entry.
+         * @enum {string}
+         */
+        AnomalyType: "tunnel_start_failed" | "tunnel_unhealthy" | "update_failed" | "dhcp_conflict" | "route_table_lost" | "blocklist_refresh_failing";
+        /** @description An anomaly as served by the HTTP API.
+         *
+         *     `severity`, `component` and `hint` are derived from `anomaly_type` rather
+         *     than stored, so they are materialised here for clients that would otherwise
+         *     need their own copy of the catalogue. */
+        ApiAnomaly: {
             /** @description The subsystem that raised it. */
             component: string;
+            /** @description Detector-authored payload. Best-effort: no key is guaranteed beyond
+             *     those the owning detector documents. Clients use it to deep link to the
+             *     subject (a blocklist's `profile_id`, for instance). */
+            details: Record<string, never> | null;
             /** @description What the admin can do about it. */
             hint: string;
-            /** @description Plain-language description of what happened. */
-            message: string;
-            /** @description One of `error`, `warning`, `info`. */
-            severity: string;
+            /** Format: uuid */
+            id: string;
             /**
              * Format: date-time
-             * @description When the underlying condition occurred.
+             * @description When the condition was last observed.
              */
-            timestamp: string;
+            last_seen_at: string;
+            /** @description Plain-language description of what happened. */
+            message: string;
+            /**
+             * Format: int32
+             * @description How many times it has been observed since it opened.
+             */
+            occurrences: number;
+            /** Format: date-time */
+            opened_at: string;
+            /**
+             * Format: date-time
+             * @description `null` while the anomaly is still open.
+             */
+            resolved_at: string | null;
+            /** @description One of `error`, `warning`, `info`. */
+            severity: components["schemas"]["AnomalySeverity"];
+            /** @description The entity this anomaly is about — a tunnel id, a blocklist id — or
+             *     `null` for box-wide conditions. */
+            subject_id: string | null;
+            /** @description Stable machine-readable class identifier, e.g. `tunnel_start_failed`. */
+            type: components["schemas"]["AnomalyType"];
         };
         /** @description Standard API error response. */
         ApiError: {
@@ -3083,6 +3140,17 @@ export interface components {
         };
         /** @description Global DNS filtering configuration. */
         DnsFilterConfig: {
+            /**
+             * Format: int32
+             * @description How many consecutive failed refreshes a blocklist must accumulate
+             *     before the admin is alerted. `0` disables the alert entirely.
+             *
+             *     Paired with the refresh backoff (`5m` doubling to a `6h` cap), the
+             *     default of 5 is roughly 75 minutes of sustained failure — long enough
+             *     that a transient upstream blip or a reboot mid-refresh does not page
+             *     anyone.
+             */
+            blocklist_failure_alert_threshold?: number;
             /** @description Profiles applied to devices with no explicit assignment. Empty means
              *     unassigned devices skip filtering. Multiple profiles stack — a domain
              *     blocked in any of them is blocked. Treat as a set: the order across
@@ -3520,6 +3588,10 @@ export interface components {
         ListAllowlistResponse: {
             entries: components["schemas"]["AllowlistEntry"][];
         };
+        /** @description Response for GET /api/anomalies. */
+        ListAnomaliesResponse: {
+            anomalies: components["schemas"]["ApiAnomaly"][];
+        };
         /** @description Response for GET /api/dns/blocklists. */
         ListBlocklistsResponse: {
             blocklists: components["schemas"]["Blocklist"][];
@@ -3879,9 +3951,18 @@ export interface components {
             /** @description Always `true` on a 200 response. Errors surface as non-200 status codes. */
             ok: boolean;
         };
-        /** @description Response for GET /api/system/errors. */
-        RecentErrorsResponse: {
-            errors: components["schemas"]["ApiDiagnostic"][];
+        /** @description Outcome of a reevaluation pass over the open anomalies. */
+        ReevaluateSummary: {
+            /**
+             * Format: int32
+             * @description How many open anomalies were examined.
+             */
+            evaluated: number;
+            /**
+             * Format: int32
+             * @description How many of those were closed as no longer holding.
+             */
+            resolved: number;
         };
         /** @description Phase of an in-flight restore. Emitted as progress events so the UI can
          *     show a spinner with meaningful status text.
@@ -4475,6 +4556,11 @@ export interface components {
          *     devices stop being filtered) and a non-empty list replaces the entire
          *     set. */
         UpdateDnsFilterConfigRequest: {
+            /**
+             * Format: int32
+             * @description Consecutive failed refreshes before a blocklist alerts. `0` disables.
+             */
+            blocklist_failure_alert_threshold?: number | null;
             default_profile_ids?: string[] | null;
             enabled?: boolean | null;
         };
@@ -4853,6 +4939,138 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_api_anomalies: {
+        parameters: {
+            query?: {
+                /** @description Maximum rows, clamped to 1..=200. Defaults to 50. */
+                limit?: number | null;
+                /** @description Which anomalies to return. Defaults to `open`. */
+                status?: null | components["schemas"]["AnomalyQueryStatus"];
+                /** @description Restrict to anomalies about one entity — how a per-entity surface asks
+                 *     "what is currently wrong with *this*". */
+                subject_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Matching anomalies, newest first */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListAnomaliesResponse"];
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    post_api_anomalies_reevaluate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description How many anomalies were checked and closed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReevaluateSummary"];
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
     post_api_auth_login: {
         parameters: {
             query?: never;
@@ -15412,68 +15630,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Unauthenticated - session cookie or API key missing/invalid */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        detail?: string | null;
-                        error: string;
-                        /** @description Request ID for correlation with server logs. */
-                        request_id?: string | null;
-                    };
-                };
-            };
-            /** @description Forbidden - caller is not an admin */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        detail?: string | null;
-                        error: string;
-                        /** @description Request ID for correlation with server logs. */
-                        request_id?: string | null;
-                    };
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        detail?: string | null;
-                        error: string;
-                        /** @description Request ID for correlation with server logs. */
-                        request_id?: string | null;
-                    };
-                };
-            };
-        };
-    };
-    get_api_system_errors: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Recent diagnostics */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RecentErrorsResponse"];
                 };
             };
             /** @description Unauthenticated - session cookie or API key missing/invalid */

@@ -7,7 +7,10 @@ use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use wardnet_common::dns::{AllowlistEntry, Blocklist, CustomFilterRule};
-use wardnet_common::dns_filter::{DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile};
+use wardnet_common::dns_filter::{
+    DeviceDnsFilterSettings, DnsFilterConfig, DnsFilterProfile,
+    default_blocklist_failure_alert_threshold,
+};
 
 use crate::db::DbPools;
 use crate::repository::dns_filter::{
@@ -17,6 +20,10 @@ use crate::repository::dns_filter::{
 
 const TS_FMT: &str = "%Y-%m-%dT%H:%M:%SZ";
 const KEY_DNS_FILTERING_ENABLED: &str = "dns_filtering_enabled";
+const KEY_BLOCKLIST_FAILURE_ALERT_THRESHOLD: &str = "dns_filter_blocklist_failure_alert_threshold";
+
+const UPSERT_SYSTEM_CONFIG: &str = "INSERT INTO system_config (key, value) VALUES (?, ?) \
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value";
 
 /// Domains backing one blocklist's *active* generation. Shared by the
 /// streaming loader (`stream_blocklist_domains`) and the collecting one
@@ -1020,28 +1027,43 @@ impl DnsFilterRepository for SqliteDnsFilterRepository {
         .fetch_all(&self.pools.read)
         .await?;
 
+        let threshold: Option<String> =
+            sqlx::query_scalar("SELECT value FROM system_config WHERE key = ?")
+                .bind(KEY_BLOCKLIST_FAILURE_ALERT_THRESHOLD)
+                .fetch_optional(&self.pools.read)
+                .await?;
+
         let enabled = enabled.as_deref() != Some("false");
         let default_profile_ids: Vec<Uuid> = default_profile_ids
             .into_iter()
             .filter_map(|s| s.parse().ok())
             .collect();
+        // An unparseable value falls back to the default rather than failing
+        // the whole config read: a bad row must not take DNS filtering down.
+        let blocklist_failure_alert_threshold = threshold
+            .and_then(|v| v.parse().ok())
+            .unwrap_or_else(default_blocklist_failure_alert_threshold);
 
         Ok(DnsFilterConfig {
             enabled,
             default_profile_ids,
+            blocklist_failure_alert_threshold,
         })
     }
 
     async fn set_dns_filter_config(&self, config: &DnsFilterConfig) -> anyhow::Result<()> {
         let mut tx = self.pools.write.begin().await?;
-        sqlx::query(
-            "INSERT INTO system_config (key, value) VALUES (?, ?) \
-             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        )
-        .bind(KEY_DNS_FILTERING_ENABLED)
-        .bind(if config.enabled { "true" } else { "false" })
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query(UPSERT_SYSTEM_CONFIG)
+            .bind(KEY_DNS_FILTERING_ENABLED)
+            .bind(if config.enabled { "true" } else { "false" })
+            .execute(&mut *tx)
+            .await?;
+
+        sqlx::query(UPSERT_SYSTEM_CONFIG)
+            .bind(KEY_BLOCKLIST_FAILURE_ALERT_THRESHOLD)
+            .bind(config.blocklist_failure_alert_threshold.to_string())
+            .execute(&mut *tx)
+            .await?;
 
         sqlx::query("DELETE FROM dns_filter_default_profile")
             .execute(&mut *tx)

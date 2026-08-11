@@ -9,6 +9,284 @@
     "version": "2026.08.00"
   },
   "paths": {
+    "/api/anomalies": {
+      "get": {
+        "tags": [
+          "anomalies"
+        ],
+        "description": "List anomalies: typed conditions raised by daemon components, each with a message and a remediation hint. Defaults to the ones still open, which is what the dashboard shows. Filter by `subject_id` to ask what is currently wrong with one entity — a tunnel card uses this to surface that tunnel's error. Admin only.",
+        "operationId": "list_anomalies",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Which anomalies to return. Defaults to `open`.",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/AnomalyQueryStatus"
+                }
+              ]
+            }
+          },
+          {
+            "name": "subject_id",
+            "in": "query",
+            "description": "Restrict to anomalies about one entity — how a per-entity surface asks\n\"what is currently wrong with *this*\".",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "Maximum rows, clamped to 1..=200. Defaults to 50.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Matching anomalies, newest first",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ListAnomaliesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/anomalies/reevaluate": {
+      "post": {
+        "tags": [
+          "anomalies"
+        ],
+        "description": "Re-check every open anomaly against the world and resolve the ones whose condition no longer holds, instead of waiting for the next scheduled pass. Resolving an anomaly that was alerted also sends the matching recovery notification. Admin only.",
+        "operationId": "reevaluate_anomalies",
+        "responses": {
+          "200": {
+            "description": "How many anomalies were checked and closed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReevaluateSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
         "tags": [
@@ -20559,123 +20837,6 @@
         }
       }
     },
-    "/api/system/errors": {
-      "get": {
-        "tags": [
-          "system"
-        ],
-        "description": "Return the most recent admin-facing diagnostics: typed error conditions raised by daemon components, each with a message and a remediation hint. Fed by the domain event bus rather than by scraping log lines. Powers the dashboard's \"recent errors\" panel. Admin only.",
-        "operationId": "recent_errors",
-        "responses": {
-          "200": {
-            "description": "Recent diagnostics",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RecentErrorsResponse"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated - session cookie or API key missing/invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden - caller is not an admin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/system/logs/download": {
       "get": {
         "tags": [
@@ -24208,42 +24369,105 @@
           }
         }
       },
-      "ApiDiagnostic": {
+      "AnomalySeverity": {
+        "type": "string",
+        "description": "How serious an [`Anomaly`] is. Deliberately separate from tracing log\nlevels: severity here is a product judgement about admin impact, not a\nlogging verbosity knob.",
+        "enum": [
+          "error",
+          "warning",
+          "info"
+        ]
+      },
+      "AnomalyType": {
+        "type": "string",
+        "description": "The hardcoded anomaly catalogue.\n\nAdding an anomaly means adding a variant here, giving it a severity,\ncomponent, hint and landing page, and registering a detector for it in\n`wardnetd_services::anomaly::AnomalyDetectorRegistry`. The registry is\nkeyed by this type, so a variant without a detector is a wiring bug rather\nthan a silently inert entry.",
+        "enum": [
+          "tunnel_start_failed",
+          "tunnel_unhealthy",
+          "update_failed",
+          "dhcp_conflict",
+          "route_table_lost",
+          "blocklist_refresh_failing"
+        ]
+      },
+      "ApiAnomaly": {
         "type": "object",
-        "description": "API-layer mirror of [`wardnetd_services::diagnostics::Diagnostic`] that\ncarries an `OpenAPI` schema. The service-layer type lives in a crate that\ndoes not depend on `utoipa`; mirroring it here keeps the schema boundary\naligned with the HTTP API without leaking the docs dependency into the\nservices crate. The `code` and `severity` enums are flattened to their\nstable string forms.",
+        "description": "An anomaly as served by the HTTP API.\n\n`severity`, `component` and `hint` are derived from `anomaly_type` rather\nthan stored, so they are materialised here for clients that would otherwise\nneed their own copy of the catalogue.",
         "required": [
-          "timestamp",
-          "code",
+          "id",
+          "type",
           "severity",
           "component",
+          "subject_id",
           "message",
-          "hint"
+          "hint",
+          "details",
+          "opened_at",
+          "last_seen_at",
+          "occurrences",
+          "resolved_at"
         ],
         "properties": {
-          "code": {
-            "type": "string",
-            "description": "Stable machine-readable class identifier, e.g. `tunnel_start_failed`."
-          },
           "component": {
             "type": "string",
             "description": "The subsystem that raised it."
+          },
+          "details": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Detector-authored payload. Best-effort: no key is guaranteed beyond\nthose the owning detector documents. Clients use it to deep link to the\nsubject (a blocklist's `profile_id`, for instance)."
           },
           "hint": {
             "type": "string",
             "description": "What the admin can do about it."
           },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the condition was last observed."
+          },
           "message": {
             "type": "string",
             "description": "Plain-language description of what happened."
           },
-          "severity": {
+          "occurrences": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many times it has been observed since it opened.",
+            "minimum": 0
+          },
+          "opened_at": {
             "type": "string",
+            "format": "date-time"
+          },
+          "resolved_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "`null` while the anomaly is still open."
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AnomalySeverity",
             "description": "One of `error`, `warning`, `info`."
           },
-          "timestamp": {
-            "type": "string",
-            "format": "date-time",
-            "description": "When the underlying condition occurred."
+          "subject_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The entity this anomaly is about — a tunnel id, a blocklist id — or\n`null` for box-wide conditions."
+          },
+          "type": {
+            "$ref": "#/components/schemas/AnomalyType",
+            "description": "Stable machine-readable class identifier, e.g. `tunnel_start_failed`."
           }
         }
       },
@@ -26433,6 +26657,12 @@
           "default_profile_ids"
         ],
         "properties": {
+          "blocklist_failure_alert_threshold": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many consecutive failed refreshes a blocklist must accumulate\nbefore the admin is alerted. `0` disables the alert entirely.\n\nPaired with the refresh backoff (`5m` doubling to a `6h` cap), the\ndefault of 5 is roughly 75 minutes of sustained failure — long enough\nthat a transient upstream blip or a reboot mid-refresh does not page\nanyone.",
+            "minimum": 0
+          },
           "default_profile_ids": {
             "type": "array",
             "items": {
@@ -27445,6 +27675,21 @@
           }
         }
       },
+      "ListAnomaliesResponse": {
+        "type": "object",
+        "description": "Response for GET /api/anomalies.",
+        "required": [
+          "anomalies"
+        ],
+        "properties": {
+          "anomalies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiAnomaly"
+            }
+          }
+        }
+      },
       "ListBlocklistsResponse": {
         "type": "object",
         "description": "Response for GET /api/dns/blocklists.",
@@ -28408,18 +28653,25 @@
           }
         }
       },
-      "RecentErrorsResponse": {
+      "ReevaluateSummary": {
         "type": "object",
-        "description": "Response for GET /api/system/errors.",
+        "description": "Outcome of a reevaluation pass over the open anomalies.",
         "required": [
-          "errors"
+          "evaluated",
+          "resolved"
         ],
         "properties": {
-          "errors": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ApiDiagnostic"
-            }
+          "evaluated": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many open anomalies were examined.",
+            "minimum": 0
+          },
+          "resolved": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How many of those were closed as no longer holding.",
+            "minimum": 0
           }
         }
       },
@@ -29954,6 +30206,15 @@
         "type": "object",
         "description": "Request body for PUT /api/dns/filter/config.\n\nBoth fields are partial-update: omitted from JSON = no change. For\n`default_profile_ids`, an empty list clears the default (unassigned\ndevices stop being filtered) and a non-empty list replaces the entire\nset.",
         "properties": {
+          "blocklist_failure_alert_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Consecutive failed refreshes before a blocklist alerts. `0` disables.",
+            "minimum": 0
+          },
           "default_profile_ids": {
             "type": [
               "array",
@@ -30979,6 +31240,10 @@
     {
       "name": "system",
       "description": "Runtime status and logs"
+    },
+    {
+      "name": "anomalies",
+      "description": "Anomalies: typed admin-facing conditions with an open/resolved lifecycle"
     },
     {
       "name": "jobs",

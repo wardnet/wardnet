@@ -35,6 +35,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::OnceCell;
+use wardnet_common::anomaly::{Anomaly, AnomalyType};
 use wardnet_common::api::WebPushSubscription;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
@@ -67,6 +68,10 @@ pub const VAPID_CONTACT: &str = "mailto:push@wardnet.network";
 /// pill); treat them as a wire contract.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum NotificationKind {
+    /// An anomaly opened or resolved. Carries the type so the wire `kind` is
+    /// the anomaly's own slug (`blocklist_refresh_failing`, ...) rather than a
+    /// generic "anomaly" that clients would have to unpack the body to read.
+    Anomaly(AnomalyType),
     RoutingLocked,
     RoutingUnlocked,
     RoutingChanged,
@@ -77,8 +82,9 @@ enum NotificationKind {
 }
 
 impl NotificationKind {
-    const fn as_str(self) -> &'static str {
+    fn as_str(self) -> &'static str {
         match self {
+            Self::Anomaly(anomaly_type) => anomaly_type.as_str(),
             Self::RoutingLocked => "routing_locked",
             Self::RoutingUnlocked => "routing_unlocked",
             Self::RoutingChanged => "routing_changed",
@@ -103,6 +109,11 @@ struct NotificationData {
     /// Identifier of the subject entity; what it identifies is driven by
     /// `kind` (device UUID for device kinds, tunnel UUID for tunnel kinds).
     subject_id: Option<String>,
+    /// For anomaly kinds, which edge this is: `"opened"` or `"resolved"`.
+    /// Both edges share one `kind` so the service worker collapses them onto
+    /// the same notification, replacing "X is broken" with "X recovered"
+    /// instead of stacking a second entry.
+    state: Option<&'static str>,
 }
 
 /// A rendered notification: the title + body shown by the service worker,
@@ -126,6 +137,9 @@ impl Notification {
         }
         if let Some(subject_id) = &self.data.subject_id {
             data.insert("subject_id".to_owned(), subject_id.as_str().into());
+        }
+        if let Some(state) = self.data.state {
+            data.insert("state".to_owned(), state.into());
         }
         serde_json::json!({ "title": self.title, "body": self.body, "data": data })
             .to_string()
@@ -171,6 +185,22 @@ pub trait PushService: Send + Sync {
     async fn notify_private_dns_granted(&self, device_id: uuid::Uuid) -> Result<bool, AppError> {
         let _ = device_id;
         Ok(false)
+    }
+
+    /// Tell the admins an anomaly just opened. Called by the anomaly service
+    /// on the open edge only — never on a repeat observation, which is what
+    /// keeps a long-running problem to a single alert.
+    async fn notify_anomaly_opened(&self, anomaly: &Anomaly) -> Result<(), AppError> {
+        let _ = anomaly;
+        Ok(())
+    }
+
+    /// Tell the admins a previously-alerted anomaly resolved. Gated on the
+    /// open having been notified, so "it is working again" can never arrive
+    /// without its "it is broken".
+    async fn notify_anomaly_resolved(&self, anomaly: &Anomaly) -> Result<(), AppError> {
+        let _ = anomaly;
+        Ok(())
     }
 }
 
@@ -447,6 +477,7 @@ impl PushService for PushServiceImpl {
                                 kind: NotificationKind::RoutingLocked,
                                 url: None,
                                 subject_id: Some(device_id.to_string()),
+                                state: None,
                             },
                         }
                     } else {
@@ -457,6 +488,7 @@ impl PushService for PushServiceImpl {
                                 kind: NotificationKind::RoutingUnlocked,
                                 url: None,
                                 subject_id: Some(device_id.to_string()),
+                                state: None,
                             },
                         }
                     };
@@ -486,6 +518,7 @@ impl PushService for PushServiceImpl {
                                         kind: NotificationKind::RoutingChanged,
                                         url: None,
                                         subject_id: Some(device_id.to_string()),
+                                        state: None,
                                     },
                                 },
                             )
@@ -502,6 +535,7 @@ impl PushService for PushServiceImpl {
                                 kind: NotificationKind::RoutingChanged,
                                 url: Some("/devices"),
                                 subject_id: Some(device_id.to_string()),
+                                state: None,
                             },
                         })
                         .await;
@@ -518,6 +552,7 @@ impl PushService for PushServiceImpl {
                         kind: NotificationKind::TunnelOffline,
                         url: Some("/tunnels"),
                         subject_id: Some(tunnel_id.to_string()),
+                        state: None,
                     },
                 })
                 .await;
@@ -537,6 +572,7 @@ impl PushService for PushServiceImpl {
                         kind: NotificationKind::TunnelOffline,
                         url: Some("/tunnels"),
                         subject_id: Some(tunnel_id.to_string()),
+                        state: None,
                     },
                 })
                 .await;
@@ -552,6 +588,7 @@ impl PushService for PushServiceImpl {
                         kind: NotificationKind::TunnelOffline,
                         url: Some("/tunnels"),
                         subject_id: Some(tunnel_id.to_string()),
+                        state: None,
                     },
                 })
                 .await;
@@ -574,6 +611,7 @@ impl PushService for PushServiceImpl {
                         kind: NotificationKind::NewDeviceQuarantined,
                         url: Some("/devices"),
                         subject_id: Some(device_id.to_string()),
+                        state: None,
                     },
                 })
                 .await;
@@ -602,6 +640,7 @@ impl PushService for PushServiceImpl {
                         kind: NotificationKind::RuleRequestCreated,
                         url: None,
                         subject_id: Some(request_id.clone()),
+                        state: None,
                     },
                 })
                 .await;
@@ -653,8 +692,43 @@ impl PushService for PushServiceImpl {
                 kind: NotificationKind::PrivateDnsGranted,
                 url: Some("/settings#private-dns"),
                 subject_id: Some(device_id.to_string()),
+                state: None,
             },
         };
         self.deliver_to_device_reporting(&device.mac, notif).await
+    }
+
+    async fn notify_anomaly_opened(&self, anomaly: &Anomaly) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.deliver_to_admins(Notification {
+            title: "Wardnet found a problem",
+            // The anomaly's own message already names the subject and the
+            // specifics; the hint belongs on the dashboard, not in a push.
+            body: anomaly.message.clone(),
+            data: NotificationData {
+                kind: NotificationKind::Anomaly(anomaly.anomaly_type),
+                url: Some(anomaly.anomaly_type.url()),
+                subject_id: Some(anomaly.id.to_string()),
+                state: Some("opened"),
+            },
+        })
+        .await;
+        Ok(())
+    }
+
+    async fn notify_anomaly_resolved(&self, anomaly: &Anomaly) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+        self.deliver_to_admins(Notification {
+            title: "Problem resolved",
+            body: anomaly.message.clone(),
+            data: NotificationData {
+                kind: NotificationKind::Anomaly(anomaly.anomaly_type),
+                url: Some(anomaly.anomaly_type.url()),
+                subject_id: Some(anomaly.id.to_string()),
+                state: Some("resolved"),
+            },
+        })
+        .await;
+        Ok(())
     }
 }

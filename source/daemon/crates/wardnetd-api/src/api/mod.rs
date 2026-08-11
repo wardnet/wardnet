@@ -1,3 +1,4 @@
+pub mod anomalies;
 pub mod auth;
 pub mod backup;
 pub mod ddns;
@@ -111,6 +112,7 @@ pub fn catch_panic_layer() -> CatchPanicLayer<fn(Box<dyn Any + Send + 'static>) 
 /// `ApiDoc::openapi()` alone only carries the static metadata.
 pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     let mut r = OpenApiRouter::<AppState>::with_openapi(crate::openapi::ApiDoc::openapi());
+    r = anomalies::register(r);
     r = auth::register(r);
     r = users::register(r);
     r = setup::register(r);

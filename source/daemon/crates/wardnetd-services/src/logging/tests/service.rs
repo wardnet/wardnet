@@ -1,5 +1,5 @@
-//! Tests for [`LogServiceImpl`] — the orchestrator that combines the log
-//! stream and the recent-diagnostics buffer behind a single unified trait.
+//! Tests for [`LogServiceImpl`] — the orchestrator behind the log stream and
+//! log-file management.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -7,30 +7,20 @@ use std::sync::Arc;
 use tracing_subscriber::layer::SubscriberExt;
 use uuid::Uuid;
 use wardnet_common::auth::AuthContext;
-use wardnet_common::event::WardnetEvent;
 
 use crate::auth_context;
-use crate::diagnostics::{Diagnostic, DiagnosticSink, DiagnosticStore};
 use crate::error::AppError;
 use crate::logging::service::{LogService, LogServiceImpl};
 use crate::logging::stream::LogStreamService;
 
 /// Build a fresh log service with a unique temp log path and default capacities.
 fn build_service() -> (LogServiceImpl, PathBuf) {
-    let (svc, _store, dir) = build_service_with_store();
-    (svc, dir)
-}
-
-/// Like [`build_service`] but also returns the diagnostics store handle, so a
-/// test can record diagnostics and observe them through the service.
-fn build_service_with_store() -> (LogServiceImpl, DiagnosticStore, PathBuf) {
     let stream = Arc::new(LogStreamService::new(64));
-    let store = DiagnosticStore::new(15);
     // Use a per-test unique directory so parallel tests don't collide.
     let dir = std::env::temp_dir().join(format!("wardnet-test-logs-{}", Uuid::new_v4()));
     let log_path = dir.join("wardnetd.log");
-    let svc = LogServiceImpl::new(stream, Arc::new(store.clone()), log_path);
-    (svc, store, dir)
+    let svc = LogServiceImpl::new(stream, log_path);
+    (svc, dir)
 }
 
 fn admin_ctx() -> AuthContext {
@@ -48,7 +38,7 @@ fn new_service_is_constructable() {
 fn tracing_layers_returns_only_the_stream_layer() {
     let (svc, _dir) = build_service();
     let layers = svc.tracing_layers();
-    // Diagnostics are fed off the event bus, not the tracing pipeline, so the
+    // Anomalies are fed off the event bus, not the tracing pipeline, so the
     // only tracing layer is the live-log stream.
     assert_eq!(
         layers.len(),
@@ -74,22 +64,6 @@ async fn subscribe_returns_receiver() {
     let _rx = auth_context::with_context(admin_ctx(), async { svc.subscribe() })
         .await
         .unwrap();
-}
-
-#[tokio::test]
-async fn get_recent_errors_is_empty_initially() {
-    let (svc, _dir) = build_service();
-    let recent = auth_context::with_context(admin_ctx(), async { svc.get_recent_errors() })
-        .await
-        .unwrap();
-    assert!(recent.is_empty());
-}
-
-#[tokio::test]
-async fn get_recent_errors_forbidden_without_admin_context() {
-    let (svc, _dir) = build_service();
-    let res = svc.get_recent_errors();
-    assert!(matches!(res, Err(AppError::Forbidden(_))));
 }
 
 #[tokio::test]
@@ -187,33 +161,10 @@ async fn stream_layer_published_via_service_captures_events() {
 
     tracing::error!(target: "t", "service-level error");
 
-    // The live-log stream receives the event. Diagnostics no longer come from
-    // tracing, so an error log alone does not populate the recent-errors feed.
+    // The live-log stream receives the event. Anomalies come from the event
+    // bus, not from tracing, so an error log alone raises none.
     let entry = rx.recv().await.unwrap();
     assert_eq!(entry.level, "ERROR");
-    let recent = auth_context::with_context(admin_ctx(), async { svc.get_recent_errors() })
-        .await
-        .unwrap();
-    assert!(recent.is_empty());
-}
-
-#[tokio::test]
-async fn get_recent_errors_returns_recorded_diagnostics() {
-    let (svc, store, _dir) = build_service_with_store();
-    store.record(
-        Diagnostic::from_event(&WardnetEvent::RouteTableLost {
-            table: 51_820,
-            timestamp: chrono::Utc::now(),
-        })
-        .unwrap(),
-    );
-
-    let recent = auth_context::with_context(admin_ctx(), async { svc.get_recent_errors() })
-        .await
-        .unwrap();
-    assert_eq!(recent.len(), 1);
-    assert!(recent[0].message.contains("51820"));
-    assert!(!recent[0].hint.is_empty());
 }
 
 #[tokio::test]
@@ -363,12 +314,7 @@ async fn list_log_files_orders_by_modified_desc() {
 async fn start_all_activates_the_stream_component() {
     use crate::logging::component::LogComponent;
     let stream = Arc::new(LogStreamService::new(8));
-    let store = DiagnosticStore::new(8);
-    let svc = LogServiceImpl::new(
-        stream.clone(),
-        Arc::new(store),
-        PathBuf::from("/tmp/wardnet-test.log"),
-    );
+    let svc = LogServiceImpl::new(stream.clone(), PathBuf::from("/tmp/wardnet-test.log"));
 
     assert!(!stream.is_active());
 

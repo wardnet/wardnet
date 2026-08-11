@@ -1,7 +1,6 @@
 import { type WardnetClient } from "../client.js";
 import { apiClient, type ApiClient } from "../internal/client.js";
 import type {
-  RecentErrorsResponse,
   SetDefaultPolicyRequest,
   SetDefaultPolicyResponse,
   SystemStatusResponse,
@@ -20,14 +19,6 @@ export class SystemService {
     return this.api.get("/system/status");
   }
 
-  /**
-   * Recent warnings and errors from the daemon's in-memory notifier ring
-   * buffer (admin only). Powers the dashboard's "recent issues" panel;
-   * currently returns at most the last 15 entries, newest first.
-   */
-  async getRecentErrors(): Promise<RecentErrorsResponse> {
-    return this.api.get("/system/errors");
-  }
 
   /**
    * Ask the daemon to exit so the supervisor restarts it.

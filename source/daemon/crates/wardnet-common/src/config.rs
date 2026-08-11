@@ -19,6 +19,7 @@ pub struct ApplicationConfiguration {
     pub detection: DetectionConfig,
     pub otel: OtelConfig,
     pub vpn_providers: VpnProvidersConfig,
+    pub anomalies: AnomaliesConfig,
     /// Overrides for the wardnet-cloud gateway URLs the DDNS wardnet provider
     /// talks to. See [`DdnsWardnetConfig`].
     pub ddns_wardnet: DdnsWardnetConfig,
@@ -77,6 +78,7 @@ impl Default for ApplicationConfiguration {
             detection: DetectionConfig::default(),
             otel: OtelConfig::default(),
             vpn_providers: VpnProvidersConfig::default(),
+            anomalies: AnomaliesConfig::default(),
             ddns_wardnet: DdnsWardnetConfig::default(),
             pyroscope: PyroscopeConfig::default(),
             update: UpdateConfig::default(),
@@ -235,9 +237,6 @@ pub struct LoggingConfig {
     pub rotation: LogRotation,
     /// Maximum number of rotated log files to keep.
     pub max_log_files: usize,
-    /// Maximum number of recent diagnostics kept in the ring buffer that backs
-    /// the dashboard's recent-errors panel.
-    pub max_recent_errors: usize,
     /// Channel capacity for the WebSocket log broadcast.
     pub broadcast_capacity: usize,
     /// Tracing targets hidden from the admin-facing live-log stream (the
@@ -278,7 +277,6 @@ impl Default for LoggingConfig {
             path: PathBuf::from("/var/log/wardnet/wardnetd.log"),
             rotation: LogRotation::Daily,
             max_log_files: 7,
-            max_recent_errors: 15,
             broadcast_capacity: 256,
             // Warns once per failed recursive lookup ("lookup error: no records
             // found ..."). On a busy resolver that is one warning per client
@@ -615,6 +613,42 @@ impl Default for OtelLogsConfig {
 ///
 /// ```toml
 /// [vpn_providers.enabled]
+/// Anomaly detection tuning.
+///
+/// ```toml
+/// [anomalies]
+/// reevaluate_interval_secs = 60
+/// detect_timeout_secs = 30
+///
+/// [anomalies.enabled]
+/// blocklist_refresh_failing = false
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AnomaliesConfig {
+    /// How often every open anomaly is re-checked to see whether its condition
+    /// still holds. Detector sweep cadences are set by the detectors
+    /// themselves, not here.
+    pub reevaluate_interval_secs: u64,
+    /// Ceiling on a single detector call, so one hung detector cannot stall a
+    /// whole pass.
+    pub detect_timeout_secs: u64,
+    /// Map of anomaly-type slug to enabled flag. Types not listed are treated
+    /// as enabled. An operational escape hatch for a detector misbehaving on a
+    /// particular box.
+    pub enabled: std::collections::HashMap<String, bool>,
+}
+
+impl Default for AnomaliesConfig {
+    fn default() -> Self {
+        Self {
+            reevaluate_interval_secs: 60,
+            detect_timeout_secs: 30,
+            enabled: std::collections::HashMap::new(),
+        }
+    }
+}
+
 /// nordvpn = false
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

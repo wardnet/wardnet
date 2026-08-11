@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use wardnetd_services::anomaly::AnomalyService;
 use wardnetd_services::device::identification::DeviceIdentificationService;
 use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
@@ -54,6 +55,7 @@ struct Inner {
     stats_service: Arc<dyn StatsService>,
     rule_request_service: Arc<dyn RuleRequestService>,
     push_service: Arc<dyn PushService>,
+    anomaly_service: Arc<dyn AnomalyService>,
     health_monitor: Arc<HealthMonitor>,
     /// Process-wide entitlement state. Read by the serving layer to gate the
     /// premium app surfaces (user PWA + admin mobile app) while suspended, and
@@ -139,6 +141,9 @@ impl AppState {
                 // service via `with_push_service`.
                 push_service: Arc::new(NoopPushService),
                 // Defaults to a no-op; production and the mock inject the live
+                // service via `with_anomaly_service`.
+                anomaly_service: Arc::new(NoopAnomalyService),
+                // Defaults to a no-op; production and the mock inject the live
                 // service via `with_routing_profile_service` (issue #241).
                 routing_profile_service: Arc::new(NoopRoutingProfileService),
                 // Defaults to an empty monitor (initial snapshot is UP with no
@@ -203,6 +208,17 @@ impl AppState {
         Arc::get_mut(&mut self.inner)
             .expect("with_push_service must be called before AppState is cloned")
             .push_service = push_service;
+        self
+    }
+
+    /// Inject the live [`AnomalyService`]. Defaults to a no-op in
+    /// [`Self::new`]; production and the mock wire the real one. Must be
+    /// called before the state is cloned or shared.
+    #[must_use]
+    pub fn with_anomaly_service(mut self, anomaly_service: Arc<dyn AnomalyService>) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_anomaly_service must be called before AppState is cloned")
+            .anomaly_service = anomaly_service;
         self
     }
 
@@ -465,6 +481,12 @@ impl AppState {
         self.inner.push_service.as_ref()
     }
 
+    /// Access the anomaly service.
+    #[must_use]
+    pub fn anomaly_service(&self) -> &dyn AnomalyService {
+        self.inner.anomaly_service.as_ref()
+    }
+
     /// Access the health monitor for the unauthenticated `GET /health`
     /// endpoint (issue #214).
     #[must_use]
@@ -674,6 +696,50 @@ impl DeviceIdentificationService for NoopDeviceIdentificationService {
 
 /// No-op [`PushService`] used as the [`AppState::new`] default before the live
 /// service is injected via [`AppState::with_push_service`]. Never delivers.
+/// Rejects every call: an `AppState` without a real anomaly service cannot
+/// answer for the dashboard, and quietly returning an empty list would read as
+/// "nothing is wrong".
+struct NoopAnomalyService;
+
+#[async_trait::async_trait]
+impl AnomalyService for NoopAnomalyService {
+    async fn list(
+        &self,
+        _filter: wardnet_common::anomaly::AnomalyFilter,
+        _limit: u32,
+    ) -> Result<Vec<wardnet_common::anomaly::Anomaly>, wardnetd_services::error::AppError> {
+        Err(wardnetd_services::error::AppError::Internal(
+            anyhow::anyhow!("anomaly service not configured"),
+        ))
+    }
+    async fn submit(
+        &self,
+        _report: wardnet_common::anomaly::AnomalyReport,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn resolve(&self, _id: uuid::Uuid) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn run_detector(
+        &self,
+        _anomaly_type: wardnet_common::anomaly::AnomalyType,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+    async fn reevaluate_all(
+        &self,
+    ) -> Result<wardnet_common::anomaly::ReevaluateSummary, wardnetd_services::error::AppError>
+    {
+        Err(wardnetd_services::error::AppError::Internal(
+            anyhow::anyhow!("anomaly service not configured"),
+        ))
+    }
+    fn schedule(&self) -> Vec<(wardnet_common::anomaly::AnomalyType, std::time::Duration)> {
+        Vec::new()
+    }
+}
+
 struct NoopPushService;
 
 #[async_trait::async_trait]

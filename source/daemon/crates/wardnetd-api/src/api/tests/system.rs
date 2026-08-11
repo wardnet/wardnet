@@ -405,7 +405,6 @@ fn system_app(state: AppState) -> Router {
 fn system_app_full(state: AppState) -> Router {
     Router::new()
         .route("/api/system/status", get(crate::api::system::status))
-        .route("/api/system/errors", get(crate::api::system::recent_errors))
         .route(
             "/api/system/logs/download",
             get(crate::api::system::download_logs),
@@ -575,154 +574,6 @@ async fn status_service_error_returns_500() {
 // GET /api/system/errors
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn recent_errors_returns_empty_list() {
-    let admin_id = Uuid::new_v4();
-    let state = make_state(
-        AlwaysAuthService { admin_id },
-        MockSystemService {
-            response: Ok(default_status()),
-        },
-    );
-
-    let app = system_app_full(state);
-    let req = Request::builder()
-        .uri("/api/system/errors")
-        .header("Cookie", "wardnet_session=valid-token")
-        .extension(connect_info_ext())
-        .body(Body::empty())
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(json["errors"].as_array().unwrap().is_empty());
-}
-
-#[tokio::test]
-async fn recent_errors_returns_populated_errors() {
-    use wardnetd_services::diagnostics::Diagnostic;
-    use wardnetd_services::logging::component::BoxedLayer;
-    use wardnetd_services::logging::service::LogFileInfo;
-    use wardnetd_services::logging::stream::LogEntry;
-
-    /// A mock `LogService` that returns canned error entries.
-    struct MockLogServiceWithErrors;
-
-    #[async_trait]
-    impl LogService for MockLogServiceWithErrors {
-        fn subscribe(&self) -> Result<tokio::sync::broadcast::Receiver<LogEntry>, AppError> {
-            let (tx, rx) = tokio::sync::broadcast::channel(1);
-            drop(tx);
-            Ok(rx)
-        }
-        fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
-            use wardnet_common::event::WardnetEvent;
-            Ok(vec![
-                Diagnostic::from_event(&WardnetEvent::TunnelStartFailed {
-                    tunnel_id: Uuid::new_v4(),
-                    interface_name: "wg-work".to_owned(),
-                    error: "boom".to_owned(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .unwrap(),
-                Diagnostic::from_event(&WardnetEvent::DhcpConflictDetected {
-                    mac: "aa:bb:cc:dd:ee:ff".to_owned(),
-                    ip: "192.168.1.2".to_owned(),
-                    details: "careful".to_owned(),
-                    timestamp: chrono::Utc::now(),
-                })
-                .unwrap(),
-            ])
-        }
-        async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
-            Ok(Vec::new())
-        }
-        async fn download_log_file(&self, _name: Option<&str>) -> Result<String, AppError> {
-            Ok(String::new())
-        }
-        fn tracing_layers(&self) -> Vec<BoxedLayer> {
-            Vec::new()
-        }
-        fn start_all(&self) {}
-        fn stop_all(&self) {}
-    }
-
-    let admin_id = Uuid::new_v4();
-
-    let state = AppState::new(
-        Arc::new(AlwaysAuthService { admin_id }),
-        Arc::new(crate::tests::stubs::StubBackupService),
-        Arc::new(StubDeviceService),
-        Arc::new(StubDhcpService),
-        Arc::new(StubDnsService),
-        Arc::new(StubDnsFilterService),
-        Arc::new(StubDnsLocalService),
-        Arc::new(crate::tests::stubs::StubDdnsService),
-        Arc::new(crate::tests::stubs::StubTlsService),
-        Arc::new(StubDiscoveryService),
-        Arc::new(MockLogServiceWithErrors) as Arc<dyn LogService>,
-        Arc::new(StubProviderService),
-        Arc::new(StubRoutingService),
-        Arc::new(StubNetworkZoneService),
-        Arc::new(MockSystemService {
-            response: Ok(default_status()),
-        }),
-        Arc::new(StubTunnelService),
-        Arc::new(crate::tests::stubs::StubUpdateService),
-        Arc::new(StubDhcpServer),
-        Arc::new(StubDnsServer),
-        Arc::new(StubEventPublisher),
-        crate::tests::stubs::StubJobService::new_arc(),
-        Arc::new(crate::tests::stubs::StubStatsService),
-        Arc::new(crate::tests::stubs::StubRuleRequestService),
-        Arc::new(crate::tests::stubs::StubZoneExceptionService),
-    );
-
-    let app = system_app_full(state);
-    let req = Request::builder()
-        .uri("/api/system/errors")
-        .header("Cookie", "wardnet_session=valid-token")
-        .extension(connect_info_ext())
-        .body(Body::empty())
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-
-    let body = axum::body::to_bytes(resp.into_body(), 4096).await.unwrap();
-    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    let errors = json["errors"].as_array().unwrap();
-    assert_eq!(errors.len(), 2);
-    assert_eq!(errors[0]["code"], "tunnel_start_failed");
-    assert_eq!(errors[0]["severity"], "error");
-    assert!(!errors[0]["hint"].as_str().unwrap().is_empty());
-    assert_eq!(errors[1]["code"], "dhcp_conflict");
-    assert_eq!(errors[1]["severity"], "warning");
-}
-
-#[tokio::test]
-async fn recent_errors_requires_authentication() {
-    let state = make_state(
-        NeverAuthService,
-        MockSystemService {
-            response: Ok(default_status()),
-        },
-    );
-
-    let app = system_app_full(state);
-    let req = Request::builder()
-        .uri("/api/system/errors")
-        .extension(connect_info_ext())
-        .body(Body::empty())
-        .unwrap();
-
-    let resp = app.oneshot(req).await.unwrap();
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
-}
-
 // ---------------------------------------------------------------------------
 // GET /api/system/logs/download
 // ---------------------------------------------------------------------------
@@ -749,7 +600,6 @@ async fn download_logs_requires_authentication() {
 
 #[tokio::test]
 async fn download_logs_returns_text_when_log_exists() {
-    use wardnetd_services::diagnostics::Diagnostic;
     use wardnetd_services::logging::component::BoxedLayer;
     use wardnetd_services::logging::service::LogFileInfo;
     use wardnetd_services::logging::stream::LogEntry;
@@ -765,9 +615,6 @@ async fn download_logs_returns_text_when_log_exists() {
             let (tx, rx) = tokio::sync::broadcast::channel(1);
             drop(tx);
             Ok(rx)
-        }
-        fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
-            Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
             Ok(Vec::new())
@@ -850,7 +697,6 @@ async fn download_logs_returns_text_when_log_exists() {
 
 #[tokio::test]
 async fn download_logs_formats_non_json_lines_as_is() {
-    use wardnetd_services::diagnostics::Diagnostic;
     use wardnetd_services::logging::component::BoxedLayer;
     use wardnetd_services::logging::service::LogFileInfo;
     use wardnetd_services::logging::stream::LogEntry;
@@ -863,9 +709,6 @@ async fn download_logs_formats_non_json_lines_as_is() {
             let (tx, rx) = tokio::sync::broadcast::channel(1);
             drop(tx);
             Ok(rx)
-        }
-        fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
-            Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
             Ok(Vec::new())
@@ -932,7 +775,6 @@ async fn download_logs_formats_non_json_lines_as_is() {
 
 #[tokio::test]
 async fn download_logs_finds_dated_file() {
-    use wardnetd_services::diagnostics::Diagnostic;
     use wardnetd_services::logging::component::BoxedLayer;
     use wardnetd_services::logging::service::LogFileInfo;
     use wardnetd_services::logging::stream::LogEntry;
@@ -945,9 +787,6 @@ async fn download_logs_finds_dated_file() {
             let (tx, rx) = tokio::sync::broadcast::channel(1);
             drop(tx);
             Ok(rx)
-        }
-        fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
-            Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
             Ok(Vec::new())
@@ -1014,7 +853,6 @@ async fn download_logs_finds_dated_file() {
 
 #[tokio::test]
 async fn download_logs_no_file_returns_500() {
-    use wardnetd_services::diagnostics::Diagnostic;
     use wardnetd_services::logging::component::BoxedLayer;
     use wardnetd_services::logging::service::LogFileInfo;
     use wardnetd_services::logging::stream::LogEntry;
@@ -1027,9 +865,6 @@ async fn download_logs_no_file_returns_500() {
             let (tx, rx) = tokio::sync::broadcast::channel(1);
             drop(tx);
             Ok(rx)
-        }
-        fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
-            Ok(Vec::new())
         }
         async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
             Ok(Vec::new())

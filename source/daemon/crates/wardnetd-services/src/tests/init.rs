@@ -18,7 +18,6 @@ use wardnetd_data::secret_store::SecretStore;
 use crate::Backends;
 use crate::device::hostname_resolver::HostnameResolver;
 use crate::device::packet_capture::{ObservedDevice, PacketCapture};
-use crate::diagnostics::DiagnosticStore;
 use crate::error::AppError;
 use crate::logging::{LogService, LogServiceImpl, LogStreamService};
 use crate::routing::firewall::FirewallManager;
@@ -508,10 +507,8 @@ impl crate::dns_filter::blocklist_downloader::BlocklistFetcher for StubBlocklist
 
 fn stub_log_service() -> Arc<dyn LogService> {
     let stream = Arc::new(LogStreamService::new(16));
-    let diagnostics = Arc::new(DiagnosticStore::new(15));
     Arc::new(LogServiceImpl::new(
         stream,
-        diagnostics,
         std::path::PathBuf::from("/tmp/wardnet-init-test.log"),
     ))
 }

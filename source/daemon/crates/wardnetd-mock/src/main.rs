@@ -41,9 +41,8 @@ use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::backends::noop_watchdog::NoopWatchdog;
 use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
+use wardnetd_services::anomaly::{AnomaliesDetectionEngine, AnomalyListener};
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
-use wardnetd_services::diagnostics::DiagnosticStore;
-use wardnetd_services::diagnostics::listener::DiagnosticsListener;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::HttpBlocklistFetcher;
@@ -128,18 +127,12 @@ async fn main() -> anyhow::Result<()> {
         LogStreamService::new(config.logging.broadcast_capacity)
             .with_suppressed_targets(config.logging.ui_suppressed_targets.clone()),
     );
-    // Recent-diagnostics buffer: read handle for the log service, write handle
-    // for the diagnostics listener wired up in `run`.
-    let diagnostics = Arc::new(DiagnosticStore::new(config.logging.max_recent_errors));
-    let log_service: Arc<dyn LogService> = Arc::new(LogServiceImpl::new(
-        log_stream,
-        diagnostics.clone(),
-        config.logging.path.clone(),
-    ));
+    let log_service: Arc<dyn LogService> =
+        Arc::new(LogServiceImpl::new(log_stream, config.logging.path.clone()));
 
     init_tracing(cli.verbose, log_service.as_ref());
 
-    run(cli, config, log_service, diagnostics).await
+    run(cli, config, log_service).await
 }
 
 #[allow(clippy::too_many_lines)]
@@ -147,7 +140,6 @@ async fn run(
     cli: Cli,
     config: ApplicationConfiguration,
     log_service: Arc<dyn LogService>,
-    diagnostics: Arc<DiagnosticStore>,
 ) -> anyhow::Result<()> {
     let started_at = Instant::now();
 
@@ -401,6 +393,7 @@ async fn run(
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
+    .with_anomaly_service(services.anomaly.clone())
     .with_device_identification_service(services.device_identification.clone())
     .with_routing_profile_service(services.routing_profile.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
@@ -480,11 +473,17 @@ async fn run(
         &tracing::Span::current(),
     );
 
-    // Surface error-flavoured fake events in the dashboard's recent-errors
-    // panel, exactly like the real daemon.
-    let _diagnostics_listener = DiagnosticsListener::start(
+    // Surface error-flavoured fake events as anomalies, exactly like the real
+    // daemon — every detector is service-backed, so the mock runs the full
+    // subsystem rather than a stub of it.
+    let _anomaly_listener = AnomalyListener::start(
         &services.event_publisher,
-        diagnostics,
+        services.anomaly.clone(),
+        &tracing::Span::current(),
+    );
+    let _anomalies_engine = AnomaliesDetectionEngine::start_with_intervals(
+        services.anomaly.clone(),
+        Duration::from_secs(config.anomalies.reevaluate_interval_secs),
         &tracing::Span::current(),
     );
 

@@ -75,6 +75,7 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "ddns", description = "Dynamic DNS: bridge / BYOD-Cloudflare registration"),
         (name = "tls", description = "Daemon-owned TLS certificate provisioning"),
         (name = "system", description = "Runtime status and logs"),
+        (name = "anomalies", description = "Anomalies: typed admin-facing conditions with an open/resolved lifecycle"),
         (name = "jobs", description = "Background job status"),
         (name = "stats", description = "Generic pre-aggregating time-series and top-N stats"),
         (name = "update", description = "Auto-update and rollback"),

@@ -1,3 +1,4 @@
+mod anomalies;
 mod auth;
 mod backup;
 mod ddns;

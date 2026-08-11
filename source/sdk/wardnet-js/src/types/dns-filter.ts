@@ -39,6 +39,12 @@ export interface DnsFilterConfig {
    * the get/set roundtrip is not preserved.
    */
   default_profile_ids: string[];
+  /**
+   * Consecutive failed refreshes a blocklist must accumulate before the admin
+   * is alerted. `0` disables the alert entirely. Paired with the refresh
+   * backoff, the default of 5 is roughly 75 minutes of sustained failure.
+   */
+  blocklist_failure_alert_threshold: number;
 }
 
 /** A URL-sourced domain blocklist scoped to a DNS filter profile. */
@@ -265,4 +271,5 @@ export interface DnsFilterConfigResponse {
 export interface UpdateDnsFilterConfigRequest {
   enabled?: boolean;
   default_profile_ids?: string[];
+  blocklist_failure_alert_threshold?: number;
 }

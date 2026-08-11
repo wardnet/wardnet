@@ -19,7 +19,6 @@ use wardnet_common::tunnel::Tunnel;
 use wardnetd_services::auth::service::{LoginResult, WizardState};
 use wardnetd_services::device::ObservationResult;
 use wardnetd_services::dhcp::server::DhcpServer;
-use wardnetd_services::diagnostics::Diagnostic;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::error::AppError;
 use wardnetd_services::event::EventPublisher;
@@ -1060,9 +1059,6 @@ impl LogService for StubLogService {
         let (tx, rx) = broadcast::channel(1);
         drop(tx);
         Ok(rx)
-    }
-    fn get_recent_errors(&self) -> Result<Vec<Diagnostic>, AppError> {
-        Ok(Vec::new())
     }
     async fn list_log_files(&self) -> Result<Vec<LogFileInfo>, AppError> {
         Ok(Vec::new())
