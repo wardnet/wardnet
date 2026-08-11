@@ -376,6 +376,68 @@ keep-alive + `'V'` magic-close disarm) in production, `NoopWatchdog` in the mock
 hardware pet is never health-gated** — that is the whole point of having a
 third layer below the health-gated soft restart.
 
+## Anomaly subsystem (issues #1097 / #225)
+
+Typed, admin-facing conditions with an open/resolved lifecycle. Replaces the
+in-memory recent-errors ring buffer, which could only answer "what went wrong
+recently" — the wrong question for anything that alerts.
+
+### The catalog and the registry
+
+[`AnomalyType`](../source/daemon/crates/wardnet-common/src/anomaly.rs) is a
+hardcoded catalog; each entry carries its severity, component, remediation
+hint, and coarse landing page as `const fn` accessors. Those are **derived, not
+stored**, so a reworded hint applies retroactively.
+
+`AnomalyDetectorRegistry` (`wardnetd-services/src/anomaly/registry.rs`) maps
+each type to exactly one `AnomalyDetector`, built once during
+`create_services` from `[anomalies.enabled]` — the same shape as
+`VpnProviderRegistry`. Adding an anomaly is a catalog variant plus a
+registration; nothing in the engine changes.
+
+### Two modes, one choke point
+
+| Mode | Driver | For |
+|---|---|---|
+| **Preventive** | `AnomaliesDetectionEngine` calls `detect()` on the cadence each detector declares via `interval()` | conditions that are *state* you can inspect (a blocklist's failure counter) |
+| **Reactive** | `AnomalyListener` maps error-flavoured `WardnetEvent`s to reports | conditions that are *events*, with nothing left to inspect (a tunnel that failed to start) |
+
+Both funnel into `AnomalyService::submit`, which deduplicates on
+`(type, subject_id)` and notifies **only on the open edge**. That is what makes
+a condition holding for days alert once instead of once per observation.
+Resolution notifies only when the open did (`notified_at`), so "it is working
+again" can never arrive without its "it is broken".
+
+**Invariant: alerting is edge-triggered by a database constraint, not by
+service state.** A partial unique index on
+`(anomaly_type, COALESCE(subject_id, '')) WHERE resolved_at IS NULL` permits at
+most one *open* anomaly per subject, so a second open attempt collides rather
+than relying on anything to remember. That is what survives a restart, a lost
+write, and two detectors racing. `COALESCE` is required because NULLs never
+compare equal in a unique index — without it, every box-wide anomaly would open
+a fresh row per observation. Resolved rows sit outside the index, so a
+condition that recurs later is genuinely new and alerts again.
+
+### Closing the loop
+
+`reevaluate_all` asks each open anomaly's detector whether the condition still
+holds. Where a cheap authoritative check exists it is used (a tunnel anomaly
+clears when the tunnel reports `Up`). Where none does — `route_table_lost`,
+`dhcp_conflict` — the detector declares `stale_after` instead of faking one,
+and the service expires the anomaly without ever asking. A detector error or
+timeout leaves the anomaly **open**: silently closing a problem we failed to
+check is the worst outcome available.
+
+The engine keeps a deadline per detector in a min-heap rather than a shared
+tick, so cadences stay independent, and it holds only `Arc<dyn AnomalyService>`
+— the registry, repository, and notification path all sit behind it, per the
+runner contract.
+
+**Per-entity errors are anomalies, not columns.** An open anomaly whose
+`subject_id` is a tunnel *is* that tunnel's current error — which is why there
+is no `tunnels.last_error`, and why `GET /api/anomalies` filters by
+`subject_id`. One writer, one lifecycle, one place to look.
+
 ## Network-Zone enforcement subsystem (issue #736)
 
 Phase 1 / CI-2 of epic #244. Turns a device's [`NetworkZone`] into nftables

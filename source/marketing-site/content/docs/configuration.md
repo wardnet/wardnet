@@ -65,9 +65,21 @@ live over the `/api/system/logs/stream` WebSocket.
 | `path` | `"/var/log/wardnet/wardnetd.log"` | File appender destination. |
 | `rotation` | `"daily"` | `hourly`, `daily`, or `never`. |
 | `max_log_files` | `7` | Retention count for rotated files. |
-| `max_recent_errors` | `15` | Ring buffer size for `/api/system/errors`. |
 | `broadcast_capacity` | `256` | Buffer size for the live log WebSocket. |
-| `ui_suppressed_targets` | `["hickory_resolver::recursor"]` | Tracing targets hidden from the admin UI (live log stream and `/api/system/errors`), matched as a target prefix. These events are still written to the log file — this only keeps per-query dependency noise from drowning the events an admin can act on. Set to `[]` to show everything. |
+| `ui_suppressed_targets` | `["hickory_resolver::recursor"]` | Tracing targets hidden from the admin UI's live log stream, matched as a target prefix. These events are still written to the log file — this only keeps per-query dependency noise from drowning the events an admin can act on. Set to `[]` to show everything. |
+
+## `[anomalies]`
+
+Anomalies are typed conditions the daemon raises about itself — a blocklist
+that keeps failing to refresh, a tunnel that will not come up. Each is opened
+once when first observed and resolved when the condition stops holding, so a
+problem that lasts for days notifies you once rather than once per check.
+
+| Key | Default | Notes |
+| --- | --- | --- |
+| `reevaluate_interval_secs` | `60` | How often every open anomaly is re-checked to see whether its condition still holds. Detector sweep cadences are set by the detectors themselves, not here. |
+| `detect_timeout_secs` | `30` | Ceiling on a single detector call, so one hung detector cannot stall a whole pass. |
+| `enabled` | `{}` | Per-detector kill switch keyed by anomaly type, e.g. `{ blocklist_refresh_failing = false }`. Types not listed are enabled. |
 
 ## `[network]`
 

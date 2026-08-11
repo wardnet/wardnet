@@ -7,7 +7,7 @@ const {
   useDevices,
   useTunnels,
   useDhcpStatus,
-  useRecentErrors,
+  useAnomalies,
   useDnsStatSummary,
   useTlsStatus,
 } = vi.hoisted(() => ({
@@ -15,7 +15,7 @@ const {
   useDevices: vi.fn(),
   useTunnels: vi.fn(),
   useDhcpStatus: vi.fn(),
-  useRecentErrors: vi.fn(),
+  useAnomalies: vi.fn(),
   useDnsStatSummary: vi.fn(),
   useTlsStatus: vi.fn(),
 }));
@@ -28,7 +28,7 @@ vi.mock("@wardnet/web", async (importOriginal) => {
     useDevices,
     useTunnels,
     useDhcpStatus,
-    useRecentErrors,
+    useAnomalies,
     useDnsStatSummary,
     useTlsStatus,
   };
@@ -66,9 +66,9 @@ vi.mock("@/components/compound/DhcpSummaryCard", () => ({
     <div data-testid="dhcp-summary">{status ? "dhcp" : "no-dhcp"}</div>
   ),
 }));
-vi.mock("@/components/compound/RecentErrorsCard", () => ({
-  RecentErrorsCard: ({ errors }: { errors: unknown[] }) => (
-    <div data-testid="recent-errors">{errors.length}</div>
+vi.mock("@/components/compound/AnomaliesCard", () => ({
+  AnomaliesCard: ({ anomalies }: { anomalies: unknown[] }) => (
+    <div data-testid="anomalies">{anomalies.length}</div>
   ),
 }));
 vi.mock("@/components/features/DashboardLogWidget", () => ({
@@ -99,7 +99,7 @@ beforeEach(() => {
   useDevices.mockReturnValue({ data: undefined });
   useTunnels.mockReturnValue({ data: undefined });
   useDhcpStatus.mockReturnValue({ data: undefined });
-  useRecentErrors.mockReturnValue({ data: undefined });
+  useAnomalies.mockReturnValue({ data: undefined });
   useTlsStatus.mockReturnValue({ data: undefined });
   useDnsStatSummary.mockReturnValue({
     data: undefined,
@@ -118,7 +118,7 @@ describe("Dashboard", () => {
     // dnsStats undefined → em dash.
     expect(screen.getByTestId("stat-dns-queries-value")).toHaveTextContent("-");
     expect(screen.getByTestId("stat-blocked-value")).toHaveTextContent("-");
-    expect(screen.getByTestId("recent-errors")).toHaveTextContent("0");
+    expect(screen.getByTestId("anomalies")).toHaveTextContent("0");
     expect(screen.getByTestId("log-widget")).toBeInTheDocument();
   });
 
@@ -198,11 +198,11 @@ describe("Dashboard", () => {
     );
   });
 
-  it("shows recent errors count", () => {
-    useRecentErrors.mockReturnValue({
-      data: { errors: [{ id: 1 }, { id: 2 }] },
+  it("shows the open anomaly count", () => {
+    useAnomalies.mockReturnValue({
+      data: { anomalies: [{ id: 1 }, { id: 2 }] },
     });
     renderWithProviders(<Dashboard />);
-    expect(screen.getByTestId("recent-errors")).toHaveTextContent("2");
+    expect(screen.getByTestId("anomalies")).toHaveTextContent("2");
   });
 });

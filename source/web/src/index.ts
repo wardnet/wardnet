@@ -167,13 +167,17 @@ export {
   useProviderSetup,
 } from "./hooks/useProviders";
 
+// Hooks — anomalies
+export { useAnomalies, useReevaluateAnomalies } from "./hooks/useAnomalies";
+export { anomalySubjectLink } from "./lib/anomaly";
+export { blocklistFailureSummary, blocklistRetryAt } from "./lib/blocklistRetry";
+export type { AnomalyLink, AnomalyRouteMap } from "./lib/anomaly";
+
 // Hooks — system
 export {
   useSystemStatus,
   useAcknowledgeShutdown,
-  useRecentErrors,
 } from "./hooks/useSystemStatus";
-export type { SystemDiagnostic } from "./hooks/useSystemStatus";
 
 export {
   useDefaultPolicy,

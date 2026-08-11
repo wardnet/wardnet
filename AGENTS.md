@@ -123,6 +123,17 @@ you're about to make, rather than the whole set.
   session**; the **Admin role** + **Local admin** break-glass pair; and why
   a forward-auth gate breaks native mobile clients while app-native OIDC
   does not.
+- **[Anomaly subsystem](.agents/architecture.md#anomaly-subsystem-issues-1097--225)** —
+  the hardcoded `AnomalyType` catalog, the `AnomalyDetector` registry (one
+  detector per type), and `AnomaliesDetectionEngine`'s two modes: a
+  **preventive** per-detector sweep schedule and a **reactive** event-bus
+  listener. The invariant that makes alerting edge-triggered is a *partial
+  unique index* on `(anomaly_type, COALESCE(subject_id, ''))
+  WHERE resolved_at IS NULL` — at most one open anomaly per subject, enforced
+  by the database rather than by a service remembering it already alerted.
+  Also why **per-entity errors are anomalies, not columns**: an open anomaly
+  whose `subject_id` is a tunnel *is* that tunnel's current error, so there is
+  no `tunnels.last_error`.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router";
 import { Button } from "@wardnet/web";
 import { FormActions } from "@wardnet/web";
 import {
@@ -272,6 +272,42 @@ interface SubSectionProps {
   profileId: string;
 }
 
+/**
+ * Scroll to and briefly highlight the blocklist named by a `#blocklist-<id>`
+ * hash.
+ *
+ * A blocklist has no page of its own, so an anomaly deep link lands here and
+ * relies on the hash to pick out the row — otherwise the admin arrives at a
+ * profile with a dozen lists and no idea which one is failing. Runs once the
+ * rows exist (`rowCount`), since the target is not in the DOM before then.
+ */
+function useBlocklistAnchor(rowCount: number) {
+  const { hash } = useLocation();
+
+  useEffect(() => {
+    if (!hash.startsWith("#blocklist-") || rowCount === 0) return;
+
+    const target = document.getElementById(hash.slice(1));
+    const row = target?.closest("tr") ?? target;
+    if (!row) return;
+
+    const reduceMotion = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    row.scrollIntoView({
+      block: "center",
+      behavior: reduceMotion ? "auto" : "smooth",
+    });
+
+    row.classList.add("anomaly-target");
+    const timer = window.setTimeout(
+      () => row.classList.remove("anomaly-target"),
+      2_000,
+    );
+    return () => window.clearTimeout(timer);
+  }, [hash, rowCount]);
+}
+
 function BlocklistsCard({ profileId }: SubSectionProps) {
   const { data } = useBlocklists(profileId);
   const create = useCreateBlocklist(profileId);
@@ -285,6 +321,7 @@ function BlocklistsCard({ profileId }: SubSectionProps) {
 
   const blocklists = data?.blocklists ?? [];
   const toDelete = blocklists.find((b) => b.id === deleteId);
+  useBlocklistAnchor(blocklists.length);
 
   function startAdd() {
     setEditing(null);

@@ -1,5 +1,4 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { RecentErrorsResponse } from "@wardnet/js";
 import { systemService } from "../lib/sdk";
 
 export function useSystemStatus() {
@@ -27,12 +26,3 @@ export function useAcknowledgeShutdown() {
   });
 }
 
-export function useRecentErrors() {
-  return useQuery<RecentErrorsResponse>({
-    queryKey: ["system", "errors"],
-    queryFn: () => systemService.getRecentErrors(),
-    refetchInterval: 15_000,
-  });
-}
-
-export type { SystemDiagnostic } from "@wardnet/js";

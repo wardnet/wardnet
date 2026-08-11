@@ -90,3 +90,35 @@
     font-feature-settings: "zero";
   }
 }
+
+/*
+ * Transient highlight for a row an anomaly deep-linked to.
+ *
+ * A blocklist has no page of its own, so the link lands on the profile page
+ * and the `#blocklist-<id>` hash picks out the row — this is what makes the
+ * right one obvious for a couple of seconds after the jump. The fade is
+ * suppressed under prefers-reduced-motion, matching the scroll behaviour.
+ */
+@layer components {
+  .anomaly-target {
+    animation: anomaly-target-fade 2s ease-out;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .anomaly-target {
+      animation: none;
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+    }
+  }
+}
+
+@keyframes anomaly-target-fade {
+  0%,
+  60% {
+    background-color: color-mix(in oklab, var(--accent) 18%, transparent);
+  }
+  100% {
+    background-color: transparent;
+  }
+}

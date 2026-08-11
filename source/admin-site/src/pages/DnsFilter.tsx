@@ -191,6 +191,9 @@ export default function DnsFilter() {
         config={configData?.config}
         isLoading={configLoading || updateConfig.isPending}
         onToggle={(next) => updateConfig.mutate({ enabled: next })}
+        onThresholdSave={(threshold) =>
+          updateConfig.mutate({ blocklist_failure_alert_threshold: threshold })
+        }
       />
 
       {isLoading && (

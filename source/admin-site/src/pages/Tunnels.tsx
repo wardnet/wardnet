@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { TunnelGrid } from "@/components/compound/TunnelGrid";
 import type { TunnelTestOutcome } from "@/components/compound/TunnelCard";
+import type { Anomaly } from "@wardnet/js";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
 import {
+  useAnomalies,
   useTunnels,
   useDeleteTunnel,
   useTestTunnel,
@@ -27,6 +29,7 @@ import { Button } from "@wardnet/web";
 export default function Tunnels() {
   const { data, isLoading, isError } = useTunnels();
   const { data: providerData } = useProviders();
+  const { data: anomaliesData } = useAnomalies();
   const deleteTunnel = useDeleteTunnel();
   const testTunnel = useTestTunnel();
   const rebuildTunnel = useRebuildTunnel();
@@ -34,6 +37,22 @@ export default function Tunnels() {
 
   const tunnels = data?.tunnels ?? [];
   const providers = providerData?.providers ?? [];
+
+  // One anomaly listing serves every card: index the open ones by the tunnel
+  // they are about, rather than each card asking the daemon about itself.
+  const anomaliesByTunnel = useMemo(() => {
+    const byTunnel: Record<string, Anomaly> = {};
+    for (const anomaly of anomaliesData?.anomalies ?? []) {
+      if (
+        anomaly.subject_id &&
+        (anomaly.type === "tunnel_start_failed" ||
+          anomaly.type === "tunnel_unhealthy")
+      ) {
+        byTunnel[anomaly.subject_id] ??= anomaly;
+      }
+    }
+    return byTunnel;
+  }, [anomaliesData]);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -114,6 +133,7 @@ export default function Tunnels() {
         onSpeedTest={handleSpeedTest}
         testOutcomes={testOutcomes}
         speedTestResults={speedTestResults}
+        anomaliesByTunnel={anomaliesByTunnel}
         testingId={testTunnel.isPending ? (testTunnel.variables ?? null) : null}
         rebuildingId={
           rebuildTunnel.isPending ? (rebuildTunnel.variables ?? null) : null

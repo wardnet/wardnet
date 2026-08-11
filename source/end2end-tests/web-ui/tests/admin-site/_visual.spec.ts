@@ -9,7 +9,7 @@ import { expect, test } from "@playwright/test";
  * mutations or a post-restart daemon (see README → "Spec ordering").
  *
  * Framing: screenshots are viewport-only (Playwright's default), so
- * below-the-fold live content — the RecentErrorsCard and the live log
+ * below-the-fold live content — the AnomaliesCard and the live log
  * stream on the dashboard — never enters frame. The dynamic tiles that ARE
  * in view are masked; the surrounding layout is the actual contract.
  *
@@ -42,7 +42,7 @@ test.describe("admin-site visual", { tag: "@visual" }, () => {
     // actually rendered) can paper over. Wait for the one state this always
     // settles to before shooting, so every run masks the same layout.
     // Scoped to the banner itself — the same "certificate issuance failed"
-    // text also streams into the recent-errors card and the live log widget
+    // text also streams into the anomalies card and the live log widget
     // below, which a page-wide getByText would also match.
     //
     // Generous timeout: every issuance attempt now sleeps through a fixed
@@ -76,7 +76,7 @@ test.describe("admin-site visual", { tag: "@visual" }, () => {
         // Below the stat grid but leaking into the viewport bottom: both
         // stream live, per-run content (error rows with timestamps; the live
         // log tail).
-        page.getByTestId("dashboard-recent-errors"),
+        page.getByTestId("dashboard-anomalies"),
         page.getByTestId("dashboard-log-widget"),
       ],
     });

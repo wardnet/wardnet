@@ -19,6 +19,7 @@ import {
   timeAgo,
 } from "@wardnet/web";
 import type {
+  Anomaly,
   Tunnel,
   TunnelStatus,
   ProviderInfo,
@@ -165,6 +166,13 @@ interface TunnelCardProps {
   onSpeedTest: (id: string) => void;
   /** This card's connectivity-test outcome, or `null` if it hasn't run one. */
   testOutcome: TunnelTestOutcome | null;
+  /**
+   * The open anomaly about this tunnel, if any — what is wrong with it right
+   * now, and why. There is no `last_error` on the tunnel itself: the open
+   * anomaly *is* the tunnel's current error, so the page passes the one it
+   * matched by `subject_id`.
+   */
+  anomaly?: Anomaly | null;
   /** Whether this card's connectivity test is in flight. */
   testing: boolean;
   /** Whether this card's rebuild is in flight. */
@@ -190,6 +198,7 @@ export function TunnelCard({
   onRebuild,
   onSpeedTest,
   testOutcome,
+  anomaly,
   testing,
   rebuilding,
   speedTestRunning,
@@ -322,6 +331,21 @@ export function TunnelCard({
           )}
         </Text>
       )}
+      {anomaly && (
+        <Text
+          as="div"
+          role="alert"
+          size="xs"
+          data-testid="tunnel-anomaly"
+          className="rounded-[var(--radius-md)] border border-[var(--danger-soft)] bg-[var(--danger-soft)] px-3 py-2 text-[var(--danger-soft-ink)]"
+        >
+          <span className="block">{anomaly.message}</span>
+          {anomaly.hint && (
+            <span className="mt-1 block opacity-80">{anomaly.hint}</span>
+          )}
+        </Text>
+      )}
+
       {testError && !testResult && (
         <Text
           as="div"
