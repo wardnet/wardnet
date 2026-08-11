@@ -58,6 +58,14 @@ type Device struct {
 	AdminLocked bool `json:"admin_locked"`
 	// ZoneID is the Network Zone the device belongs to.
 	ZoneID string `json:"zone_id"`
+	// OwnerUserID is the household user this device belongs to, empty when
+	// unassigned.
+	//
+	// Attribution, never authority (ADR-0031 §4): it answers "whose iPad is
+	// this?" and grants nothing. A device caller resolves to the device
+	// principal whatever its owner's role is, so never treat this as evidence
+	// that the caller is that user.
+	OwnerUserID string `json:"owner_user_id"`
 	// ConnectionMode is how the device is currently reachable.
 	ConnectionMode ConnectionMode `json:"connection_mode"`
 	// DHCPStatus reports how the device's IP is managed.
@@ -198,11 +206,22 @@ func deviceFromREST(d *rest.DeviceWithStatus, rule *rest.RoutingTarget) (*Device
 		LastIP:         d.LastIp,
 		AdminLocked:    d.AdminLocked,
 		ZoneID:         d.ZoneId.String(),
+		OwnerUserID:    ownerUserID(d.OwnerUserId),
 		ConnectionMode: ConnectionMode(d.ConnectionMode),
 		DHCPStatus:     DHCPStatus(d.DhcpStatus),
 		Rule:           r,
 		Managed:        d.Managed,
 	}, nil
+}
+
+// ownerUserID renders an optional owner id, using the empty string for
+// "unassigned" so callers need not deal with a nil pointer for the common case.
+// `openapi_types.UUID` is a true alias of `uuid.UUID`, so no extra import.
+func ownerUserID(id *uuid.UUID) string {
+	if id == nil {
+		return ""
+	}
+	return id.String()
 }
 
 // parseUUID parses an ID argument, wrapping failures in a clear message.
