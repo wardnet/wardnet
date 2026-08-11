@@ -1,4 +1,4 @@
-//! Upgrade tests for `20260810000000_household_identity.sql`.
+//! Upgrade tests for `20260811000001_household_identity.sql`.
 //!
 //! The plan calls this migration the highest-risk item in the epic, and it is:
 //! `SQLite` cannot alter a foreign key in place, so `sessions` is rebuilt, and a
@@ -111,7 +111,7 @@ async fn seed_session(
 
 /// Run just the household-identity migration against a seeded pre-upgrade pool.
 async fn run_migration(pool: &SqlitePool) -> Result<(), sqlx::Error> {
-    let sql = include_str!("../../migrations/20260810000000_household_identity.sql");
+    let sql = include_str!("../../migrations/20260811000001_household_identity.sql");
     // The real migration runs inside sqlx's per-migration transaction, which is
     // what makes `defer_foreign_keys` the correct pragma; reproduce that here.
     let mut tx = pool.begin().await?;
