@@ -112,10 +112,16 @@ async fn delete_domains_in_batches(
     scope: DomainScope,
 ) -> anyhow::Result<u64> {
     let (predicate, generation) = scope.predicate();
+    // Identified by the primary key rather than by `rowid`: the table is
+    // `WITHOUT ROWID`, which is what collapsed its btree and PK autoindex into
+    // one structure, and such a table has no `rowid` to select. The row-value
+    // form is the direct equivalent — the subquery is served by the
+    // `(blocklist_id, generation, domain)` index as before, and the delete
+    // seeks the primary key.
     let sql = format!(
         "DELETE FROM dns_filter_blocked_domains \
-         WHERE rowid IN ( \
-             SELECT rowid FROM dns_filter_blocked_domains \
+         WHERE (domain, blocklist_id, generation) IN ( \
+             SELECT domain, blocklist_id, generation FROM dns_filter_blocked_domains \
              WHERE blocklist_id = ? {predicate} LIMIT ? \
          )"
     );

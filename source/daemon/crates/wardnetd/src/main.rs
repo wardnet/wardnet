@@ -1645,21 +1645,31 @@ fn init_tracing(
         // only systemd's own start/stop lines, and every daemon-side problem is
         // invisible unless someone knows to read the rotating file.
         //
-        // Level alone is not the filter. WARN is not a reliable "an operator
-        // should look at this" signal here: on a live gateway 97% of WARN+
-        // events are one-per-failed-lookup noise from the DNS recursor, so a
-        // plain `LevelFilter::WARN` would push ~30k lines/day into the journal
-        // and bury the ~30 that matter. `journal_suppressed_targets` carries
-        // the exclusions; see its doc comment for the measurements.
+        // Level alone is not the filter, in either direction. WARN is not a
+        // reliable "an operator should look at this" signal here: on a live
+        // gateway 97% of WARN+ events are one-per-failed-lookup noise from the
+        // DNS recursor, so a plain `LevelFilter::WARN` would push ~30k lines/day
+        // into the journal and bury the ~30 that matter. Nor is it a reliable
+        // "nothing to see here" signal: the daily maintenance sequence reports
+        // success at INFO, so a journal filtered on level alone looks identical
+        // whether that sequence ran or silently stopped running.
+        // `journal_suppressed_targets` carries the exclusions and
+        // `journal_info_targets` the inclusions; see their doc comments.
         //
         // ANSI off: journald stores the bytes verbatim, and escape codes make
         // `journalctl` output and log greps unreadable.
         let journal_suppressed = config.logging.journal_suppressed_targets.clone();
+        let journal_info = config.logging.journal_info_targets.clone();
         let stderr_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
             .with_ansi(false)
             .with_filter(FilterFn::new(move |meta| {
-                LoggingConfig::journal_allows(*meta.level(), meta.target(), &journal_suppressed)
+                LoggingConfig::journal_allows(
+                    *meta.level(),
+                    meta.target(),
+                    &journal_suppressed,
+                    &journal_info,
+                )
             }));
         registry.with(file_layer).with(stderr_layer).init();
     }
