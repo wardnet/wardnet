@@ -190,7 +190,12 @@ pub(crate) async fn run_vacuum(maintenance: &dyn MaintenanceService, admin_ctx: 
                 freelist_after = outcome.freelist_after,
                 page_count = outcome.page_count_after,
                 chunks = outcome.chunks,
-                stop = outcome.stop.as_str(),
+                // Display rather than `as_str()`: the message text below
+                // renders the same value through `Display` anyway, and the two
+                // agree by construction (`Display` forwards to `as_str`), so
+                // going through it once keeps the field and the text from ever
+                // disagreeing about what `stop` was.
+                stop = %outcome.stop,
                 "incremental vacuum finished: reclaimed_pages={reclaimed_pages}, \
                  freelist_before={freelist_before}, freelist_after={freelist_after}, \
                  page_count={page_count}, chunks={chunks}, stop={stop}",

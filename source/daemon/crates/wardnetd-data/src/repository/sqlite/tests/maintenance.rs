@@ -481,3 +481,24 @@ async fn last_maintenance_day_treats_an_unparseable_value_as_never_run() {
     let _ = std::fs::remove_file(path.with_extension("db-wal"));
     let _ = std::fs::remove_file(path.with_extension("db-shm"));
 }
+
+/// The `stop` tokens are a log contract, not a debug rendering: they are what
+/// an operator greps for and what a Loki query matches on, so they must stay
+/// stable and lowercase. `budget_exhausted` in particular has no cheap
+/// integration test — reaching it needs a freelist past 400,000 pages — so
+/// pinning the token here is what keeps it from drifting unnoticed.
+#[test]
+fn vacuum_stop_tokens_are_stable() {
+    assert_eq!(VacuumStop::Drained.as_str(), "drained");
+    assert_eq!(VacuumStop::Stalled.as_str(), "stalled");
+    assert_eq!(VacuumStop::BudgetExhausted.as_str(), "budget_exhausted");
+    // Display and `as_str` must agree — the log line uses one in the
+    // structured field and the other in the message text.
+    for stop in [
+        VacuumStop::Drained,
+        VacuumStop::Stalled,
+        VacuumStop::BudgetExhausted,
+    ] {
+        assert_eq!(stop.to_string(), stop.as_str());
+    }
+}

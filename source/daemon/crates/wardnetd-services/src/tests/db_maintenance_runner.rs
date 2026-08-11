@@ -30,6 +30,10 @@ struct MockMaintenance {
     last_day: Mutex<Option<chrono::NaiveDate>>,
     /// Days handed to `record_maintenance_day`, in call order.
     recorded_days: Mutex<Vec<chrono::NaiveDate>>,
+    /// Make the startup read of the last-run day fail.
+    fail_last_day: bool,
+    /// Make the post-sequence write of the day fail.
+    fail_record: bool,
 }
 
 /// An outcome that reclaimed `pages` and drained the freelist.
@@ -60,7 +64,11 @@ impl MockMaintenance {
     }
 
     fn with(result: anyhow::Result<IncrementalVacuumOutcome>, checkpoint_busy: bool) -> Arc<Self> {
-        Arc::new(Self {
+        Arc::new(Self::build(result, checkpoint_busy))
+    }
+
+    fn build(result: anyhow::Result<IncrementalVacuumOutcome>, checkpoint_busy: bool) -> Self {
+        Self {
             result,
             checkpoint_busy,
             calls: Mutex::new(0),
@@ -69,7 +77,23 @@ impl MockMaintenance {
             // Never run: a fresh database, so the first tick fires.
             last_day: Mutex::new(None),
             recorded_days: Mutex::new(Vec::new()),
-        })
+            fail_last_day: false,
+            fail_record: false,
+        }
+    }
+
+    /// A mock whose day marker cannot be read at startup.
+    fn day_read_fails() -> Arc<Self> {
+        let mut m = Self::build(Ok(drained(3)), false);
+        m.fail_last_day = true;
+        Arc::new(m)
+    }
+
+    /// A mock whose day marker cannot be written after the sequence.
+    fn day_write_fails() -> Arc<Self> {
+        let mut m = Self::build(Ok(drained(3)), false);
+        m.fail_record = true;
+        Arc::new(m)
     }
 
     /// Seed the persisted last-run day, standing in for a database that has
@@ -126,10 +150,16 @@ impl MaintenanceService for MockMaintenance {
     }
 
     async fn last_maintenance_day(&self) -> Result<Option<chrono::NaiveDate>, AppError> {
+        if self.fail_last_day {
+            return Err(AppError::Internal(anyhow::anyhow!("synthetic read error")));
+        }
         Ok(*self.last_day.lock().unwrap())
     }
 
     async fn record_maintenance_day(&self, day: chrono::NaiveDate) -> Result<(), AppError> {
+        if self.fail_record {
+            return Err(AppError::Internal(anyhow::anyhow!("synthetic write error")));
+        }
         self.recorded_days.lock().unwrap().push(day);
         Ok(())
     }
@@ -166,8 +196,15 @@ async fn run_vacuum_reports_when_nothing_reclaimed() {
 
 /// A stalled run (free pages left behind that could not be relocated) takes
 /// the same reporting path; `stop` is what tells the two apart in the log.
+///
+/// Asserted on the *rendered message*, not just the call count. This line is
+/// the whole point of the change — it is what an operator greps for, and the
+/// numbers have to survive into the text per `.agents/logging.md`, not sit
+/// only in the structured fields. The figures are the ones from the field
+/// report: a freelist of 100,300 pages that would not come back.
 #[tokio::test]
 async fn run_vacuum_reports_a_stalled_run() {
+    let capture = wardnet_test_support::capture_logs(tracing::Level::INFO);
     let repo = MockMaintenance::with(
         Ok(IncrementalVacuumOutcome {
             reclaimed_pages: 0,
@@ -181,6 +218,36 @@ async fn run_vacuum_reports_a_stalled_run() {
     );
     run_vacuum(repo.as_ref(), &admin_ctx()).await;
     assert_eq!(repo.call_count(), 1);
+
+    let logs = capture.contents();
+    for fragment in [
+        "reclaimed_pages=0",
+        "freelist_before=100300",
+        "freelist_after=100300",
+        "page_count=423555",
+        "chunks=1",
+        "stop=stalled",
+    ] {
+        assert!(
+            logs.contains(fragment),
+            "vacuum line must name {fragment}, got: {logs}"
+        );
+    }
+}
+
+/// The healthy end state reads differently from the stuck one — same line,
+/// same fields, `stop=drained` and a freelist back at zero.
+#[tokio::test]
+async fn run_vacuum_reports_a_drained_run() {
+    let capture = wardnet_test_support::capture_logs(tracing::Level::INFO);
+    let repo = MockMaintenance::ok(2_500);
+    run_vacuum(repo.as_ref(), &admin_ctx()).await;
+
+    let logs = capture.contents();
+    assert!(
+        logs.contains("reclaimed_pages=2500") && logs.contains("stop=drained"),
+        "drained line must name the pages and the stop reason, got: {logs}"
+    );
 }
 
 #[tokio::test]
@@ -349,5 +416,59 @@ async fn runner_records_the_day_after_running() {
         recorded.len(),
         1,
         "the sequence must run once per day, got {recorded:?}"
+    );
+}
+
+/// A day marker that cannot be read must not silently disable the schedule.
+/// Treating the read failure as "already ran today" would reproduce exactly
+/// the bug the marker exists to fix, only harder to see.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runner_runs_when_the_recorded_day_cannot_be_read() {
+    let repo = MockMaintenance::day_read_fails();
+
+    let runner = DbMaintenanceRunner::start_with_interval(
+        repo.clone(),
+        Duration::from_millis(20),
+        &tracing::Span::none(),
+    );
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    runner.shutdown().await;
+
+    assert!(
+        repo.call_count() >= 1,
+        "an unreadable day marker must fall back to running, call_count={}",
+        repo.call_count()
+    );
+}
+
+/// A day marker that cannot be written is logged and dropped — the sequence
+/// already ran, and the in-memory marker still holds it off for the rest of
+/// the day, so a failing write costs one retry per restart rather than a loop.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runner_survives_a_failed_day_record() {
+    let repo = MockMaintenance::day_write_fails();
+
+    let runner = DbMaintenanceRunner::start_with_interval(
+        repo.clone(),
+        Duration::from_millis(20),
+        &tracing::Span::none(),
+    );
+
+    // Several ticks: a failed write must not make the runner re-run the
+    // sequence on every one of them.
+    tokio::time::sleep(Duration::from_millis(120)).await;
+    runner.shutdown().await;
+
+    assert_eq!(
+        repo.call_count(),
+        1,
+        "the sequence must still run once per day when the marker write fails, call_count={}",
+        repo.call_count()
+    );
+    assert!(
+        repo.recorded().is_empty(),
+        "a failed write records nothing, got {:?}",
+        repo.recorded()
     );
 }
