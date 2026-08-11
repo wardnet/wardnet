@@ -323,3 +323,54 @@ func TestDevicesReleaseRejectsBadID(t *testing.T) {
 		t.Fatal("Release: expected an error for a malformed device id")
 	}
 }
+
+// The anomaly endpoints are admin-gated, so a non-admin caller gets a 403.
+// That has to surface as an APIError rather than an empty listing, which
+// would read as "nothing is wrong with the box".
+func TestAnomaliesListSurfacesAPIErrors(t *testing.T) {
+	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		_, _ = io.WriteString(w, `{"error":"admin privileges required"}`)
+	}))
+
+	_, err := c.Anomalies.List(context.Background(), wardnet.ListAnomaliesOptions{})
+	var apiErr *wardnet.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusForbidden {
+		t.Fatalf("error = %v, want a 403 APIError", err)
+	}
+}
+
+func TestAnomaliesReevaluateSurfacesAPIErrors(t *testing.T) {
+	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"error":"detector panicked"}`)
+	}))
+
+	_, err := c.Anomalies.Reevaluate(context.Background())
+	var apiErr *wardnet.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusInternalServerError {
+		t.Fatalf("error = %v, want a 500 APIError", err)
+	}
+}
+
+// A daemon that is not reachable at all is a different failure from one that
+// answers with an error, and both callers (wctl, the PWA) distinguish them.
+func TestAnomaliesSurfaceTransportErrors(t *testing.T) {
+	srv := httptest.NewServer(http.NotFoundHandler())
+	url := srv.URL
+	srv.Close() // nothing is listening now
+
+	c, err := wardnet.New(url, wardnet.WithToken("test-token"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	if _, err := c.Anomalies.List(context.Background(), wardnet.ListAnomaliesOptions{}); err == nil {
+		t.Error("List against a dead daemon should error")
+	}
+	if _, err := c.Anomalies.Reevaluate(context.Background()); err == nil {
+		t.Error("Reevaluate against a dead daemon should error")
+	}
+}
