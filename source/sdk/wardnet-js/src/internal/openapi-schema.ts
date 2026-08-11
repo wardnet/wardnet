@@ -334,6 +334,23 @@ export interface paths {
         patch: operations["patch_api_devices_id_dns_capture"];
         trace?: never;
     };
+    "/api/devices/{id}/identify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Probe a device on the vendor catalog's TCP ports and record whichever answered as identification signals, naming the device if one resolves to a vendor (issue #1116). This is the only identification signal that sends unsolicited traffic to a device, so per ADR 0025 §5 it happens only on this explicit per-device admin action — there is no background scan and no global toggle. Synchronous: the probe surface is a handful of ports contacted concurrently, so it completes in about a second. Refused with 409 when the device is not currently on the network, because its last known address may since have been handed to someone else and the resulting vendor would be recorded against the wrong device. Admin only. */
+        post: operations["post_api_devices_id_identify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/{id}/release": {
         parameters: {
             query?: never;
@@ -2869,6 +2886,23 @@ export interface components {
              *     none are assigned. */
             routing_profiles?: components["schemas"]["RoutingProfileSummary"][];
             zone?: null | components["schemas"]["ZoneSummary"];
+        };
+        /** @description Response for POST /api/devices/:id/identify (admin, issue #1116).
+         *
+         *     Carries what the probe *contacted* as well as what answered, so the UI can
+         *     say "we tried these four ports and none answered" rather than leaving the
+         *     identification card visually unchanged and the button looking broken. An
+         *     empty `answering_ports` is a real, informative result. */
+        DeviceProbeResponse: {
+            /** @description The subset that answered. Each was recorded as a `probed_port`
+             *     identification signal and may have named the device. */
+            answering_ports: number[];
+            /** @description The device re-read after the probe, so the caller sees any manufacturer
+             *     and signals the probe just produced without a second round trip. */
+            device: components["schemas"]["DeviceDetailResponse"];
+            /** @description Every TCP port the probe contacted — the vendor catalog's full probe
+             *     surface, and by construction its upper bound. */
+            ports_probed: number[];
         };
         /** @description A single rule request row. */
         DeviceRuleRequest: {
@@ -6318,6 +6352,113 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    post_api_devices_id_identify: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Probe result and refreshed device detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceProbeResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Conflicting concurrent operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
                 };
             };
         };

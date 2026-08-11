@@ -150,6 +150,12 @@ pub struct Backends {
     pub firewall: Arc<dyn routing::FirewallManager>,
     pub packet_capture: Arc<dyn device::PacketCapture>,
     pub hostname_resolver: Arc<dyn device::HostnameResolver>,
+    /// Contacts a device on the vendor catalog's TCP ports to identify it
+    /// (issue #1116). Production wires [`device::TcpDeviceProber`]; the mock
+    /// wires a deterministic stand-in. Per ADR 0025 §5 this is only ever
+    /// reached from an explicit per-device admin action — see
+    /// [`device::DeviceProber`]'s invariant.
+    pub device_prober: Arc<dyn device::DeviceProber>,
     pub secret_store: Arc<dyn wardnetd_data::secret_store::SecretStore>,
     /// Delivers Web Push notifications. Wired to a reqwest-backed
     /// implementation in production and to a no-op recorder in `wardnetd-mock`.
@@ -523,6 +529,8 @@ fn create_services(
         Arc::new(DeviceIdentificationServiceImpl::new(
             repo_factory.device_identification(),
             device_repo.clone(),
+            backends.device_prober.clone(),
+            std::time::Duration::from_secs(config.detection.departure_timeout_secs),
         ));
 
     let network_zone_service: Arc<dyn NetworkZoneService> = Arc::new(NetworkZoneServiceImpl::new(

@@ -2110,6 +2110,16 @@ impl wardnetd_services::device::DeviceIdentificationService for RecordingIdentif
     async fn reconcile_from_catalog(&self) -> Result<usize, AppError> {
         unimplemented!("not exercised by the DHCP path")
     }
+
+    async fn probe_device(
+        &self,
+        _device_id: &str,
+    ) -> Result<wardnetd_services::device::ProbeOutcome, AppError> {
+        // ADR 0025 §5: probing is an explicit admin action only. A DHCP packet
+        // reaching here would be exactly the background scan the invariant
+        // forbids, so the panic is the assertion.
+        unimplemented!("the DHCP path must never trigger a probe")
+    }
 }
 
 /// Build a DISCOVER carrying all three identification-bearing options.

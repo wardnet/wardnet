@@ -2990,6 +2990,231 @@
         }
       }
     },
+    "/api/devices/{id}/identify": {
+      "post": {
+        "tags": [
+          "devices"
+        ],
+        "description": "Probe a device on the vendor catalog's TCP ports and record whichever answered as identification signals, naming the device if one resolves to a vendor (issue #1116). This is the only identification signal that sends unsolicited traffic to a device, so per ADR 0025 §5 it happens only on this explicit per-device admin action — there is no background scan and no global toggle. Synchronous: the probe surface is a handful of ports contacted concurrently, so it completes in about a second. Refused with 409 when the device is not currently on the network, because its last known address may since have been handed to someone else and the resulting vendor would be recorded against the wrong device. Admin only.",
+        "operationId": "identify_device",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Device ID",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Probe result and refreshed device detail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceProbeResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflicting concurrent operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devices/{id}/release": {
       "post": {
         "tags": [
@@ -26024,6 +26249,39 @@
                 "description": "The caller device's Network Zone, resolved server-side for the\nread-only zone display. `None` if the device or its zone can't be\nresolved."
               }
             ]
+          }
+        }
+      },
+      "DeviceProbeResponse": {
+        "type": "object",
+        "description": "Response for POST /api/devices/:id/identify (admin, issue #1116).\n\nCarries what the probe *contacted* as well as what answered, so the UI can\nsay \"we tried these four ports and none answered\" rather than leaving the\nidentification card visually unchanged and the button looking broken. An\nempty `answering_ports` is a real, informative result.",
+        "required": [
+          "ports_probed",
+          "answering_ports",
+          "device"
+        ],
+        "properties": {
+          "answering_ports": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "The subset that answered. Each was recorded as a `probed_port`\nidentification signal and may have named the device."
+          },
+          "device": {
+            "$ref": "#/components/schemas/DeviceDetailResponse",
+            "description": "The device re-read after the probe, so the caller sees any manufacturer\nand signals the probe just produced without a second round trip."
+          },
+          "ports_probed": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "description": "Every TCP port the probe contacted — the vendor catalog's full probe\nsurface, and by construction its upper bound."
           }
         }
       },

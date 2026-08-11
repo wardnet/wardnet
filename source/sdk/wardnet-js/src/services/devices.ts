@@ -4,6 +4,7 @@ import type { RoutingTarget } from "../types/device.js";
 import type {
   DeviceDetailResponse,
   DeviceMeResponse,
+  DeviceProbeResponse,
   DnsCaptureSettingsRequest,
   DnsCaptureSettingsResponse,
   ListDevicesResponse,
@@ -47,6 +48,23 @@ export class DeviceService {
   /** Update a device's name and/or type (admin only). */
   async update(id: string, body: UpdateDeviceRequest): Promise<DeviceDetailResponse> {
     return this.api.put("/devices/{id}", { path: { id }, body });
+  }
+
+  /**
+   * Probe a device on the vendor catalog's TCP ports and record whichever
+   * answered as identification signals, naming the device if one resolves to a
+   * vendor (admin only, issue #1116).
+   *
+   * This is the only identification signal that sends unsolicited traffic to a
+   * device, so per ADR 0025 §5 it must stay bound to an explicit admin action —
+   * never a background sweep over `list()`.
+   *
+   * Rejects with a 409 when the device is not currently on the network: its
+   * last known address may since have been handed to someone else, and the
+   * resulting vendor would be recorded against the wrong device permanently.
+   */
+  async identify(id: string): Promise<DeviceProbeResponse> {
+    return this.api.post("/devices/{id}/identify", { path: { id } });
   }
 
   /**
