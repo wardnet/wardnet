@@ -606,7 +606,7 @@ impl TunnelServiceImpl {
             self.events.publish(WardnetEvent::TunnelDown {
                 tunnel_id: tunnel.id,
                 interface_name: tunnel.interface_name,
-                reason: "interface absent".to_owned(),
+                reason: wardnet_common::event::TUNNEL_DOWN_INTERFACE_ABSENT.to_owned(),
                 timestamp: now,
             });
         }

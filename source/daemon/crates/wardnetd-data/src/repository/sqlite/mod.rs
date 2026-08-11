@@ -4,6 +4,7 @@
 //! the corresponding trait from the parent [`repository`](super) module.
 
 pub mod admin;
+pub mod anomaly;
 pub mod api_key;
 pub mod device;
 pub mod device_identification;
@@ -29,6 +30,7 @@ pub mod update;
 pub mod zone_exception;
 
 pub use admin::SqliteAdminRepository;
+pub use anomaly::{SqliteAnomalyRepository, format_ts};
 pub use api_key::SqliteApiKeyRepository;
 pub use device::SqliteDeviceRepository;
 pub use device_identification::SqliteDeviceIdentificationRepository;

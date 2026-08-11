@@ -524,9 +524,10 @@ impl PushService for PushServiceImpl {
             }
 
             // A running tunnel became unreachable. `TunnelReconnecting` is a
-            // stale-handshake signal; `TunnelDown{reason:"interface absent"}`
-            // is the kernel interface vanishing. Deliberate tear-downs (every
-            // other `TunnelDown` reason) are intentionally NOT notified.
+            // stale-handshake signal; `TunnelDown` with the
+            // `TUNNEL_DOWN_INTERFACE_ABSENT` reason is the kernel interface
+            // vanishing. Deliberate tear-downs (every other `TunnelDown`
+            // reason) are intentionally NOT notified.
             WardnetEvent::TunnelReconnecting { tunnel_id, .. } => {
                 let label = self.tunnel_label(&tunnel_id.to_string()).await;
                 self.deliver_to_admins(Notification {
@@ -542,7 +543,7 @@ impl PushService for PushServiceImpl {
             }
             WardnetEvent::TunnelDown {
                 tunnel_id, reason, ..
-            } if reason == "interface absent" => {
+            } if reason == wardnet_common::event::TUNNEL_DOWN_INTERFACE_ABSENT => {
                 let label = self.tunnel_label(&tunnel_id.to_string()).await;
                 self.deliver_to_admins(Notification {
                     title: "Tunnel offline",
