@@ -1,0 +1,27 @@
+# Codecov configuration.
+#
+# This file exists for one reason: to keep Codecov's patch gate and bulwark's
+# from grading the same diff differently.
+#
+# bulwark drops files carrying Go's `// Code generated ... DO NOT EDIT.`
+# header from both its aggregate and its patch gate (wardnet/bulwark#28).
+# Codecov has no equivalent rule — it cannot key off file *content* — so
+# without an explicit ignore the two gates disagree, which is precisely the
+# failure mode `.github/workflows/coverage.yml` already records from #957: a
+# green bulwark comment sitting next to a red codecov/patch on one PR.
+#
+# The cost of not having this is not theoretical. The regenerated REST client
+# is 983 changed lines on the PR that first measured Go, all untested by
+# design. Counting them moved that diff's Go patch coverage from 64.4%
+# (85/132 measurable lines) to 18.3% (85/465), and the overall patch gate from
+# passing to "69.81% of diff hit (target 89.39%)" — a number describing how
+# much code was generated rather than how much was tested.
+#
+# Matching is by filename here, not by header, because that is all Codecov
+# offers. `*.gen.go` is this repo's convention for generated Go
+# (`sdk/wardnet-go/internal/rest/rest.gen.go`), and it is deliberately a glob:
+# a second generated file should be excluded the day it appears, without
+# anyone remembering to come back here. The hand-written `doc.go` beside it
+# stays measured.
+ignore:
+  - "**/*.gen.go"
