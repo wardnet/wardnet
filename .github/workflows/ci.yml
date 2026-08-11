@@ -171,6 +171,7 @@ jobs:
       # gate measures.
       run-site: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
       run-frontend: ${{ needs.preflight.outputs.site == 'true' || needs.preflight.outputs['admin-web'] == 'true' || needs.preflight.outputs['admin-app'] == 'true' || needs.preflight.outputs['user-app'] == 'true' || needs.preflight.outputs.ci == 'true' }}
+      run-go: ${{ needs.preflight.outputs.go == 'true' || needs.preflight.outputs.ci == 'true' }}
     secrets: inherit
 
   tests-e2e:
