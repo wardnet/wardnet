@@ -23,7 +23,16 @@
 //!
 //! The daily cadence is enforced by checking the calendar date on every hourly
 //! tick rather than sleeping for 24 hours, so the runner stays responsive to
-//! cancellation without a 24-hour drain delay.
+//! cancellation without a 24-hour drain delay. The date of the last completed
+//! sequence lives in the database, so a restart resumes the schedule rather
+//! than restarting it.
+//!
+//! Every step reports at `info!`, including the ones with nothing to report.
+//! A daily job whose only output is "something went wrong" cannot be told apart
+//! from one that stopped running, and both look like a quiet journal — so the
+//! successful, boring case is exactly the one that has to leave a trace.
+//! `logging.journal_info_targets` carries this module so those lines reach
+//! `journalctl -u wardnetd` and not just the rotating log file.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -59,23 +68,11 @@ impl DbMaintenanceRunner {
         tick_interval: Duration,
         parent: &tracing::Span,
     ) -> Self {
-        Self::start_with_interval_and_day(maintenance, tick_interval, today(), parent)
-    }
-
-    /// Internal constructor that accepts an explicit initial day so tests can
-    /// set yesterday's date and have the first tick immediately fire a vacuum.
-    pub(crate) fn start_with_interval_and_day(
-        maintenance: Arc<dyn MaintenanceService>,
-        tick_interval: Duration,
-        initial_day: chrono::NaiveDate,
-        parent: &tracing::Span,
-    ) -> Self {
         let cancel = CancellationToken::new();
         let span = tracing::info_span!(parent: parent, "db_maintenance_runner");
 
-        let handle = tokio::spawn(
-            runner_loop(maintenance, tick_interval, cancel.clone(), initial_day).instrument(span),
-        );
+        let handle =
+            tokio::spawn(runner_loop(maintenance, tick_interval, cancel.clone()).instrument(span));
 
         Self { cancel, handle }
     }
@@ -92,7 +89,6 @@ async fn runner_loop(
     maintenance: Arc<dyn MaintenanceService>,
     tick_interval: Duration,
     cancel: CancellationToken,
-    initial_day: chrono::NaiveDate,
 ) {
     let admin_ctx = AuthContext::Admin {
         admin_id: Uuid::nil(),
@@ -102,7 +98,25 @@ async fn runner_loop(
     ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     ticker.tick().await; // skip the immediate first tick
 
-    let mut last_vacuum_day = initial_day;
+    // Resume the schedule from the database rather than assuming this boot
+    // starts a fresh day. Seeding with "today" instead meant a daemon that
+    // restarted before its next UTC rollover — for an update, a reboot, a
+    // watchdog SIGABRT — pushed the run out another full day, indefinitely
+    // for a box that restarts daily. A read failure reads as "never ran",
+    // which costs one extra sequence and no correctness.
+    let mut last_run_day =
+        match auth_context::with_context(admin_ctx.clone(), maintenance.last_maintenance_day())
+            .await
+        {
+            Ok(day) => day,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "could not read last maintenance day; treating as never run: {e}"
+                );
+                None
+            }
+        };
 
     loop {
         tokio::select! {
@@ -112,12 +126,31 @@ async fn runner_loop(
             }
             _ = ticker.tick() => {
                 let today_now = today();
-                if today_now != last_vacuum_day {
-                    last_vacuum_day = today_now;
+                if last_run_day != Some(today_now) {
+                    last_run_day = Some(today_now);
                     run_daily_maintenance(maintenance.as_ref(), &admin_ctx).await;
+                    record_day(maintenance.as_ref(), &admin_ctx, today_now).await;
                 }
             }
         }
+    }
+}
+
+/// Persist the day the sequence just ran on.
+///
+/// Written after the sequence, not before: a run that dies partway through
+/// leaves the date unwritten, so the next tick retries rather than counting a
+/// half-finished sequence as done. The in-memory marker is advanced either way,
+/// so a persistently failing write costs one retry per restart, not a loop.
+async fn record_day(
+    maintenance: &dyn MaintenanceService,
+    admin_ctx: &AuthContext,
+    day: chrono::NaiveDate,
+) {
+    if let Err(e) =
+        auth_context::with_context(admin_ctx.clone(), maintenance.record_maintenance_day(day)).await
+    {
+        tracing::warn!(error = %e, "failed to record maintenance day: {e}");
     }
 }
 
@@ -139,14 +172,36 @@ pub(crate) async fn run_daily_maintenance(
 pub(crate) async fn run_vacuum(maintenance: &dyn MaintenanceService, admin_ctx: &AuthContext) {
     match auth_context::with_context(admin_ctx.clone(), maintenance.run_incremental_vacuum()).await
     {
-        Ok(reclaimed) if reclaimed > 0 => {
+        Ok(outcome) => {
+            // Logged unconditionally, reclaimed pages or not. "Reclaimed 0"
+            // and "did not run" are the same silence otherwise, and they call
+            // for opposite responses: the first is a database with nothing to
+            // give back, the second is one that has quietly stopped shrinking.
+            // `stop` says which — `stalled` with a large `freelist_after` is
+            // the one to act on.
+            //
+            // Pages rather than bytes: the page size is a property of the file,
+            // not of this run, and multiplying here would bake a guess at it
+            // into every line. `freelist_after` × `page_size` is the reclaimable
+            // remainder when someone needs the figure in bytes.
             tracing::info!(
-                reclaimed_pages = reclaimed,
-                "incremental vacuum reclaimed pages: reclaimed_pages={reclaimed}",
-                reclaimed = reclaimed,
+                reclaimed_pages = outcome.reclaimed_pages,
+                freelist_before = outcome.freelist_before,
+                freelist_after = outcome.freelist_after,
+                page_count = outcome.page_count_after,
+                chunks = outcome.chunks,
+                stop = outcome.stop.as_str(),
+                "incremental vacuum finished: reclaimed_pages={reclaimed_pages}, \
+                 freelist_before={freelist_before}, freelist_after={freelist_after}, \
+                 page_count={page_count}, chunks={chunks}, stop={stop}",
+                reclaimed_pages = outcome.reclaimed_pages,
+                freelist_before = outcome.freelist_before,
+                freelist_after = outcome.freelist_after,
+                page_count = outcome.page_count_after,
+                chunks = outcome.chunks,
+                stop = outcome.stop,
             );
         }
-        Ok(_) => {}
         Err(e) => {
             tracing::warn!(error = %e, "incremental vacuum failed: {e}");
         }

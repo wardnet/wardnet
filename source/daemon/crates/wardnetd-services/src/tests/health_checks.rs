@@ -340,7 +340,9 @@ struct MockMaintenanceRepo {
 
 #[async_trait]
 impl wardnetd_data::repository::MaintenanceRepository for MockMaintenanceRepo {
-    async fn incremental_vacuum(&self) -> anyhow::Result<u64> {
+    async fn incremental_vacuum(
+        &self,
+    ) -> anyhow::Result<wardnetd_data::repository::IncrementalVacuumOutcome> {
         unimplemented!()
     }
     async fn wal_checkpoint_truncate(
@@ -349,6 +351,12 @@ impl wardnetd_data::repository::MaintenanceRepository for MockMaintenanceRepo {
         unimplemented!()
     }
     async fn optimize(&self) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn last_maintenance_day(&self) -> anyhow::Result<Option<chrono::NaiveDate>> {
+        unimplemented!()
+    }
+    async fn record_maintenance_day(&self, _day: chrono::NaiveDate) -> anyhow::Result<()> {
         unimplemented!()
     }
     async fn ping(&self) -> anyhow::Result<()> {

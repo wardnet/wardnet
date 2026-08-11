@@ -2,8 +2,8 @@ use sqlx::SqlitePool;
 use sqlx::sqlite::{SqliteAutoVacuum, SqliteConnectOptions, SqliteJournalMode};
 use uuid::Uuid;
 
-use crate::repository::MaintenanceRepository;
 use crate::repository::sqlite::maintenance::SqliteMaintenanceRepository;
+use crate::repository::{MaintenanceRepository, VacuumStop};
 
 /// Open a temporary file-backed `SQLite` database with
 /// `auto_vacuum=INCREMENTAL`. Returns the pool and the path so the
@@ -68,10 +68,11 @@ async fn incremental_vacuum_reduces_freelist() {
     );
 
     let repo = SqliteMaintenanceRepository::new(pool.clone());
-    let reclaimed = repo.incremental_vacuum().await.unwrap();
+    let outcome = repo.incremental_vacuum().await.unwrap();
     assert!(
-        reclaimed > 0,
-        "incremental_vacuum should reclaim pages, got {reclaimed}"
+        outcome.reclaimed_pages > 0,
+        "incremental_vacuum should reclaim pages, got {}",
+        outcome.reclaimed_pages
     );
 
     let freelist_after: i64 = sqlx::query_scalar("PRAGMA freelist_count")
@@ -81,6 +82,15 @@ async fn incremental_vacuum_reduces_freelist() {
     assert!(
         freelist_after < freelist_before,
         "freelist should shrink after vacuum: before={freelist_before}, after={freelist_after}"
+    );
+    // The outcome is what the daily log line is built from, so it has to
+    // describe the run the caller just made, not a rounded version of it.
+    assert_eq!(outcome.freelist_before, freelist_before);
+    assert_eq!(outcome.freelist_after, freelist_after);
+    assert_eq!(outcome.stop, VacuumStop::Drained);
+    assert!(
+        outcome.chunks >= 1,
+        "a reclaiming run must report its chunks"
     );
 
     // Tidy up temp files.
@@ -140,12 +150,18 @@ async fn incremental_vacuum_drains_freelist_larger_than_one_chunk() {
     );
 
     let repo = SqliteMaintenanceRepository::new(pool.clone());
-    let reclaimed = repo.incremental_vacuum().await.unwrap();
+    let outcome = repo.incremental_vacuum().await.unwrap();
+    let reclaimed = outcome.reclaimed_pages;
 
     // The old fixed budget capped this at exactly 2,000.
     assert!(
         reclaimed > 2_000,
         "one call should drain past a single chunk, got {reclaimed}"
+    );
+    assert!(
+        outcome.chunks > 1,
+        "draining past one chunk must be reported as more than one chunk, got {}",
+        outcome.chunks
     );
 
     let freelist_after: i64 = sqlx::query_scalar("PRAGMA freelist_count")
@@ -229,7 +245,7 @@ async fn incremental_vacuum_makes_progress_while_the_freelist_grows() {
     });
 
     let repo = SqliteMaintenanceRepository::new(pool.clone());
-    let reclaimed = repo.incremental_vacuum().await.unwrap();
+    let reclaimed = repo.incremental_vacuum().await.unwrap().reclaimed_pages;
     let _ = churn.await;
 
     let pages_after: i64 = sqlx::query_scalar("PRAGMA page_count")
@@ -381,6 +397,86 @@ async fn ping_errors_when_pool_closed() {
         "ping must fail once the pool is closed"
     );
 
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
+
+// ── last / record maintenance day ────────────────────────────────────────────
+
+/// Minimal `system_config` table — the migrations aren't run for these
+/// file-backed pools, and this is the only table the day marker touches.
+async fn make_config_table(pool: &SqlitePool) {
+    sqlx::query("CREATE TABLE system_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+/// A database that has never run maintenance reports `None`, which the runner
+/// reads as "due now" rather than "already done today".
+#[tokio::test]
+async fn last_maintenance_day_is_none_before_any_run() {
+    let (pool, path) = make_incremental_pool().await;
+    make_config_table(&pool).await;
+    let repo = SqliteMaintenanceRepository::new(pool.clone());
+
+    assert_eq!(repo.last_maintenance_day().await.unwrap(), None);
+
+    pool.close().await;
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
+
+/// The day survives the round trip, and re-recording overwrites rather than
+/// accumulating rows — the schedule is one marker, not a history.
+#[tokio::test]
+async fn record_maintenance_day_round_trips_and_overwrites() {
+    let (pool, path) = make_incremental_pool().await;
+    make_config_table(&pool).await;
+    let repo = SqliteMaintenanceRepository::new(pool.clone());
+
+    let first = chrono::NaiveDate::from_ymd_opt(2026, 8, 10).unwrap();
+    repo.record_maintenance_day(first).await.unwrap();
+    assert_eq!(repo.last_maintenance_day().await.unwrap(), Some(first));
+
+    let second = chrono::NaiveDate::from_ymd_opt(2026, 8, 11).unwrap();
+    repo.record_maintenance_day(second).await.unwrap();
+    assert_eq!(repo.last_maintenance_day().await.unwrap(), Some(second));
+
+    let rows: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM system_config WHERE key = 'db_maintenance_last_run_day'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows, 1, "the marker must be a single upserted row");
+
+    pool.close().await;
+    let _ = std::fs::remove_file(&path);
+    let _ = std::fs::remove_file(path.with_extension("db-wal"));
+    let _ = std::fs::remove_file(path.with_extension("db-shm"));
+}
+
+/// A value that isn't a date reads as "never ran". Raising instead would
+/// strand the schedule on one corrupt row forever; running an extra sequence
+/// costs nothing and rewrites the value.
+#[tokio::test]
+async fn last_maintenance_day_treats_an_unparseable_value_as_never_run() {
+    let (pool, path) = make_incremental_pool().await;
+    make_config_table(&pool).await;
+    sqlx::query("INSERT INTO system_config (key, value) VALUES (?, ?)")
+        .bind("db_maintenance_last_run_day")
+        .bind("not-a-date")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let repo = SqliteMaintenanceRepository::new(pool.clone());
+
+    assert_eq!(repo.last_maintenance_day().await.unwrap(), None);
+
+    pool.close().await;
     let _ = std::fs::remove_file(&path);
     let _ = std::fs::remove_file(path.with_extension("db-wal"));
     let _ = std::fs::remove_file(path.with_extension("db-shm"));

@@ -344,7 +344,12 @@ fn journal_defaults() -> Vec<String> {
     LoggingConfig::default().journal_suppressed_targets
 }
 
-/// INFO and below never reach the journal — that is what the log file is for.
+fn journal_info_defaults() -> Vec<String> {
+    LoggingConfig::default().journal_info_targets
+}
+
+/// INFO and below never reach the journal from an ordinary target — that is
+/// what the log file is for.
 #[test]
 fn journal_excludes_below_warn() {
     for level in [Level::INFO, Level::DEBUG, Level::TRACE] {
@@ -352,11 +357,73 @@ fn journal_excludes_below_warn() {
             !LoggingConfig::journal_allows(
                 level,
                 "wardnetd_services::routing::service",
-                &journal_defaults()
+                &journal_defaults(),
+                &journal_info_defaults(),
             ),
             "{level} should not reach the journal"
         );
     }
+}
+
+/// The daily housekeeping summaries are the exception: their absence is the
+/// signal, and a level-only filter cannot express that. Both runners report
+/// success at INFO, so without this the journal looks the same whether the
+/// database is being maintained or has quietly stopped shrinking.
+#[test]
+fn journal_includes_daily_maintenance_summaries_at_info() {
+    for target in [
+        "wardnetd_services::db_maintenance_runner",
+        "wardnetd_services::dns::query_log_runner",
+    ] {
+        assert!(
+            LoggingConfig::journal_allows(
+                Level::INFO,
+                target,
+                &journal_defaults(),
+                &journal_info_defaults(),
+            ),
+            "{target} INFO should reach the journal"
+        );
+    }
+}
+
+/// Raising INFO is target-scoped, not level-scoped: DEBUG from the very same
+/// module stays in the log file, or a `--log-level debug` run would flood the
+/// journal.
+#[test]
+fn journal_info_targets_do_not_admit_debug() {
+    for level in [Level::DEBUG, Level::TRACE] {
+        assert!(
+            !LoggingConfig::journal_allows(
+                level,
+                "wardnetd_services::db_maintenance_runner",
+                &journal_defaults(),
+                &journal_info_defaults(),
+            ),
+            "{level} from an INFO-raised target should not reach the journal"
+        );
+    }
+}
+
+/// Suppression wins over inclusion. An operator who silences a target has said
+/// the more specific thing, and the alternative quietly re-admits exactly what
+/// they asked to be rid of.
+#[test]
+fn journal_suppression_beats_info_inclusion() {
+    let both = vec!["wardnetd_services::db_maintenance_runner".to_owned()];
+    assert!(!LoggingConfig::journal_allows(
+        Level::INFO,
+        "wardnetd_services::db_maintenance_runner",
+        &both,
+        &both,
+    ));
+    // ERROR still passes: suppression is a noise filter, never a blind spot.
+    assert!(LoggingConfig::journal_allows(
+        Level::ERROR,
+        "wardnetd_services::db_maintenance_runner",
+        &both,
+        &both,
+    ));
 }
 
 /// The events an operator acts on do reach the journal.
@@ -376,7 +443,12 @@ fn journal_includes_actionable_warnings_and_errors() {
         (Level::ERROR, "hickory_resolver::recursor::handle"),
     ] {
         assert!(
-            LoggingConfig::journal_allows(level, target, &journal_defaults()),
+            LoggingConfig::journal_allows(
+                level,
+                target,
+                &journal_defaults(),
+                &journal_info_defaults(),
+            ),
             "{level} {target} should reach the journal"
         );
     }
@@ -397,7 +469,12 @@ fn journal_suppresses_per_query_dns_noise_at_warn() {
         "wardnetd::dns::pipeline",
     ] {
         assert!(
-            !LoggingConfig::journal_allows(Level::WARN, target, &journal_defaults()),
+            !LoggingConfig::journal_allows(
+                Level::WARN,
+                target,
+                &journal_defaults(),
+                &journal_info_defaults(),
+            ),
             "{target} WARN should be suppressed"
         );
     }
@@ -411,17 +488,20 @@ fn journal_suppression_matches_on_prefix_only() {
     assert!(!LoggingConfig::journal_allows(
         Level::WARN,
         "hickory_resolver::recursor::handle",
-        &suppressed
+        &suppressed,
+        &[],
     ));
     assert!(LoggingConfig::journal_allows(
         Level::WARN,
         "wardnetd::dns::pipeline",
-        &suppressed
+        &suppressed,
+        &[],
     ));
     assert!(LoggingConfig::journal_allows(
         Level::WARN,
         "hickory_proto::op",
-        &suppressed
+        &suppressed,
+        &[],
     ));
 }
 
@@ -432,11 +512,32 @@ fn journal_empty_suppression_list_admits_all_warnings() {
     assert!(LoggingConfig::journal_allows(
         Level::WARN,
         "hickory_resolver::recursor::handle",
-        &[]
+        &[],
+        &[],
     ));
     assert!(!LoggingConfig::journal_allows(
         Level::INFO,
         "wardnetd::route_monitor",
-        &[]
+        &[],
+        &[],
+    ));
+}
+
+/// An empty prefix would match every target. A stray `""` in either list is a
+/// config typo, not a request to journal the entire log stream.
+#[test]
+fn journal_ignores_empty_prefixes() {
+    let empty_entry = vec![String::new()];
+    assert!(LoggingConfig::journal_allows(
+        Level::WARN,
+        "wardnetd::route_monitor",
+        &empty_entry,
+        &[],
+    ));
+    assert!(!LoggingConfig::journal_allows(
+        Level::INFO,
+        "wardnetd::route_monitor",
+        &[],
+        &empty_entry,
     ));
 }
