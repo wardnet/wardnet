@@ -25,7 +25,7 @@ use wardnet_common::auth::UserRole;
 use wardnetd_data::repository::session::{
     SessionForRefresh, SessionPrincipal, SessionRepository, SessionSummary,
 };
-use wardnetd_data::repository::user::{UserRepository, UserRow};
+use wardnetd_data::repository::user::{DuplicateUserEmailError, UserRepository, UserRow};
 use wardnetd_data::repository::user_credential::{
     CredentialAlreadyLinkedError, CredentialKind, CredentialLogin, CredentialRow,
     CredentialSummary, UserCredentialRepository,
@@ -89,10 +89,34 @@ impl MockUserRepo {
     }
 }
 
+/// Whether `email` is already taken by a row other than `exclude_id`.
+///
+/// Mirrors the `UNIQUE` index on `users.email`, case-insensitively — the real
+/// repository stores emails lowercased, so `A@b.com` and `a@b.com` collide.
+fn email_taken(rows: &[UserRow], email: Option<&str>, exclude_id: Option<&str>) -> bool {
+    let Some(needle) = email.map(str::to_lowercase) else {
+        // NULL never collides under a SQL unique index: a household may have
+        // any number of users with no email at all.
+        return false;
+    };
+    rows.iter().any(|r| {
+        Some(r.id.as_str()) != exclude_id
+            && r.email.as_deref().map(str::to_lowercase) == Some(needle.clone())
+    })
+}
+
 #[async_trait]
 impl UserRepository for MockUserRepo {
     async fn create(&self, row: &UserRow) -> anyhow::Result<()> {
-        self.rows.lock().unwrap().push(row.clone());
+        let mut rows = self.rows.lock().unwrap();
+        // The real table has a UNIQUE index on email and the sqlite repository
+        // translates the violation into `DuplicateUserEmailError`. A mock that
+        // silently accepted duplicates would let a service test pass while the
+        // real write failed.
+        if email_taken(&rows, row.email.as_deref(), None) {
+            return Err(anyhow::Error::new(DuplicateUserEmailError));
+        }
+        rows.push(row.clone());
         Ok(())
     }
 
@@ -129,6 +153,11 @@ impl UserRepository for MockUserRepo {
         now: &str,
     ) -> anyhow::Result<u64> {
         let mut rows = self.rows.lock().unwrap();
+        // Same unique constraint as `create`, excluding the row being updated so
+        // that rewriting a user's own email is not a self-collision.
+        if email_taken(&rows, email, Some(id)) {
+            return Err(anyhow::Error::new(DuplicateUserEmailError));
+        }
         match rows.iter_mut().find(|r| r.id == id) {
             Some(row) => {
                 row.display_name = display_name.to_owned();

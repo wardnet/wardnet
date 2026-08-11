@@ -945,3 +945,206 @@ async fn a_profile_update_that_does_not_touch_the_email_leaves_the_subject_alone
     assert_eq!(credential.subject, "kid@example.com");
     assert_eq!(credential.id, "cred-pw", "no needless credential rewrite");
 }
+
+// -- email uniqueness -----------------------------------------------------
+
+/// Two users sharing an email would make password login ambiguous — the
+/// credential subject is the email, so the lookup could not tell them apart.
+/// The `UNIQUE` index catches it; the service must translate that into a 409
+/// rather than leaking a raw database error as a 500.
+#[tokio::test]
+async fn creating_a_user_with_a_duplicate_email_is_a_conflict() {
+    let f = household();
+    let ctx = principal::admin_context(admin());
+    auth_context::with_context(
+        ctx.clone(),
+        f.svc.create_user(NewUser {
+            display_name: "First".to_owned(),
+            email: Some("shared@example.com".to_owned()),
+            role: UserRole::Member,
+        }),
+    )
+    .await
+    .unwrap();
+
+    let err = auth_context::with_context(
+        ctx,
+        f.svc.create_user(NewUser {
+            display_name: "Second".to_owned(),
+            email: Some("shared@example.com".to_owned()),
+            role: UserRole::Member,
+        }),
+    )
+    .await
+    .expect_err("a duplicate email must be refused");
+
+    assert!(
+        matches!(err, AppError::Conflict(ref m) if m.contains("email")),
+        "must surface as a conflict naming the email, got {err:?}"
+    );
+}
+
+/// Case must not be a way around the constraint: `Shared@` and `shared@` are
+/// the same login.
+#[tokio::test]
+async fn duplicate_email_detection_ignores_case() {
+    let f = household();
+    let ctx = principal::admin_context(admin());
+    auth_context::with_context(
+        ctx.clone(),
+        f.svc.create_user(NewUser {
+            display_name: "First".to_owned(),
+            email: Some("shared@example.com".to_owned()),
+            role: UserRole::Member,
+        }),
+    )
+    .await
+    .unwrap();
+
+    let err = auth_context::with_context(
+        ctx,
+        f.svc.create_user(NewUser {
+            display_name: "Second".to_owned(),
+            email: Some("SHARED@Example.COM".to_owned()),
+            role: UserRole::Member,
+        }),
+    )
+    .await
+    .expect_err("case must not bypass the unique constraint");
+
+    assert!(matches!(err, AppError::Conflict(_)), "got {err:?}");
+}
+
+/// Any number of users may have no email — a `NULL` does not collide under a
+/// SQL unique index, and a household of kids without addresses is normal.
+#[tokio::test]
+async fn several_users_may_have_no_email() {
+    let f = household();
+    let ctx = principal::admin_context(admin());
+
+    for name in ["Kid A", "Kid B", "Kid C"] {
+        auth_context::with_context(
+            ctx.clone(),
+            f.svc.create_user(NewUser {
+                display_name: name.to_owned(),
+                email: None,
+                role: UserRole::Member,
+            }),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("{name} must be creatable without an email: {e:?}"));
+    }
+}
+
+/// Moving an email onto a user who already holds it must not be a
+/// self-collision — saving a profile unchanged is a routine no-op.
+#[tokio::test]
+async fn a_user_may_keep_their_own_email_on_update() {
+    let f = household();
+    let ctx = principal::admin_context(admin());
+    let created = auth_context::with_context(
+        ctx.clone(),
+        f.svc.create_user(NewUser {
+            display_name: "Owner".to_owned(),
+            email: Some("owner@example.com".to_owned()),
+            role: UserRole::Member,
+        }),
+    )
+    .await
+    .unwrap();
+
+    auth_context::with_context(
+        ctx,
+        f.svc
+            .update_profile(created.id, "Owner Renamed", Some("owner@example.com")),
+    )
+    .await
+    .expect("keeping one's own email must not collide");
+}
+
+/// Taking another user's email on update must be refused for the same reason
+/// creating a duplicate is.
+#[tokio::test]
+async fn update_refuses_another_users_email() {
+    let f = household();
+    let ctx = principal::admin_context(admin());
+    for (name, email) in [("A", "a@example.com"), ("B", "b@example.com")] {
+        auth_context::with_context(
+            ctx.clone(),
+            f.svc.create_user(NewUser {
+                display_name: name.to_owned(),
+                email: Some(email.to_owned()),
+                role: UserRole::Member,
+            }),
+        )
+        .await
+        .unwrap();
+    }
+    let b = auth_context::with_context(ctx.clone(), f.svc.list_users())
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|u| u.email.as_deref() == Some("b@example.com"))
+        .expect("B must exist");
+
+    let err =
+        auth_context::with_context(ctx, f.svc.update_profile(b.id, "B", Some("a@example.com")))
+            .await
+            .expect_err("taking another user's email must be refused");
+
+    assert!(matches!(err, AppError::Conflict(_)), "got {err:?}");
+}
+
+// -- federated sign-in without a public hostname ---------------------------
+
+/// A box with no canonical public hostname has nowhere a provider could send
+/// the user back to. Starting the ceremony anyway would produce a redirect the
+/// provider rejects, so it is refused up front with an actionable message.
+#[tokio::test]
+async fn starting_oauth_without_a_public_hostname_is_refused() {
+    let f = household();
+    // Configure the provider so the missing hostname is the *only* thing wrong;
+    // the fixture's system_config has no DDNS keys set.
+    auth_context::with_context(
+        principal::admin_context(admin()),
+        f.svc.configure_oauth_provider(
+            crate::user::OauthProvider::Google,
+            "client-id",
+            Some("client-secret"),
+            true,
+        ),
+    )
+    .await
+    .unwrap();
+
+    let err = auth_context::with_context(
+        principal::admin_context(admin()),
+        f.svc.start_oauth(crate::user::OauthProvider::Google),
+    )
+    .await
+    .expect_err("federated sign-in cannot work without a public hostname");
+
+    assert!(
+        matches!(err, AppError::Conflict(ref m) if m.contains("hostname")),
+        "must explain the missing hostname, got {err:?}"
+    );
+}
+
+/// The mirror case: nothing configured *and* no hostname. Here "not configured"
+/// is the right first thing to say — the hostname is not the nearest problem.
+#[tokio::test]
+async fn starting_oauth_on_an_unconfigured_box_says_so() {
+    let f = household();
+
+    let err = auth_context::with_context(
+        principal::admin_context(admin()),
+        f.svc.start_oauth(crate::user::OauthProvider::Google),
+    )
+    .await
+    .expect_err("an unconfigured provider must be refused");
+
+    assert!(
+        matches!(err, AppError::Conflict(ref m) if m.contains("not configured")),
+        "must report the provider as unconfigured, got {err:?}"
+    );
+}

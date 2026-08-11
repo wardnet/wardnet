@@ -17,7 +17,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use crate::auth_context;
-use crate::ddns::{KEY_PROVIDER, KEY_SUBDOMAIN, PROVIDER_WARDNET};
+use crate::ddns::{KEY_DOMAIN, KEY_PROVIDER, KEY_SUBDOMAIN, PROVIDER_CLOUDFLARE, PROVIDER_WARDNET};
 use crate::error::AppError;
 use crate::tests::repo_mocks::{
     MockCredentialRepo, MockEnrolmentRepo, MockSecretStore, MockSessionRepo, MockSystemConfigRepo,
@@ -750,4 +750,145 @@ async fn a_link_ceremony_started_by_the_caller_still_works() {
         .expect("the caller who started the ceremony may complete it");
 
     assert_eq!(f.credentials.rows.lock().unwrap().len(), 1);
+}
+
+// -- provider token parsing -----------------------------------------------
+
+/// An unrecognised path segment must not fall through to a configured
+/// provider — that would let `/oauth/gooogle` start a real Google ceremony.
+#[test]
+fn provider_parsing_round_trips_and_rejects_the_unknown() {
+    for provider in [OauthProvider::Google, OauthProvider::Github] {
+        assert_eq!(
+            OauthProvider::parse(provider.as_str()),
+            Some(provider),
+            "as_str and parse must agree"
+        );
+    }
+
+    for raw in ["", "gooogle", "GOOGLE", "google ", "facebook", "wardnet"] {
+        assert!(
+            OauthProvider::parse(raw).is_none(),
+            "{raw:?} must not parse as a provider"
+        );
+    }
+}
+
+/// The two providers must never share a credential kind, or linking one would
+/// satisfy a lookup for the other.
+#[test]
+fn each_provider_has_its_own_credential_kind() {
+    assert_ne!(
+        OauthProvider::Google.credential_kind(),
+        OauthProvider::Github.credential_kind()
+    );
+}
+
+/// Config and secret keys must be provider-scoped, or configuring GitHub would
+/// overwrite Google's client id.
+#[test]
+fn provider_keys_are_distinct_per_provider() {
+    let (g, h) = (OauthProvider::Google, OauthProvider::Github);
+
+    assert_ne!(g.client_id_key(), h.client_id_key());
+    assert_ne!(g.enabled_key(), h.enabled_key());
+    assert_ne!(g.secret_path(), h.secret_path());
+}
+
+// -- canonical hostname resolution ----------------------------------------
+
+/// Cloudflare DDNS stores the hostname under a different key than the wardnet
+/// provider does; both must resolve, or federated sign-in silently breaks for
+/// one class of household.
+#[tokio::test]
+async fn the_canonical_hostname_resolves_for_cloudflare_households() {
+    let config = Arc::new(MockSystemConfigRepo::empty());
+    {
+        let mut values = config.values.lock().unwrap();
+        values.insert(KEY_PROVIDER.to_owned(), PROVIDER_CLOUDFLARE.to_owned());
+        values.insert(KEY_DOMAIN.to_owned(), "home.example.com".to_owned());
+    }
+    let cfg = OauthConfig {
+        system_config: config as Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
+        secrets: Arc::new(MockSecretStore::empty())
+            as Arc<dyn wardnetd_data::secret_store::SecretStore>,
+    };
+
+    assert_eq!(
+        cfg.canonical_fqdn().await.unwrap().as_deref(),
+        Some("home.example.com")
+    );
+}
+
+/// No DDNS provider configured means no hostname a provider could redirect to,
+/// so this resolves to `None` rather than guessing.
+#[tokio::test]
+async fn the_canonical_hostname_is_absent_without_a_ddns_provider() {
+    for provider in [None, Some("some-future-provider")] {
+        let config = Arc::new(MockSystemConfigRepo::empty());
+        if let Some(p) = provider {
+            config
+                .values
+                .lock()
+                .unwrap()
+                .insert(KEY_PROVIDER.to_owned(), p.to_owned());
+        }
+        let cfg = OauthConfig {
+            system_config: config as Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
+            secrets: Arc::new(MockSecretStore::empty())
+                as Arc<dyn wardnetd_data::secret_store::SecretStore>,
+        };
+
+        assert!(
+            cfg.canonical_fqdn().await.unwrap().is_none(),
+            "provider {provider:?} must not yield a hostname"
+        );
+    }
+}
+
+/// A secret that is not valid UTF-8 is a corrupted vault, not a login failure:
+/// it must surface as an internal error rather than panicking or being read as
+/// an empty secret.
+#[tokio::test]
+async fn a_non_utf8_client_secret_is_an_internal_error() {
+    let secrets = Arc::new(MockSecretStore::empty());
+    wardnetd_data::secret_store::SecretStore::put(
+        secrets.as_ref(),
+        &OauthProvider::Google.secret_path(),
+        &[0xff, 0xfe, 0xfd],
+    )
+    .await
+    .unwrap();
+    let cfg = OauthConfig {
+        system_config: Arc::new(MockSystemConfigRepo::empty())
+            as Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
+        secrets: Arc::clone(&secrets) as Arc<dyn wardnetd_data::secret_store::SecretStore>,
+    };
+
+    let err = cfg
+        .client_secret(OauthProvider::Google)
+        .await
+        .expect_err("a corrupted secret must not read as absent");
+    assert!(
+        matches!(err, AppError::Internal(_)),
+        "expected an internal error, got {err:?}"
+    );
+}
+
+/// An unconfigured provider has no secret — distinct from a corrupted one.
+#[tokio::test]
+async fn an_absent_client_secret_is_none() {
+    let cfg = OauthConfig {
+        system_config: Arc::new(MockSystemConfigRepo::empty())
+            as Arc<dyn wardnetd_data::repository::SystemConfigRepository>,
+        secrets: Arc::new(MockSecretStore::empty())
+            as Arc<dyn wardnetd_data::secret_store::SecretStore>,
+    };
+
+    assert!(
+        cfg.client_secret(OauthProvider::Github)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
