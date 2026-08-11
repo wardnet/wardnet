@@ -99,10 +99,83 @@ fn trailing_dot_normalized_across_insert_get_and_invalidate() {
         "bare-name lookup must hit the FQDN-inserted entry"
     );
     assert_eq!(
-        cache.invalidate_domain("example.com"),
+        cache.invalidate_subtree("example.com"),
         1,
         "bare-name invalidation must evict the FQDN-inserted entry"
     );
+    assert!(cache.is_empty());
+}
+
+#[test]
+fn invalidate_subtree_evicts_the_name_and_its_subdomains() {
+    let mut cache = DnsCache::new(100);
+    for domain in [
+        "example.com",
+        "mqtt.example.com",
+        "a.b.example.com",
+        // Neither of these is below `example.com`: a sibling that merely
+        // ends with the same characters, and an unrelated name.
+        "notexample.com",
+        "example.com.evil.net",
+    ] {
+        cache.insert(
+            DEFAULT,
+            domain,
+            RecordType::A,
+            wire(&make_response()),
+            300,
+            0,
+            86400,
+        );
+    }
+
+    assert_eq!(cache.invalidate_subtree("example.com"), 3);
+    assert!(get_msg(&cache, DEFAULT, "notexample.com", RecordType::A).is_some());
+    assert!(get_msg(&cache, DEFAULT, "example.com.evil.net", RecordType::A).is_some());
+    assert!(get_msg(&cache, DEFAULT, "mqtt.example.com", RecordType::A).is_none());
+}
+
+#[test]
+fn invalidate_subtree_of_a_wildcard_evicts_its_suffix() {
+    // A wildcard record is stored as `*.<suffix>` but serves the subtree
+    // below the suffix, so that subtree is what has to be evicted.
+    let mut cache = DnsCache::new(100);
+    for domain in ["host.lab.internal", "other.net"] {
+        cache.insert(
+            DEFAULT,
+            domain,
+            RecordType::A,
+            wire(&make_response()),
+            300,
+            0,
+            86400,
+        );
+    }
+
+    assert_eq!(cache.invalidate_subtree("*.lab.internal"), 1);
+    assert!(get_msg(&cache, DEFAULT, "other.net", RecordType::A).is_some());
+}
+
+#[test]
+fn invalidate_subtree_spans_upstreams_and_record_types() {
+    let mut cache = DnsCache::new(100);
+    for (upstream, rtype) in [
+        (DEFAULT, RecordType::A),
+        (DEFAULT, RecordType::AAAA),
+        (UpstreamId::Tunnel(Uuid::nil()), RecordType::A),
+    ] {
+        cache.insert(
+            upstream,
+            "mqtt.example.com",
+            rtype,
+            wire(&make_response()),
+            300,
+            0,
+            86400,
+        );
+    }
+
+    assert_eq!(cache.invalidate_subtree("example.com"), 3);
     assert!(cache.is_empty());
 }
 
@@ -584,7 +657,7 @@ fn eviction_skips_slots_of_invalidated_entries() {
         0,
         86400,
     );
-    assert_eq!(cache.invalidate_domain("a.com"), 1);
+    assert_eq!(cache.invalidate_subtree("a.com"), 1);
     cache.insert(
         DEFAULT,
         "c.com",

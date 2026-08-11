@@ -155,11 +155,11 @@ Authoritative answers fully short-circuit the pipeline (no cache store, no filte
 
 ### Event-driven rebuild
 
-`DnsLocalServiceImpl` publishes `WardnetEvent::DnsLocalChanged` after every mutation:
-- Zone mutations set `domain: None` — triggers a full view rebuild, no per-domain eviction.
-- Record and forwarding-rule mutations set `domain: Some(domain)` — triggers a view rebuild **and** evicts that domain from the DNS response cache.
+`DnsLocalServiceImpl` publishes `WardnetEvent::DnsLocalChanged` after every mutation. `domain` carries the **subtree the change governs** — the zone name for a zone mutation, the record or rule domain otherwise — and a mutation that moves a domain (a rename) emits twice, once for the vacated name and once for the claimed one.
 
-`DnsRunner` handles `DnsLocalChanged` by calling `DnsServer::update_authoritative_view` (atomic ArcSwap swap) and, if `domain` is `Some`, `DnsServer::invalidate_domain`.
+`DnsRunner` handles the event by calling `DnsServer::update_authoritative_view` (atomic ArcSwap swap) and `DnsServer::invalidate_subtree`.
+
+Eviction is **subtree-scoped**, not exact-name (issue #1184). Every form of local DNS applies to a whole subtree — a forwarding rule and an authoritative zone match by suffix, a wildcard record covers everything below its suffix — while the cache is consulted *before* any of them (step 1, ahead of the step-3 forward). Evicting only the exact name therefore left every already-cached subdomain resolving the old way until its TTL expired, so a new forwarding rule looked stored, enabled, and correct in the UI while doing nothing to the names that motivated it. A wildcard domain (`*.suffix`) evicts its suffix subtree; over-eviction costs one re-resolution, under-eviction costs correctness.
 
 ### Background runners call auth-gated services, never repositories
 

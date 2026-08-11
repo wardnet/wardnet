@@ -491,6 +491,71 @@ async fn conditional_forwarding_relays_and_caches_the_upstream_answer() {
     assert_eq!(next_row(&mut rx).await.result, "cache_hit");
 }
 
+/// Issue #1184. A rule governs everything below its domain, but the cache is
+/// consulted before the rule is applied, so a rule that lands while a
+/// subdomain is already cached only takes effect if the eviction reaches the
+/// whole subtree. The sticky case is exactly the one that sends an operator
+/// to conditional forwarding in the first place: a negative answer whose TTL
+/// comes from a parent zone's SOA.
+#[tokio::test]
+async fn a_new_rule_governs_already_cached_subdomains() {
+    let default_upstream = spawn_stub_upstream(StubAnswer::NxDomain).await;
+    let cond_upstream = spawn_stub_upstream(StubAnswer::A(Ipv4Addr::new(203, 0, 113, 42))).await;
+    let (sink, mut rx) = DnsLogSink::new();
+    let pipeline = build_pipeline(config_with_upstream(default_upstream), Some(sink));
+
+    // The subdomain resolves NXDOMAIN, and the negative answer is cached.
+    let first = ask(
+        &pipeline,
+        &query_bytes(0x7101, "mqtt.example.com.", RecordType::A),
+        ip_client(),
+    )
+    .await
+    .expect("negative answer");
+    assert_eq!(first.metadata.response_code, ResponseCode::NXDomain);
+    assert_eq!(next_row(&mut rx).await.result, "negative");
+    ask(
+        &pipeline,
+        &query_bytes(0x7102, "mqtt.example.com.", RecordType::A),
+        ip_client(),
+    )
+    .await
+    .expect("cached negative");
+    assert_eq!(next_row(&mut rx).await.result, "cache_hit");
+
+    // The operator adds a rule on the parent domain: the runner swaps in the
+    // new view and evicts the rule's subtree.
+    pipeline
+        .authoritative_view
+        .store(Arc::new(AuthoritativeView::build(
+            &[],
+            vec![],
+            vec![forwarding_rule("example.com", cond_upstream.to_string())],
+        )));
+    pipeline
+        .cache
+        .write()
+        .await
+        .invalidate_subtree("example.com");
+
+    // The rule is live immediately — no manual cache flush, no TTL wait.
+    let after = ask(
+        &pipeline,
+        &query_bytes(0x7103, "mqtt.example.com.", RecordType::A),
+        ip_client(),
+    )
+    .await
+    .expect("conditionally forwarded answer");
+    assert_eq!(after.metadata.response_code, ResponseCode::NoError);
+    assert_eq!(after.answers.len(), 1, "the rule's upstream answered");
+    let row = next_row(&mut rx).await;
+    assert_eq!(row.result, "forwarded");
+    assert_eq!(
+        row.upstream.as_deref(),
+        Some(cond_upstream.ip().to_string()).as_deref()
+    );
+}
+
 #[tokio::test]
 async fn conditional_forwarding_failure_returns_servfail() {
     // 127.0.0.1:1 is unbound — the connected socket's send/recv errors
