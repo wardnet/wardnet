@@ -2258,7 +2258,10 @@ export interface components {
             profile_id: string;
             reason?: string | null;
         };
-        /** @enum {string} */
+        /**
+         * @description Which anomalies a query should return.
+         * @enum {string}
+         */
         AnomalyQueryStatus: "open" | "resolved" | "all";
         /**
          * @description How serious an [`Anomaly`] is. Deliberately separate from tracing log

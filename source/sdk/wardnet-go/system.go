@@ -49,22 +49,6 @@ type LastShutdown struct {
 	AcknowledgedAt *time.Time `json:"acknowledged_at"`
 }
 
-// Diagnostic is one recent daemon-raised problem, as surfaced in the admin
-// UI's notification area.
-type Diagnostic struct {
-	// Timestamp is when the underlying condition occurred.
-	Timestamp time.Time `json:"timestamp"`
-	// Code is the stable class identifier (e.g. "tunnel_start_failed").
-	Code string `json:"code"`
-	// Severity is "error", "warning", or "info".
-	Severity string `json:"severity"`
-	// Component is the subsystem that raised it.
-	Component string `json:"component"`
-	// Message describes what happened.
-	Message string `json:"message"`
-	// Hint says what an admin can do about it.
-	Hint string `json:"hint"`
-}
 
 // Status fetches the current system status.
 func (s *SystemService) Status(ctx context.Context) (*SystemStatus, error) {
@@ -97,28 +81,6 @@ func (s *SystemService) Status(ctx context.Context) (*SystemStatus, error) {
 	}, nil
 }
 
-// RecentErrors returns the daemon's recent diagnostics, newest first.
-func (s *SystemService) RecentErrors(ctx context.Context) ([]Diagnostic, error) {
-	resp, err := s.c.rest.RecentErrorsWithResponse(ctx)
-	if err != nil {
-		return nil, err
-	}
-	if resp.JSON200 == nil {
-		return nil, apiError(resp.HTTPResponse, resp.Body)
-	}
-	out := make([]Diagnostic, 0, len(resp.JSON200.Errors))
-	for _, d := range resp.JSON200.Errors {
-		out = append(out, Diagnostic{
-			Timestamp: d.Timestamp,
-			Code:      d.Code,
-			Severity:  d.Severity,
-			Component: d.Component,
-			Message:   d.Message,
-			Hint:      d.Hint,
-		})
-	}
-	return out, nil
-}
 
 // Restart asks the daemon to exit so its supervisor starts it again. It
 // returns as soon as the restart is scheduled; the daemon is unreachable for

@@ -28,20 +28,14 @@ const OUT_PATH = resolve(here, "../src/internal/openapi-schema.ts");
 // entry here is the definition the daemon omitted, matching its serde
 // serialization exactly.
 //
-// `collectMissingRefs` below is what turns a recurrence into a loud error
-// pointing back here — the failure is silent from the daemon's side.
+// Currently empty: the daemon registers every schema it references, via
+// `ApiDoc`'s `components(schemas(...))`. The mechanism stays because the
+// failure is silent from the daemon's side — `collectMissingRefs` below is
+// what turns a recurrence into a loud error pointing back here.
 //
 // A shim applies only when the name is genuinely absent, so it retires itself
 // if the daemon later starts registering the schema.
-const MISSING_SCHEMA_SHIMS = {
-  // `GET /api/anomalies` takes this as a query parameter and nothing else
-  // references it, so utoipa emits the `$ref` without registering the enum.
-  // Mirrors `AnomalyQueryStatus`'s `#[serde(rename_all = "snake_case")]`.
-  AnomalyQueryStatus: {
-    type: "string",
-    enum: ["open", "resolved", "all"],
-  },
-};
+const MISSING_SCHEMA_SHIMS = {};
 
 const HTTP_METHODS = ["get", "put", "post", "delete", "options", "head", "patch", "trace"];
 

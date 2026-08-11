@@ -48,6 +48,8 @@ type Client struct {
 	Backup *BackupService
 	// Auth exchanges credentials for a session token.
 	Auth *AuthService
+	// Anomalies reads the daemon's open and resolved anomalies.
+	Anomalies *AnomaliesService
 }
 
 type options struct {
@@ -138,6 +140,7 @@ func New(baseURL string, opts ...Option) (*Client, error) {
 	c.Update = &UpdateService{c: c}
 	c.Backup = &BackupService{c: c}
 	c.Auth = &AuthService{c: c}
+	c.Anomalies = &AnomaliesService{c: c}
 	return c, nil
 }
 

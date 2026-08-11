@@ -24369,6 +24369,15 @@
           }
         }
       },
+      "AnomalyQueryStatus": {
+        "type": "string",
+        "description": "Which anomalies a query should return.",
+        "enum": [
+          "open",
+          "resolved",
+          "all"
+        ]
+      },
       "AnomalySeverity": {
         "type": "string",
         "description": "How serious an [`Anomaly`] is. Deliberately separate from tracing log\nlevels: severity here is a product judgement about admin impact, not a\nlogging verbosity knob.",

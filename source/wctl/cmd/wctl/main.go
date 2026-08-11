@@ -53,6 +53,7 @@ func rootCmd() *cobra.Command {
 
 	root.AddCommand(
 		newStatusCmd(c),
+		newAnomaliesCmd(c),
 		newDevicesCmd(c),
 		newTunnelsCmd(c),
 		newDNSCmd(c),

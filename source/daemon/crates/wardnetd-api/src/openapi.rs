@@ -45,11 +45,15 @@ use wardnetd_services::version::RELEASE_VERSION;
         license(name = "GPL-3.0-or-later")
     ),
     modifiers(&SecurityAddon),
-    // `StatsBucket` is referenced only via `StatsQuery`'s `IntoParams` (the
-    // `bucket` query parameter), and utoipa does not auto-collect schemas
-    // reached solely through a parameter — so register it explicitly here,
-    // otherwise the generated spec carries a dangling `$ref` to it.
-    components(schemas(wardnet_common::stats::StatsBucket)),
+    // Schemas reached *only* through an `IntoParams` query parameter:
+    // `StatsBucket` via `StatsQuery`, `AnomalyQueryStatus` via
+    // `ListAnomaliesParams`. utoipa does not auto-collect those, so without
+    // registering them here the generated spec carries a dangling `$ref` —
+    // which both SDK generators then refuse to build from.
+    components(schemas(
+        wardnet_common::stats::StatsBucket,
+        wardnet_common::anomaly::AnomalyQueryStatus,
+    )),
     security(
         ("session_cookie" = []),
         ("bearer_auth" = []),

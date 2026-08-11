@@ -171,25 +171,77 @@ func TestInvalidIDNoRequest(t *testing.T) {
 	}
 }
 
-func TestSystemRecentErrors(t *testing.T) {
+func TestAnomaliesList(t *testing.T) {
 	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/system/errors" {
+		if r.URL.Path != "/api/anomalies" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
-		writeJSON(w, `{"errors":[{"timestamp":"2026-08-01T00:00:00Z","code":"tunnel_start_failed",
-			"severity":"error","component":"tunnel","message":"handshake timed out",
-			"hint":"check the endpoint"}]}`)
+		// The zero-value options must not pin any filter: the daemon's own
+		// defaults (open, limit 50) are what a bare `list` should get.
+		if q := r.URL.RawQuery; q != "" {
+			t.Errorf("query = %q, want empty", q)
+		}
+		writeJSON(w, `{"anomalies":[{"id":"00000000-0000-0000-0000-000000000001",
+			"type":"blocklist_refresh_failing","severity":"error","component":"dns",
+			"subject_id":"bl-1","message":"failed 7 times","hint":"check the URL",
+			"details":{"profile_id":"p-1"},"opened_at":"2026-08-01T00:00:00Z",
+			"last_seen_at":"2026-08-01T06:00:00Z","occurrences":7,"resolved_at":null}]}`)
 	}))
 
-	diags, err := c.System.RecentErrors(context.Background())
+	anomalies, err := c.Anomalies.List(context.Background(), wardnet.ListAnomaliesOptions{})
 	if err != nil {
-		t.Fatalf("RecentErrors: %v", err)
+		t.Fatalf("List: %v", err)
 	}
-	if len(diags) != 1 {
-		t.Fatalf("diagnostics = %d, want 1", len(diags))
+	if len(anomalies) != 1 {
+		t.Fatalf("anomalies = %d, want 1", len(anomalies))
 	}
-	if diags[0].Code != "tunnel_start_failed" || diags[0].Severity != "error" {
-		t.Errorf("unexpected diagnostic: %+v", diags[0])
+	a := anomalies[0]
+	if a.Type != "blocklist_refresh_failing" || a.Severity != "error" {
+		t.Errorf("unexpected anomaly: %+v", a)
+	}
+	if a.SubjectID != "bl-1" || a.Occurrences != 7 {
+		t.Errorf("subject/occurrences = %q/%d", a.SubjectID, a.Occurrences)
+	}
+	if !a.Open() {
+		t.Error("anomaly with no resolved_at should read as open")
+	}
+	if a.Details["profile_id"] != "p-1" {
+		t.Errorf("details = %v", a.Details)
+	}
+}
+
+func TestAnomaliesListFilters(t *testing.T) {
+	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("status") != "all" || q.Get("subject_id") != "tun-1" || q.Get("limit") != "5" {
+			t.Errorf("query = %q", r.URL.RawQuery)
+		}
+		writeJSON(w, `{"anomalies":[]}`)
+	}))
+
+	if _, err := c.Anomalies.List(context.Background(), wardnet.ListAnomaliesOptions{
+		Status:    wardnet.AnomalyStatusAll,
+		SubjectID: "tun-1",
+		Limit:     5,
+	}); err != nil {
+		t.Fatalf("List: %v", err)
+	}
+}
+
+func TestAnomaliesReevaluate(t *testing.T) {
+	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/anomalies/reevaluate" {
+			t.Errorf("%s %s", r.Method, r.URL.Path)
+		}
+		writeJSON(w, `{"evaluated":4,"resolved":1}`)
+	}))
+
+	result, err := c.Anomalies.Reevaluate(context.Background())
+	if err != nil {
+		t.Fatalf("Reevaluate: %v", err)
+	}
+	if result.Evaluated != 4 || result.Resolved != 1 {
+		t.Errorf("unexpected result: %+v", result)
 	}
 }
 

@@ -36,6 +36,78 @@ func (e AllowedTargetKind) Valid() bool {
 	}
 }
 
+// Defines values for AnomalyQueryStatus.
+const (
+	All      AnomalyQueryStatus = "all"
+	Open     AnomalyQueryStatus = "open"
+	Resolved AnomalyQueryStatus = "resolved"
+)
+
+// Valid indicates whether the value is a known member of the AnomalyQueryStatus enum.
+func (e AnomalyQueryStatus) Valid() bool {
+	switch e {
+	case All:
+		return true
+	case Open:
+		return true
+	case Resolved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AnomalySeverity.
+const (
+	AnomalySeverityError   AnomalySeverity = "error"
+	AnomalySeverityInfo    AnomalySeverity = "info"
+	AnomalySeverityWarning AnomalySeverity = "warning"
+)
+
+// Valid indicates whether the value is a known member of the AnomalySeverity enum.
+func (e AnomalySeverity) Valid() bool {
+	switch e {
+	case AnomalySeverityError:
+		return true
+	case AnomalySeverityInfo:
+		return true
+	case AnomalySeverityWarning:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AnomalyType.
+const (
+	BlocklistRefreshFailing AnomalyType = "blocklist_refresh_failing"
+	DhcpConflict            AnomalyType = "dhcp_conflict"
+	RouteTableLost          AnomalyType = "route_table_lost"
+	TunnelStartFailed       AnomalyType = "tunnel_start_failed"
+	TunnelUnhealthy         AnomalyType = "tunnel_unhealthy"
+	UpdateFailed            AnomalyType = "update_failed"
+)
+
+// Valid indicates whether the value is a known member of the AnomalyType enum.
+func (e AnomalyType) Valid() bool {
+	switch e {
+	case BlocklistRefreshFailing:
+		return true
+	case DhcpConflict:
+		return true
+	case RouteTableLost:
+		return true
+	case TunnelStartFailed:
+		return true
+	case TunnelUnhealthy:
+		return true
+	case UpdateFailed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for BackupStatus0State.
 const (
 	BackupStatus0StateIdle BackupStatus0State = "idle"
@@ -1409,30 +1481,63 @@ type AllowlistEntry struct {
 	Reason    *string            `json:"reason,omitempty"`
 }
 
-// ApiDiagnostic API-layer mirror of [`wardnetd_services::diagnostics::Diagnostic`] that
-// carries an `OpenAPI` schema. The service-layer type lives in a crate that
-// does not depend on `utoipa`; mirroring it here keeps the schema boundary
-// aligned with the HTTP API without leaking the docs dependency into the
-// services crate. The `code` and `severity` enums are flattened to their
-// stable string forms.
-type ApiDiagnostic struct {
-	// Code Stable machine-readable class identifier, e.g. `tunnel_start_failed`.
-	Code string `json:"code"`
+// AnomalyQueryStatus Which anomalies a query should return.
+type AnomalyQueryStatus string
 
+// AnomalySeverity How serious an [`Anomaly`] is. Deliberately separate from tracing log
+// levels: severity here is a product judgement about admin impact, not a
+// logging verbosity knob.
+type AnomalySeverity string
+
+// AnomalyType The hardcoded anomaly catalogue.
+//
+// Adding an anomaly means adding a variant here, giving it a severity,
+// component, hint and landing page, and registering a detector for it in
+// `wardnetd_services::anomaly::AnomalyDetectorRegistry`. The registry is
+// keyed by this type, so a variant without a detector is a wiring bug rather
+// than a silently inert entry.
+type AnomalyType string
+
+// ApiAnomaly An anomaly as served by the HTTP API.
+//
+// `severity`, `component` and `hint` are derived from `anomaly_type` rather
+// than stored, so they are materialised here for clients that would otherwise
+// need their own copy of the catalogue.
+type ApiAnomaly struct {
 	// Component The subsystem that raised it.
 	Component string `json:"component"`
 
+	// Details Detector-authored payload. Best-effort: no key is guaranteed beyond
+	// those the owning detector documents. Clients use it to deep link to the
+	// subject (a blocklist's `profile_id`, for instance).
+	Details *map[string]interface{} `json:"details"`
+
 	// Hint What the admin can do about it.
-	Hint string `json:"hint"`
+	Hint string             `json:"hint"`
+	Id   openapi_types.UUID `json:"id"`
+
+	// LastSeenAt When the condition was last observed.
+	LastSeenAt time.Time `json:"last_seen_at"`
 
 	// Message Plain-language description of what happened.
 	Message string `json:"message"`
 
-	// Severity One of `error`, `warning`, `info`.
-	Severity string `json:"severity"`
+	// Occurrences How many times it has been observed since it opened.
+	Occurrences int32     `json:"occurrences"`
+	OpenedAt    time.Time `json:"opened_at"`
 
-	// Timestamp When the underlying condition occurred.
-	Timestamp time.Time `json:"timestamp"`
+	// ResolvedAt `null` while the anomaly is still open.
+	ResolvedAt *time.Time `json:"resolved_at"`
+
+	// Severity One of `error`, `warning`, `info`.
+	Severity AnomalySeverity `json:"severity"`
+
+	// SubjectId The entity this anomaly is about — a tunnel id, a blocklist id — or
+	// `null` for box-wide conditions.
+	SubjectId *string `json:"subject_id"`
+
+	// Type Stable machine-readable class identifier, e.g. `tunnel_start_failed`.
+	Type AnomalyType `json:"type"`
 }
 
 // ApiError Standard API error response.
@@ -2441,6 +2546,15 @@ type DnsEventsAckRequest struct {
 
 // DnsFilterConfig Global DNS filtering configuration.
 type DnsFilterConfig struct {
+	// BlocklistFailureAlertThreshold How many consecutive failed refreshes a blocklist must accumulate
+	// before the admin is alerted. `0` disables the alert entirely.
+	//
+	// Paired with the refresh backoff (`5m` doubling to a `6h` cap), the
+	// default of 5 is roughly 75 minutes of sustained failure — long enough
+	// that a transient upstream blip or a reboot mid-refresh does not page
+	// anyone.
+	BlocklistFailureAlertThreshold *int32 `json:"blocklist_failure_alert_threshold,omitempty"`
+
 	// DefaultProfileIds Profiles applied to devices with no explicit assignment. Empty means
 	// unassigned devices skip filtering. Multiple profiles stack — a domain
 	// blocked in any of them is blocked. Treat as a set: the order across
@@ -2970,6 +3084,11 @@ type ListAllowlistResponse struct {
 	Entries []AllowlistEntry `json:"entries"`
 }
 
+// ListAnomaliesResponse Response for GET /api/anomalies.
+type ListAnomaliesResponse struct {
+	Anomalies []ApiAnomaly `json:"anomalies"`
+}
+
 // ListBlocklistsResponse Response for GET /api/dns/blocklists.
 type ListBlocklistsResponse struct {
 	Blocklists []Blocklist `json:"blocklists"`
@@ -3436,9 +3555,13 @@ type RebuildTunnelResponse struct {
 	Ok bool `json:"ok"`
 }
 
-// RecentErrorsResponse Response for GET /api/system/errors.
-type RecentErrorsResponse struct {
-	Errors []ApiDiagnostic `json:"errors"`
+// ReevaluateSummary Outcome of a reevaluation pass over the open anomalies.
+type ReevaluateSummary struct {
+	// Evaluated How many open anomalies were examined.
+	Evaluated int32 `json:"evaluated"`
+
+	// Resolved How many of those were closed as no longer holding.
+	Resolved int32 `json:"resolved"`
 }
 
 // RestorePhase Phase of an in-flight restore. Emitted as progress events so the UI can
@@ -4160,8 +4283,10 @@ type UpdateDnsConfigRequest struct {
 // devices stop being filtered) and a non-empty list replaces the entire
 // set.
 type UpdateDnsFilterConfigRequest struct {
-	DefaultProfileIds *[]openapi_types.UUID `json:"default_profile_ids,omitempty"`
-	Enabled           *bool                 `json:"enabled,omitempty"`
+	// BlocklistFailureAlertThreshold Consecutive failed refreshes before a blocklist alerts. `0` disables.
+	BlocklistFailureAlertThreshold *int32                `json:"blocklist_failure_alert_threshold,omitempty"`
+	DefaultProfileIds              *[]openapi_types.UUID `json:"default_profile_ids,omitempty"`
+	Enabled                        *bool                 `json:"enabled,omitempty"`
 }
 
 // UpdateDomainRoutingRuleRequest Request body for PUT /api/routing/rules/{id} (partial update).
@@ -4593,6 +4718,19 @@ type ZoneSummary struct {
 
 	// Name Human-readable zone name (e.g. "Guest").
 	Name string `json:"name"`
+}
+
+// ListAnomaliesParams defines parameters for ListAnomalies.
+type ListAnomaliesParams struct {
+	// Status Which anomalies to return. Defaults to `open`.
+	Status *AnomalyQueryStatus `form:"status,omitempty" json:"status,omitempty"`
+
+	// SubjectId Restrict to anomalies about one entity — how a per-entity surface asks
+	// "what is currently wrong with *this*".
+	SubjectId *string `form:"subject_id,omitempty" json:"subject_id,omitempty"`
+
+	// Limit Maximum rows, clamped to 1..=200. Defaults to 50.
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // DdnsCheckParams defines parameters for DdnsCheck.
@@ -5829,6 +5967,16 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
+	// ListAnomalies performs a GET /api/anomalies (the `ListAnomalies` operationId) request.
+	//
+	// List anomalies: typed conditions raised by daemon components, each with a message and a remediation hint. Defaults to the ones still open, which is what the dashboard shows. Filter by `subject_id` to ask what is currently wrong with one entity — a tunnel card uses this to surface that tunnel's error. Admin only.
+	ListAnomalies(ctx context.Context, params *ListAnomaliesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ReevaluateAnomalies performs a POST /api/anomalies/reevaluate (the `ReevaluateAnomalies` operationId) request.
+	//
+	// Re-check every open anomaly against the world and resolve the ones whose condition no longer holds, instead of waiting for the next scheduled pass. Resolving an anomaly that was alerted also sends the matching recovery notification. Admin only.
+	ReevaluateAnomalies(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// LoginWithBody performs a POST /api/auth/login (the `Login` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -6963,11 +7111,6 @@ type ClientInterface interface {
 	// Set the global default routing policy. Body `policy` must be either the literal string "direct" or a tunnel UUID. The change is persisted in `system_config` and applied in-memory immediately — devices whose stored rule is `Default` pick up the new policy on their next apply or reconcile. Admin only.
 	SetDefaultPolicy(ctx context.Context, body SetDefaultPolicyJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RecentErrors performs a GET /api/system/errors (the `RecentErrors` operationId) request.
-	//
-	// Return the most recent admin-facing diagnostics: typed error conditions raised by daemon components, each with a message and a remediation hint. Fed by the domain event bus rather than by scraping log lines. Powers the dashboard's "recent errors" panel. Admin only.
-	RecentErrors(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// DownloadLogs performs a GET /api/system/logs/download (the `DownloadLogs` operationId) request.
 	//
 	// Download the full daemon log file as a plain-text attachment. Served with Content-Disposition: attachment so browsers prompt to save. Admin only.
@@ -7129,6 +7272,36 @@ type ClientInterface interface {
 	//
 	// Liveness/readiness probe. Returns 200 with status `UP` when every registered health check passes (after debounce), or 503 with status `DOWN` when any component is down. Unauthenticated by design — reachable by load balancers and uptime monitors without a session. See issue #214.
 	Health(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// ListAnomalies performs a GET /api/anomalies (the `ListAnomalies` operationId) request.
+//
+// List anomalies: typed conditions raised by daemon components, each with a message and a remediation hint. Defaults to the ones still open, which is what the dashboard shows. Filter by `subject_id` to ask what is currently wrong with one entity — a tunnel card uses this to surface that tunnel's error. Admin only.
+func (c *Client) ListAnomalies(ctx context.Context, params *ListAnomaliesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAnomaliesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ReevaluateAnomalies performs a POST /api/anomalies/reevaluate (the `ReevaluateAnomalies` operationId) request.
+//
+// Re-check every open anomaly against the world and resolve the ones whose condition no longer holds, instead of waiting for the next scheduled pass. Resolving an anomaly that was alerted also sends the matching recovery notification. Admin only.
+func (c *Client) ReevaluateAnomalies(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewReevaluateAnomaliesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // LoginWithBody performs a POST /api/auth/login (the `Login` operationId) request,
@@ -10295,21 +10468,6 @@ func (c *Client) SetDefaultPolicy(ctx context.Context, body SetDefaultPolicyJSON
 	return c.Client.Do(req)
 }
 
-// RecentErrors performs a GET /api/system/errors (the `RecentErrors` operationId) request.
-//
-// Return the most recent admin-facing diagnostics: typed error conditions raised by daemon components, each with a message and a remediation hint. Fed by the domain event bus rather than by scraping log lines. Powers the dashboard's "recent errors" panel. Admin only.
-func (c *Client) RecentErrors(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRecentErrorsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 // DownloadLogs performs a GET /api/system/logs/download (the `DownloadLogs` operationId) request.
 //
 // Download the full daemon log file as a plain-text attachment. Served with Content-Disposition: attachment so browsers prompt to save. Admin only.
@@ -10760,6 +10918,111 @@ func (c *Client) Health(ctx context.Context, reqEditors ...RequestEditorFn) (*ht
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewListAnomaliesRequest constructs an http.Request for the ListAnomalies method
+func NewListAnomaliesRequest(server string, params *ListAnomaliesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/anomalies")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Status != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.SubjectId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "subject_id", *params.SubjectId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewReevaluateAnomaliesRequest constructs an http.Request for the ReevaluateAnomalies method
+func NewReevaluateAnomaliesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/anomalies/reevaluate")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
 }
 
 // NewLoginRequest calls the generic Login builder with application/json body
@@ -16253,33 +16516,6 @@ func NewSetDefaultPolicyRequestWithBody(server string, contentType string, body 
 	return req, nil
 }
 
-// NewRecentErrorsRequest constructs an http.Request for the RecentErrors method
-func NewRecentErrorsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/system/errors")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
 // NewDownloadLogsRequest constructs an http.Request for the DownloadLogs method
 func NewDownloadLogsRequest(server string) (*http.Request, error) {
 	var err error
@@ -17133,6 +17369,20 @@ func WithBaseURL(baseURL string) ClientOption {
 
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
+
+	// ListAnomaliesWithResponse performs a GET /api/anomalies (the `ListAnomalies` operationId) request.
+	//
+	// List anomalies: typed conditions raised by daemon components, each with a message and a remediation hint. Defaults to the ones still open, which is what the dashboard shows. Filter by `subject_id` to ask what is currently wrong with one entity — a tunnel card uses this to surface that tunnel's error. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ListAnomaliesWithResponse(ctx context.Context, params *ListAnomaliesParams, reqEditors ...RequestEditorFn) (*ListAnomaliesResp, error)
+
+	// ReevaluateAnomaliesWithResponse performs a POST /api/anomalies/reevaluate (the `ReevaluateAnomalies` operationId) request.
+	//
+	// Re-check every open anomaly against the world and resolve the ones whose condition no longer holds, instead of waiting for the next scheduled pass. Resolving an anomaly that was alerted also sends the matching recovery notification. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ReevaluateAnomaliesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReevaluateAnomaliesResp, error)
 
 	// LoginWithBodyWithResponse performs a POST /api/auth/login (the `Login` operationId) request,
 	// with any type of body and a specified content type.
@@ -18556,13 +18806,6 @@ type ClientWithResponsesInterface interface {
 	// Set the global default routing policy. Body `policy` must be either the literal string "direct" or a tunnel UUID. The change is persisted in `system_config` and applied in-memory immediately — devices whose stored rule is `Default` pick up the new policy on their next apply or reconcile. Admin only.
 	SetDefaultPolicyWithResponse(ctx context.Context, body SetDefaultPolicyJSONRequestBody, reqEditors ...RequestEditorFn) (*SetDefaultPolicyResp, error)
 
-	// RecentErrorsWithResponse performs a GET /api/system/errors (the `RecentErrors` operationId) request.
-	//
-	// Return the most recent admin-facing diagnostics: typed error conditions raised by daemon components, each with a message and a remediation hint. Fed by the domain event bus rather than by scraping log lines. Powers the dashboard's "recent errors" panel. Admin only.
-	//
-	// Returns a wrapper object for the known response body format(s).
-	RecentErrorsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*RecentErrorsResp, error)
-
 	// DownloadLogsWithResponse performs a GET /api/system/logs/download (the `DownloadLogs` operationId) request.
 	//
 	// Download the full daemon log file as a plain-text attachment. Served with Content-Disposition: attachment so browsers prompt to save. Admin only.
@@ -18774,6 +19017,202 @@ type ClientWithResponsesInterface interface {
 	//
 	// Returns a wrapper object for the known response body format(s).
 	HealthWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*HealthResp, error)
+}
+
+type ListAnomaliesResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ListAnomaliesResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListAnomaliesResp) GetJSON200() *ListAnomaliesResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListAnomaliesResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListAnomaliesResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListAnomaliesResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListAnomaliesResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAnomaliesResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAnomaliesResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAnomaliesResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ReevaluateAnomaliesResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ReevaluateSummary
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ReevaluateAnomaliesResp) GetJSON200() *ReevaluateSummary {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ReevaluateAnomaliesResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ReevaluateAnomaliesResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ReevaluateAnomaliesResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ReevaluateAnomaliesResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ReevaluateAnomaliesResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ReevaluateAnomaliesResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ReevaluateAnomaliesResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type LoginResp struct {
@@ -34141,104 +34580,6 @@ func (r SetDefaultPolicyResp) ContentType() string {
 	return ""
 }
 
-type RecentErrorsResp struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *RecentErrorsResponse
-	// JSON401 the response for an HTTP 401 `application/json` response
-	JSON401 *struct {
-		Detail *string `json:"detail,omitempty"`
-		Error  string  `json:"error"`
-
-		// RequestId Request ID for correlation with server logs.
-		RequestId *string `json:"request_id,omitempty"`
-	}
-	// JSON403 the response for an HTTP 403 `application/json` response
-	JSON403 *struct {
-		Detail *string `json:"detail,omitempty"`
-		Error  string  `json:"error"`
-
-		// RequestId Request ID for correlation with server logs.
-		RequestId *string `json:"request_id,omitempty"`
-	}
-	// JSON500 the response for an HTTP 500 `application/json` response
-	JSON500 *struct {
-		Detail *string `json:"detail,omitempty"`
-		Error  string  `json:"error"`
-
-		// RequestId Request ID for correlation with server logs.
-		RequestId *string `json:"request_id,omitempty"`
-	}
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r RecentErrorsResp) GetJSON200() *RecentErrorsResponse {
-	return r.JSON200
-}
-
-// GetJSON401 returns the response for an HTTP 401 `application/json` response
-func (r RecentErrorsResp) GetJSON401() *struct {
-	Detail *string `json:"detail,omitempty"`
-	Error  string  `json:"error"`
-
-	// RequestId Request ID for correlation with server logs.
-	RequestId *string `json:"request_id,omitempty"`
-} {
-	return r.JSON401
-}
-
-// GetJSON403 returns the response for an HTTP 403 `application/json` response
-func (r RecentErrorsResp) GetJSON403() *struct {
-	Detail *string `json:"detail,omitempty"`
-	Error  string  `json:"error"`
-
-	// RequestId Request ID for correlation with server logs.
-	RequestId *string `json:"request_id,omitempty"`
-} {
-	return r.JSON403
-}
-
-// GetJSON500 returns the response for an HTTP 500 `application/json` response
-func (r RecentErrorsResp) GetJSON500() *struct {
-	Detail *string `json:"detail,omitempty"`
-	Error  string  `json:"error"`
-
-	// RequestId Request ID for correlation with server logs.
-	RequestId *string `json:"request_id,omitempty"`
-} {
-	return r.JSON500
-}
-
-// GetBody returns the raw response body bytes
-func (r RecentErrorsResp) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r RecentErrorsResp) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r RecentErrorsResp) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r RecentErrorsResp) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type DownloadLogsResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -36856,6 +37197,32 @@ func (r HealthResp) ContentType() string {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
+}
+
+// ListAnomaliesWithResponse performs a GET /api/anomalies (the `ListAnomalies` operationId) request.
+//
+// List anomalies: typed conditions raised by daemon components, each with a message and a remediation hint. Defaults to the ones still open, which is what the dashboard shows. Filter by `subject_id` to ask what is currently wrong with one entity — a tunnel card uses this to surface that tunnel's error. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ListAnomaliesWithResponse(ctx context.Context, params *ListAnomaliesParams, reqEditors ...RequestEditorFn) (*ListAnomaliesResp, error) {
+	rsp, err := c.ListAnomalies(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAnomaliesResp(rsp)
+}
+
+// ReevaluateAnomaliesWithResponse performs a POST /api/anomalies/reevaluate (the `ReevaluateAnomalies` operationId) request.
+//
+// Re-check every open anomaly against the world and resolve the ones whose condition no longer holds, instead of waiting for the next scheduled pass. Resolving an anomaly that was alerted also sends the matching recovery notification. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ReevaluateAnomaliesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReevaluateAnomaliesResp, error) {
+	rsp, err := c.ReevaluateAnomalies(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseReevaluateAnomaliesResp(rsp)
 }
 
 // LoginWithBodyWithResponse performs a POST /api/auth/login (the `Login` operationId) request,
@@ -39498,19 +39865,6 @@ func (c *ClientWithResponses) SetDefaultPolicyWithResponse(ctx context.Context, 
 	return ParseSetDefaultPolicyResp(rsp)
 }
 
-// RecentErrorsWithResponse performs a GET /api/system/errors (the `RecentErrors` operationId) request.
-//
-// Return the most recent admin-facing diagnostics: typed error conditions raised by daemon components, each with a message and a remediation hint. Fed by the domain event bus rather than by scraping log lines. Powers the dashboard's "recent errors" panel. Admin only.
-//
-// Returns a wrapper object for the known response body format(s).
-func (c *ClientWithResponses) RecentErrorsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*RecentErrorsResp, error) {
-	rsp, err := c.RecentErrors(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseRecentErrorsResp(rsp)
-}
-
 // DownloadLogsWithResponse performs a GET /api/system/logs/download (the `DownloadLogs` operationId) request.
 //
 // Download the full daemon log file as a plain-text attachment. Served with Content-Disposition: attachment so browsers prompt to save. Admin only.
@@ -39895,6 +40249,136 @@ func (c *ClientWithResponses) HealthWithResponse(ctx context.Context, reqEditors
 		return nil, err
 	}
 	return ParseHealthResp(rsp)
+}
+
+// ParseListAnomaliesResp parses an HTTP response from a ListAnomaliesWithResponse call
+func ParseListAnomaliesResp(rsp *http.Response) (*ListAnomaliesResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAnomaliesResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListAnomaliesResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseReevaluateAnomaliesResp parses an HTTP response from a ReevaluateAnomaliesWithResponse call
+func ParseReevaluateAnomaliesResp(rsp *http.Response) (*ReevaluateAnomaliesResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ReevaluateAnomaliesResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ReevaluateSummary
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseLoginResp parses an HTTP response from a LoginWithResponse call
@@ -50201,71 +50685,6 @@ func ParseSetDefaultPolicyResp(rsp *http.Response) (*SetDefaultPolicyResp, error
 			return nil, err
 		}
 		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest struct {
-			Detail *string `json:"detail,omitempty"`
-			Error  string  `json:"error"`
-
-			// RequestId Request ID for correlation with server logs.
-			RequestId *string `json:"request_id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest struct {
-			Detail *string `json:"detail,omitempty"`
-			Error  string  `json:"error"`
-
-			// RequestId Request ID for correlation with server logs.
-			RequestId *string `json:"request_id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest struct {
-			Detail *string `json:"detail,omitempty"`
-			Error  string  `json:"error"`
-
-			// RequestId Request ID for correlation with server logs.
-			RequestId *string `json:"request_id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseRecentErrorsResp parses an HTTP response from a RecentErrorsWithResponse call
-func ParseRecentErrorsResp(rsp *http.Response) (*RecentErrorsResp, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &RecentErrorsResp{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest RecentErrorsResponse
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest struct {
