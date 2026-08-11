@@ -172,3 +172,103 @@ fn ordinary_events_are_ignored() {
         assert!(report_from_event(&event).is_none());
     }
 }
+
+// ---------------------------------------------------------------------------
+// The running listener
+// ---------------------------------------------------------------------------
+
+use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
+use std::time::Duration;
+
+use async_trait::async_trait;
+use wardnet_common::anomaly::{Anomaly, AnomalyFilter, AnomalyReport, ReevaluateSummary};
+
+use crate::anomaly::listener::AnomalyListener;
+use crate::anomaly::service::AnomalyService;
+use crate::error::AppError;
+use crate::event::{BroadcastEventBus, EventPublisher};
+
+#[derive(Default)]
+struct RecordingService {
+    submitted: StdMutex<Vec<AnomalyType>>,
+}
+
+impl RecordingService {
+    fn submitted(&self) -> Vec<AnomalyType> {
+        self.submitted.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl AnomalyService for RecordingService {
+    async fn list(&self, _f: AnomalyFilter, _l: u32) -> Result<Vec<Anomaly>, AppError> {
+        unimplemented!()
+    }
+    async fn submit(&self, report: AnomalyReport) -> Result<(), AppError> {
+        self.submitted.lock().unwrap().push(report.anomaly_type);
+        Ok(())
+    }
+    async fn resolve(&self, _id: Uuid) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn run_detector(&self, _t: AnomalyType) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn reevaluate_all(&self) -> Result<ReevaluateSummary, AppError> {
+        unimplemented!()
+    }
+    fn schedule(&self) -> Vec<(AnomalyType, Duration)> {
+        Vec::new()
+    }
+}
+
+/// Wait for the listener to drain, without pinning a sleep long enough to be
+/// flaky on a loaded machine.
+async fn settle(service: &Arc<RecordingService>, expected: usize) {
+    for _ in 0..200 {
+        if service.submitted().len() >= expected {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+}
+
+#[tokio::test]
+async fn the_listener_submits_error_events_and_ignores_the_rest() {
+    let events: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+    let service = Arc::new(RecordingService::default());
+    let listener = AnomalyListener::start(&events, service.clone(), &tracing::Span::current());
+
+    events.publish(WardnetEvent::TunnelStartFailed {
+        tunnel_id: Uuid::new_v4(),
+        interface_name: "wg_ward0".to_owned(),
+        error: "boom".to_owned(),
+        timestamp: Utc::now(),
+    });
+    events.publish(WardnetEvent::DnsServerStarted {
+        timestamp: Utc::now(),
+    });
+
+    settle(&service, 1).await;
+    listener.shutdown().await;
+
+    assert_eq!(service.submitted(), vec![AnomalyType::TunnelStartFailed]);
+}
+
+#[tokio::test]
+async fn the_listener_exits_when_the_event_bus_closes() {
+    let bus = Arc::new(BroadcastEventBus::new(16));
+    let events: Arc<dyn EventPublisher> = bus.clone();
+    let service = Arc::new(RecordingService::default());
+    let listener = AnomalyListener::start(&events, service, &tracing::Span::current());
+
+    drop(events);
+    drop(bus);
+
+    // Completes because the loop breaks on `Closed`, not because it is
+    // cancelled — a listener that ignored the close would hang here.
+    tokio::time::timeout(Duration::from_secs(5), listener.shutdown())
+        .await
+        .expect("listener should exit when the bus closes");
+}

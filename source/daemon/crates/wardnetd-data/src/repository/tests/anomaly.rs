@@ -424,3 +424,95 @@ async fn find_by_id_returns_none_for_an_unknown_id() {
     let repo = repo().await;
     assert!(repo.find_by_id(Uuid::new_v4()).await.unwrap().is_none());
 }
+
+/// A row whose id is not a UUID cannot be acted on, so it is skipped rather
+/// than failing the listing it appears in.
+#[tokio::test]
+async fn rows_with_an_unparseable_id_are_skipped() {
+    let pool = test_pool().await;
+    sqlx::query(
+        "INSERT INTO anomalies (id, anomaly_type, message, opened_at, last_seen_at) \
+         VALUES ('not-a-uuid', 'route_table_lost', 'nonsense', ?, ?)",
+    )
+    .bind(T1)
+    .bind(T1)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert!(
+        SqliteAnomalyRepository::new(pool)
+            .list_open()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn rows_with_unparseable_timestamps_are_skipped() {
+    let pool = test_pool().await;
+    sqlx::query(
+        "INSERT INTO anomalies (id, anomaly_type, message, opened_at, last_seen_at) \
+         VALUES (?, 'route_table_lost', 'nonsense', 'yesterday', 'yesterday')",
+    )
+    .bind(Uuid::new_v4().to_string())
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    assert!(
+        SqliteAnomalyRepository::new(pool)
+            .list_open()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+/// Malformed `details` costs the payload, not the anomaly: the admin still
+/// needs to be told the condition exists.
+#[tokio::test]
+async fn a_row_with_malformed_details_keeps_the_anomaly_and_drops_the_payload() {
+    let pool = test_pool().await;
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO anomalies (id, anomaly_type, message, details, opened_at, last_seen_at) \
+         VALUES (?, 'route_table_lost', 'table 100 was lost', '{oops', ?, ?)",
+    )
+    .bind(id.to_string())
+    .bind(T1)
+    .bind(T1)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let open = SqliteAnomalyRepository::new(pool)
+        .list_open()
+        .await
+        .unwrap();
+
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].id, id);
+    assert!(open[0].details.is_none());
+}
+
+/// `format_ts` and `parse_ts` are two halves of one contract: a timestamp the
+/// service writes has to be one the repository can read back.
+#[tokio::test]
+async fn timestamps_written_by_the_service_round_trip() {
+    let repo = repo().await;
+    let now = chrono::Utc::now();
+    let id = repo
+        .open(blocklist_anomaly(
+            Uuid::new_v4(),
+            Some("bl-1"),
+            &crate::repository::sqlite::format_ts(now),
+        ))
+        .await
+        .unwrap()
+        .unwrap();
+
+    let stored = repo.find_by_id(id).await.unwrap().unwrap();
+    assert_eq!(stored.opened_at.timestamp(), now.timestamp());
+}
