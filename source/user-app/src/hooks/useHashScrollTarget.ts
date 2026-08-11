@@ -45,13 +45,20 @@ const TAKEOVER_EVENTS = [
  * the service worker calls `existing.navigate(…#fragment)`, a fragment-only
  * same-document navigation that fires `hashchange` but never `popstate` — and
  * `BrowserRouter` only listens to the latter, so the router's hash would stay
- * stale in exactly the case this exists for.
+ * stale in exactly the case this exists for. For the same reason the live
+ * `window.location.hash` is what the hook trusts, and a fragment that moves off
+ * the target releases the hold.
+ *
+ * The user always outranks the hold: the first scroll gesture ends it for the
+ * rest of this navigation, because scrolling away *is* an answer to the deep
+ * link. Only a new fragment revives it.
  *
  * @param targetHash Fragment that targets this element, including the `#`.
  * @param rearmOn Any value that changes when the element's *own* content
  *   changes (typically a query's `isLoading`). A change re-arms the window, so
  *   a query that resolves after `SETTLE_WINDOW_MS` still lands the user on the
- *   content instead of on the placeholder it replaced.
+ *   content instead of on the placeholder it replaced — unless they have
+ *   already scrolled away.
  * @returns Ref to attach to the element that should be scrolled to.
  */
 export function useHashScrollTarget<T extends HTMLElement>(
@@ -59,6 +66,11 @@ export function useHashScrollTarget<T extends HTMLElement>(
   rearmOn?: unknown,
 ): RefObject<T | null> {
   const ref = useRef<T>(null);
+  // Both survive effect re-runs, which is the point: `rearmOn` changing must
+  // not resurrect a hold the user already dismissed, and must not be mistaken
+  // for a fresh navigation.
+  const releasedRef = useRef(false);
+  const armedFragmentRef = useRef<string | null>(null);
   const { hash: routerHash } = useLocation();
 
   useEffect(() => {
@@ -66,6 +78,9 @@ export function useHashScrollTarget<T extends HTMLElement>(
     let stop = () => {};
 
     const arm = () => {
+      // Scrolling away is an answer to the deep link — a query resolving a
+      // moment later must not yank the reader back to where they left.
+      if (releasedRef.current) return;
       const el = ref.current;
       if (!el) return;
       // A second deep link restarts the window rather than stacking observers.
@@ -86,13 +101,19 @@ export function useHashScrollTarget<T extends HTMLElement>(
         observer.disconnect();
         window.clearTimeout(timer);
         for (const type of TAKEOVER_EVENTS) {
-          window.removeEventListener(type, disarm);
+          window.removeEventListener(type, release);
         }
         stop = () => {};
       };
+      // The window merely expiring leaves the deep link answerable — a late
+      // query may still re-arm. A user gesture ends it for good.
+      const release = () => {
+        releasedRef.current = true;
+        disarm();
+      };
       timer = window.setTimeout(disarm, SETTLE_WINDOW_MS);
       for (const type of TAKEOVER_EVENTS) {
-        window.addEventListener(type, disarm, { passive: true });
+        window.addEventListener(type, release, { passive: true });
       }
       stop = disarm;
     };
@@ -100,12 +121,29 @@ export function useHashScrollTarget<T extends HTMLElement>(
     // Named `fragment` rather than `hash`: the `security` ESLint plugin's
     // timing-attack heuristic keys off the identifier, and a URL fragment is
     // not a secret.
-    const armIfTargeted = (fragment: string) => {
-      if (fragment === targetHash) arm();
+    const retarget = (fragment: string) => {
+      if (fragment !== armedFragmentRef.current) {
+        // A fragment we haven't seen is a fresh navigation, so it outranks an
+        // earlier release: the reader asked to be taken somewhere again.
+        armedFragmentRef.current = fragment;
+        releasedRef.current = false;
+      }
+      if (fragment === targetHash) {
+        arm();
+      } else {
+        // The fragment moved off us — let go rather than keep dragging the
+        // page back to a target the URL no longer names. The effect does not
+        // re-run to clean this up on its own: a fragment-only navigation
+        // leaves the router's hash untouched.
+        stop();
+      }
     };
 
-    armIfTargeted(routerHash || window.location.hash);
-    const onHashChange = () => armIfTargeted(window.location.hash);
+    // The live fragment outranks the router's: on the fragment-only navigation
+    // above, `useLocation()` is stale by construction. It is empty under a
+    // MemoryRouter (tests, and any non-browser history), hence the fallback.
+    retarget(window.location.hash || routerHash);
+    const onHashChange = () => retarget(window.location.hash);
     window.addEventListener("hashchange", onHashChange);
     return () => {
       window.removeEventListener("hashchange", onHashChange);

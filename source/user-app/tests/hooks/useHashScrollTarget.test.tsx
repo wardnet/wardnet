@@ -119,6 +119,75 @@ describe("useHashScrollTarget", () => {
     expect(observer.disconnected).toBe(true);
   });
 
+  it("does not scroll back after a takeover, even when content settles", () => {
+    const { rerender } = renderAt(
+      <Target rearmOn={true} />,
+      `/settings${TARGET_HASH}`,
+    );
+    // Scrolling away *is* an answer to the deep link.
+    window.dispatchEvent(new Event("touchstart"));
+
+    rerender(<Target rearmOn={false} />);
+
+    // The re-arm path must not resurrect a hold the user dismissed, so the
+    // takeover has to outlive the effect that owned it.
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(FakeResizeObserver.instances).toHaveLength(1);
+  });
+
+  it("revives the hold when a new deep link arrives after a takeover", () => {
+    const navigateTo = (fragment: string) => {
+      const url = new URL(window.location.href);
+      url.hash = fragment;
+      window.history.pushState(null, "", url);
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    };
+
+    renderAt(<Target />, `/settings${TARGET_HASH}`);
+    window.dispatchEvent(new Event("wheel"));
+
+    // Navigating elsewhere and back is a fresh request to be taken somewhere,
+    // which outranks the earlier takeover. (A repeat tap on the *same*
+    // fragment fires no `hashchange` at all — the URL never changes.)
+    navigateTo("#elsewhere");
+    navigateTo(TARGET_HASH);
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(2);
+  });
+
+  it("lets go when the fragment moves off the target", () => {
+    renderAt(<Target />, `/settings${TARGET_HASH}`);
+    const observer = FakeResizeObserver.last;
+
+    // The router's hash stays stale across a fragment-only navigation, so the
+    // effect never re-runs to clean this up — the listener has to.
+    const url = new URL(window.location.href);
+    url.hash = "#elsewhere";
+    window.history.pushState(null, "", url);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+    observer.fire();
+
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+    expect(observer.disconnected).toBe(true);
+  });
+
+  it("does not re-arm from a router hash the URL has moved off", () => {
+    vi.useFakeTimers();
+    const { rerender } = renderAt(
+      <Target rearmOn={true} />,
+      `/settings${TARGET_HASH}`,
+    );
+    const url = new URL(window.location.href);
+    url.hash = "#elsewhere";
+    window.history.pushState(null, "", url);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+
+    rerender(<Target rearmOn={false} />);
+
+    // `useLocation()` still reports the old fragment here; the live one wins.
+    expect(scrollIntoView).toHaveBeenCalledTimes(1);
+  });
+
   it("arms on a fragment-only navigation that only fires hashchange", () => {
     // The SW's `existing.navigate(…#target)` on an already-open app is a
     // same-document navigation: `hashchange` fires, `popstate` does not, so
