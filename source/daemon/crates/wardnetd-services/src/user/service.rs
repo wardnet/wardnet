@@ -325,19 +325,30 @@ impl UserServiceImpl {
         provider: OauthProvider,
     ) -> Result<(String, String, String), AppError> {
         let status = self.oauth_config.status(provider).await?;
+
+        // A missing hostname is checked before the blanket `enabled` flag
+        // because `enabled` already folds `fqdn.is_some()` in: reporting "not
+        // configured" to an admin who filled the provider form in correctly
+        // sends them back to the wrong screen. Only say that when they have in
+        // fact not configured it.
+        let Some(redirect_uri) = status.redirect_uri else {
+            return Err(AppError::Conflict(if status.configured {
+                "this box has no canonical public hostname, so federated sign-in \
+                 cannot work; set up remote access first"
+                    .to_owned()
+            } else {
+                format!(
+                    "{} sign-in is not configured on this box",
+                    provider.as_str()
+                )
+            }));
+        };
         if !status.enabled {
             return Err(AppError::Conflict(format!(
                 "{} sign-in is not configured on this box",
                 provider.as_str()
             )));
         }
-        let redirect_uri = status.redirect_uri.ok_or_else(|| {
-            AppError::Conflict(
-                "this box has no canonical public hostname, so federated sign-in \
-                 cannot work; set up remote access first"
-                    .to_owned(),
-            )
-        })?;
         let client_id = self
             .oauth_config
             .client_id(provider)
