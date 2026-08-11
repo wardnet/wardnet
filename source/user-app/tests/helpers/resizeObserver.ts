@@ -34,7 +34,9 @@ export class FakeResizeObserver {
 
   /** The observer currently driving the page. */
   static get last(): FakeResizeObserver {
-    const observer = FakeResizeObserver.instances.at(-1);
+    // Not `.at(-1)`: the app compiles against the ES2020 lib.
+    const { instances } = FakeResizeObserver;
+    const observer = instances[instances.length - 1];
     if (!observer) throw new Error("no ResizeObserver was created");
     return observer;
   }
