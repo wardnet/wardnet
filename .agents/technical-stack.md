@@ -23,6 +23,13 @@
 - Linked via Yarn `portal:` protocol from all app surfaces (`"@wardnet/js": "portal:../sdk/wardnet-js"`)
 - Yarn 4 with `nodeLinker: node-modules`
 
+## SDK (`wardnet.network/go`) and `wctl`
+
+- Go 1.26; `internal/rest` is generated from `docs/openapi.json` with oapi-codegen and stays unexported, the public surface is hand-written
+- `github.com/coder/websocket` — WebSocket client for the daemon's log stream (`GET /api/system/logs/stream`), the one endpoint that cannot go through the generated REST client
+- `wctl` builds on the SDK: cobra for the command tree, BurntSushi/toml for `wctl.toml`, `golang.org/x/term` for no-echo passphrase prompts
+- `wctl` reaches the SDK through a `replace` directive, so the two move together
+
 ## Shared React library (`@wardnet/web`)
 - Lives at `source/web/`; linked via `"@wardnet/web": "portal:../web"`
 - Contains all shared TanStack Query hooks (useTunnels, useRebuildTunnel, useCombinedTunnelStats, useDevices, useStats, …), shared components (LoginForm, JobProgressDescription), Zustand stores, and utility functions
