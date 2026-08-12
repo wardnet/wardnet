@@ -35,6 +35,7 @@ import { useOnlineStatusContext } from "@/context/OnlineStatusContext";
 import { useBiometric } from "@/hooks/useBiometric";
 import { BusyOverlay } from "@/components/BusyOverlay";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { AnomaliesList } from "@/components/AnomaliesList";
 import { SectionLabel } from "@/components/SectionLabel";
 import { Bar } from "@/components/Bar";
 
@@ -483,6 +484,10 @@ export default function System() {
               </div>
             </div>
           </div>
+
+          {/* ── Anomalies: what is wrong right now, above the feed of
+                 what has happened. Renders nothing when all is well. ── */}
+          <AnomaliesList />
 
           {/* ── Notifications section (issue #482) ── */}
           <NotificationsSection />

@@ -6,6 +6,15 @@ use crate::routing::{RoutingTarget, RuleCreator};
 use crate::tunnel::TunnelStatus;
 use crate::update::InstallPhase;
 
+/// [`WardnetEvent::TunnelDown::reason`] for a tunnel whose kernel interface
+/// vanished without the daemon tearing it down.
+///
+/// This reason is load-bearing: it is the one `TunnelDown` that means
+/// "something is wrong" rather than "an admin asked for this", so both the
+/// push service and the anomaly listener single it out. It lives here as a
+/// constant so the publisher and its consumers cannot drift apart on a typo.
+pub const TUNNEL_DOWN_INTERFACE_ABSENT: &str = "interface absent";
+
 /// Domain events emitted by the Wardnet daemon.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]

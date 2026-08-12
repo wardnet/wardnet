@@ -54,7 +54,21 @@ vi.mock("@/components/compound/PageHeader", () => ({
   ),
 }));
 vi.mock("@/components/features/DnsFilterSettingsCard", () => ({
-  DnsFilterSettingsCard: () => <div>settings-card</div>,
+  DnsFilterSettingsCard: ({
+    onThresholdSave,
+  }: {
+    onThresholdSave: (threshold: number) => void;
+  }) => (
+    <div>
+      settings-card
+      <button
+        data-testid="stub-save-threshold"
+        onClick={() => onThresholdSave(9)}
+      >
+        save threshold
+      </button>
+    </div>
+  ),
 }));
 vi.mock("@/components/compound/EmptyStatePlaceholder", () => ({
   EmptyStatePlaceholder: ({
@@ -203,5 +217,18 @@ describe("DnsFilter", () => {
     renderWithProviders(<DnsFilter />);
     const row = screen.getByText("Family").closest("tr")!;
     expect(within(row).getByRole("switch")).toBeDisabled();
+  });
+
+  it("saves a new blocklist failure-alert threshold through the config mutation", async () => {
+    const user = userEvent.setup();
+    renderWithProviders(<DnsFilter />);
+
+    await user.click(screen.getByTestId("stub-save-threshold"));
+
+    // Only the threshold is sent: the kill switch and the default-profile set
+    // share this mutation, so a full-object write would clobber them.
+    expect(configMutate).toHaveBeenCalledWith({
+      blocklist_failure_alert_threshold: 9,
+    });
   });
 });

@@ -1,7 +1,12 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { ProviderInfo, Tunnel, TunnelSpeedTestResult } from "@wardnet/js";
+import type {
+  Anomaly,
+  ProviderInfo,
+  Tunnel,
+  TunnelSpeedTestResult,
+} from "@wardnet/js";
 import { TunnelCard } from "@/components/compound/TunnelCard";
 import type { TunnelTestOutcome } from "@/components/compound/TunnelCard";
 import { renderWithProviders } from "../../test-utils";
@@ -133,6 +138,35 @@ describe("TunnelCard", () => {
     renderCard({ testOutcome });
     expect(screen.getByText("9.9.9.9")).toBeInTheDocument();
     expect(screen.getByText("42 ms")).toBeInTheDocument();
+  });
+
+  it("shows the open anomaly as the tunnel's current error", () => {
+    // There is no `last_error` on a tunnel: the open anomaly whose subject is
+    // this tunnel *is* its current error, which is what #225 asked to surface.
+    const anomaly: Anomaly = {
+      id: "an-1",
+      type: "tunnel_start_failed",
+      severity: "error",
+      component: "tunnel",
+      subject_id: "tun-1",
+      message: "handshake timed out",
+      hint: "check the endpoint and keys",
+      details: null,
+      opened_at: "2026-08-01T00:00:00Z",
+      last_seen_at: "2026-08-01T00:00:00Z",
+      occurrences: 1,
+      resolved_at: null,
+    };
+    renderCard({ anomaly });
+
+    const alert = screen.getByTestId("tunnel-anomaly");
+    expect(alert).toHaveTextContent("handshake timed out");
+    expect(alert).toHaveTextContent("check the endpoint and keys");
+  });
+
+  it("shows no anomaly footer when the tunnel is healthy", () => {
+    renderCard({ anomaly: null });
+    expect(screen.queryByTestId("tunnel-anomaly")).not.toBeInTheDocument();
   });
 
   it("renders an error alert when testOutcome carries an error", () => {

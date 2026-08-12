@@ -38,6 +38,7 @@ fn dns_filter_config_round_trip() {
     let cfg = DnsFilterConfig {
         enabled: false,
         default_profile_ids: vec![Uuid::new_v4(), Uuid::new_v4()],
+        blocklist_failure_alert_threshold: 5,
     };
     let json = serde_json::to_string(&cfg).unwrap();
     let back: DnsFilterConfig = serde_json::from_str(&json).unwrap();

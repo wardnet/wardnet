@@ -4,14 +4,16 @@
 //! domain events every few seconds. The goal is to make the Activity / Logs
 //! UI look alive during web-ui development, not to simulate real behaviour.
 //!
-//! Only two event variants are emitted right now because they are the only
-//! ones whose `serde` shape is safe to fabricate without cascading state
-//! changes in the daemon:
+//! Only variants whose `serde` shape is safe to fabricate without cascading
+//! state changes in the daemon are emitted:
 //!
 //! * [`WardnetEvent::TunnelStatsUpdated`] — fakes `bytes_tx`/`bytes_rx` growth
 //!   for each seeded tunnel so the Tunnels page charts scroll.
 //! * [`WardnetEvent::DnsServerStarted`] / [`WardnetEvent::DnsServerStopped`]
 //!   toggle every minute so the DNS status card animates.
+//! * The anomaly-raising events, rotated by [`emit_fake_anomaly_event`] — the
+//!   anomaly subsystem is event-driven, so a mock that never fails leaves
+//!   every detector correct and every anomalies view empty.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,14 +22,95 @@ use chrono::Utc;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
-use wardnet_common::event::WardnetEvent;
+use wardnet_common::event::{TUNNEL_DOWN_INTERFACE_ABSENT, WardnetEvent};
 use wardnet_common::tunnel::TunnelStatus;
+use wardnet_common::update::InstallPhase;
 use wardnetd_data::repository::QueryLogRow;
 use wardnetd_services::dns::DnsLogSink;
 use wardnetd_services::event::EventPublisher;
 
 /// How often the emitter publishes a batch of fake events.
 const EMIT_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Publish one anomaly-raising event, rotating through the catalogue.
+///
+/// The anomaly subsystem is entirely event-driven, so without this the mock
+/// runs every detector against a box where nothing ever goes wrong and the
+/// anomalies UI is permanently empty — the one state it deliberately renders
+/// as nothing at all. Injecting the failures is what makes the feature
+/// reviewable before it merges.
+///
+/// `round` selects the variant rather than an RNG, matching how the byte
+/// counters above stay non-uniform without one: a dev watching the page sees
+/// every kind in turn instead of waiting on chance. Re-raising a variant is
+/// harmless — anomalies deduplicate on (type, subject), so a repeat refreshes
+/// `last_seen_at` and bumps `occurrences` rather than piling up, which is
+/// itself worth being able to watch.
+fn emit_fake_anomaly_event(publisher: &Arc<dyn EventPublisher>, tunnel_ids: &[Uuid], round: u64) {
+    let now = Utc::now();
+    // Which tunnel an event names is not cosmetic. Every tunnel detector
+    // re-checks its subject's live status, so aiming one at the wrong tunnel
+    // opens an anomaly the next reevaluate immediately closes.
+    //
+    // Index 1 is the seeded `Down` tunnel (wg_ward1). `TunnelStartFailed`
+    // resolves only on `Up` or deleted, so pointing it there leaves one
+    // durable tunnel anomaly to look at — enough for the Tunnels page badge
+    // and the anomaly's deep link into the tunnel. The others rotate across
+    // all three: `TunnelUnhealthy` resolves on `Up` *and* `Down`, so against
+    // this seed it cannot stay open, and watching it open then close is the
+    // reevaluate path doing its job rather than a fault.
+    let down_tunnel = tunnel_ids.get(1).or_else(|| tunnel_ids.first()).copied();
+    let rotating = tunnel_ids
+        .get(usize::try_from(round % 3).unwrap_or(0) % tunnel_ids.len().max(1))
+        .copied();
+
+    let event = match round % 6 {
+        0 => down_tunnel.map(|tunnel_id| WardnetEvent::TunnelStartFailed {
+            tunnel_id,
+            interface_name: "wg_ward1".to_owned(),
+            error: "handshake timed out after 15s".to_owned(),
+            timestamp: now,
+        }),
+        1 => rotating.map(|tunnel_id| WardnetEvent::TunnelReconnecting {
+            tunnel_id,
+            interface_name: format!("wg_ward{}", round % 3),
+            last_handshake: Some(now - chrono::Duration::minutes(7)),
+            timestamp: now,
+        }),
+        // Only this reason is an anomaly; every other TunnelDown is a
+        // deliberate tear-down, so fabricating one of those would prove
+        // nothing about the listener.
+        2 => rotating.map(|tunnel_id| WardnetEvent::TunnelDown {
+            tunnel_id,
+            interface_name: format!("wg_ward{}", round % 3),
+            reason: TUNNEL_DOWN_INTERFACE_ABSENT.to_owned(),
+            timestamp: now,
+        }),
+        3 => Some(WardnetEvent::UpdateFailed {
+            target_version: "2026.08.01".to_owned(),
+            phase: InstallPhase::Verifying,
+            error: "checksum mismatch".to_owned(),
+            timestamp: now,
+        }),
+        // No production publisher raises this one yet, so the mock is the only
+        // place its detector and its (deliberately unlinkable) UI row can be
+        // seen at all.
+        4 => Some(WardnetEvent::DhcpConflictDetected {
+            mac: "AA:BB:CC:DD:EE:01".to_owned(),
+            ip: "192.168.1.42".to_owned(),
+            details: "two hosts replied to the same probe".to_owned(),
+            timestamp: now,
+        }),
+        _ => Some(WardnetEvent::RouteTableLost {
+            table: 100,
+            timestamp: now,
+        }),
+    };
+
+    if let Some(event) = event {
+        publisher.publish(event);
+    }
+}
 
 /// Handle for the background event emitter. Call [`FakeEventEmitter::shutdown`]
 /// to stop the task cleanly.
@@ -102,6 +185,13 @@ impl FakeEventEmitter {
                                 capture_target.as_ref(),
                                 tick,
                             );
+                        }
+
+                        // Rotate one anomaly-raising event every 6 ticks
+                        // (~30s), so the anomalies UI has something to show
+                        // within half a minute of `make run-dev`.
+                        if tick.is_multiple_of(6) {
+                            emit_fake_anomaly_event(&publisher, &tunnel_ids, tick / 6);
                         }
 
                         // Toggle DNS server status every 12 ticks (~1 minute).

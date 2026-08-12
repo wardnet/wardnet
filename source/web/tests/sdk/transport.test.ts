@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 import {
   BackupService,
-  SystemService,
   WardnetClient,
-  type SystemDiagnostic,
-  type RecentErrorsResponse,
+  AnomalyService,
+  type Anomaly,
+  type ListAnomaliesResponse,
   type UpdateTunnelDnsOverrideRequest,
   type UpdateTunnelDnsOverrideResponse,
 } from "@wardnet/js";
@@ -108,17 +108,23 @@ describe("WardnetClient transport seam", () => {
   });
 });
 
-describe("SystemService.getRecentErrors", () => {
-  it("GETs /system/errors and returns the typed payload", async () => {
-    const payload: RecentErrorsResponse = {
-      errors: [
+describe("AnomalyService.list", () => {
+  it("GETs /anomalies and returns the typed payload", async () => {
+    const payload: ListAnomaliesResponse = {
+      anomalies: [
         {
-          timestamp: "2026-07-12T00:00:00Z",
-          code: "dns_upstream_timeout",
+          id: "00000000-0000-0000-0000-000000000001",
+          type: "blocklist_refresh_failing",
           severity: "error",
           component: "dns",
-          message: "upstream timeout",
-          hint: "check the configured upstream resolvers",
+          subject_id: "bl-1",
+          message: 'Blocklist "HaGeZi" has failed to refresh 7 times',
+          hint: "check the URL is still reachable",
+          details: { profile_id: "p-1" },
+          opened_at: "2026-08-01T00:00:00Z",
+          last_seen_at: "2026-08-01T06:00:00Z",
+          occurrences: 7,
+          resolved_at: null,
         },
       ],
     };
@@ -127,13 +133,52 @@ describe("SystemService.getRecentErrors", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
 
-    const system = new SystemService(new WardnetClient({ baseUrl: "/api" }));
-    const result = await system.getRecentErrors();
+    const anomalies = new AnomalyService(
+      new WardnetClient({ baseUrl: "/api" }),
+    );
+    const result = await anomalies.list();
 
     const [url] = fetchMock.mock.calls[0];
-    expect(url).toBe("/api/system/errors");
-    const first: SystemDiagnostic = result.errors[0];
-    expect(first.message).toBe("upstream timeout");
+    expect(url).toBe("/api/anomalies");
+    const first: Anomaly = result.anomalies[0];
+    expect(first.type).toBe("blocklist_refresh_failing");
+    expect(first.subject_id).toBe("bl-1");
+  });
+
+  it("passes the status, subject and limit filters through", async () => {
+    const fetchMock = vi.fn<FetchFn>(async () =>
+      fakeResponse({ json: { anomalies: [] } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const anomalies = new AnomalyService(
+      new WardnetClient({ baseUrl: "/api" }),
+    );
+    await anomalies.list({ status: "all", subject_id: "tun-1", limit: 5 });
+
+    const [url] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain("status=all");
+    expect(String(url)).toContain("subject_id=tun-1");
+    expect(String(url)).toContain("limit=5");
+  });
+});
+
+describe("AnomalyService.reevaluate", () => {
+  it("POSTs /anomalies/reevaluate and returns the summary", async () => {
+    const fetchMock = vi.fn<FetchFn>(async () =>
+      fakeResponse({ json: { evaluated: 4, resolved: 1 } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const anomalies = new AnomalyService(
+      new WardnetClient({ baseUrl: "/api" }),
+    );
+    const result = await anomalies.reevaluate();
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/anomalies/reevaluate");
+    expect(init?.method).toBe("POST");
+    expect(result.resolved).toBe(1);
   });
 });
 

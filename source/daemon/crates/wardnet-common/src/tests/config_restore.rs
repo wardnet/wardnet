@@ -7,10 +7,11 @@
 //! [`every_config_key_is_classified`].
 
 use crate::config::{
-    AdminConfig, ApplicationConfiguration, AuthConfig, DatabaseConfig, DdnsWardnetConfig,
-    DetectionConfig, EnabledMetrics, HealthConfig, LoggingConfig, MdnsConfig, NetworkConfig,
-    OtelConfig, OtelLogsConfig, OtelMetricsConfig, OtelTracesConfig, PyroscopeConfig, ServerConfig,
-    TestConfig, TunnelConfig, UpdateConfig, VpnProvidersConfig, WatchdogConfig,
+    AdminConfig, AnomaliesConfig, ApplicationConfiguration, AuthConfig, DatabaseConfig,
+    DdnsWardnetConfig, DetectionConfig, EnabledMetrics, HealthConfig, LoggingConfig, MdnsConfig,
+    NetworkConfig, OtelConfig, OtelLogsConfig, OtelMetricsConfig, OtelTracesConfig,
+    PyroscopeConfig, ServerConfig, TestConfig, TunnelConfig, UpdateConfig, VpnProvidersConfig,
+    WatchdogConfig,
 };
 use crate::config_restore::{
     ConfigRestoreError, DEPLOY_TIME_ONLY_KEYS, check_bundle_config, preserve_deploy_time_keys,
@@ -31,7 +32,6 @@ const RESTORABLE_KEYS: &[&str] = &[
     "logging.filters",
     "logging.rotation",
     "logging.max_log_files",
-    "logging.max_recent_errors",
     "logging.broadcast_capacity",
     "logging.ui_suppressed_targets",
     "logging.journal_suppressed_targets",
@@ -81,6 +81,9 @@ const RESTORABLE_KEYS: &[&str] = &[
     "otel.metrics.enabled_metrics.wardnet_db_size_bytes",
     "otel.metrics.enabled_metrics.wardnet_disk_free_bytes",
     "vpn_providers.enabled",
+    "anomalies.reevaluate_interval_secs",
+    "anomalies.detect_timeout_secs",
+    "anomalies.enabled",
     "pyroscope.enabled",
     "pyroscope.endpoint",
     "mdns.enabled",
@@ -138,6 +141,7 @@ fn declared_paths() -> Vec<String> {
         "vpn_providers",
         declared_field_names::<VpnProvidersConfig>(),
     );
+    add("anomalies", declared_field_names::<AnomaliesConfig>());
     add("ddns_wardnet", declared_field_names::<DdnsWardnetConfig>());
     add("pyroscope", declared_field_names::<PyroscopeConfig>());
     add("update", declared_field_names::<UpdateConfig>());

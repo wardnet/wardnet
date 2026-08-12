@@ -7,7 +7,6 @@ const { systemService, client } = vi.hoisted(() => ({
   systemService: {
     getStatus: vi.fn(),
     acknowledgeShutdown: vi.fn(),
-    getRecentErrors: vi.fn(),
   },
   client: { request: vi.fn() },
 }));
@@ -16,7 +15,6 @@ vi.mock("../../src/lib/sdk", () => ({ systemService, client }));
 import {
   useSystemStatus,
   useAcknowledgeShutdown,
-  useRecentErrors,
 } from "../../src/hooks/useSystemStatus";
 
 describe("useSystemStatus", () => {
@@ -40,15 +38,5 @@ describe("useSystemStatus", () => {
       await result.current.mutateAsync();
     });
     expect(systemService.acknowledgeShutdown).toHaveBeenCalledOnce();
-  });
-
-  it("fetches recent errors through SystemService", async () => {
-    systemService.getRecentErrors.mockResolvedValue({ errors: [] });
-    const { result } = renderHook(() => useRecentErrors(), {
-      wrapper: createQueryWrapper(),
-    });
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    expect(systemService.getRecentErrors).toHaveBeenCalledOnce();
-    expect(client.request).not.toHaveBeenCalled();
   });
 });

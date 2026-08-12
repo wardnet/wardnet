@@ -55,31 +55,3 @@ export interface SetDefaultPolicyRequest {
 export interface SetDefaultPolicyResponse {
   policy: string;
 }
-
-/**
- * A structured, admin-facing problem report raised by a daemon component,
- * paired with a plain-language message and a remediation hint. Mirrors the
- * daemon's `ApiDiagnostic`.
- */
-export interface SystemDiagnostic {
-  /** ISO 8601 timestamp of when the underlying condition occurred. */
-  timestamp: string;
-  /** Stable machine-readable class identifier, e.g. `tunnel_start_failed`. */
-  code: string;
-  /** One of `error`, `warning`, `info`. */
-  severity: string;
-  /** The subsystem that raised it. */
-  component: string;
-  /** Plain-language description of what happened. */
-  message: string;
-  /** What the admin can do about it. */
-  hint: string;
-}
-
-/**
- * Response for GET /api/system/errors — the most recent admin-facing
- * diagnostics from the daemon (currently the last 15 entries).
- */
-export interface RecentErrorsResponse {
-  errors: SystemDiagnostic[];
-}

@@ -3,6 +3,7 @@
 //! Each module provides a concrete `Sqlite*Repository` struct that implements
 //! the corresponding trait from the parent [`repository`](super) module.
 
+pub mod anomaly;
 pub mod api_key;
 pub mod device;
 pub mod device_identification;
@@ -30,6 +31,7 @@ pub mod user_credential;
 pub mod user_enrolment;
 pub mod zone_exception;
 
+pub use anomaly::{SqliteAnomalyRepository, format_ts};
 pub use api_key::SqliteApiKeyRepository;
 pub use device::SqliteDeviceRepository;
 pub use device_identification::SqliteDeviceIdentificationRepository;

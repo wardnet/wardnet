@@ -28,6 +28,10 @@ on:
         description: "Run the TS frontend (web + apps) coverage."
         type: boolean
         default: false
+      run-go:
+        description: "Run Go (wctl + SDK) coverage."
+        type: boolean
+        default: false
     secrets:
       CODECOV_TOKEN:
         description: |
@@ -251,9 +255,61 @@ jobs:
           path: coverage/
           retention-days: 1
 
+  go-coverage:
+    name: Go coverage
+    if: inputs.run-go
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: source/wctl/go.mod
+          cache-dependency-path: source/wctl/go.sum
+
+      - name: Generate Go coverage profiles
+        # One profile per module, written INSIDE the module it measures.
+        # `go test -coverprofile` is module-scoped — run above a module and it
+        # measures nothing — which is also why bulwark discovers each module
+        # and reads `<moduleDir>/coverage.out` rather than expecting one file
+        # at the scan root (wardnet/bulwark#28).
+        #
+        # Both modules run in one job: they merge into a single "go" pool, and
+        # recording half of it as if it were the whole is what poisoned the
+        # typescript baseline once (see the run-site/run-frontend note in
+        # pr.yml).
+        run: |
+          set -euo pipefail
+          for dir in source/wctl source/sdk/wardnet-go; do
+            (cd "$dir" && go test ./... -covermode=set -coverprofile=coverage.out)
+          done
+
+      - name: Collect into shared layout
+        # Keyed by module directory so the bulwark job can put each profile
+        # back where its own module-relative candidate search looks for it.
+        run: |
+          set -euo pipefail
+          mkdir -p coverage/go-profiles/wctl coverage/go-profiles/sdk-wardnet-go
+          cp source/wctl/coverage.out coverage/go-profiles/wctl/coverage.out
+          cp source/sdk/wardnet-go/coverage.out coverage/go-profiles/sdk-wardnet-go/coverage.out
+
+      - name: Upload Go coverage artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: coverage-go
+          path: coverage/
+          retention-days: 1
+
   bulwark:
     name: bulwark
-    needs: [daemon-coverage, site-coverage, frontend-coverage]
+    needs: [daemon-coverage, site-coverage, frontend-coverage, go-coverage]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     # Run whenever at least one producer actually ran, so a partial
@@ -262,7 +318,8 @@ jobs:
       always() && (
         needs.daemon-coverage.result == 'success' ||
         needs.site-coverage.result == 'success' ||
-        needs.frontend-coverage.result == 'success'
+        needs.frontend-coverage.result == 'success' ||
+        needs.go-coverage.result == 'success'
       )
     permissions:
       contents: write # bulwark coverage caches baselines on the bulwark-state branch
@@ -342,6 +399,13 @@ jobs:
           name: coverage-frontend
           path: coverage/
 
+      - name: Download Go coverage
+        if: needs.go-coverage.result == 'success'
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-go
+          path: coverage/
+
       - name: Restore per-package coverage reports for bulwark
         # bulwark's TS coverage auto-discovery reads
         # <pkgDir>/coverage/{coverage-summary.json,lcov.info} in-place (no
@@ -372,6 +436,18 @@ jobs:
             rust_lcov_report="daemon/coverage/lcov.info"
           fi
           echo "rust-lcov-report=${rust_lcov_report}" >> "$GITHUB_OUTPUT"
+          # Go: each module's profile goes back inside that module, where
+          # bulwark's per-module candidate search (coverage.out / cover.out /
+          # c.out, relative to the module dir) finds it with no flag. Passing
+          # --go-report would work too, but only as a keyed override per
+          # module — the default lookup is simpler and stays correct if a
+          # third module ever appears.
+          if [[ -f coverage/go-profiles/wctl/coverage.out ]]; then
+            cp coverage/go-profiles/wctl/coverage.out source/wctl/coverage.out
+          fi
+          if [[ -f coverage/go-profiles/sdk-wardnet-go/coverage.out ]]; then
+            cp coverage/go-profiles/sdk-wardnet-go/coverage.out source/sdk/wardnet-go/coverage.out
+          fi
           for pkg in web admin-site admin-app user-app marketing-site; do
             for file in coverage-summary.json lcov.info; do
               src="coverage/pkg-summaries/$pkg/$file"

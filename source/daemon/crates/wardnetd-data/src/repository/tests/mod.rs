@@ -1,3 +1,4 @@
+mod anomaly;
 mod api_key;
 mod device;
 mod device_identification;

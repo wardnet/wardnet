@@ -20,6 +20,8 @@ const H = vi.hoisted(() => ({
   useUpdateFilterRule: vi.fn(),
   useDeleteFilterRule: vi.fn(),
   navigate: vi.fn(),
+  // Mutable so a spec can drive the `#blocklist-<id>` deep-link anchor.
+  location: { hash: "" } as { hash: string },
 }));
 
 vi.mock("react-router", async (io) => {
@@ -27,6 +29,7 @@ vi.mock("react-router", async (io) => {
   return {
     ...actual,
     useParams: () => ({ id: "prof-1" }),
+    useLocation: () => H.location,
     useNavigate: () => H.navigate,
   };
 });
@@ -82,6 +85,20 @@ vi.mock("@/components/compound/BlocklistTable", () => ({
     <div>
       <span>bl-count:{blocklists.length}</span>
       <button onClick={onAdd}>bl-add</button>
+      {/* The real table anchors each row with `blocklist-<id>` so an anomaly
+          deep link can scroll to it; the stub reproduces that, inside a `tr`,
+          because the anchor hook highlights the row via `closest("tr")`. */}
+      <table>
+        <tbody>
+          {blocklists.map((b) => (
+            <tr key={b.id}>
+              <td>
+                <div id={`blocklist-${b.id}`} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       {blocklists[0] && (
         <>
           <button onClick={() => onEdit(blocklists[0])}>bl-edit</button>
@@ -169,6 +186,9 @@ let deleteRule: ReturnType<typeof mutation>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Plain object: clearAllMocks does not reset it, so a hash set by one spec
+  // would otherwise leak into the next.
+  H.location = { hash: "" };
   updateProfile = mutation();
   deleteProfile = mutation();
   createBlocklist = mutation();
@@ -385,5 +405,33 @@ describe("DnsFilterProfile", () => {
     await user.click(screen.getByText("fr-delete"));
     await user.click(screen.getByText("confirm:Delete filter rule"));
     expect(deleteRule.mutate).toHaveBeenCalledWith("r1");
+  });
+
+  // An anomaly deep link lands on this page with a `#blocklist-<id>` hash,
+  // because a blocklist has no page of its own. Without the scroll-and-
+  // highlight the admin arrives at a profile with a dozen lists and no idea
+  // which one is failing.
+  it("scrolls to and highlights the blocklist named by the hash", () => {
+    // jsdom implements neither; the component calls scrollIntoView directly.
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+    H.location = { hash: "#blocklist-b1" };
+
+    renderWithProviders(<DnsFilterProfile />);
+
+    const anchor = document.getElementById("blocklist-b1");
+    expect(anchor).not.toBeNull();
+    expect(scrollIntoView).toHaveBeenCalled();
+    expect(anchor?.closest("tr")).toHaveClass("anomaly-target");
+  });
+
+  it("leaves the rows alone when there is no blocklist hash", () => {
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    renderWithProviders(<DnsFilterProfile />);
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+    expect(document.querySelector(".anomaly-target")).toBeNull();
   });
 });

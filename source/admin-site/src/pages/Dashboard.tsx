@@ -1,10 +1,10 @@
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DashboardStatCard } from "@/components/compound/DashboardStatCard";
 import { DhcpSummaryCard } from "@/components/compound/DhcpSummaryCard";
-import { RecentErrorsCard } from "@/components/compound/RecentErrorsCard";
+import { AnomaliesCard } from "@/components/compound/AnomaliesCard";
 import { DashboardLogWidget } from "@/components/features/DashboardLogWidget";
 import { DashboardRemoteAccessBanner } from "@/components/features/DashboardRemoteAccessBanner";
-import { useSystemStatus, useRecentErrors, useTlsStatus } from "@wardnet/web";
+import { useSystemStatus, useAnomalies, useTlsStatus } from "@wardnet/web";
 import { useDevices } from "@wardnet/web";
 import { useTunnels } from "@wardnet/web";
 import { useDhcpStatus } from "@wardnet/web";
@@ -18,7 +18,7 @@ export default function Dashboard() {
   const { data: devicesData } = useDevices();
   const { data: tunnelsData } = useTunnels();
   const { data: dhcpStatus } = useDhcpStatus();
-  const { data: errorsData } = useRecentErrors();
+  const { data: anomaliesData } = useAnomalies();
   const {
     data: dnsStats,
     isError: dnsStatsError,
@@ -127,7 +127,7 @@ export default function Dashboard() {
         </div>
 
         {/* Recent errors */}
-        <RecentErrorsCard errors={errorsData?.errors ?? []} />
+        <AnomaliesCard anomalies={anomaliesData?.anomalies ?? []} />
 
         {/* Live log stream */}
         <DashboardLogWidget />

@@ -70,6 +70,50 @@ describe("BlocklistTable", () => {
     expect(screen.getByText("Disabled")).toBeInTheDocument();
   });
 
+  it("summarises consecutive failures and when the daemon retries next", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-08-01T00:00:00Z"));
+    try {
+      renderWithProviders(
+        <BlocklistTable
+          blocklists={[
+            makeBlocklist({
+              last_error: "404 Not Found",
+              last_error_at: "2026-08-01T00:00:00Z",
+              consecutive_failures: 3,
+            }),
+          ]}
+          onAdd={vi.fn()}
+          onEdit={vi.fn()}
+          onDelete={vi.fn()}
+          onToggle={vi.fn()}
+          onRefresh={vi.fn()}
+        />,
+      );
+
+      // 3 failures is the third backoff step: 20 minutes from the last one.
+      expect(
+        screen.getByText("failed 3 times, next retry in 20m"),
+      ).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows no failure summary for a healthy list", () => {
+    renderWithProviders(
+      <BlocklistTable
+        blocklists={[makeBlocklist()]}
+        onAdd={vi.fn()}
+        onEdit={vi.fn()}
+        onDelete={vi.fn()}
+        onToggle={vi.fn()}
+        onRefresh={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/failed .* times/)).not.toBeInTheDocument();
+  });
+
   it("opens the edit sheet on row click", async () => {
     const user = userEvent.setup();
     const onEdit = vi.fn();

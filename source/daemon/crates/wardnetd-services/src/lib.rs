@@ -11,13 +11,13 @@ pub mod stats;
 pub mod subnet;
 pub mod version;
 
+pub mod anomaly;
 pub mod auth;
 pub mod backup;
 pub mod cloud;
 pub mod ddns;
 pub mod device;
 pub mod dhcp;
-pub mod diagnostics;
 pub mod dns;
 pub mod dns_filter;
 pub mod dns_local;
@@ -59,6 +59,7 @@ use crate::dns::log_sink::{DnsLogSink, DnsLogSinkChannels};
 use crate::stats::Meter;
 use crate::stats::service::StatsServiceImpl;
 
+use crate::anomaly::{AnomalyDetectorRegistry, AnomalyService, AnomalyServiceImpl, DetectorDeps};
 use crate::auth::AuthServiceImpl;
 use crate::backup::BackupServiceImpl;
 use crate::backup::archiver::AgeArchiver;
@@ -87,6 +88,7 @@ use crate::vpn::{VpnProviderRegistry, VpnProviderServiceImpl};
 use crate::zone_enforcement::ZoneEnforcementServiceImpl;
 use crate::zone_exception::ZoneExceptionServiceImpl;
 
+pub use crate::anomaly::{AnomalyListener, listener::report_from_event};
 pub use crate::auth::AuthService;
 pub use crate::backup::BackupService;
 pub use crate::ddns::DdnsService;
@@ -232,6 +234,7 @@ pub struct Services {
     pub device: Arc<dyn DeviceService>,
     pub dhcp: Arc<dyn DhcpService>,
     pub dns: Arc<dyn DnsService>,
+    pub anomaly: Arc<dyn AnomalyService>,
     pub dns_filter: Arc<dyn DnsFilterService>,
     pub dns_local: Arc<dyn DnsLocalService>,
     /// Dynamic-DNS service: registers/keeps the public A record current via the
@@ -825,6 +828,27 @@ fn create_services(
         config,
     );
 
+    // Detectors talk to services, so the registry is built last — every
+    // service it reaches for already exists by this point.
+    let anomaly_registry = Arc::new(AnomalyDetectorRegistry::new(
+        &config.anomalies.enabled,
+        &DetectorDeps {
+            dns_filter: dns_filter_service.clone(),
+            tunnel: tunnel_service.clone(),
+            running_version: crate::version::RELEASE_VERSION.to_owned(),
+        },
+    ));
+    let anomaly_service: Arc<dyn AnomalyService> = Arc::new(
+        AnomalyServiceImpl::new(
+            repo_factory.anomaly(),
+            anomaly_registry,
+            push_service.clone(),
+        )
+        .with_detector_timeout(std::time::Duration::from_secs(
+            config.anomalies.detect_timeout_secs,
+        )),
+    );
+
     let device_ip_snapshot = Arc::new(device::DeviceIpSnapshot::new(device_repo.clone()));
 
     Services {
@@ -834,6 +858,7 @@ fn create_services(
         device: device_service,
         dhcp: dhcp_service,
         dns: dns_service,
+        anomaly: anomaly_service,
         dns_filter: dns_filter_service,
         dns_local: dns_local_service,
         ddns,

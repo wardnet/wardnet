@@ -3,9 +3,6 @@ use axum::body::Body;
 use axum::extract::State;
 use axum::http::header;
 use axum::response::IntoResponse;
-use chrono::{DateTime, Utc};
-use serde::Serialize;
-use utoipa::ToSchema;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use wardnet_common::api::{
@@ -15,7 +12,6 @@ use wardnet_common::api::{
 use crate::api::middleware::SessionAuth;
 use crate::api::responses::AuthErrors;
 use crate::state::AppState;
-use wardnetd_services::diagnostics::Diagnostic;
 use wardnetd_services::error::AppError;
 
 /// Register system routes (status, log download, recent errors,
@@ -25,7 +21,6 @@ use wardnetd_services::error::AppError;
 pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
     router
         .routes(routes!(status))
-        .routes(routes!(recent_errors))
         .routes(routes!(download_logs))
         .routes(routes!(restart))
         .routes(routes!(reboot))
@@ -246,72 +241,4 @@ pub async fn acknowledge_shutdown(
 ) -> Result<axum::http::StatusCode, AppError> {
     state.system_service().acknowledge_last_shutdown().await?;
     Ok(axum::http::StatusCode::NO_CONTENT)
-}
-
-/// API-layer mirror of [`wardnetd_services::diagnostics::Diagnostic`] that
-/// carries an `OpenAPI` schema. The service-layer type lives in a crate that
-/// does not depend on `utoipa`; mirroring it here keeps the schema boundary
-/// aligned with the HTTP API without leaking the docs dependency into the
-/// services crate. The `code` and `severity` enums are flattened to their
-/// stable string forms.
-#[derive(Debug, Serialize, ToSchema)]
-pub struct ApiDiagnostic {
-    /// When the underlying condition occurred.
-    pub timestamp: DateTime<Utc>,
-    /// Stable machine-readable class identifier, e.g. `tunnel_start_failed`.
-    pub code: String,
-    /// One of `error`, `warning`, `info`.
-    pub severity: String,
-    /// The subsystem that raised it.
-    pub component: String,
-    /// Plain-language description of what happened.
-    pub message: String,
-    /// What the admin can do about it.
-    pub hint: String,
-}
-
-impl From<Diagnostic> for ApiDiagnostic {
-    fn from(d: Diagnostic) -> Self {
-        Self {
-            timestamp: d.timestamp,
-            code: d.code.as_str().to_owned(),
-            severity: d.severity.as_str().to_owned(),
-            component: d.component.to_owned(),
-            message: d.message,
-            hint: d.hint,
-        }
-    }
-}
-
-/// Response for GET /api/system/errors.
-#[derive(Debug, Serialize, ToSchema)]
-pub struct RecentErrorsResponse {
-    pub errors: Vec<ApiDiagnostic>,
-}
-
-#[utoipa::path(
-    get,
-    path = "/api/system/errors",
-    tag = "system",
-    description = "Return the most recent admin-facing diagnostics: typed error \
-                   conditions raised by daemon components, each with a message \
-                   and a remediation hint. Fed by the domain event bus rather \
-                   than by scraping log lines. Powers the dashboard's \"recent \
-                   errors\" panel. Admin only.",
-    responses(
-        (status = 200, description = "Recent diagnostics", body = RecentErrorsResponse),
-        AuthErrors,
-    ),
-)]
-pub async fn recent_errors(
-    State(state): State<AppState>,
-    _auth: SessionAuth,
-) -> Result<Json<RecentErrorsResponse>, AppError> {
-    let errors = state
-        .log_service()
-        .get_recent_errors()?
-        .into_iter()
-        .map(ApiDiagnostic::from)
-        .collect();
-    Ok(Json(RecentErrorsResponse { errors }))
 }

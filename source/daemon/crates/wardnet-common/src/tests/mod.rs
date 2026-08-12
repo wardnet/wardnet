@@ -1,3 +1,4 @@
+mod anomaly;
 mod api;
 mod auth;
 mod config;

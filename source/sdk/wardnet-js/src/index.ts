@@ -7,6 +7,7 @@ export { WardnetClient, WardnetApiError } from "./client.js";
 export type { WardnetClientOptions } from "./client.js";
 
 // Services
+export { AnomalyService } from "./services/anomaly.js";
 export { AuthService } from "./services/auth.js";
 export { DeviceService } from "./services/devices.js";
 export { TunnelService } from "./services/tunnels.js";
@@ -92,12 +93,21 @@ export type {
 // Types — auth
 export type { LoginRequest, LoginResponse, MeResponse } from "./types/auth.js";
 
+// Types — anomalies
+export type {
+  Anomaly,
+  AnomalySeverity,
+  AnomalyStatusFilter,
+  AnomalyType,
+  ListAnomaliesParams,
+  ListAnomaliesResponse,
+  ReevaluateAnomaliesResponse,
+} from "./types/anomaly.js";
+
 // Types — system
 export type {
   LastShutdownState,
   LastShutdownStatus,
-  SystemDiagnostic,
-  RecentErrorsResponse,
   SetDefaultPolicyRequest,
   SetDefaultPolicyResponse,
   SystemStatusResponse,

@@ -763,6 +763,7 @@ async fn update_filter_config_partial_update_semantics() {
             .update_filter_config(UpdateDnsFilterConfigRequest {
                 enabled: Some(false),
                 default_profile_ids: Some(Vec::new()),
+                blocklist_failure_alert_threshold: None,
             })
             .await
             .unwrap();
@@ -775,6 +776,7 @@ async fn update_filter_config_partial_update_semantics() {
             .update_filter_config(UpdateDnsFilterConfigRequest {
                 enabled: Some(true),
                 default_profile_ids: None,
+                blocklist_failure_alert_threshold: None,
             })
             .await
             .unwrap();
@@ -796,6 +798,7 @@ async fn update_filter_config_accepts_multi_default() {
             .update_filter_config(UpdateDnsFilterConfigRequest {
                 enabled: None,
                 default_profile_ids: Some(vec![parental, malware]),
+                blocklist_failure_alert_threshold: None,
             })
             .await
             .unwrap();
@@ -829,6 +832,7 @@ async fn update_filter_config_dedupes_duplicate_default_ids() {
             .update_filter_config(UpdateDnsFilterConfigRequest {
                 enabled: None,
                 default_profile_ids: Some(vec![parental, parental, parental]),
+                blocklist_failure_alert_threshold: None,
             })
             .await
             .unwrap();
@@ -1217,6 +1221,7 @@ async fn update_filter_config_with_unknown_default_profile_returns_not_found() {
             .update_filter_config(UpdateDnsFilterConfigRequest {
                 enabled: None,
                 default_profile_ids: Some(vec![Uuid::new_v4()]),
+                blocklist_failure_alert_threshold: None,
             })
             .await
             .unwrap_err();
@@ -1373,6 +1378,7 @@ async fn check_passes_when_global_emergency_stop_off() {
             .update_filter_config(UpdateDnsFilterConfigRequest {
                 enabled: Some(false),
                 default_profile_ids: None,
+                blocklist_failure_alert_threshold: None,
             })
             .await
             .unwrap();

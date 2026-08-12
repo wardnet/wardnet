@@ -4,7 +4,12 @@ import { sortByLabel } from "@wardnet/web";
 import { TunnelCard } from "./TunnelCard";
 import type { TunnelTestOutcome } from "./TunnelCard";
 import { EmptyStatePlaceholder } from "./EmptyStatePlaceholder";
-import type { Tunnel, ProviderInfo, TunnelSpeedTestResult } from "@wardnet/js";
+import type {
+  Anomaly,
+  Tunnel,
+  ProviderInfo,
+  TunnelSpeedTestResult,
+} from "@wardnet/js";
 
 interface TunnelGridProps {
   /** Rendered alphabetically by label regardless of the order passed in. */
@@ -20,6 +25,12 @@ interface TunnelGridProps {
   testOutcomes: Record<string, TunnelTestOutcome>;
   /** Latest speed-test result keyed by tunnel id. */
   speedTestResults: Record<string, TunnelSpeedTestResult | null>;
+  /**
+   * Open anomalies keyed by the tunnel they are about. The page fetches the
+   * whole list once and indexes it by `subject_id`, rather than each card
+   * asking the daemon about itself.
+   */
+  anomaliesByTunnel?: Record<string, Anomaly>;
   /** Tunnel whose connectivity test is in flight, if any. */
   testingId: string | null;
   /** Tunnel whose rebuild is in flight, if any. */
@@ -44,6 +55,7 @@ export function TunnelGrid({
   onSpeedTest,
   testOutcomes,
   speedTestResults,
+  anomaliesByTunnel,
   testingId,
   rebuildingId,
   speedTestRunningId,
@@ -87,6 +99,7 @@ export function TunnelGrid({
         // them as unused.)
         const testOutcome = testOutcomes[tunnel.id] ?? null;
         const speedTestResult = speedTestResults[tunnel.id] ?? null;
+        const anomaly = anomaliesByTunnel?.[tunnel.id] ?? null;
         return (
           <TunnelCard
             key={tunnel.id}
@@ -98,6 +111,7 @@ export function TunnelGrid({
             onSpeedTest={onSpeedTest}
             testOutcome={testOutcome}
             speedTestResult={speedTestResult}
+            anomaly={anomaly}
             testing={testingId === tunnel.id}
             rebuilding={rebuildingId === tunnel.id}
             speedTestRunning={speedTestRunningId === tunnel.id}

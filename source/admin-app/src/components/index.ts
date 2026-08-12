@@ -6,3 +6,4 @@ export { BusyOverlay } from "./BusyOverlay";
 export type { BusyPhase, BusyAction } from "./BusyOverlay";
 export { SectionLabel } from "./SectionLabel";
 export { Bar } from "./Bar";
+export { AnomaliesList } from "./AnomaliesList";

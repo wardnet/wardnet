@@ -2,7 +2,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { StatusBadge } from "@/components/compound/StatusBadge";
-import { timeAgo, Text } from "@wardnet/web";
+import { blocklistFailureSummary, timeAgo, Text } from "@wardnet/web";
 import type { Blocklist } from "@wardnet/js";
 
 function createColumns(): ColumnDef<Blocklist>[] {
@@ -14,7 +14,13 @@ function createColumns(): ColumnDef<Blocklist>[] {
       // space; long URLs truncate via the inner spans (see fixedLayout
       // note on the DataTable below).
       cell: ({ row }) => (
-        <div className="col min-w-0 gap-0.5">
+        // The `blocklist-<id>` anchor is what an anomaly deep link scrolls to:
+        // a blocklist has no page of its own, so the link lands on this
+        // profile page and the hash picks out the row.
+        <div
+          id={`blocklist-${row.original.id}`}
+          className="col min-w-0 gap-0.5 scroll-mt-24"
+        >
           <Text as="span" weight="medium" className="truncate">
             {row.original.name}
           </Text>
@@ -34,6 +40,11 @@ function createColumns(): ColumnDef<Blocklist>[] {
               title={row.original.last_error}
             >
               {row.original.last_error}
+            </Text>
+          )}
+          {blocklistFailureSummary(row.original) && (
+            <Text as="span" size="xs" className="truncate text-ink-3">
+              {blocklistFailureSummary(row.original)}
             </Text>
           )}
         </div>

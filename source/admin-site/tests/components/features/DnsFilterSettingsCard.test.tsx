@@ -6,7 +6,12 @@ import { DnsFilterSettingsCard } from "@/components/features/DnsFilterSettingsCa
 import { renderWithProviders } from "../../test-utils";
 
 function makeConfig(over: Partial<DnsFilterConfig> = {}): DnsFilterConfig {
-  return { enabled: true, default_profile_ids: [], ...over };
+  return {
+    enabled: true,
+    default_profile_ids: [],
+    blocklist_failure_alert_threshold: 5,
+    ...over,
+  };
 }
 
 describe("DnsFilterSettingsCard", () => {
@@ -16,6 +21,7 @@ describe("DnsFilterSettingsCard", () => {
         config={makeConfig({ enabled: true })}
         isLoading={false}
         onToggle={vi.fn()}
+        onThresholdSave={vi.fn()}
       />,
     );
 
@@ -30,6 +36,7 @@ describe("DnsFilterSettingsCard", () => {
         config={makeConfig({ enabled: false })}
         isLoading={false}
         onToggle={onToggle}
+        onThresholdSave={vi.fn()}
       />,
     );
 
@@ -47,6 +54,7 @@ describe("DnsFilterSettingsCard", () => {
         config={undefined}
         isLoading={false}
         onToggle={vi.fn()}
+        onThresholdSave={vi.fn()}
       />,
     );
     expect(screen.getByText("Disabled")).toBeInTheDocument();
@@ -58,8 +66,106 @@ describe("DnsFilterSettingsCard", () => {
         config={makeConfig()}
         isLoading
         onToggle={vi.fn()}
+        onThresholdSave={vi.fn()}
       />,
     );
     expect(screen.getByLabelText("Enable DNS filtering")).toBeDisabled();
+  });
+
+  it("saves an edited failure-alert threshold", async () => {
+    const onThresholdSave = vi.fn();
+    renderWithProviders(
+      <DnsFilterSettingsCard
+        config={makeConfig()}
+        isLoading={false}
+        onToggle={vi.fn()}
+        onThresholdSave={onThresholdSave}
+      />,
+    );
+
+    // Save only appears once the value actually differs from the server's.
+    expect(
+      screen.queryByTestId("save-blocklist-failure-alert-threshold"),
+    ).not.toBeInTheDocument();
+
+    const input = screen.getByTestId("blocklist-failure-alert-threshold");
+    await userEvent.clear(input);
+    await userEvent.type(input, "10");
+    await userEvent.click(
+      screen.getByTestId("save-blocklist-failure-alert-threshold"),
+    );
+
+    expect(onThresholdSave).toHaveBeenCalledWith(10);
+  });
+
+  // Cancel exists so an admin can back out of an edit without having to
+  // remember what the server value was.
+  it("restores the server value when an edit is cancelled", async () => {
+    renderWithProviders(
+      <DnsFilterSettingsCard
+        config={makeConfig({ blocklist_failure_alert_threshold: 5 })}
+        isLoading={false}
+        onToggle={vi.fn()}
+        onThresholdSave={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByTestId("blocklist-failure-alert-threshold");
+    await userEvent.clear(input);
+    await userEvent.type(input, "10");
+    expect(input).toHaveValue(10);
+
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(input).toHaveValue(5);
+    expect(
+      screen.queryByTestId("save-blocklist-failure-alert-threshold"),
+    ).not.toBeInTheDocument();
+  });
+
+  // A completed save — or another admin changing the setting — must not be
+  // masked by a stale buffer still showing the old edit.
+  it("drops a stale edit when the server value changes underneath it", async () => {
+    const { rerender } = renderWithProviders(
+      <DnsFilterSettingsCard
+        config={makeConfig({ blocklist_failure_alert_threshold: 5 })}
+        isLoading={false}
+        onToggle={vi.fn()}
+        onThresholdSave={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByTestId("blocklist-failure-alert-threshold");
+    await userEvent.clear(input);
+    await userEvent.type(input, "10");
+    expect(input).toHaveValue(10);
+
+    rerender(
+      <DnsFilterSettingsCard
+        config={makeConfig({ blocklist_failure_alert_threshold: 7 })}
+        isLoading={false}
+        onToggle={vi.fn()}
+        onThresholdSave={vi.fn()}
+      />,
+    );
+
+    expect(input).toHaveValue(7);
+  });
+
+  it("does not offer to save an empty or negative threshold", async () => {
+    renderWithProviders(
+      <DnsFilterSettingsCard
+        config={makeConfig()}
+        isLoading={false}
+        onToggle={vi.fn()}
+        onThresholdSave={vi.fn()}
+      />,
+    );
+
+    const input = screen.getByTestId("blocklist-failure-alert-threshold");
+    await userEvent.clear(input);
+    expect(
+      screen.getByTestId("save-blocklist-failure-alert-threshold"),
+    ).toBeDisabled();
   });
 });

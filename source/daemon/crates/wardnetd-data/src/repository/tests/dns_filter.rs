@@ -539,6 +539,7 @@ async fn set_dns_filter_config_round_trip() {
     repo.set_dns_filter_config(&DnsFilterConfig {
         enabled: false,
         default_profile_ids: vec![a, b],
+        blocklist_failure_alert_threshold: 5,
     })
     .await
     .unwrap();
@@ -566,6 +567,7 @@ async fn set_dns_filter_config_replaces_default_set() {
     repo.set_dns_filter_config(&DnsFilterConfig {
         enabled: true,
         default_profile_ids: vec![a, b],
+        blocklist_failure_alert_threshold: 5,
     })
     .await
     .unwrap();
@@ -573,6 +575,7 @@ async fn set_dns_filter_config_replaces_default_set() {
     repo.set_dns_filter_config(&DnsFilterConfig {
         enabled: true,
         default_profile_ids: vec![b],
+        blocklist_failure_alert_threshold: 5,
     })
     .await
     .unwrap();
@@ -589,6 +592,7 @@ async fn set_dns_filter_config_clears_default_with_empty_vec() {
     repo.set_dns_filter_config(&DnsFilterConfig {
         enabled: true,
         default_profile_ids: Vec::new(),
+        blocklist_failure_alert_threshold: 5,
     })
     .await
     .unwrap();
@@ -608,6 +612,7 @@ async fn deleting_profile_cascades_default_membership() {
     repo.set_dns_filter_config(&DnsFilterConfig {
         enabled: true,
         default_profile_ids: vec![p],
+        blocklist_failure_alert_threshold: 5,
     })
     .await
     .unwrap();

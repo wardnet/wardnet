@@ -2,7 +2,8 @@
 //!
 //! Builds an in-memory `SQLite` pool via the production `init_pool_from_connection_string`
 //! helper, runs `populate`, then asserts that the expected counts of devices,
-//! tunnels, blocklists, allowlist entries, and custom rules are present.
+//! tunnels, blocklists (including the seeded failing one), allowlist
+//! entries, and custom rules are present.
 
 use wardnetd_data::{
     RepositoryFactory, SqliteRepositoryFactory, db::init_pool_from_connection_string,
@@ -114,13 +115,7 @@ async fn populate_inserts_expected_demo_data() {
         .list_blocklists(ad_blocking_id)
         .await
         .unwrap();
-    // The legacy DNS migration seeded two disabled blocklists; the Stage 7
-    // migration backfills them into the Ad Blocking profile. seed() adds none.
-    assert_eq!(blocklists.len(), 2);
-    assert!(
-        blocklists.iter().all(|b| !b.enabled),
-        "seeded blocklists should be disabled so no HTTP fetch is scheduled"
-    );
+    assert_seeded_blocklists(&blocklists);
 
     let allowlist = dns_filter_repo
         .list_allowlist(ad_blocking_id)
@@ -133,6 +128,39 @@ async fn populate_inserts_expected_demo_data() {
         .await
         .unwrap();
     assert_eq!(custom_rules.len(), 1);
+}
+
+/// Assert the blocklist state the `blocklist_refresh_failing` anomaly needs.
+///
+/// Split out of the main body because these facts belong together — change
+/// any one of them and the mock silently stops showing the anomaly, which is
+/// the whole reason the failing list is seeded.
+fn assert_seeded_blocklists(blocklists: &[wardnet_common::dns::Blocklist]) {
+    // The legacy DNS migration seeded two disabled blocklists; the Stage 7
+    // migration backfills them into the Ad Blocking profile. seed() adds one
+    // more: the failing list.
+    assert_eq!(blocklists.len(), 3);
+    assert_eq!(
+        blocklists.iter().filter(|b| !b.enabled).count(),
+        2,
+        "the two migration-seeded blocklists must stay disabled so no HTTP fetch is scheduled"
+    );
+
+    // The detector reports only a list that is *enabled* and already past the
+    // alert threshold (default 5), so both halves have to hold.
+    let failing = blocklists
+        .iter()
+        .find(|b| b.enabled)
+        .expect("seed should add one enabled blocklist");
+    assert!(
+        failing.consecutive_failures >= 5,
+        "the seeded blocklist must be past the default alert threshold, got {}",
+        failing.consecutive_failures
+    );
+    assert!(
+        failing.url.contains(".invalid"),
+        "the seeded failing blocklist must point at an unresolvable host so nothing fetches it"
+    );
 }
 
 #[tokio::test]

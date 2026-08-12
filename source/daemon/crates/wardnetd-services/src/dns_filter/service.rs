@@ -1489,6 +1489,9 @@ impl DnsFilterService for DnsFilterServiceImpl {
             changed_global = current.enabled != enabled;
             current.enabled = enabled;
         }
+        if let Some(threshold) = req.blocklist_failure_alert_threshold {
+            current.blocklist_failure_alert_threshold = threshold;
+        }
         if let Some(mut ids) = req.default_profile_ids {
             // Storage has profile_id as PK — duplicates would abort the
             // replace-set tx. Sort+dedup also doubles as the canonical

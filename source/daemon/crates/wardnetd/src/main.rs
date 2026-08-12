@@ -63,14 +63,13 @@ use wardnetd::zone_enforcement_listener::ZoneEnforcementListener;
 use wardnetd_api::state::AppState;
 use wardnetd_services::HealthMonitor;
 use wardnetd_services::TlsRenewalRunner;
+use wardnetd_services::anomaly::{AnomaliesDetectionEngine, AnomalyListener};
 use wardnetd_services::auth::SessionCleanupRunner;
 use wardnetd_services::cloud::TunnelerRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::ddns::runner::DdnsUpdateRunner;
 use wardnetd_services::device::DeviceRetentionRunner;
 use wardnetd_services::dhcp::runner::DhcpRunner;
-use wardnetd_services::diagnostics::DiagnosticStore;
-use wardnetd_services::diagnostics::listener::DiagnosticsListener;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::dhcp_lan_runner::DhcpLanRunner;
 use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
@@ -161,15 +160,8 @@ async fn main() -> anyhow::Result<()> {
         LogStreamService::new(config.logging.broadcast_capacity)
             .with_suppressed_targets(config.logging.ui_suppressed_targets.clone()),
     );
-    // Recent-diagnostics buffer: the read handle goes to the log service (which
-    // serves `/api/system/errors`); the write handle is given to the
-    // diagnostics listener below, once the event bus exists.
-    let diagnostics = Arc::new(DiagnosticStore::new(config.logging.max_recent_errors));
-    let log_service: Arc<dyn LogService> = Arc::new(LogServiceImpl::new(
-        log_stream,
-        diagnostics.clone(),
-        config.logging.path.clone(),
-    ));
+    let log_service: Arc<dyn LogService> =
+        Arc::new(LogServiceImpl::new(log_stream, config.logging.path.clone()));
 
     let TracingGuards {
         _log_guard,
@@ -188,7 +180,7 @@ async fn main() -> anyhow::Result<()> {
     // propagated across `.await` points in the tokio multi-threaded runtime.
     // The `Full` (console) formatter prints span fields on every line, and the
     // JSON formatter includes them via `with_current_span` / `with_span_list`.
-    let result = run(config, cli.config.clone(), log_service, diagnostics)
+    let result = run(config, cli.config.clone(), log_service)
         .instrument(tracing::info_span!(
             "wardnetd",
             version = env!("WARDNET_VERSION")
@@ -222,7 +214,6 @@ async fn run(
     config: ApplicationConfiguration,
     config_path: PathBuf,
     log_service: Arc<dyn LogService>,
-    diagnostics: Arc<DiagnosticStore>,
 ) -> anyhow::Result<()> {
     let started_at = Instant::now();
 
@@ -518,13 +509,21 @@ async fn run(
     // inherit the `wardnetd{version=...}` context.
     let root_span = tracing::Span::current();
 
-    // Start the diagnostics listener first, before any startup work (the
-    // routing reconcile below, the runners further down) can publish an
+    // Start the anomaly listener first, before any startup work (the routing
+    // reconcile below, the runners further down) can publish an
     // error-flavoured event. A broadcast subscriber only sees events sent
     // after it subscribes, so subscribing here is what keeps early-boot
-    // failures in the recent-errors panel.
-    let diagnostics_listener =
-        DiagnosticsListener::start(&services.event_publisher, diagnostics, &root_span);
+    // failures on the dashboard.
+    let anomaly_listener = AnomalyListener::start(
+        &services.event_publisher,
+        services.anomaly.clone(),
+        &root_span,
+    );
+    let anomalies_engine = AnomaliesDetectionEngine::start_with_intervals(
+        services.anomaly.clone(),
+        Duration::from_secs(config.anomalies.reevaluate_interval_secs),
+        &root_span,
+    );
 
     // Keeps the device-keyed DNS upstream snapshot (#923) in step with
     // persisted routing/tunnel/zone state. Subscribed BEFORE the routing
@@ -1112,6 +1111,7 @@ async fn run(
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
+    .with_anomaly_service(services.anomaly.clone())
     .with_device_identification_service(services.device_identification.clone())
     .with_routing_profile_service(services.routing_profile.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
@@ -1289,7 +1289,8 @@ async fn run(
     zone_enforcement_listener.shutdown().await;
     entitlement_listener.shutdown().await;
     push_listener.shutdown().await;
-    diagnostics_listener.shutdown().await;
+    anomaly_listener.shutdown().await;
+    anomalies_engine.shutdown().await;
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;
     monitor.shutdown().await;

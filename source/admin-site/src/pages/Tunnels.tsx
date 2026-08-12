@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PageHeader } from "@/components/compound/PageHeader";
 import { TunnelGrid } from "@/components/compound/TunnelGrid";
 import type { TunnelTestOutcome } from "@/components/compound/TunnelCard";
 import { ConfirmDialog } from "@/components/compound/ConfirmDialog";
 import { CreateTunnelInline } from "@/components/features/CreateTunnelInline";
 import {
+  useAnomalies,
   useTunnels,
   useDeleteTunnel,
   useTestTunnel,
@@ -27,6 +28,7 @@ import { Button } from "@wardnet/web";
 export default function Tunnels() {
   const { data, isLoading, isError } = useTunnels();
   const { data: providerData } = useProviders();
+  const { data: anomaliesData } = useAnomalies();
   const deleteTunnel = useDeleteTunnel();
   const testTunnel = useTestTunnel();
   const rebuildTunnel = useRebuildTunnel();
@@ -34,6 +36,22 @@ export default function Tunnels() {
 
   const tunnels = data?.tunnels ?? [];
   const providers = providerData?.providers ?? [];
+
+  // One anomaly listing serves every card: index the open ones by the tunnel
+  // they are about, rather than each card asking the daemon about itself.
+  const anomaliesByTunnel = useMemo(() => {
+    const entries = (anomaliesData?.anomalies ?? [])
+      .filter(
+        (a) =>
+          a.subject_id !== null &&
+          (a.type === "tunnel_start_failed" || a.type === "tunnel_unhealthy"),
+      )
+      // Oldest first, so a tunnel with more than one open anomaly keeps the
+      // newest — `Object.fromEntries` lets the last entry win.
+      .reverse()
+      .map((a) => [a.subject_id as string, a] as const);
+    return Object.fromEntries(entries);
+  }, [anomaliesData]);
 
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -114,6 +132,7 @@ export default function Tunnels() {
         onSpeedTest={handleSpeedTest}
         testOutcomes={testOutcomes}
         speedTestResults={speedTestResults}
+        anomaliesByTunnel={anomaliesByTunnel}
         testingId={testTunnel.isPending ? (testTunnel.variables ?? null) : null}
         rebuildingId={
           rebuildTunnel.isPending ? (rebuildTunnel.variables ?? null) : null
