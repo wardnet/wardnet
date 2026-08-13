@@ -1119,7 +1119,11 @@ async fn starting_oauth_without_a_public_hostname_is_refused() {
 
     let err = auth_context::with_context(
         principal::admin_context(admin()),
-        f.svc.start_oauth(crate::user::OauthProvider::Google),
+        f.svc.start_oauth(
+            crate::user::OauthProvider::Google,
+            crate::user::ReturnTo::Admin,
+            false,
+        ),
     )
     .await
     .expect_err("federated sign-in cannot work without a public hostname");
@@ -1138,7 +1142,11 @@ async fn starting_oauth_on_an_unconfigured_box_says_so() {
 
     let err = auth_context::with_context(
         principal::admin_context(admin()),
-        f.svc.start_oauth(crate::user::OauthProvider::Google),
+        f.svc.start_oauth(
+            crate::user::OauthProvider::Google,
+            crate::user::ReturnTo::Admin,
+            false,
+        ),
     )
     .await
     .expect_err("an unconfigured provider must be refused");

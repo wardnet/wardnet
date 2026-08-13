@@ -12,7 +12,7 @@ use crate::error::AppError;
 use crate::user::ceremony::CeremonyStore;
 use crate::user::oauth::{
     OauthClient, OauthConfig, OauthProvider, PendingOauth, ProviderEndpoints, ProviderIdentity,
-    ProviderStatus, new_pkce_pair, new_state,
+    ProviderStatus, ReturnTo, new_pkce_pair, new_state,
 };
 use wardnetd_data::repository::session::SessionRepository;
 use wardnetd_data::repository::user::{DuplicateUserEmailError, UserRepository, UserRow};
@@ -203,27 +203,44 @@ pub trait UserService: Send + Sync {
     /// Forget a provider's configuration entirely, including its secret.
     async fn clear_oauth_provider(&self, provider: OauthProvider) -> Result<(), AppError>;
 
-    /// Begin an OAuth sign-in, returning the URL to send the browser to.
+    /// Begin an OAuth ceremony, returning the URL to send the browser to.
+    ///
+    /// A ceremony started by a signed-in caller is a **link**; one started
+    /// anonymously is a **sign-in**. `return_to` and `remember_me` are the
+    /// caller's intent, parked on the ceremony because the callback that
+    /// consumes them is a bare provider redirect with no body (ADR-0031 §11).
     ///
     /// **Unauthenticated** — this is a sign-in entry point (category (b)).
-    async fn start_oauth(&self, provider: OauthProvider) -> Result<OauthRedirect, AppError>;
+    async fn start_oauth(
+        &self,
+        provider: OauthProvider,
+        return_to: ReturnTo,
+        remember_me: bool,
+    ) -> Result<OauthRedirect, AppError>;
 
-    /// Complete an OAuth sign-in.
+    /// Complete an OAuth ceremony — **the only callback entry point**.
     ///
-    /// **Unauthenticated** (category (b)). Returns the user the provider
-    /// account is linked to. An unknown subject is refused — Wardnet **never**
-    /// auto-creates a household user from a federated login, because that would
-    /// let anyone with a Google account create an account on somebody's home
-    /// network. The admin links the account first.
-    async fn complete_oauth(
+    /// One registered redirect URI serves both a sign-in and a link, and the
+    /// request arriving at it carries nothing that says which. The ceremony
+    /// does: `started_by` is `None` for a sign-in and `Some(user)` for a link.
+    /// Dispatching here rather than in the HTTP handler is not a style choice —
+    /// resolving a callback **consumes** the single-use `state` before a
+    /// handler could discover it guessed wrong, so a guess that misses leaves
+    /// the person with a spent ceremony and no way forward (ADR-0031 §11).
+    ///
+    /// **Unauthenticated** (category (b)): this *is* the credential check. The
+    /// link arm additionally requires that the caller is the user who started
+    /// the ceremony, which it enforces itself after resolving.
+    ///
+    /// An unknown subject is refused — Wardnet **never** auto-creates a
+    /// household user from a federated login, because that would let anyone
+    /// with a Google account create an account on somebody's home network. An
+    /// admin links the account first.
+    async fn complete_oauth_callback(
         &self,
         state: &str,
         code: &str,
-    ) -> Result<(UserProfile, UserRole), AppError>;
-
-    /// Link a provider account to the calling user, completing a ceremony the
-    /// caller started while signed in.
-    async fn link_oauth(&self, state: &str, code: &str) -> Result<(), AppError>;
+    ) -> Result<OauthOutcome, AppError>;
 
     /// Unlink every credential of one provider kind from a user.
     ///
@@ -248,6 +265,35 @@ pub struct AuthMethods {
 pub struct OauthRedirect {
     /// The provider's authorize URL, fully parameterised.
     pub url: String,
+}
+
+/// What a resolved OAuth callback turned out to be.
+///
+/// The two ceremonies share one registered redirect URI, so the callback cannot
+/// know which it is handling until the ceremony has been read. Returning a
+/// typed outcome — rather than letting the caller pick an entry point up front
+/// and hope — is what makes the wrong guess unrepresentable (ADR-0031 §11).
+#[derive(Debug, Clone)]
+pub enum OauthOutcome {
+    /// A sign-in: the provider account is linked to this user, who is enabled.
+    ///
+    /// Carries no session. Minting one is [`AuthService`]'s job, because that
+    /// is where session policy lives; the caller passes `return_to` and
+    /// `remember_me` straight through from the ceremony.
+    ///
+    /// [`AuthService`]: crate::auth::AuthService
+    SignedIn {
+        profile: UserProfile,
+        role: UserRole,
+        return_to: ReturnTo,
+        remember_me: bool,
+    },
+    /// A link: a provider account was attached to the caller's own user.
+    Linked {
+        user_id: Uuid,
+        provider: OauthProvider,
+        return_to: ReturnTo,
+    },
 }
 
 /// Default [`UserService`] over the repository traits.
@@ -369,7 +415,16 @@ impl UserServiceImpl {
         &self,
         state: &str,
         code: &str,
-    ) -> Result<(OauthProvider, ProviderIdentity, Option<Uuid>), AppError> {
+    ) -> Result<
+        (
+            OauthProvider,
+            ProviderIdentity,
+            Option<Uuid>,
+            ReturnTo,
+            bool,
+        ),
+        AppError,
+    > {
         // `take` removes the entry, so a replayed `state` fails here even if the
         // rest of the ceremony would have succeeded.
         let pending = self.pending_oauth.take(state).ok_or_else(|| {
@@ -392,7 +447,13 @@ impl UserServiceImpl {
             })
             .await?;
 
-        Ok((provider, identity, pending.started_by))
+        Ok((
+            provider,
+            identity,
+            pending.started_by,
+            pending.return_to,
+            pending.remember_me,
+        ))
     }
 
     /// The calling user's id, or `Forbidden` for a device/anonymous caller.
@@ -1094,7 +1155,12 @@ impl UserService for UserServiceImpl {
         Ok(())
     }
 
-    async fn start_oauth(&self, provider: OauthProvider) -> Result<OauthRedirect, AppError> {
+    async fn start_oauth(
+        &self,
+        provider: OauthProvider,
+        return_to: ReturnTo,
+        remember_me: bool,
+    ) -> Result<OauthRedirect, AppError> {
         // Documented exception (category (b)): a sign-in entry point.
         let (client_id, _secret, redirect_uri) = self.provider_ready(provider).await?;
         let endpoints = self.endpoints_for(provider);
@@ -1103,8 +1169,10 @@ impl UserService for UserServiceImpl {
         let (verifier, challenge) = new_pkce_pair();
 
         // A ceremony started by a signed-in user is a *link*; record who, so
-        // `link_oauth` can refuse a `state` minted by somebody else. Sign-in
-        // ceremonies have no caller, which is the `None` case.
+        // the callback can both route to the link arm and refuse a `state`
+        // minted by somebody else. Sign-in ceremonies have no caller, which is
+        // the `None` case — and that same field is what the single callback
+        // dispatches on (ADR-0031 §11).
         let started_by = auth_context::try_current().and_then(|ctx| ctx.user_id());
 
         self.pending_oauth.insert(
@@ -1113,6 +1181,8 @@ impl UserService for UserServiceImpl {
                 provider,
                 pkce_verifier: verifier,
                 started_by,
+                return_to,
+                remember_me,
             },
         );
 
@@ -1136,14 +1206,61 @@ impl UserService for UserServiceImpl {
         })
     }
 
-    async fn complete_oauth(
+    async fn complete_oauth_callback(
         &self,
         state: &str,
         code: &str,
-    ) -> Result<(UserProfile, UserRole), AppError> {
+    ) -> Result<OauthOutcome, AppError> {
         // Documented exception (category (b)): this IS the credential check.
-        let (provider, identity, _started_by) = self.resolve_callback(state, code).await?;
+        // The link arm guards itself once the ceremony has been read.
+        //
+        // Resolving consumes the `state`, so the ceremony kind has to be
+        // decided from what comes back — never guessed beforehand by a caller
+        // who would have no way to undo a wrong guess (ADR-0031 §11).
+        let (provider, identity, started_by, return_to, remember_me) =
+            self.resolve_callback(state, code).await?;
 
+        match started_by {
+            None => {
+                self.sign_in_with(provider, &identity, return_to, remember_me)
+                    .await
+            }
+            Some(owner) => self.link_for(provider, identity, owner, return_to).await,
+        }
+    }
+
+    async fn unlink_oauth(&self, user_id: Uuid, provider: OauthProvider) -> Result<u64, AppError> {
+        Self::require_admin_or_self(user_id)?;
+
+        // Only ever removes federated links. The local password is not
+        // reachable from here at all: a box whose sole credential depended on a
+        // reachable provider would be unreachable during a WAN outage, which is
+        // exactly what ADR-0031 refuses.
+        let removed = self
+            .credentials
+            .delete_by_kind(&user_id.to_string(), provider.credential_kind())
+            .await
+            .map_err(AppError::Internal)?;
+
+        tracing::info!(
+            provider = provider.as_str(),
+            user_id = %user_id,
+            removed,
+            "oauth account unlinked: removed={removed}"
+        );
+        Ok(removed)
+    }
+}
+
+impl UserServiceImpl {
+    /// The sign-in arm of a resolved callback.
+    async fn sign_in_with(
+        &self,
+        provider: OauthProvider,
+        identity: &ProviderIdentity,
+        return_to: ReturnTo,
+        remember_me: bool,
+    ) -> Result<OauthOutcome, AppError> {
         // The subject is the join key, and `find_for_login` filters disabled
         // users in SQL. An unknown subject is refused outright: Wardnet never
         // auto-creates a household user from a federated login, because that
@@ -1186,34 +1303,44 @@ impl UserService for UserServiceImpl {
             provider.as_str()
         );
 
-        Ok((profile, role))
+        Ok(OauthOutcome::SignedIn {
+            profile,
+            role,
+            return_to,
+            remember_me,
+        })
     }
 
-    async fn link_oauth(&self, state: &str, code: &str) -> Result<(), AppError> {
+    /// The link arm of a resolved callback.
+    ///
+    /// `owner` is the ceremony's `started_by`, already known to be `Some`.
+    /// The caller must *be* that user: without the check, an attacker could
+    /// start a ceremony with their own provider account, obtain
+    /// `(state, code)`, and get a signed-in admin's browser to redeem it —
+    /// attaching the attacker's account to the admin's user and handing them
+    /// the household.
+    async fn link_for(
+        &self,
+        provider: OauthProvider,
+        identity: ProviderIdentity,
+        owner: Uuid,
+        return_to: ReturnTo,
+    ) -> Result<OauthOutcome, AppError> {
+        // A link completes as the caller, so the caller must be authenticated
+        // and must be the person who started it. The sign-in arm has no such
+        // requirement, which is why this guard lives here rather than on the
+        // shared entry point.
         auth_context::require_authenticated()?;
         let user_id = Self::caller()?;
 
-        let (provider, identity, started_by) = self.resolve_callback(state, code).await?;
-
-        // The ceremony must belong to the caller. Without this, an attacker
-        // could start a ceremony with their own provider account, obtain
-        // `(state, code)`, and get a signed-in admin's browser to redeem it —
-        // attaching the attacker's account to the admin's user and handing them
-        // the household.
-        //
-        // A `None` owner means the ceremony was started unauthenticated, i.e.
-        // as a sign-in. Those are not linkable, so refuse rather than adopt.
-        match started_by {
-            Some(owner) if owner == user_id => {}
-            _ => {
-                tracing::warn!(
-                    user_id = %user_id,
-                    "refused an oauth link for a ceremony this caller did not start"
-                );
-                return Err(AppError::Forbidden(
-                    "that sign-in attempt was not started by this account".to_owned(),
-                ));
-            }
+        if owner != user_id {
+            tracing::warn!(
+                user_id = %user_id,
+                "refused an oauth link for a ceremony this caller did not start"
+            );
+            return Err(AppError::Forbidden(
+                "that sign-in attempt was not started by this account".to_owned(),
+            ));
         }
 
         let now = chrono::Utc::now().to_rfc3339();
@@ -1253,28 +1380,10 @@ impl UserService for UserServiceImpl {
             "oauth account linked: provider={}",
             provider.as_str()
         );
-        Ok(())
-    }
-
-    async fn unlink_oauth(&self, user_id: Uuid, provider: OauthProvider) -> Result<u64, AppError> {
-        Self::require_admin_or_self(user_id)?;
-
-        // Only ever removes federated links. The local password is not
-        // reachable from here at all: a box whose sole credential depended on a
-        // reachable provider would be unreachable during a WAN outage, which is
-        // exactly what ADR-0031 refuses.
-        let removed = self
-            .credentials
-            .delete_by_kind(&user_id.to_string(), provider.credential_kind())
-            .await
-            .map_err(AppError::Internal)?;
-
-        tracing::info!(
-            provider = provider.as_str(),
-            user_id = %user_id,
-            removed,
-            "oauth account unlinked: removed={removed}"
-        );
-        Ok(removed)
+        Ok(OauthOutcome::Linked {
+            user_id,
+            provider,
+            return_to,
+        })
     }
 }

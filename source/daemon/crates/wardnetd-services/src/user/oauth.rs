@@ -156,6 +156,49 @@ impl ProviderEndpoints {
     }
 }
 
+/// Which admin surface a ceremony began on, and therefore where the callback
+/// returns the browser.
+///
+/// An **enum, not a path**. The callback's `Location` is the classic
+/// open-redirect sink, and a caller-supplied relative path is famously hard to
+/// validate — browsers read both `//evil.com` and `/\evil.com` as absolute. By
+/// mapping a closed set of variants onto compile-time constants, no
+/// caller-supplied text ever reaches the header and the vulnerability cannot be
+/// written here (ADR-0031 §11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReturnTo {
+    /// The desktop admin site at `/admin/`. The default: a ceremony that did
+    /// not say where it came from is far likelier to be the desktop site than
+    /// the installed PWA.
+    #[default]
+    Admin,
+    /// The admin mobile PWA at `/admin-app/`.
+    AdminApp,
+}
+
+impl ReturnTo {
+    /// Parse the `return_to` query parameter. `None` for anything
+    /// unrecognised, so an unknown value is *rejected* rather than sanitised
+    /// into something that looked close enough.
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "admin" => Some(Self::Admin),
+            "admin_app" => Some(Self::AdminApp),
+            _ => None,
+        }
+    }
+
+    /// Where the callback sends the browser. Always one of two constants.
+    #[must_use]
+    pub const fn path(self) -> &'static str {
+        match self {
+            Self::Admin => "/admin/",
+            Self::AdminApp => "/admin-app/",
+        }
+    }
+}
+
 /// The state carried across an OAuth round-trip.
 #[derive(Debug, Clone)]
 pub struct PendingOauth {
@@ -173,9 +216,22 @@ pub struct PendingOauth {
     /// their own provider account, obtaining `(state, code)`, and then getting a
     /// signed-in admin's browser to redeem it — which would attach the
     /// attacker's Google account to the admin's user and hand them the
-    /// household. `finish_passkey_registration` refuses on the same mismatch;
-    /// this makes the OAuth link path match.
+    /// household.
     pub started_by: Option<uuid::Uuid>,
+    /// Where to send the browser once the callback resolves.
+    ///
+    /// Parked here at `/start` because the callback is a bare provider redirect
+    /// with no request body to carry it — which is what OAuth's `state` is for
+    /// beyond CSRF (ADR-0031 §11).
+    pub return_to: ReturnTo,
+    /// Whether the session this ceremony issues may slide its expiry forward.
+    ///
+    /// Carried across the round trip for the same reason as `return_to`, and it
+    /// specifically cannot be re-asserted afterwards: this flag is what
+    /// `refresh_session` checks, so an endpoint that raised it after the fact
+    /// would be an endpoint that upgrades any short session into a long one.
+    /// Ignored for a link ceremony, which issues no session.
+    pub remember_me: bool,
 }
 
 /// Who the provider says signed in.
