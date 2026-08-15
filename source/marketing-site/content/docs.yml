@@ -69,6 +69,11 @@ topics:
     icon: layers
     description: Group devices into zones with their own egress rules and admin-access boundaries.
 
+  - slug: household-users
+    title: Household users
+    icon: users
+    description: Give everyone their own login, invite people without ever knowing their password, and optionally sign in with Google or GitHub.
+
   - slug: local-dns
     title: Local DNS
     icon: server
