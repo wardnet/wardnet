@@ -85,6 +85,276 @@ pub struct MeResponse {
     pub role: UserRole,
 }
 
+/// A household user as the admin directory shows them (ADR-0031 §1).
+///
+/// Structurally carries **no credential material** — not even a derived
+/// "has a password" flag. Credentials are a separate resource
+/// (`GET /api/users/{id}/credentials`) returning
+/// [`UserCredentialResponse`], which likewise has no secret field. Keeping the
+/// two apart is what makes it impossible to leak a hash by widening a struct
+/// somebody thought was only a name and an email.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UserResponse {
+    pub id: Uuid,
+    pub display_name: String,
+    /// Optional. A user created by the setup wizard or the config-file
+    /// bootstrap has none, because neither asks for one.
+    pub email: Option<String>,
+    pub role: UserRole,
+    /// A disabled user keeps their row and their device ownership but cannot
+    /// sign in, and every live session was deleted when they were disabled.
+    pub enabled: bool,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+/// Response for `GET /api/users` (admin).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListUsersResponse {
+    pub users: Vec<UserResponse>,
+}
+
+/// Request body for `POST /api/users` (admin).
+///
+/// Creates an account with **no credential**. The admin never learns a
+/// member's password (ADR-0031 §3), so the new user is unusable until an
+/// enrolment invitation is issued and redeemed — account creation and
+/// credential creation are deliberately two steps.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct CreateUserRequest {
+    pub display_name: String,
+    pub email: Option<String>,
+    pub role: UserRole,
+}
+
+/// Request body for `PATCH /api/users/{id}`.
+///
+/// Both fields are replacements, not patches: omitting `email` clears it.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdateUserProfileRequest {
+    pub display_name: String,
+    pub email: Option<String>,
+}
+
+/// Request body for `PUT /api/users/{id}/enabled` (admin).
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct SetUserEnabledRequest {
+    pub enabled: bool,
+}
+
+/// Request body for `PUT /api/users/{id}/role` (admin).
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct SetUserRoleRequest {
+    pub role: UserRole,
+}
+
+/// What sort of credential a [`UserCredentialResponse`] describes.
+///
+/// A wire-level mirror of `wardnetd-data`'s `CredentialKind`, which this crate
+/// sits below and cannot depend on. Declared as an enum rather than a bare
+/// string so the published schema names the closed set — a client that
+/// switches on `kind` then gets a compile error when a variant is added,
+/// instead of a silent fallthrough.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum CredentialKindDto {
+    /// `Argon2id` password. The floor: never removable.
+    Password,
+    Google,
+    Github,
+    /// Not implemented yet — the column accepts it, no code path produces it
+    /// (#1194).
+    Passkey,
+}
+
+/// A federated identity provider, on the wire.
+///
+/// Mirrors `wardnetd-services`' `OauthProvider` for the same reason
+/// [`CredentialKindDto`] mirrors its data-layer counterpart.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum OauthProviderDto {
+    Google,
+    Github,
+}
+
+/// One of a user's credentials, without any secret.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UserCredentialResponse {
+    pub id: String,
+    pub kind: CredentialKindDto,
+    /// The login identifier. Safe to show: for OAuth it is the provider's own
+    /// subject, and there is no passkey path in the tree yet (#1194).
+    pub subject: String,
+    /// Human label shown in the credential list.
+    pub label: Option<String>,
+    pub created_at: String,
+    /// Last successful authentication, or `None` if never used.
+    pub last_used_at: Option<String>,
+}
+
+/// Response for `GET /api/users/{id}/credentials`.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListUserCredentialsResponse {
+    pub credentials: Vec<UserCredentialResponse>,
+}
+
+/// Request body for `POST /api/users/me/password`.
+///
+/// The current password is required even though the caller already holds a
+/// session: a session is not proof that the person at the keyboard is the
+/// account holder, and a password change that only needed a session would
+/// turn any unlocked browser into a permanent account takeover.
+///
+/// On success **every** session for the account is revoked, the caller's
+/// included — so the client must expect its next request to be unauthorized
+/// and route the person back to sign-in.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ChangePasswordRequest {
+    pub current_password: String,
+    pub new_password: String,
+}
+
+/// Response for `POST /api/users/{id}/enrolments` (admin).
+///
+/// The `token` appears **exactly once**, here. Only its hash is stored, so an
+/// admin who loses it must issue another — which is the intended property, not
+/// a limitation.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct EnrolmentInviteResponse {
+    /// Hand this to the member out of band. Never retrievable again.
+    pub token: String,
+    /// RFC 3339 expiry, so the UI can say how long it is good for.
+    pub expires_at: String,
+    pub user_id: Uuid,
+}
+
+/// An outstanding or spent enrolment invitation.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct EnrolmentResponse {
+    pub id: Uuid,
+    pub user_id: Uuid,
+    pub created_at: String,
+    pub expires_at: String,
+    /// `None` while outstanding; set once redeemed. An invitation is
+    /// single-use, so a non-null value means it can never be redeemed again.
+    pub used_at: Option<String>,
+}
+
+/// Response for `GET /api/users/{id}/enrolments` (admin).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListEnrolmentsResponse {
+    pub enrolments: Vec<EnrolmentResponse>,
+}
+
+/// Request body for `POST /api/auth/enrolments/redeem` (unauthenticated).
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct RedeemEnrolmentRequest {
+    /// The one-time token the admin handed over.
+    pub token: String,
+    /// The member's chosen first password.
+    pub password: String,
+}
+
+/// One federated provider's availability, for `GET /api/auth/methods`.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AuthProviderStatusResponse {
+    pub provider: OauthProviderDto,
+    /// The admin turned it on **and** it is fully configured. Only an enabled
+    /// provider should be rendered as a sign-in button, and this single flag
+    /// is all a sign-in surface needs to decide.
+    pub enabled: bool,
+    /// A client secret is present. The secret itself is never returned by any
+    /// endpoint — this flag is the whole of what a reader learns.
+    pub configured: bool,
+}
+
+/// One provider's full configuration, for the **admin** provider screen.
+///
+/// Separate from [`AuthProviderStatusResponse`] on purpose. That one is served
+/// by the unauthenticated `GET /api/auth/methods`, so it must carry nothing an
+/// anonymous caller should not learn — not even the client id, which would
+/// otherwise disclose the household's OAuth app and canonical hostname to
+/// anyone who can reach the box.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct OauthProviderConfigResponse {
+    pub provider: OauthProviderDto,
+    /// The configured client id, or `null` if none is set. Not a secret — it
+    /// rides in the authorize URL — but still admin-only, because it names the
+    /// household's own registered application.
+    pub client_id: Option<String>,
+    /// The admin's **stored** on/off flag, not the effective availability.
+    ///
+    /// This is the field a settings form must round-trip. Submitting
+    /// [`AuthProviderStatusResponse::enabled`] instead would write the
+    /// *computed* value back, silently switching a provider off whenever its
+    /// hostname or secret happened to be missing at read time.
+    pub enabled: bool,
+    /// A client secret is present. The secret itself is never returned.
+    pub configured: bool,
+    /// The redirect URI to register with the provider by hand.
+    pub redirect_uri: Option<String>,
+}
+
+/// Response for `GET /api/auth/providers` (admin).
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ListOauthProvidersResponse {
+    pub providers: Vec<OauthProviderConfigResponse>,
+}
+
+/// Response for `GET /api/auth/methods` (unauthenticated).
+///
+/// The contract a sign-in surface reads to decide which buttons to render.
+/// Reports availability only — never a credential, a client secret, or
+/// whether any particular account exists.
+///
+/// Carries neither the client id nor the redirect URI, both of which live on
+/// the admin-only [`OauthProviderConfigResponse`]. Neither is a secret in the
+/// cryptographic sense, but both name the household's own registered
+/// application and its public hostname, and a surface reachable by anyone who
+/// can address the box should disclose no more than "this button will work".
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct AuthMethodsResponse {
+    /// Always `true`. The local password is the floor: it needs no WAN, no
+    /// certificate and no provider, and no path removes it (ADR-0031 §7).
+    pub password: bool,
+    pub providers: Vec<AuthProviderStatusResponse>,
+}
+
+/// Response for `GET /api/auth/oauth/{provider}/start` (unauthenticated).
+///
+/// JSON rather than a redirect, so the caller controls the navigation: a
+/// fetch that followed a 302 to an external origin would be opaque to the
+/// client and impossible to surface an error from.
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct OauthStartResponse {
+    /// The provider's authorize URL, fully parameterised. Send the browser here.
+    pub url: String,
+}
+
+/// Request body for `PUT /api/auth/providers/{provider}` (admin).
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct ConfigureOauthProviderRequest {
+    pub client_id: String,
+    /// The client secret. `None` leaves any existing secret in place, so an
+    /// admin can toggle `enabled` or fix a typo'd client id without re-pasting
+    /// it — and so a UI that cannot read the secret back can still submit the
+    /// form it rendered.
+    pub client_secret: Option<String>,
+    pub enabled: bool,
+}
+
+/// Request body for `PUT /api/devices/{id}/owner` (admin, ADR-0031 §4).
+///
+/// **Attribution, never authentication.** The owner's role has no effect on
+/// what the device may do: a device caller resolves to `AuthContext::Device`
+/// whoever owns it, including an admin.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct SetDeviceOwnerRequest {
+    /// The owning household user, or `null` to clear the assignment.
+    pub owner_user_id: Option<Uuid>,
+}
+
 /// Minimal tunnel info exposed to self-service users for routing selection.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct TunnelSummary {

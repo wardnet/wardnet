@@ -13,18 +13,163 @@
 
 use chrono::{Datelike, Duration, Utc};
 use uuid::Uuid;
+use wardnet_common::auth::UserRole;
 use wardnet_common::device::{DeviceSignalKind, ManufacturerSource};
 use wardnet_common::routing_profile::DomainRoutingTarget;
 use wardnet_common::zone_exception::{
     ExceptionEndpoint, ExceptionEndpointKind, ServiceSet, ServiceSpec, ZoneException,
 };
 use wardnetd_data::RepositoryFactory;
+use wardnetd_data::repository::device::DeviceRepository;
+use wardnetd_data::repository::user::{UserRepository, UserRow};
+use wardnetd_data::repository::user_enrolment::{EnrolmentTokenRow, UserEnrolmentRepository};
 use wardnetd_data::repository::{
     AllowlistRow, BlocklistRow, CustomRuleRow, DeviceRow, DeviceSignalRow, DhcpLeaseRow,
     DhcpReservationRow, IntradayStatRow, NewNotification, QueryLogRow, RoutingProfileRow,
     RoutingRuleRow, TunnelRow,
 };
 use wardnetd_data::{oui, vendor_catalog};
+use wardnetd_services::auth::password::hash_token;
+use wardnetd_services::ddns;
+use wardnetd_services::user::OauthProvider;
+
+/// The plaintext of the seeded, still-redeemable enrolment invitation.
+///
+/// Fixed rather than random so a developer can paste it. Only its hash is
+/// stored, exactly as in production — the mock does not short-circuit the real
+/// single-use check, it just tells you what the token was.
+pub const DEMO_ENROLMENT_TOKEN: &str = "demo-enrolment-token-for-bruno";
+
+/// The seeded admin's email, used as the "have I already run?" marker.
+const DEMO_ADMIN_EMAIL: &str = "ana@example.invalid";
+
+/// Seed the household directory (ADR-0031, issue #1147).
+///
+/// **Deliberately not part of [`populate`]**, and this is the whole design of
+/// this function. `AuthService::setup_admin` refuses with 409 once
+/// `users.exists()` — the guard reads the user row directly rather than a
+/// `setup_completed` flag, precisely so a crash cannot desynchronise the two.
+/// Seeding a directory at boot would therefore switch the setup wizard off,
+/// and the mock exists to run that wizard on **every** launch.
+///
+/// So the caller waits until the wizard has created the first admin and then
+/// calls this, which satisfies both properties instead of trading one away:
+/// the wizard still runs from empty, and the user screens still get a
+/// populated directory a moment later.
+///
+/// Every seeded user is credential-less, which is not a shortcut but the
+/// accurate state: an admin never learns a member's password, so a member
+/// holding one that nobody ever typed is a state the product cannot reach.
+/// The invitation below is how a member is *meant* to get one, and it is
+/// seeded redeemable so that flow is exercisable end to end.
+///
+/// Takes the three repositories rather than the factory because
+/// `RepositoryFactory` is handed out as a non-clonable `Box`, while each
+/// repository is already an `Arc` — so the caller can move exactly what this
+/// needs into a background task.
+pub async fn populate_household(
+    user_repo: &dyn UserRepository,
+    enrolment_repo: &dyn UserEnrolmentRepository,
+    device_repo: &dyn DeviceRepository,
+    device_ids: &[Uuid],
+) -> anyhow::Result<()> {
+    // Idempotence, for `--database <file>` runs that restart against a DB
+    // where the wizard already ran. The waiting task fires as soon as *any*
+    // user exists, which on a persisted database is the very first tick — and
+    // re-creating `ana@example.invalid` would hit the unique email index and
+    // abort this whole function, silently taking the device-owner assignments
+    // and the demo invitation with it.
+    if user_repo.find_by_email(DEMO_ADMIN_EMAIL).await?.is_some() {
+        tracing::debug!("household directory already seeded; leaving it alone");
+        return Ok(());
+    }
+
+    let now = Utc::now();
+    let now_iso = now.to_rfc3339();
+
+    let ana_id = Uuid::new_v4();
+    let bruno_id = Uuid::new_v4();
+    let cleo_id = Uuid::new_v4();
+
+    let users = [
+        (ana_id, "Ana", Some(DEMO_ADMIN_EMAIL), UserRole::Admin, true),
+        (
+            bruno_id,
+            "Bruno",
+            Some("bruno@example.invalid"),
+            UserRole::Member,
+            true,
+        ),
+        // Disabled, so the directory shows both states without an admin having
+        // to break their own account to see the second one.
+        (cleo_id, "Cleo", None, UserRole::Member, false),
+    ];
+    for (id, display_name, email, role, enabled) in users {
+        user_repo
+            .create(&UserRow {
+                id: id.to_string(),
+                display_name: display_name.to_owned(),
+                email: email.map(str::to_owned),
+                role,
+                enabled,
+                created_at: now_iso.clone(),
+                updated_at: now_iso.clone(),
+            })
+            .await?;
+    }
+
+    // Two invitations for Bruno: one outstanding, one already spent, so the
+    // invitations screen shows both states.
+    enrolment_repo
+        .create(&EnrolmentTokenRow {
+            id: Uuid::new_v4().to_string(),
+            user_id: bruno_id.to_string(),
+            token_hash: hash_token(DEMO_ENROLMENT_TOKEN),
+            created_at: (now - Duration::hours(2)).to_rfc3339(),
+            expires_at: (now + Duration::hours(70)).to_rfc3339(),
+            used_at: None,
+        })
+        .await?;
+    enrolment_repo
+        .create(&EnrolmentTokenRow {
+            id: Uuid::new_v4().to_string(),
+            user_id: bruno_id.to_string(),
+            // A spent invitation keeps its row rather than being deleted, so
+            // the admin UI can say "redeemed on the 3rd" instead of showing a
+            // gap. Its plaintext is not recoverable and never was.
+            token_hash: hash_token("demo-enrolment-token-already-spent"),
+            created_at: (now - Duration::days(6)).to_rfc3339(),
+            expires_at: (now - Duration::days(3)).to_rfc3339(),
+            used_at: Some((now - Duration::days(5)).to_rfc3339()),
+        })
+        .await?;
+
+    // Device affinity: attribution only, never a credential — a device caller
+    // still resolves to the `Device` principal whoever owns it. Two devices
+    // owned and the rest unowned, so the device screens show both.
+    for (device_id, owner) in device_ids.iter().zip([ana_id, bruno_id]) {
+        // `set_owner` reports whether it matched a row. A miss means the device
+        // this seed was told about is no longer there — worth a line, because
+        // silently assigning nothing looks identical to assigning correctly
+        // until somebody opens the screen and wonders where the owner went.
+        let matched = device_repo
+            .set_owner(&device_id.to_string(), Some(&owner.to_string()))
+            .await?;
+        if !matched {
+            tracing::warn!(
+                device_id = %device_id,
+                "household seed: device vanished before an owner could be assigned"
+            );
+        }
+    }
+
+    tracing::info!(
+        users = users.len(),
+        enrolment_token = DEMO_ENROLMENT_TOKEN,
+        "seeded household directory; redeem the invitation at POST /api/auth/enrolments/redeem"
+    );
+    Ok(())
+}
 
 /// IDs of the entities inserted by [`populate`], so the event emitter can
 /// refer to them.
@@ -744,6 +889,34 @@ pub async fn populate(factory: &dyn RepositoryFactory) -> anyhow::Result<SeededI
                 created_at: &(now - age).to_rfc3339(),
             })
             .await?;
+    }
+
+    // ------------------------------------------------------------------
+    // Federated sign-in configuration.
+    //
+    // `OauthConfig::canonical_fqdn` reads the DDNS subsystem's own
+    // `system_config` keys rather than keeping a second copy that could
+    // drift — so without them the provider screen can render no redirect URI
+    // and is not buildable. The mock's DDNS service is a separate in-memory
+    // fake that never reads `system_config`, so seeding these does not touch
+    // the Remote Access screens.
+    //
+    // Google is left **configured but disabled**: a client id and no secret.
+    // That is the interesting state for the UI — it must show the redirect URI
+    // to register, report `configured: false`, and keep the sign-in button
+    // hidden until an admin finishes the job.
+    // ------------------------------------------------------------------
+    let system_config_repo = factory.system_config();
+    for (key, value) in [
+        (ddns::KEY_PROVIDER, ddns::PROVIDER_WARDNET),
+        (ddns::KEY_SUBDOMAIN, "sunny-meadow-4821.wardnet.network"),
+        (
+            OauthProvider::Google.client_id_key().as_str(),
+            "1234567890-mockclientid.apps.googleusercontent.com",
+        ),
+        (OauthProvider::Google.enabled_key().as_str(), "false"),
+    ] {
+        system_config_repo.set(key, value).await?;
     }
 
     tracing::info!(

@@ -152,6 +152,37 @@ func (s *DevicesService) SetRule(ctx context.Context, id string, target RoutingT
 	return deviceFromREST(&resp.JSON200.Device, resp.JSON200.CurrentRule)
 }
 
+// SetOwner assigns or clears the household user a device belongs to (ADR-0031
+// §4). Pass an empty ownerUserID to clear the assignment.
+//
+// Attribution, never authentication. The owner's role has no effect on what
+// the device may do: a device caller resolves to the Device principal whoever
+// owns it, including an admin. Device identity is derived from the source IP,
+// so treating ownership as a credential would collapse admin access to IP
+// spoofing.
+func (s *DevicesService) SetOwner(ctx context.Context, id, ownerUserID string) (*Device, error) {
+	uid, err := parseUUID(id, "device")
+	if err != nil {
+		return nil, err
+	}
+	var body rest.SetDeviceOwnerJSONRequestBody
+	if ownerUserID != "" {
+		owner, err := parseUUID(ownerUserID, "user")
+		if err != nil {
+			return nil, err
+		}
+		body.OwnerUserId = &owner
+	}
+	resp, err := s.c.rest.SetDeviceOwnerWithResponse(ctx, uid, body)
+	if err != nil {
+		return nil, err
+	}
+	if resp.JSON200 == nil {
+		return nil, apiError(resp.HTTPResponse, resp.Body)
+	}
+	return deviceFromREST(&resp.JSON200.Device, resp.JSON200.CurrentRule)
+}
+
 // Release stops managing a device: it reverts every admin-set configuration to
 // default and returns the device to unmanaged (issue #1181).
 //

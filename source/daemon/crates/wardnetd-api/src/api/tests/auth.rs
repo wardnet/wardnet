@@ -363,7 +363,11 @@ async fn login_success_returns_200_and_set_cookie() {
 
     assert!(cookie.contains("wardnet_session=test-session-token"));
     assert!(cookie.contains("HttpOnly"));
-    assert!(cookie.contains("SameSite=Strict"));
+    // `Lax`, not `Strict`: the OAuth callback is a cross-site top-level
+    // navigation from the provider, and `Strict` withholds the cookie on
+    // exactly that, which makes the account-linking ceremony impossible.
+    // `Lax` still withholds it on cross-site POSTs and subresources.
+    assert!(cookie.contains("SameSite=Lax"));
     assert!(cookie.contains("Max-Age=86400"));
 
     // Verify JSON body.
@@ -664,7 +668,11 @@ async fn logout_returns_204_and_clears_the_session_cookie() {
     );
     assert!(cookie.contains("Max-Age=0"), "got: {cookie}");
     assert!(cookie.contains("HttpOnly"));
-    assert!(cookie.contains("SameSite=Strict"));
+    // `Lax`, not `Strict`: the OAuth callback is a cross-site top-level
+    // navigation from the provider, and `Strict` withholds the cookie on
+    // exactly that, which makes the account-linking ceremony impossible.
+    // `Lax` still withholds it on cross-site POSTs and subresources.
+    assert!(cookie.contains("SameSite=Lax"));
     assert!(cookie.contains("Path=/"));
     assert!(
         !cookie.contains("Secure"),

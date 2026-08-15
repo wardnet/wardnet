@@ -202,8 +202,16 @@ impl ReturnTo {
 /// The state carried across an OAuth round-trip.
 #[derive(Debug, Clone)]
 pub struct PendingOauth {
-    /// Which provider the ceremony was started for. Checked on callback so a
-    /// `state` minted for one provider cannot be redeemed at another.
+    /// Which provider the ceremony was started for.
+    ///
+    /// **This is the authority**, not the `{provider}` segment in the callback
+    /// URL. Since the callback dispatches on the stored ceremony (ADR-0031
+    /// §11) it never receives a provider to compare against, so a `state`
+    /// minted for Google and presented at `/github/callback` still runs the
+    /// *Google* exchange. That is correct — the ceremony knows what it began —
+    /// but it means the path segment is validated for shape only, and anything
+    /// that must name the real provider (an audit log, a credential kind)
+    /// reads this field.
     pub provider: OauthProvider,
     /// The PKCE verifier whose challenge went out with the authorize request.
     pub pkce_verifier: String,
@@ -431,8 +439,24 @@ fn map_provider_error(err: &reqwest::Error) -> AppError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderStatus {
     pub provider: OauthProvider,
-    /// The admin turned it on **and** it is fully configured.
+    /// The configured client id, or `None` if none is set.
+    ///
+    /// **Not a secret.** An OAuth client id travels in the authorize URL, so
+    /// every browser that ever ran this ceremony has already seen it. Returning
+    /// it is what lets an admin UI show which app is wired up, and toggle
+    /// `enabled` without having to re-submit — and therefore without having to
+    /// know — a value it cannot read back. The client *secret* is never
+    /// returned by any endpoint; `configured` is the whole of what a reader
+    /// learns about it.
+    pub client_id: Option<String>,
+    /// The admin turned it on **and** it is fully configured. This is the
+    /// *effective* availability a sign-in surface renders from.
     pub enabled: bool,
+    /// The admin's stored on/off flag alone, ignoring whether the provider is
+    /// actually usable. Kept beside [`Self::enabled`] because a settings form
+    /// must round-trip *this* value: writing the effective one back would turn
+    /// a provider off whenever its secret or hostname was momentarily absent.
+    pub enabled_stored: bool,
     /// A client secret is present. The secret itself is never returned.
     pub configured: bool,
     /// The redirect URI to register with the provider, when a canonical FQDN
@@ -518,13 +542,15 @@ impl OauthConfig {
     /// render a button that always fails.
     pub async fn status(&self, provider: OauthProvider) -> Result<ProviderStatus, AppError> {
         let fqdn = self.canonical_fqdn().await?;
-        let has_id = self.client_id(provider).await?.is_some();
+        let client_id = self.client_id(provider).await?;
         let configured = self.client_secret(provider).await?.is_some();
         let flag = self.is_enabled(provider).await?;
 
         Ok(ProviderStatus {
             provider,
-            enabled: flag && has_id && configured && fqdn.is_some(),
+            enabled: flag && client_id.is_some() && configured && fqdn.is_some(),
+            enabled_stored: flag,
+            client_id,
             configured,
             redirect_uri: fqdn.as_deref().map(|f| provider.redirect_uri(f)),
         })

@@ -224,7 +224,10 @@ impl crate::user::UserService for MockUserService {
     ) -> Result<Vec<crate::user::EnrolmentSummary>, AppError> {
         unimplemented!()
     }
-    async fn revoke_enrolment(&self, _id: Uuid) -> Result<(), AppError> {
+    async fn list_oauth_providers(&self) -> Result<Vec<crate::user::ProviderStatus>, AppError> {
+        unimplemented!()
+    }
+    async fn revoke_enrolment(&self, _user_id: Uuid, _id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }
     async fn redeem_enrolment(

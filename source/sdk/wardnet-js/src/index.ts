@@ -10,6 +10,7 @@ export type { WardnetClientOptions } from "./client.js";
 export { AnomalyService } from "./services/anomaly.js";
 export { AuthService } from "./services/auth.js";
 export { DeviceService } from "./services/devices.js";
+export { UserService } from "./services/users.js";
 export { TunnelService } from "./services/tunnels.js";
 export { ProviderService } from "./services/providers.js";
 export { SystemService } from "./services/system.js";
@@ -92,6 +93,28 @@ export type {
 
 // Types — auth
 export type { LoginRequest, LoginResponse, MeResponse } from "./types/auth.js";
+
+// Types — household identity (ADR-0031)
+export type {
+  AuthMethods,
+  AuthProviderStatus,
+  ConfigureOauthProviderRequest,
+  CredentialKind,
+  CreateUserRequest,
+  Enrolment,
+  EnrolmentInvite,
+  ListEnrolmentsResponse,
+  ListUserCredentialsResponse,
+  ListUsersResponse,
+  OauthProvider,
+  OauthProviderConfig,
+  OauthReturnTo,
+  StartOauthOptions,
+  UpdateUserProfileRequest,
+  User,
+  UserCredential,
+  UserRole,
+} from "./types/user.js";
 
 // Types — anomalies
 export type {

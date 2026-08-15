@@ -225,6 +225,30 @@ func (e BackupStatus3State) Valid() bool {
 	}
 }
 
+// Defines values for CredentialKindDto.
+const (
+	CredentialKindDtoGithub   CredentialKindDto = "github"
+	CredentialKindDtoGoogle   CredentialKindDto = "google"
+	CredentialKindDtoPasskey  CredentialKindDto = "passkey"
+	CredentialKindDtoPassword CredentialKindDto = "password"
+)
+
+// Valid indicates whether the value is a known member of the CredentialKindDto enum.
+func (e CredentialKindDto) Valid() bool {
+	switch e {
+	case CredentialKindDtoGithub:
+		return true
+	case CredentialKindDtoGoogle:
+		return true
+	case CredentialKindDtoPasskey:
+		return true
+	case CredentialKindDtoPassword:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DdnsResolutionVerdict.
 const (
 	DdnsResolutionVerdictMatch         DdnsResolutionVerdict = "match"
@@ -870,6 +894,24 @@ func (e ManufacturerSource) Valid() bool {
 	case Ieee:
 		return true
 	case Signal:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for OauthProviderDto.
+const (
+	OauthProviderDtoGithub OauthProviderDto = "github"
+	OauthProviderDtoGoogle OauthProviderDto = "google"
+)
+
+// Valid indicates whether the value is a known member of the OauthProviderDto enum.
+func (e OauthProviderDto) Valid() bool {
+	switch e {
+	case OauthProviderDtoGithub:
+		return true
+	case OauthProviderDtoGoogle:
 		return true
 	default:
 		return false
@@ -1643,6 +1685,42 @@ type AssignDeviceZoneRequest struct {
 	ZoneId openapi_types.UUID `json:"zone_id"`
 }
 
+// AuthMethodsResponse Response for `GET /api/auth/methods` (unauthenticated).
+//
+// The contract a sign-in surface reads to decide which buttons to render.
+// Reports availability only — never a credential, a client secret, or
+// whether any particular account exists.
+//
+// Carries neither the client id nor the redirect URI, both of which live on
+// the admin-only [`OauthProviderConfigResponse`]. Neither is a secret in the
+// cryptographic sense, but both name the household's own registered
+// application and its public hostname, and a surface reachable by anyone who
+// can address the box should disclose no more than "this button will work".
+type AuthMethodsResponse struct {
+	// Password Always `true`. The local password is the floor: it needs no WAN, no
+	// certificate and no provider, and no path removes it (ADR-0031 §7).
+	Password  bool                         `json:"password"`
+	Providers []AuthProviderStatusResponse `json:"providers"`
+}
+
+// AuthProviderStatusResponse One federated provider's availability, for `GET /api/auth/methods`.
+type AuthProviderStatusResponse struct {
+	// Configured A client secret is present. The secret itself is never returned by any
+	// endpoint — this flag is the whole of what a reader learns.
+	Configured bool `json:"configured"`
+
+	// Enabled The admin turned it on **and** it is fully configured. Only an enabled
+	// provider should be rendered as a sign-in button, and this single flag
+	// is all a sign-in surface needs to decide.
+	Enabled bool `json:"enabled"`
+
+	// Provider A federated identity provider, on the wire.
+	//
+	// Mirrors `wardnetd-services`' `OauthProvider` for the same reason
+	// [`CredentialKindDto`] mirrors its data-layer counterpart.
+	Provider OauthProviderDto `json:"provider"`
+}
+
 // BackupStatus Coarse subsystem status surfaced by `GET /api/backup/status` and the web UI.
 type BackupStatus struct {
 	union json.RawMessage
@@ -1757,6 +1835,21 @@ type BundleManifest struct {
 	WardnetVersion string `json:"wardnet_version"`
 }
 
+// ChangePasswordRequest Request body for `POST /api/users/me/password`.
+//
+// The current password is required even though the caller already holds a
+// session: a session is not proof that the person at the keyboard is the
+// account holder, and a password change that only needed a session would
+// turn any unlocked browser into a permanent account takeover.
+//
+// On success **every** session for the account is revoked, the caller's
+// included — so the client must expect its next request to be unauthorized
+// and route the person back to sign-in.
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
 // ConditionalForwardingRule A conditional forwarding rule (domain → specific upstream).
 type ConditionalForwardingRule struct {
 	CreatedAt time.Time          `json:"created_at"`
@@ -1773,6 +1866,18 @@ type ConfigureCloudflareRequest struct {
 
 	// Token A Cloudflare API token scoped to DNS:Edit on the domain's zone.
 	Token string `json:"token"`
+}
+
+// ConfigureOauthProviderRequest Request body for `PUT /api/auth/providers/{provider}` (admin).
+type ConfigureOauthProviderRequest struct {
+	ClientId string `json:"client_id"`
+
+	// ClientSecret The client secret. `None` leaves any existing secret in place, so an
+	// admin can toggle `enabled` or fix a typo'd client id without re-pasting
+	// it — and so a UI that cannot read the secret back can still submit the
+	// form it rendered.
+	ClientSecret *string `json:"client_secret,omitempty"`
+	Enabled      bool    `json:"enabled"`
 }
 
 // CountryInfo A country available from a VPN provider.
@@ -2000,6 +2105,24 @@ type CreateTunnelResponse struct {
 	Tunnel Tunnel `json:"tunnel"`
 }
 
+// CreateUserRequest Request body for `POST /api/users` (admin).
+//
+// Creates an account with **no credential**. The admin never learns a
+// member's password (ADR-0031 §3), so the new user is unusable until an
+// enrolment invitation is issued and redeemed — account creation and
+// credential creation are deliberately two steps.
+type CreateUserRequest struct {
+	DisplayName string  `json:"display_name"`
+	Email       *string `json:"email,omitempty"`
+
+	// Role A household user's role (ADR-0031 §11).
+	//
+	// `Admin` is *exactly* equal to the legacy local admin — no deny-list, no
+	// second tier. Deliberately only two values: a household is 2–6 people, and
+	// an allow-list is honest at that size.
+	Role UserRole `json:"role"`
+}
+
 // CreateZoneExceptionRequest Request body for POST /api/network/zones/exceptions.
 type CreateZoneExceptionRequest struct {
 	Bidirectional bool `json:"bidirectional"`
@@ -2040,6 +2163,15 @@ type CreateZoneResponse struct {
 	// Zone An authoritative local DNS zone (e.g. "lab", "home", "local").
 	Zone DnsZone `json:"zone"`
 }
+
+// CredentialKindDto What sort of credential a [`UserCredentialResponse`] describes.
+//
+// A wire-level mirror of `wardnetd-data`'s `CredentialKind`, which this crate
+// sits below and cannot depend on. Declared as an enum rather than a bare
+// string so the published schema names the closed set — a client that
+// switches on `kind` then gets a compile error when a variant is added,
+// instead of a silent fallthrough.
+type CredentialKindDto string
 
 // CustomDnsRecord A user-defined local DNS record.
 type CustomDnsRecord struct {
@@ -2888,6 +3020,32 @@ type DomainRoutingTarget1 struct {
 // DomainRoutingTarget1Type defines model for DomainRoutingTarget.1.Type.
 type DomainRoutingTarget1Type string
 
+// EnrolmentInviteResponse Response for `POST /api/users/{id}/enrolments` (admin).
+//
+// The `token` appears **exactly once**, here. Only its hash is stored, so an
+// admin who loses it must issue another — which is the intended property, not
+// a limitation.
+type EnrolmentInviteResponse struct {
+	// ExpiresAt RFC 3339 expiry, so the UI can say how long it is good for.
+	ExpiresAt string `json:"expires_at"`
+
+	// Token Hand this to the member out of band. Never retrievable again.
+	Token  string             `json:"token"`
+	UserId openapi_types.UUID `json:"user_id"`
+}
+
+// EnrolmentResponse An outstanding or spent enrolment invitation.
+type EnrolmentResponse struct {
+	CreatedAt string             `json:"created_at"`
+	ExpiresAt string             `json:"expires_at"`
+	Id        openapi_types.UUID `json:"id"`
+
+	// UsedAt `None` while outstanding; set once redeemed. An invitation is
+	// single-use, so a non-null value means it can never be redeemed again.
+	UsedAt *string            `json:"used_at,omitempty"`
+	UserId openapi_types.UUID `json:"user_id"`
+}
+
 // ExceptionEndpoint One side of a cross-zone exception: a `kind`-tagged reference to a device or
 // a zone.
 type ExceptionEndpoint struct {
@@ -3283,6 +3441,11 @@ type ListDomainRoutingRulesResponse struct {
 	Rules []DomainRoutingRule `json:"rules"`
 }
 
+// ListEnrolmentsResponse Response for `GET /api/users/{id}/enrolments` (admin).
+type ListEnrolmentsResponse struct {
+	Enrolments []EnrolmentResponse `json:"enrolments"`
+}
+
 // ListFilterRulesResponse Response for GET /api/dns/rules.
 type ListFilterRulesResponse struct {
 	Rules []CustomFilterRule `json:"rules"`
@@ -3301,6 +3464,11 @@ type ListInboundWgPeersResponse struct {
 // ListNetworkZonesResponse Response for GET /api/network/zones.
 type ListNetworkZonesResponse struct {
 	Zones []NetworkZoneView `json:"zones"`
+}
+
+// ListOauthProvidersResponse Response for `GET /api/auth/providers` (admin).
+type ListOauthProvidersResponse struct {
+	Providers []OauthProviderConfigResponse `json:"providers"`
 }
 
 // ListProfileDevicesResponse Response for GET /`api/routing/profiles/{id}/devices`.
@@ -3360,6 +3528,16 @@ type ListSnapshotsResponse struct {
 // ListTunnelsResponse Response for GET /api/tunnels.
 type ListTunnelsResponse struct {
 	Tunnels []Tunnel `json:"tunnels"`
+}
+
+// ListUserCredentialsResponse Response for `GET /api/users/{id}/credentials`.
+type ListUserCredentialsResponse struct {
+	Credentials []UserCredentialResponse `json:"credentials"`
+}
+
+// ListUsersResponse Response for `GET /api/users` (admin).
+type ListUsersResponse struct {
+	Users []UserResponse `json:"users"`
 }
 
 // ListZoneExceptionsResponse Response for GET /api/network/zones/exceptions.
@@ -3561,6 +3739,56 @@ type NotificationsResponse struct {
 	Notifications []NotificationItem `json:"notifications"`
 }
 
+// OauthProviderConfigResponse One provider's full configuration, for the **admin** provider screen.
+//
+// Separate from [`AuthProviderStatusResponse`] on purpose. That one is served
+// by the unauthenticated `GET /api/auth/methods`, so it must carry nothing an
+// anonymous caller should not learn — not even the client id, which would
+// otherwise disclose the household's OAuth app and canonical hostname to
+// anyone who can reach the box.
+type OauthProviderConfigResponse struct {
+	// ClientId The configured client id, or `null` if none is set. Not a secret — it
+	// rides in the authorize URL — but still admin-only, because it names the
+	// household's own registered application.
+	ClientId *string `json:"client_id,omitempty"`
+
+	// Configured A client secret is present. The secret itself is never returned.
+	Configured bool `json:"configured"`
+
+	// Enabled The admin's **stored** on/off flag, not the effective availability.
+	//
+	// This is the field a settings form must round-trip. Submitting
+	// [`AuthProviderStatusResponse::enabled`] instead would write the
+	// *computed* value back, silently switching a provider off whenever its
+	// hostname or secret happened to be missing at read time.
+	Enabled bool `json:"enabled"`
+
+	// Provider A federated identity provider, on the wire.
+	//
+	// Mirrors `wardnetd-services`' `OauthProvider` for the same reason
+	// [`CredentialKindDto`] mirrors its data-layer counterpart.
+	Provider OauthProviderDto `json:"provider"`
+
+	// RedirectUri The redirect URI to register with the provider by hand.
+	RedirectUri *string `json:"redirect_uri,omitempty"`
+}
+
+// OauthProviderDto A federated identity provider, on the wire.
+//
+// Mirrors `wardnetd-services`' `OauthProvider` for the same reason
+// [`CredentialKindDto`] mirrors its data-layer counterpart.
+type OauthProviderDto string
+
+// OauthStartResponse Response for `GET /api/auth/oauth/{provider}/start` (unauthenticated).
+//
+// JSON rather than a redirect, so the caller controls the navigation: a
+// fetch that followed a 302 to an external origin would be opaque to the
+// client and impossible to surface an error from.
+type OauthStartResponse struct {
+	// Url The provider's authorize URL, fully parameterised. Send the browser here.
+	Url string `json:"url"`
+}
+
 // PortSpec An inclusive port range for a single protocol. A single port is expressed as
 // `from == to`.
 type PortSpec struct {
@@ -3731,6 +3959,15 @@ type QuarantineNewDevicesResponse struct {
 type RebuildTunnelResponse struct {
 	// Ok Always `true` on a 200 response. Errors surface as non-200 status codes.
 	Ok bool `json:"ok"`
+}
+
+// RedeemEnrolmentRequest Request body for `POST /api/auth/enrolments/redeem` (unauthenticated).
+type RedeemEnrolmentRequest struct {
+	// Password The member's chosen first password.
+	Password string `json:"password"`
+
+	// Token The one-time token the admin handed over.
+	Token string `json:"token"`
 }
 
 // ReevaluateSummary Outcome of a reevaluation pass over the open anomalies.
@@ -3986,6 +4223,16 @@ type SetDefaultPolicyResponse struct {
 	Policy string `json:"policy"`
 }
 
+// SetDeviceOwnerRequest Request body for `PUT /api/devices/{id}/owner` (admin, ADR-0031 §4).
+//
+// **Attribution, never authentication.** The owner's role has no effect on
+// what the device may do: a device caller resolves to `AuthContext::Device`
+// whoever owns it, including an admin.
+type SetDeviceOwnerRequest struct {
+	// OwnerUserId The owning household user, or `null` to clear the assignment.
+	OwnerUserId *openapi_types.UUID `json:"owner_user_id,omitempty"`
+}
+
 // SetDeviceRoutingProfilesRequest Request body for PUT /`api/routing/devices/{device_id}/profiles`.
 type SetDeviceRoutingProfilesRequest struct {
 	// ProfileIds Profile ids in priority order (first = highest priority).
@@ -4028,6 +4275,21 @@ type SetPrivateDnsEnabledRequest struct {
 // SetQuarantineNewDevicesRequest Request body for PUT /api/network/quarantine-new-devices (issue #738).
 type SetQuarantineNewDevicesRequest struct {
 	Enabled bool `json:"enabled"`
+}
+
+// SetUserEnabledRequest Request body for `PUT /api/users/{id}/enabled` (admin).
+type SetUserEnabledRequest struct {
+	Enabled bool `json:"enabled"`
+}
+
+// SetUserRoleRequest Request body for `PUT /api/users/{id}/role` (admin).
+type SetUserRoleRequest struct {
+	// Role A household user's role (ADR-0031 §11).
+	//
+	// `Admin` is *exactly* equal to the legacy local admin — no deny-list, no
+	// second tier. Deliberately only two values: a household is 2–6 people, and
+	// an allow-list is honest at that size.
+	Role UserRole `json:"role"`
 }
 
 // SetupProviderRequest Request body for POST /api/providers/:id/setup.
@@ -4687,6 +4949,14 @@ type UpdateTunnelDnsOverrideResponse struct {
 	Tunnel Tunnel `json:"tunnel"`
 }
 
+// UpdateUserProfileRequest Request body for `PATCH /api/users/{id}`.
+//
+// Both fields are replacements, not patches: omitting `email` clears it.
+type UpdateUserProfileRequest struct {
+	DisplayName string  `json:"display_name"`
+	Email       *string `json:"email,omitempty"`
+}
+
 // UpdateZoneExceptionRequest Request body for PUT /api/network/zones/exceptions/{id} (partial update).
 // Every field is optional; absent fields are left unchanged.
 type UpdateZoneExceptionRequest struct {
@@ -4766,6 +5036,61 @@ type UpstreamLatency struct {
 
 	// Reachable Whether the most recent probe reached the upstream.
 	Reachable bool `json:"reachable"`
+}
+
+// UserCredentialResponse One of a user's credentials, without any secret.
+type UserCredentialResponse struct {
+	CreatedAt string `json:"created_at"`
+	Id        string `json:"id"`
+
+	// Kind What sort of credential a [`UserCredentialResponse`] describes.
+	//
+	// A wire-level mirror of `wardnetd-data`'s `CredentialKind`, which this crate
+	// sits below and cannot depend on. Declared as an enum rather than a bare
+	// string so the published schema names the closed set — a client that
+	// switches on `kind` then gets a compile error when a variant is added,
+	// instead of a silent fallthrough.
+	Kind CredentialKindDto `json:"kind"`
+
+	// Label Human label shown in the credential list.
+	Label *string `json:"label,omitempty"`
+
+	// LastUsedAt Last successful authentication, or `None` if never used.
+	LastUsedAt *string `json:"last_used_at,omitempty"`
+
+	// Subject The login identifier. Safe to show: for OAuth it is the provider's own
+	// subject, and there is no passkey path in the tree yet (#1194).
+	Subject string `json:"subject"`
+}
+
+// UserResponse A household user as the admin directory shows them (ADR-0031 §1).
+//
+// Structurally carries **no credential material** — not even a derived
+// "has a password" flag. Credentials are a separate resource
+// (`GET /api/users/{id}/credentials`) returning
+// [`UserCredentialResponse`], which likewise has no secret field. Keeping the
+// two apart is what makes it impossible to leak a hash by widening a struct
+// somebody thought was only a name and an email.
+type UserResponse struct {
+	CreatedAt   string `json:"created_at"`
+	DisplayName string `json:"display_name"`
+
+	// Email Optional. A user created by the setup wizard or the config-file
+	// bootstrap has none, because neither asks for one.
+	Email *string `json:"email,omitempty"`
+
+	// Enabled A disabled user keeps their row and their device ownership but cannot
+	// sign in, and every live session was deleted when they were disabled.
+	Enabled bool               `json:"enabled"`
+	Id      openapi_types.UUID `json:"id"`
+
+	// Role A household user's role (ADR-0031 §11).
+	//
+	// `Admin` is *exactly* equal to the legacy local admin — no deny-list, no
+	// second tier. Deliberately only two values: a household is 2–6 people, and
+	// an allow-list is honest at that size.
+	Role      UserRole `json:"role"`
+	UpdatedAt string   `json:"updated_at"`
 }
 
 // UserRole A household user's role (ADR-0031 §11).
@@ -4918,6 +5243,34 @@ type ListAnomaliesParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// CompleteOauthCallbackParams defines parameters for CompleteOauthCallback.
+type CompleteOauthCallbackParams struct {
+	// State The single-use ceremony nonce issued at `/start`.
+	State *string `form:"state,omitempty" json:"state,omitempty"`
+
+	// Code The authorization code to exchange.
+	Code *string `form:"code,omitempty" json:"code,omitempty"`
+
+	// Error Set instead of `code` when the person declined consent, or the provider
+	// refused. Its value is a provider-defined code (`access_denied`, …).
+	Error *string `form:"error,omitempty" json:"error,omitempty"`
+}
+
+// StartOauthParams defines parameters for StartOauth.
+type StartOauthParams struct {
+	// ReturnTo Which admin surface the ceremony began on: `admin` or `admin_app`.
+	// Defaults to `admin`. An unrecognised value is **rejected**, not
+	// sanitised into something close enough.
+	ReturnTo *string `form:"return_to,omitempty" json:"return_to,omitempty"`
+
+	// RememberMe Whether to issue a long-lived, refreshable session. Defaults to false.
+	//
+	// It must be decided here and nowhere else: it gates `refresh_session`,
+	// so an endpoint that raised it after the fact would be an endpoint that
+	// upgrades any short session into a 90-day one.
+	RememberMe *bool `form:"remember_me,omitempty" json:"remember_me,omitempty"`
+}
+
 // DdnsCheckParams defines parameters for DdnsCheck.
 type DdnsCheckParams struct {
 	// Slug The vanity slug to check, e.g. happy-einstein
@@ -5007,8 +5360,14 @@ type HistoryParams struct {
 // DecideAccessRequestJSONRequestBody defines body for DecideAccessRequest for application/json ContentType.
 type DecideAccessRequestJSONRequestBody = DecideAccessRequestRequest
 
+// RedeemEnrolmentJSONRequestBody defines body for RedeemEnrolment for application/json ContentType.
+type RedeemEnrolmentJSONRequestBody = RedeemEnrolmentRequest
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
+
+// ConfigureOauthProviderJSONRequestBody defines body for ConfigureOauthProvider for application/json ContentType.
+type ConfigureOauthProviderJSONRequestBody = ConfigureOauthProviderRequest
 
 // ExportJSONRequestBody defines body for Export for application/json ContentType.
 type ExportJSONRequestBody = ExportBackupRequest
@@ -5048,6 +5407,9 @@ type UpdateDeviceJSONRequestBody = UpdateDeviceRequest
 
 // UpdateDnsCaptureSettingsJSONRequestBody defines body for UpdateDnsCaptureSettings for application/json ContentType.
 type UpdateDnsCaptureSettingsJSONRequestBody = DnsCaptureSettingsRequest
+
+// SetDeviceOwnerJSONRequestBody defines body for SetDeviceOwner for application/json ContentType.
+type SetDeviceOwnerJSONRequestBody = SetDeviceOwnerRequest
 
 // AssignDeviceZoneJSONRequestBody defines body for AssignDeviceZone for application/json ContentType.
 type AssignDeviceZoneJSONRequestBody = AssignDeviceZoneRequest
@@ -5195,6 +5557,21 @@ type UpdateSetConfigJSONRequestBody = UpdateConfigRequest
 
 // InstallJSONRequestBody defines body for Install for application/json ContentType.
 type InstallJSONRequestBody = InstallUpdateRequest
+
+// CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
+type CreateUserJSONRequestBody = CreateUserRequest
+
+// ChangeOwnPasswordJSONRequestBody defines body for ChangeOwnPassword for application/json ContentType.
+type ChangeOwnPasswordJSONRequestBody = ChangePasswordRequest
+
+// UpdateProfileJSONRequestBody defines body for UpdateProfile for application/json ContentType.
+type UpdateProfileJSONRequestBody = UpdateUserProfileRequest
+
+// SetUserEnabledJSONRequestBody defines body for SetUserEnabled for application/json ContentType.
+type SetUserEnabledJSONRequestBody = SetUserEnabledRequest
+
+// SetRoleJSONRequestBody defines body for SetRole for application/json ContentType.
+type SetRoleJSONRequestBody = SetUserRoleRequest
 
 // AsApprovalParams0 returns the union data inside the ApprovalParams as a ApprovalParams0
 func (t ApprovalParams) AsApprovalParams0() (ApprovalParams0, error) {
@@ -6209,6 +6586,18 @@ type ClientInterface interface {
 	// Re-check every open anomaly against the world and resolve the ones whose condition no longer holds, instead of waiting for the next scheduled pass. Resolving an anomaly that was alerted also sends the matching recovery notification. Admin only.
 	ReevaluateAnomalies(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// RedeemEnrolmentWithBody performs a POST /api/auth/enrolments/redeem (the `RedeemEnrolment` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Redeem a one-time enrolment invitation, setting the member's first password. Unauthenticated by necessity: the person redeeming has no credential yet and therefore cannot have a session. The token *is* the authorization, which is why it is single-use, expiring, and checked in SQL. Deliberately **not** rate-limited — see the note on the handler.
+	RedeemEnrolmentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RedeemEnrolment performs a POST /api/auth/enrolments/redeem (the `RedeemEnrolment` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Redeem a one-time enrolment invitation, setting the member's first password. Unauthenticated by necessity: the person redeeming has no credential yet and therefore cannot have a session. The token *is* the authorization, which is why it is single-use, expiring, and checked in SQL. Deliberately **not** rate-limited — see the note on the handler.
+	RedeemEnrolment(ctx context.Context, body RedeemEnrolmentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// LoginWithBody performs a POST /api/auth/login (the `Login` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -6225,6 +6614,43 @@ type ClientInterface interface {
 	//
 	// End the current session. Deletes the session server-side so the token can never authenticate again, and clears the `wardnet_session` cookie in the response. Requires a valid session cookie or a `Authorization: Bearer <session token>` header; only the session that authenticated this request is affected. Callers authenticated with an API key get a 401 — API keys are not sessions and cannot be logged out here.
 	Logout(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AvailableMethods performs a GET /api/auth/methods (the `AvailableMethods` operationId) request.
+	//
+	// Which sign-in methods this box can actually offer right now. A sign-in surface reads this to decide which buttons to render, rather than showing a federated button that fails at the provider. Reports availability only — never a credential, a client secret, or whether any particular account exists, so it discloses nothing an unauthenticated caller should not see. `password` is always true: the local password is the floor and no path removes it.
+	AvailableMethods(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CompleteOauthCallback performs a GET /api/auth/oauth/{provider}/callback (the `CompleteOauthCallback` operationId) request.
+	//
+	// The provider's redirect target, and **the only OAuth callback entry point**. This exact URL is registered by hand with Google or GitHub by every household, so its shape is fixed. One URL serves both ceremonies the model allows, and the request arriving here carries nothing that says which — the stored ceremony does, and the service dispatches on it. Always answers 303 back to the admin surface the ceremony began on: on success with a session cookie set, on failure with a stable `oauth_error` code and no cookie. Never renders, and never reflects an error message.
+	CompleteOauthCallback(ctx context.Context, provider string, params *CompleteOauthCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StartOauth performs a GET /api/auth/oauth/{provider}/start (the `StartOauth` operationId) request.
+	//
+	// Begin an OAuth ceremony and return the provider URL to send the browser to. Returns JSON rather than a redirect so the caller controls the navigation — a fetch that followed a 302 to an external origin would be opaque to the client. A ceremony started by a signed-in caller is a **link** (attaching a provider account to their own user); one started anonymously is a **sign-in**. Which of the two it is, is recorded on the ceremony here and never re-guessed at the callback.
+	StartOauth(ctx context.Context, provider string, params *StartOauthParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListOauthProviders performs a GET /api/auth/providers (the `ListOauthProviders` operationId) request.
+	//
+	// Every federated provider's full configuration, for the admin sign-in-methods screen: the client id, whether a secret is stored, the redirect URI to register, and the admin's **stored** on/off flag. Distinct from `GET /api/auth/methods`, which is unauthenticated and therefore reports availability only — the client id names the household's own OAuth application and is admin-only. The `enabled` here is the stored flag, so a settings form can round-trip it; `/api/auth/methods` reports the effective availability instead. Admin only.
+	ListOauthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ClearOauthProvider performs a DELETE /api/auth/providers/{provider} (the `ClearOauthProvider` operationId) request.
+	//
+	// Forget a provider's configuration entirely, including its client secret. Existing links to that provider are left alone — this removes the box's ability to run the ceremony, not the record of who linked what. Admin only.
+	ClearOauthProvider(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ConfigureOauthProviderWithBody performs a PUT /api/auth/providers/{provider} (the `ConfigureOauthProvider` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Configure a federated provider's client id and secret, and whether it is offered. Each household registers its own OAuth app. The secret goes to the `SecretStore` and is never readable back through any endpoint; reads report `configured: true|false`. Omitting `client_secret` leaves an existing one in place, so an admin can toggle `enabled` or fix a typo'd client id without re-pasting it. Admin only.
+	ConfigureOauthProviderWithBody(ctx context.Context, provider string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ConfigureOauthProvider performs a PUT /api/auth/providers/{provider} (the `ConfigureOauthProvider` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Configure a federated provider's client id and secret, and whether it is offered. Each household registers its own OAuth app. The secret goes to the `SecretStore` and is never readable back through any endpoint; reads report `configured: true|false`. Omitting `client_secret` leaves an existing one in place, so an admin can toggle `enabled` or fix a typo'd client id without re-pasting it. Admin only.
+	ConfigureOauthProvider(ctx context.Context, provider string, body ConfigureOauthProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// Refresh performs a POST /api/auth/refresh (the `Refresh` operationId) request.
 	//
@@ -6445,6 +6871,18 @@ type ClientInterface interface {
 	//
 	// Probe a device on the vendor catalog's TCP ports and record whichever answered as identification signals, naming the device if one resolves to a vendor (issue #1116). This is the only identification signal that sends unsolicited traffic to a device, so per ADR 0025 §5 it happens only on this explicit per-device admin action — there is no background scan and no global toggle. Synchronous: the probe surface is a handful of ports contacted concurrently, so it completes in about a second. Refused with 409 when the device is not currently on the network, because its last known address may since have been handed to someone else and the resulting vendor would be recorded against the wrong device. Admin only.
 	IdentifyDevice(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetDeviceOwnerWithBody performs a PUT /api/devices/{id}/owner (the `SetDeviceOwner` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Assign or clear the household user a device belongs to (ADR-0031 §4). Pass `null` to clear. This is **attribution, never authentication**: the owner's role has no effect on what the device may do, and a device caller still resolves to the `Device` principal whoever owns it — including an admin. Device identity is derived from the source IP, so treating ownership as a credential would collapse admin access to IP spoofing. Returns the updated device detail. Admin only.
+	SetDeviceOwnerWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetDeviceOwner performs a PUT /api/devices/{id}/owner (the `SetDeviceOwner` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Assign or clear the household user a device belongs to (ADR-0031 §4). Pass `null` to clear. This is **attribution, never authentication**: the owner's role has no effect on what the device may do, and a device caller still resolves to the `Device` principal whoever owns it — including an admin. Device identity is derived from the source IP, so treating ownership as a credential would collapse admin access to IP spoofing. Returns the updated device detail. Admin only.
+	SetDeviceOwner(ctx context.Context, id openapi_types.UUID, body SetDeviceOwnerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ReleaseDevice performs a POST /api/devices/{id}/release (the `ReleaseDevice` operationId) request.
 	//
@@ -7488,10 +7926,110 @@ type ClientInterface interface {
 	// Return the current auto-update state: currently running version, latest known release from the manifest, configured channel, and whether an install is in progress. Admin only.
 	UpdateStatus(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListUsers performs a GET /api/users (the `ListUsers` operationId) request.
+	//
+	// Every household user, for the admin directory. Carries no credential material of any kind. Admin only — the list is the household's roster, and a member has no business enumerating it.
+	ListUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateUserWithBody performs a POST /api/users (the `CreateUser` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Create a household user with **no credential**. The account cannot be used until it is enrolled: the admin never learns a member's password, so account creation and credential creation are deliberately separate steps. Issue an invitation with `POST /api/users/{id}/enrolments` next. Admin only.
+	CreateUserWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateUser performs a POST /api/users (the `CreateUser` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Create a household user with **no credential**. The account cannot be used until it is enrolled: the admin never learns a member's password, so account creation and credential creation are deliberately separate steps. Issue an invitation with `POST /api/users/{id}/enrolments` next. Admin only.
+	CreateUser(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// Me performs a GET /api/users/me (the `Me` operationId) request.
 	//
 	// Return the authenticated household user's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store, and to decide which admin-only surfaces to render. Available to any authenticated user, including members reading their own profile.
 	Me(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangeOwnPasswordWithBody performs a POST /api/users/me/password (the `ChangeOwnPassword` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Set your own password, proving the current one first. **Every** live session for the account is invalidated, including the one making this call — a password change is usually a response to 'somebody may know my password', and leaving that person's session alive would make the change cosmetic. The caller must sign in again with the new password. Not an admin route in either direction: an admin cannot set someone else's password (they would then know it), and a member changing their own needs no admin.
+	ChangeOwnPasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangeOwnPassword performs a POST /api/users/me/password (the `ChangeOwnPassword` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Set your own password, proving the current one first. **Every** live session for the account is invalidated, including the one making this call — a password change is usually a response to 'somebody may know my password', and leaving that person's session alive would make the change cosmetic. The caller must sign in again with the new password. Not an admin route in either direction: an admin cannot set someone else's password (they would then know it), and a member changing their own needs no admin.
+	ChangeOwnPassword(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteUser performs a DELETE /api/users/{id} (the `DeleteUser` operationId) request.
+	//
+	// Delete a household user. Credentials, enrolment tokens and sessions cascade; `devices.owner_user_id` is set to NULL, because deleting a person must not delete the household's hardware. Refuses to delete the last enabled admin — a box with no admin is a box nobody can administer, and there is no recovery path from outside. Admin only.
+	DeleteUser(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetUser performs a GET /api/users/{id} (the `GetUser` operationId) request.
+	//
+	// One household user. Readable by an admin, or by that user about themselves — a member must not be able to enumerate the household by walking ids.
+	GetUser(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateProfileWithBody performs a PATCH /api/users/{id} (the `UpdateProfile` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Update a user's display name and email. A user may edit their own profile; changing anybody else's is an admin action. Both fields are replacements — omitting `email` clears it.
+	UpdateProfileWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UpdateProfile performs a PATCH /api/users/{id} (the `UpdateProfile` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Update a user's display name and email. A user may edit their own profile; changing anybody else's is an admin action. Both fields are replacements — omitting `email` clears it.
+	UpdateProfile(ctx context.Context, id openapi_types.UUID, body UpdateProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListCredentials performs a GET /api/users/{id}/credentials (the `ListCredentials` operationId) request.
+	//
+	// List a user's credentials, without secrets. The response type structurally has no secret field, so this cannot leak one by a later widening. Admin only.
+	ListCredentials(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UnlinkOauth performs a DELETE /api/users/{id}/credentials/{provider} (the `UnlinkOauth` operationId) request.
+	//
+	// Unlink every credential of one federated provider from a user. Never touches the local password: that is the floor, and an account whose only credential depended on a reachable provider would be unreachable during a WAN outage. Idempotent — unlinking a provider that was never linked succeeds. Admin only.
+	UnlinkOauth(ctx context.Context, id openapi_types.UUID, provider string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetUserEnabledWithBody performs a PUT /api/users/{id}/enabled (the `SetUserEnabled` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Enable or disable a household user. Disabling revokes immediately: every live session is deleted, and the login join filters the account out from the next request onward. Refuses to disable the last enabled admin. Admin only.
+	SetUserEnabledWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetUserEnabled performs a PUT /api/users/{id}/enabled (the `SetUserEnabled` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Enable or disable a household user. Disabling revokes immediately: every live session is deleted, and the login join filters the account out from the next request onward. Refuses to disable the last enabled admin. Admin only.
+	SetUserEnabled(ctx context.Context, id openapi_types.UUID, body SetUserEnabledJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListEnrolments performs a GET /api/users/{id}/enrolments (the `ListEnrolments` operationId) request.
+	//
+	// Outstanding and spent invitations for a user, so an admin can see whether one is still open before issuing another. Tokens are never included — only their metadata. Admin only.
+	ListEnrolments(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// IssueEnrolment performs a POST /api/users/{id}/enrolments (the `IssueEnrolment` operationId) request.
+	//
+	// Issue a one-time enrolment invitation for a user who has no password yet. The `token` in the response is shown **exactly once** — only its hash is stored, so an admin who loses it must issue another. Hand it over out of band; the member redeems it at `POST /api/auth/enrolments/redeem` and chooses their own password, which the admin never learns. Admin only.
+	IssueEnrolment(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RevokeEnrolment performs a DELETE /api/users/{id}/enrolments/{enrolment_id} (the `RevokeEnrolment` operationId) request.
+	//
+	// Revoke an unredeemed invitation, for an admin who issued one by mistake or to the wrong person. Admin only.
+	RevokeEnrolment(ctx context.Context, id openapi_types.UUID, enrolmentId openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetRoleWithBody performs a PUT /api/users/{id}/role (the `SetRole` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Change a user's role between `admin` and `member`. An `admin` household user is exactly equal to the legacy local admin — there is no second tier. Refuses to demote the last enabled admin. Admin only.
+	SetRoleWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetRole performs a PUT /api/users/{id}/role (the `SetRole` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Change a user's role between `admin` and `member`. An `admin` household user is exactly equal to the legacy local admin — there is no second tier. Refuses to demote the last enabled admin. Admin only.
+	SetRole(ctx context.Context, id openapi_types.UUID, body SetRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// Health performs a GET /health (the `Health` operationId) request.
 	//
@@ -7576,6 +8114,38 @@ func (c *Client) ReevaluateAnomalies(ctx context.Context, reqEditors ...RequestE
 	return c.Client.Do(req)
 }
 
+// RedeemEnrolmentWithBody performs a POST /api/auth/enrolments/redeem (the `RedeemEnrolment` operationId) request,
+// with any type of body and a specified content type.
+//
+// Redeem a one-time enrolment invitation, setting the member's first password. Unauthenticated by necessity: the person redeeming has no credential yet and therefore cannot have a session. The token *is* the authorization, which is why it is single-use, expiring, and checked in SQL. Deliberately **not** rate-limited — see the note on the handler.
+func (c *Client) RedeemEnrolmentWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRedeemEnrolmentRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RedeemEnrolment performs a POST /api/auth/enrolments/redeem (the `RedeemEnrolment` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Redeem a one-time enrolment invitation, setting the member's first password. Unauthenticated by necessity: the person redeeming has no credential yet and therefore cannot have a session. The token *is* the authorization, which is why it is single-use, expiring, and checked in SQL. Deliberately **not** rate-limited — see the note on the handler.
+func (c *Client) RedeemEnrolment(ctx context.Context, body RedeemEnrolmentJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRedeemEnrolmentRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // LoginWithBody performs a POST /api/auth/login (the `Login` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -7613,6 +8183,113 @@ func (c *Client) Login(ctx context.Context, body LoginJSONRequestBody, reqEditor
 // End the current session. Deletes the session server-side so the token can never authenticate again, and clears the `wardnet_session` cookie in the response. Requires a valid session cookie or a `Authorization: Bearer <session token>` header; only the session that authenticated this request is affected. Callers authenticated with an API key get a 401 — API keys are not sessions and cannot be logged out here.
 func (c *Client) Logout(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewLogoutRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AvailableMethods performs a GET /api/auth/methods (the `AvailableMethods` operationId) request.
+//
+// Which sign-in methods this box can actually offer right now. A sign-in surface reads this to decide which buttons to render, rather than showing a federated button that fails at the provider. Reports availability only — never a credential, a client secret, or whether any particular account exists, so it discloses nothing an unauthenticated caller should not see. `password` is always true: the local password is the floor and no path removes it.
+func (c *Client) AvailableMethods(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAvailableMethodsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CompleteOauthCallback performs a GET /api/auth/oauth/{provider}/callback (the `CompleteOauthCallback` operationId) request.
+//
+// The provider's redirect target, and **the only OAuth callback entry point**. This exact URL is registered by hand with Google or GitHub by every household, so its shape is fixed. One URL serves both ceremonies the model allows, and the request arriving here carries nothing that says which — the stored ceremony does, and the service dispatches on it. Always answers 303 back to the admin surface the ceremony began on: on success with a session cookie set, on failure with a stable `oauth_error` code and no cookie. Never renders, and never reflects an error message.
+func (c *Client) CompleteOauthCallback(ctx context.Context, provider string, params *CompleteOauthCallbackParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCompleteOauthCallbackRequest(c.Server, provider, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartOauth performs a GET /api/auth/oauth/{provider}/start (the `StartOauth` operationId) request.
+//
+// Begin an OAuth ceremony and return the provider URL to send the browser to. Returns JSON rather than a redirect so the caller controls the navigation — a fetch that followed a 302 to an external origin would be opaque to the client. A ceremony started by a signed-in caller is a **link** (attaching a provider account to their own user); one started anonymously is a **sign-in**. Which of the two it is, is recorded on the ceremony here and never re-guessed at the callback.
+func (c *Client) StartOauth(ctx context.Context, provider string, params *StartOauthParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartOauthRequest(c.Server, provider, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListOauthProviders performs a GET /api/auth/providers (the `ListOauthProviders` operationId) request.
+//
+// Every federated provider's full configuration, for the admin sign-in-methods screen: the client id, whether a secret is stored, the redirect URI to register, and the admin's **stored** on/off flag. Distinct from `GET /api/auth/methods`, which is unauthenticated and therefore reports availability only — the client id names the household's own OAuth application and is admin-only. The `enabled` here is the stored flag, so a settings form can round-trip it; `/api/auth/methods` reports the effective availability instead. Admin only.
+func (c *Client) ListOauthProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListOauthProvidersRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ClearOauthProvider performs a DELETE /api/auth/providers/{provider} (the `ClearOauthProvider` operationId) request.
+//
+// Forget a provider's configuration entirely, including its client secret. Existing links to that provider are left alone — this removes the box's ability to run the ceremony, not the record of who linked what. Admin only.
+func (c *Client) ClearOauthProvider(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewClearOauthProviderRequest(c.Server, provider)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ConfigureOauthProviderWithBody performs a PUT /api/auth/providers/{provider} (the `ConfigureOauthProvider` operationId) request,
+// with any type of body and a specified content type.
+//
+// Configure a federated provider's client id and secret, and whether it is offered. Each household registers its own OAuth app. The secret goes to the `SecretStore` and is never readable back through any endpoint; reads report `configured: true|false`. Omitting `client_secret` leaves an existing one in place, so an admin can toggle `enabled` or fix a typo'd client id without re-pasting it. Admin only.
+func (c *Client) ConfigureOauthProviderWithBody(ctx context.Context, provider string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConfigureOauthProviderRequestWithBody(c.Server, provider, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ConfigureOauthProvider performs a PUT /api/auth/providers/{provider} (the `ConfigureOauthProvider` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Configure a federated provider's client id and secret, and whether it is offered. Each household registers its own OAuth app. The secret goes to the `SecretStore` and is never readable back through any endpoint; reads report `configured: true|false`. Omitting `client_secret` leaves an existing one in place, so an admin can toggle `enabled` or fix a typo'd client id without re-pasting it. Admin only.
+func (c *Client) ConfigureOauthProvider(ctx context.Context, provider string, body ConfigureOauthProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewConfigureOauthProviderRequest(c.Server, provider, body)
 	if err != nil {
 		return nil, err
 	}
@@ -8223,6 +8900,38 @@ func (c *Client) UpdateDnsCaptureSettings(ctx context.Context, id string, body U
 // Probe a device on the vendor catalog's TCP ports and record whichever answered as identification signals, naming the device if one resolves to a vendor (issue #1116). This is the only identification signal that sends unsolicited traffic to a device, so per ADR 0025 §5 it happens only on this explicit per-device admin action — there is no background scan and no global toggle. Synchronous: the probe surface is a handful of ports contacted concurrently, so it completes in about a second. Refused with 409 when the device is not currently on the network, because its last known address may since have been handed to someone else and the resulting vendor would be recorded against the wrong device. Admin only.
 func (c *Client) IdentifyDevice(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewIdentifyDeviceRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetDeviceOwnerWithBody performs a PUT /api/devices/{id}/owner (the `SetDeviceOwner` operationId) request,
+// with any type of body and a specified content type.
+//
+// Assign or clear the household user a device belongs to (ADR-0031 §4). Pass `null` to clear. This is **attribution, never authentication**: the owner's role has no effect on what the device may do, and a device caller still resolves to the `Device` principal whoever owns it — including an admin. Device identity is derived from the source IP, so treating ownership as a credential would collapse admin access to IP spoofing. Returns the updated device detail. Admin only.
+func (c *Client) SetDeviceOwnerWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetDeviceOwnerRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetDeviceOwner performs a PUT /api/devices/{id}/owner (the `SetDeviceOwner` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Assign or clear the household user a device belongs to (ADR-0031 §4). Pass `null` to clear. This is **attribution, never authentication**: the owner's role has no effect on what the device may do, and a device caller still resolves to the `Device` principal whoever owns it — including an admin. Device identity is derived from the source IP, so treating ownership as a credential would collapse admin access to IP spoofing. Returns the updated device detail. Admin only.
+func (c *Client) SetDeviceOwner(ctx context.Context, id openapi_types.UUID, body SetDeviceOwnerJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetDeviceOwnerRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -11145,11 +11854,291 @@ func (c *Client) UpdateStatus(ctx context.Context, reqEditors ...RequestEditorFn
 	return c.Client.Do(req)
 }
 
+// ListUsers performs a GET /api/users (the `ListUsers` operationId) request.
+//
+// Every household user, for the admin directory. Carries no credential material of any kind. Admin only — the list is the household's roster, and a member has no business enumerating it.
+func (c *Client) ListUsers(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListUsersRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateUserWithBody performs a POST /api/users (the `CreateUser` operationId) request,
+// with any type of body and a specified content type.
+//
+// Create a household user with **no credential**. The account cannot be used until it is enrolled: the admin never learns a member's password, so account creation and credential creation are deliberately separate steps. Issue an invitation with `POST /api/users/{id}/enrolments` next. Admin only.
+func (c *Client) CreateUserWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateUserRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateUser performs a POST /api/users (the `CreateUser` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Create a household user with **no credential**. The account cannot be used until it is enrolled: the admin never learns a member's password, so account creation and credential creation are deliberately separate steps. Issue an invitation with `POST /api/users/{id}/enrolments` next. Admin only.
+func (c *Client) CreateUser(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateUserRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // Me performs a GET /api/users/me (the `Me` operationId) request.
 //
 // Return the authenticated household user's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store, and to decide which admin-only surfaces to render. Available to any authenticated user, including members reading their own profile.
 func (c *Client) Me(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewMeRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ChangeOwnPasswordWithBody performs a POST /api/users/me/password (the `ChangeOwnPassword` operationId) request,
+// with any type of body and a specified content type.
+//
+// Set your own password, proving the current one first. **Every** live session for the account is invalidated, including the one making this call — a password change is usually a response to 'somebody may know my password', and leaving that person's session alive would make the change cosmetic. The caller must sign in again with the new password. Not an admin route in either direction: an admin cannot set someone else's password (they would then know it), and a member changing their own needs no admin.
+func (c *Client) ChangeOwnPasswordWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeOwnPasswordRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ChangeOwnPassword performs a POST /api/users/me/password (the `ChangeOwnPassword` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Set your own password, proving the current one first. **Every** live session for the account is invalidated, including the one making this call — a password change is usually a response to 'somebody may know my password', and leaving that person's session alive would make the change cosmetic. The caller must sign in again with the new password. Not an admin route in either direction: an admin cannot set someone else's password (they would then know it), and a member changing their own needs no admin.
+func (c *Client) ChangeOwnPassword(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeOwnPasswordRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteUser performs a DELETE /api/users/{id} (the `DeleteUser` operationId) request.
+//
+// Delete a household user. Credentials, enrolment tokens and sessions cascade; `devices.owner_user_id` is set to NULL, because deleting a person must not delete the household's hardware. Refuses to delete the last enabled admin — a box with no admin is a box nobody can administer, and there is no recovery path from outside. Admin only.
+func (c *Client) DeleteUser(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteUserRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetUser performs a GET /api/users/{id} (the `GetUser` operationId) request.
+//
+// One household user. Readable by an admin, or by that user about themselves — a member must not be able to enumerate the household by walking ids.
+func (c *Client) GetUser(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetUserRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateProfileWithBody performs a PATCH /api/users/{id} (the `UpdateProfile` operationId) request,
+// with any type of body and a specified content type.
+//
+// Update a user's display name and email. A user may edit their own profile; changing anybody else's is an admin action. Both fields are replacements — omitting `email` clears it.
+func (c *Client) UpdateProfileWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateProfileRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UpdateProfile performs a PATCH /api/users/{id} (the `UpdateProfile` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Update a user's display name and email. A user may edit their own profile; changing anybody else's is an admin action. Both fields are replacements — omitting `email` clears it.
+func (c *Client) UpdateProfile(ctx context.Context, id openapi_types.UUID, body UpdateProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUpdateProfileRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListCredentials performs a GET /api/users/{id}/credentials (the `ListCredentials` operationId) request.
+//
+// List a user's credentials, without secrets. The response type structurally has no secret field, so this cannot leak one by a later widening. Admin only.
+func (c *Client) ListCredentials(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListCredentialsRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UnlinkOauth performs a DELETE /api/users/{id}/credentials/{provider} (the `UnlinkOauth` operationId) request.
+//
+// Unlink every credential of one federated provider from a user. Never touches the local password: that is the floor, and an account whose only credential depended on a reachable provider would be unreachable during a WAN outage. Idempotent — unlinking a provider that was never linked succeeds. Admin only.
+func (c *Client) UnlinkOauth(ctx context.Context, id openapi_types.UUID, provider string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUnlinkOauthRequest(c.Server, id, provider)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetUserEnabledWithBody performs a PUT /api/users/{id}/enabled (the `SetUserEnabled` operationId) request,
+// with any type of body and a specified content type.
+//
+// Enable or disable a household user. Disabling revokes immediately: every live session is deleted, and the login join filters the account out from the next request onward. Refuses to disable the last enabled admin. Admin only.
+func (c *Client) SetUserEnabledWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetUserEnabledRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetUserEnabled performs a PUT /api/users/{id}/enabled (the `SetUserEnabled` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Enable or disable a household user. Disabling revokes immediately: every live session is deleted, and the login join filters the account out from the next request onward. Refuses to disable the last enabled admin. Admin only.
+func (c *Client) SetUserEnabled(ctx context.Context, id openapi_types.UUID, body SetUserEnabledJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetUserEnabledRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListEnrolments performs a GET /api/users/{id}/enrolments (the `ListEnrolments` operationId) request.
+//
+// Outstanding and spent invitations for a user, so an admin can see whether one is still open before issuing another. Tokens are never included — only their metadata. Admin only.
+func (c *Client) ListEnrolments(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListEnrolmentsRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// IssueEnrolment performs a POST /api/users/{id}/enrolments (the `IssueEnrolment` operationId) request.
+//
+// Issue a one-time enrolment invitation for a user who has no password yet. The `token` in the response is shown **exactly once** — only its hash is stored, so an admin who loses it must issue another. Hand it over out of band; the member redeems it at `POST /api/auth/enrolments/redeem` and chooses their own password, which the admin never learns. Admin only.
+func (c *Client) IssueEnrolment(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewIssueEnrolmentRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RevokeEnrolment performs a DELETE /api/users/{id}/enrolments/{enrolment_id} (the `RevokeEnrolment` operationId) request.
+//
+// Revoke an unredeemed invitation, for an admin who issued one by mistake or to the wrong person. Admin only.
+func (c *Client) RevokeEnrolment(ctx context.Context, id openapi_types.UUID, enrolmentId openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeEnrolmentRequest(c.Server, id, enrolmentId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetRoleWithBody performs a PUT /api/users/{id}/role (the `SetRole` operationId) request,
+// with any type of body and a specified content type.
+//
+// Change a user's role between `admin` and `member`. An `admin` household user is exactly equal to the legacy local admin — there is no second tier. Refuses to demote the last enabled admin. Admin only.
+func (c *Client) SetRoleWithBody(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetRoleRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetRole performs a PUT /api/users/{id}/role (the `SetRole` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Change a user's role between `admin` and `member`. An `admin` household user is exactly equal to the legacy local admin — there is no second tier. Refuses to demote the last enabled admin. Admin only.
+func (c *Client) SetRole(ctx context.Context, id openapi_types.UUID, body SetRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetRoleRequest(c.Server, id, body)
 	if err != nil {
 		return nil, err
 	}
@@ -11381,6 +12370,46 @@ func NewReevaluateAnomaliesRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewRedeemEnrolmentRequest calls the generic RedeemEnrolment builder with application/json body
+func NewRedeemEnrolmentRequest(server string, body RedeemEnrolmentJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRedeemEnrolmentRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewRedeemEnrolmentRequestWithBody constructs an http.Request for the RedeemEnrolment method, with any body, and a specified content type
+func NewRedeemEnrolmentRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/enrolments/redeem")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewLoginRequest calls the generic Login builder with application/json body
 func NewLoginRequest(server string, body LoginJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -11444,6 +12473,299 @@ func NewLogoutRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewAvailableMethodsRequest constructs an http.Request for the AvailableMethods method
+func NewAvailableMethodsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/methods")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCompleteOauthCallbackRequest constructs an http.Request for the CompleteOauthCallback method
+func NewCompleteOauthCallbackRequest(server string, provider string, params *CompleteOauthCallbackParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/oauth/%s/callback", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.State != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "state", *params.State, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Code != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "code", *params.Code, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Error != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "error", *params.Error, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewStartOauthRequest constructs an http.Request for the StartOauth method
+func NewStartOauthRequest(server string, provider string, params *StartOauthParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/oauth/%s/start", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.ReturnTo != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "return_to", *params.ReturnTo, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.RememberMe != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "remember_me", *params.RememberMe, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "boolean", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListOauthProvidersRequest constructs an http.Request for the ListOauthProviders method
+func NewListOauthProvidersRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/providers")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewClearOauthProviderRequest constructs an http.Request for the ClearOauthProvider method
+func NewClearOauthProviderRequest(server string, provider string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/providers/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewConfigureOauthProviderRequest calls the generic ConfigureOauthProvider builder with application/json body
+func NewConfigureOauthProviderRequest(server string, provider string, body ConfigureOauthProviderJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewConfigureOauthProviderRequestWithBody(server, provider, "application/json", bodyReader)
+}
+
+// NewConfigureOauthProviderRequestWithBody constructs an http.Request for the ConfigureOauthProvider method, with any body, and a specified content type
+func NewConfigureOauthProviderRequestWithBody(server string, provider string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/auth/providers/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -12389,6 +13711,53 @@ func NewIdentifyDeviceRequest(server string, id openapi_types.UUID) (*http.Reque
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewSetDeviceOwnerRequest calls the generic SetDeviceOwner builder with application/json body
+func NewSetDeviceOwnerRequest(server string, id openapi_types.UUID, body SetDeviceOwnerJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetDeviceOwnerRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewSetDeviceOwnerRequestWithBody constructs an http.Request for the SetDeviceOwner method, with any body, and a specified content type
+func NewSetDeviceOwnerRequestWithBody(server string, id openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/devices/%s/owner", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -17595,6 +18964,73 @@ func NewUpdateStatusRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListUsersRequest constructs an http.Request for the ListUsers method
+func NewListUsersRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateUserRequest calls the generic CreateUser builder with application/json body
+func NewCreateUserRequest(server string, body CreateUserJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateUserRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateUserRequestWithBody constructs an http.Request for the CreateUser method, with any body, and a specified content type
+func NewCreateUserRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewMeRequest constructs an http.Request for the Me method
 func NewMeRequest(server string) (*http.Request, error) {
 	var err error
@@ -17618,6 +19054,439 @@ func NewMeRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewChangeOwnPasswordRequest calls the generic ChangeOwnPassword builder with application/json body
+func NewChangeOwnPasswordRequest(server string, body ChangeOwnPasswordJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewChangeOwnPasswordRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewChangeOwnPasswordRequestWithBody constructs an http.Request for the ChangeOwnPassword method, with any body, and a specified content type
+func NewChangeOwnPasswordRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/me/password")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteUserRequest constructs an http.Request for the DeleteUser method
+func NewDeleteUserRequest(server string, id openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetUserRequest constructs an http.Request for the GetUser method
+func NewGetUserRequest(server string, id openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUpdateProfileRequest calls the generic UpdateProfile builder with application/json body
+func NewUpdateProfileRequest(server string, id openapi_types.UUID, body UpdateProfileJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewUpdateProfileRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewUpdateProfileRequestWithBody constructs an http.Request for the UpdateProfile method, with any body, and a specified content type
+func NewUpdateProfileRequestWithBody(server string, id openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListCredentialsRequest constructs an http.Request for the ListCredentials method
+func NewListCredentialsRequest(server string, id openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/%s/credentials", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUnlinkOauthRequest constructs an http.Request for the UnlinkOauth method
+func NewUnlinkOauthRequest(server string, id openapi_types.UUID, provider string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "provider", provider, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/%s/credentials/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetUserEnabledRequest calls the generic SetUserEnabled builder with application/json body
+func NewSetUserEnabledRequest(server string, id openapi_types.UUID, body SetUserEnabledJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetUserEnabledRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewSetUserEnabledRequestWithBody constructs an http.Request for the SetUserEnabled method, with any body, and a specified content type
+func NewSetUserEnabledRequestWithBody(server string, id openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/%s/enabled", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListEnrolmentsRequest constructs an http.Request for the ListEnrolments method
+func NewListEnrolmentsRequest(server string, id openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/%s/enrolments", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewIssueEnrolmentRequest constructs an http.Request for the IssueEnrolment method
+func NewIssueEnrolmentRequest(server string, id openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/%s/enrolments", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRevokeEnrolmentRequest constructs an http.Request for the RevokeEnrolment method
+func NewRevokeEnrolmentRequest(server string, id openapi_types.UUID, enrolmentId openapi_types.UUID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "enrolment_id", enrolmentId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/%s/enrolments/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetRoleRequest calls the generic SetRole builder with application/json body
+func NewSetRoleRequest(server string, id openapi_types.UUID, body SetRoleJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetRoleRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewSetRoleRequestWithBody constructs an http.Request for the SetRole method, with any body, and a specified content type
+func NewSetRoleRequestWithBody(server string, id openapi_types.UUID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/users/%s/role", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -17728,6 +19597,20 @@ type ClientWithResponsesInterface interface {
 	// Returns a wrapper object for the known response body format(s).
 	ReevaluateAnomaliesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ReevaluateAnomaliesResp, error)
 
+	// RedeemEnrolmentWithBodyWithResponse performs a POST /api/auth/enrolments/redeem (the `RedeemEnrolment` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Redeem a one-time enrolment invitation, setting the member's first password. Unauthenticated by necessity: the person redeeming has no credential yet and therefore cannot have a session. The token *is* the authorization, which is why it is single-use, expiring, and checked in SQL. Deliberately **not** rate-limited — see the note on the handler.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	RedeemEnrolmentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RedeemEnrolmentResp, error)
+
+	// RedeemEnrolmentWithResponse performs a POST /api/auth/enrolments/redeem (the `RedeemEnrolment` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Redeem a one-time enrolment invitation, setting the member's first password. Unauthenticated by necessity: the person redeeming has no credential yet and therefore cannot have a session. The token *is* the authorization, which is why it is single-use, expiring, and checked in SQL. Deliberately **not** rate-limited — see the note on the handler.
+	RedeemEnrolmentWithResponse(ctx context.Context, body RedeemEnrolmentJSONRequestBody, reqEditors ...RequestEditorFn) (*RedeemEnrolmentResp, error)
+
 	// LoginWithBodyWithResponse performs a POST /api/auth/login (the `Login` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -17748,6 +19631,55 @@ type ClientWithResponsesInterface interface {
 	//
 	// Returns a wrapper object for the known response body format(s).
 	LogoutWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*LogoutResp, error)
+
+	// AvailableMethodsWithResponse performs a GET /api/auth/methods (the `AvailableMethods` operationId) request.
+	//
+	// Which sign-in methods this box can actually offer right now. A sign-in surface reads this to decide which buttons to render, rather than showing a federated button that fails at the provider. Reports availability only — never a credential, a client secret, or whether any particular account exists, so it discloses nothing an unauthenticated caller should not see. `password` is always true: the local password is the floor and no path removes it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	AvailableMethodsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AvailableMethodsResp, error)
+
+	// CompleteOauthCallbackWithResponse performs a GET /api/auth/oauth/{provider}/callback (the `CompleteOauthCallback` operationId) request.
+	//
+	// The provider's redirect target, and **the only OAuth callback entry point**. This exact URL is registered by hand with Google or GitHub by every household, so its shape is fixed. One URL serves both ceremonies the model allows, and the request arriving here carries nothing that says which — the stored ceremony does, and the service dispatches on it. Always answers 303 back to the admin surface the ceremony began on: on success with a session cookie set, on failure with a stable `oauth_error` code and no cookie. Never renders, and never reflects an error message.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	CompleteOauthCallbackWithResponse(ctx context.Context, provider string, params *CompleteOauthCallbackParams, reqEditors ...RequestEditorFn) (*CompleteOauthCallbackResp, error)
+
+	// StartOauthWithResponse performs a GET /api/auth/oauth/{provider}/start (the `StartOauth` operationId) request.
+	//
+	// Begin an OAuth ceremony and return the provider URL to send the browser to. Returns JSON rather than a redirect so the caller controls the navigation — a fetch that followed a 302 to an external origin would be opaque to the client. A ceremony started by a signed-in caller is a **link** (attaching a provider account to their own user); one started anonymously is a **sign-in**. Which of the two it is, is recorded on the ceremony here and never re-guessed at the callback.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	StartOauthWithResponse(ctx context.Context, provider string, params *StartOauthParams, reqEditors ...RequestEditorFn) (*StartOauthResp, error)
+
+	// ListOauthProvidersWithResponse performs a GET /api/auth/providers (the `ListOauthProviders` operationId) request.
+	//
+	// Every federated provider's full configuration, for the admin sign-in-methods screen: the client id, whether a secret is stored, the redirect URI to register, and the admin's **stored** on/off flag. Distinct from `GET /api/auth/methods`, which is unauthenticated and therefore reports availability only — the client id names the household's own OAuth application and is admin-only. The `enabled` here is the stored flag, so a settings form can round-trip it; `/api/auth/methods` reports the effective availability instead. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ListOauthProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOauthProvidersResp, error)
+
+	// ClearOauthProviderWithResponse performs a DELETE /api/auth/providers/{provider} (the `ClearOauthProvider` operationId) request.
+	//
+	// Forget a provider's configuration entirely, including its client secret. Existing links to that provider are left alone — this removes the box's ability to run the ceremony, not the record of who linked what. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ClearOauthProviderWithResponse(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*ClearOauthProviderResp, error)
+
+	// ConfigureOauthProviderWithBodyWithResponse performs a PUT /api/auth/providers/{provider} (the `ConfigureOauthProvider` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Configure a federated provider's client id and secret, and whether it is offered. Each household registers its own OAuth app. The secret goes to the `SecretStore` and is never readable back through any endpoint; reads report `configured: true|false`. Omitting `client_secret` leaves an existing one in place, so an admin can toggle `enabled` or fix a typo'd client id without re-pasting it. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ConfigureOauthProviderWithBodyWithResponse(ctx context.Context, provider string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfigureOauthProviderResp, error)
+
+	// ConfigureOauthProviderWithResponse performs a PUT /api/auth/providers/{provider} (the `ConfigureOauthProvider` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Configure a federated provider's client id and secret, and whether it is offered. Each household registers its own OAuth app. The secret goes to the `SecretStore` and is never readable back through any endpoint; reads report `configured: true|false`. Omitting `client_secret` leaves an existing one in place, so an admin can toggle `enabled` or fix a typo'd client id without re-pasting it. Admin only.
+	ConfigureOauthProviderWithResponse(ctx context.Context, provider string, body ConfigureOauthProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfigureOauthProviderResp, error)
 
 	// RefreshWithResponse performs a POST /api/auth/refresh (the `Refresh` operationId) request.
 	//
@@ -18022,6 +19954,20 @@ type ClientWithResponsesInterface interface {
 	//
 	// Returns a wrapper object for the known response body format(s).
 	IdentifyDeviceWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*IdentifyDeviceResp, error)
+
+	// SetDeviceOwnerWithBodyWithResponse performs a PUT /api/devices/{id}/owner (the `SetDeviceOwner` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Assign or clear the household user a device belongs to (ADR-0031 §4). Pass `null` to clear. This is **attribution, never authentication**: the owner's role has no effect on what the device may do, and a device caller still resolves to the `Device` principal whoever owns it — including an admin. Device identity is derived from the source IP, so treating ownership as a credential would collapse admin access to IP spoofing. Returns the updated device detail. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	SetDeviceOwnerWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetDeviceOwnerResp, error)
+
+	// SetDeviceOwnerWithResponse performs a PUT /api/devices/{id}/owner (the `SetDeviceOwner` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Assign or clear the household user a device belongs to (ADR-0031 §4). Pass `null` to clear. This is **attribution, never authentication**: the owner's role has no effect on what the device may do, and a device caller still resolves to the `Device` principal whoever owns it — including an admin. Device identity is derived from the source IP, so treating ownership as a credential would collapse admin access to IP spoofing. Returns the updated device detail. Admin only.
+	SetDeviceOwnerWithResponse(ctx context.Context, id openapi_types.UUID, body SetDeviceOwnerJSONRequestBody, reqEditors ...RequestEditorFn) (*SetDeviceOwnerResp, error)
 
 	// ReleaseDeviceWithResponse performs a POST /api/devices/{id}/release (the `ReleaseDevice` operationId) request.
 	//
@@ -19341,12 +21287,138 @@ type ClientWithResponsesInterface interface {
 	// Returns a wrapper object for the known response body format(s).
 	UpdateStatusWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*UpdateStatusResp, error)
 
+	// ListUsersWithResponse performs a GET /api/users (the `ListUsers` operationId) request.
+	//
+	// Every household user, for the admin directory. Carries no credential material of any kind. Admin only — the list is the household's roster, and a member has no business enumerating it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ListUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListUsersResp, error)
+
+	// CreateUserWithBodyWithResponse performs a POST /api/users (the `CreateUser` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Create a household user with **no credential**. The account cannot be used until it is enrolled: the admin never learns a member's password, so account creation and credential creation are deliberately separate steps. Issue an invitation with `POST /api/users/{id}/enrolments` next. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	CreateUserWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateUserResp, error)
+
+	// CreateUserWithResponse performs a POST /api/users (the `CreateUser` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Create a household user with **no credential**. The account cannot be used until it is enrolled: the admin never learns a member's password, so account creation and credential creation are deliberately separate steps. Issue an invitation with `POST /api/users/{id}/enrolments` next. Admin only.
+	CreateUserWithResponse(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateUserResp, error)
+
 	// MeWithResponse performs a GET /api/users/me (the `Me` operationId) request.
 	//
 	// Return the authenticated household user's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store, and to decide which admin-only surfaces to render. Available to any authenticated user, including members reading their own profile.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	MeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*MeResp, error)
+
+	// ChangeOwnPasswordWithBodyWithResponse performs a POST /api/users/me/password (the `ChangeOwnPassword` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Set your own password, proving the current one first. **Every** live session for the account is invalidated, including the one making this call — a password change is usually a response to 'somebody may know my password', and leaving that person's session alive would make the change cosmetic. The caller must sign in again with the new password. Not an admin route in either direction: an admin cannot set someone else's password (they would then know it), and a member changing their own needs no admin.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ChangeOwnPasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeOwnPasswordResp, error)
+
+	// ChangeOwnPasswordWithResponse performs a POST /api/users/me/password (the `ChangeOwnPassword` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Set your own password, proving the current one first. **Every** live session for the account is invalidated, including the one making this call — a password change is usually a response to 'somebody may know my password', and leaving that person's session alive would make the change cosmetic. The caller must sign in again with the new password. Not an admin route in either direction: an admin cannot set someone else's password (they would then know it), and a member changing their own needs no admin.
+	ChangeOwnPasswordWithResponse(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeOwnPasswordResp, error)
+
+	// DeleteUserWithResponse performs a DELETE /api/users/{id} (the `DeleteUser` operationId) request.
+	//
+	// Delete a household user. Credentials, enrolment tokens and sessions cascade; `devices.owner_user_id` is set to NULL, because deleting a person must not delete the household's hardware. Refuses to delete the last enabled admin — a box with no admin is a box nobody can administer, and there is no recovery path from outside. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	DeleteUserWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*DeleteUserResp, error)
+
+	// GetUserWithResponse performs a GET /api/users/{id} (the `GetUser` operationId) request.
+	//
+	// One household user. Readable by an admin, or by that user about themselves — a member must not be able to enumerate the household by walking ids.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	GetUserWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetUserResp, error)
+
+	// UpdateProfileWithBodyWithResponse performs a PATCH /api/users/{id} (the `UpdateProfile` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Update a user's display name and email. A user may edit their own profile; changing anybody else's is an admin action. Both fields are replacements — omitting `email` clears it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	UpdateProfileWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProfileResp, error)
+
+	// UpdateProfileWithResponse performs a PATCH /api/users/{id} (the `UpdateProfile` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Update a user's display name and email. A user may edit their own profile; changing anybody else's is an admin action. Both fields are replacements — omitting `email` clears it.
+	UpdateProfileWithResponse(ctx context.Context, id openapi_types.UUID, body UpdateProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProfileResp, error)
+
+	// ListCredentialsWithResponse performs a GET /api/users/{id}/credentials (the `ListCredentials` operationId) request.
+	//
+	// List a user's credentials, without secrets. The response type structurally has no secret field, so this cannot leak one by a later widening. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ListCredentialsWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*ListCredentialsResp, error)
+
+	// UnlinkOauthWithResponse performs a DELETE /api/users/{id}/credentials/{provider} (the `UnlinkOauth` operationId) request.
+	//
+	// Unlink every credential of one federated provider from a user. Never touches the local password: that is the floor, and an account whose only credential depended on a reachable provider would be unreachable during a WAN outage. Idempotent — unlinking a provider that was never linked succeeds. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	UnlinkOauthWithResponse(ctx context.Context, id openapi_types.UUID, provider string, reqEditors ...RequestEditorFn) (*UnlinkOauthResp, error)
+
+	// SetUserEnabledWithBodyWithResponse performs a PUT /api/users/{id}/enabled (the `SetUserEnabled` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Enable or disable a household user. Disabling revokes immediately: every live session is deleted, and the login join filters the account out from the next request onward. Refuses to disable the last enabled admin. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	SetUserEnabledWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserEnabledResp, error)
+
+	// SetUserEnabledWithResponse performs a PUT /api/users/{id}/enabled (the `SetUserEnabled` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Enable or disable a household user. Disabling revokes immediately: every live session is deleted, and the login join filters the account out from the next request onward. Refuses to disable the last enabled admin. Admin only.
+	SetUserEnabledWithResponse(ctx context.Context, id openapi_types.UUID, body SetUserEnabledJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserEnabledResp, error)
+
+	// ListEnrolmentsWithResponse performs a GET /api/users/{id}/enrolments (the `ListEnrolments` operationId) request.
+	//
+	// Outstanding and spent invitations for a user, so an admin can see whether one is still open before issuing another. Tokens are never included — only their metadata. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ListEnrolmentsWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*ListEnrolmentsResp, error)
+
+	// IssueEnrolmentWithResponse performs a POST /api/users/{id}/enrolments (the `IssueEnrolment` operationId) request.
+	//
+	// Issue a one-time enrolment invitation for a user who has no password yet. The `token` in the response is shown **exactly once** — only its hash is stored, so an admin who loses it must issue another. Hand it over out of band; the member redeems it at `POST /api/auth/enrolments/redeem` and chooses their own password, which the admin never learns. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	IssueEnrolmentWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*IssueEnrolmentResp, error)
+
+	// RevokeEnrolmentWithResponse performs a DELETE /api/users/{id}/enrolments/{enrolment_id} (the `RevokeEnrolment` operationId) request.
+	//
+	// Revoke an unredeemed invitation, for an admin who issued one by mistake or to the wrong person. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	RevokeEnrolmentWithResponse(ctx context.Context, id openapi_types.UUID, enrolmentId openapi_types.UUID, reqEditors ...RequestEditorFn) (*RevokeEnrolmentResp, error)
+
+	// SetRoleWithBodyWithResponse performs a PUT /api/users/{id}/role (the `SetRole` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Change a user's role between `admin` and `member`. An `admin` household user is exactly equal to the legacy local admin — there is no second tier. Refuses to demote the last enabled admin. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	SetRoleWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetRoleResp, error)
+
+	// SetRoleWithResponse performs a PUT /api/users/{id}/role (the `SetRole` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Change a user's role between `admin` and `member`. An `admin` household user is exactly equal to the legacy local admin — there is no second tier. Refuses to demote the last enabled admin. Admin only.
+	SetRoleWithResponse(ctx context.Context, id openapi_types.UUID, body SetRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*SetRoleResp, error)
 
 	// HealthWithResponse performs a GET /health (the `Health` operationId) request.
 	//
@@ -19781,6 +21853,68 @@ func (r ReevaluateAnomaliesResp) ContentType() string {
 	return ""
 }
 
+type RedeemEnrolmentResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UserResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ApiError
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *ApiError
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ApiError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RedeemEnrolmentResp) GetJSON200() *UserResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RedeemEnrolmentResp) GetJSON400() *ApiError {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RedeemEnrolmentResp) GetJSON401() *ApiError {
+	return r.JSON401
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r RedeemEnrolmentResp) GetJSON500() *ApiError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r RedeemEnrolmentResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RedeemEnrolmentResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RedeemEnrolmentResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RedeemEnrolmentResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type LoginResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -19899,6 +22033,499 @@ func (r LogoutResp) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r LogoutResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AvailableMethodsResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *AuthMethodsResponse
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ApiError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AvailableMethodsResp) GetJSON200() *AuthMethodsResponse {
+	return r.JSON200
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r AvailableMethodsResp) GetJSON500() *ApiError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r AvailableMethodsResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AvailableMethodsResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AvailableMethodsResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AvailableMethodsResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CompleteOauthCallbackResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CompleteOauthCallbackResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetBody returns the raw response body bytes
+func (r CompleteOauthCallbackResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CompleteOauthCallbackResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CompleteOauthCallbackResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CompleteOauthCallbackResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StartOauthResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *OauthStartResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ApiError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r StartOauthResp) GetJSON200() *OauthStartResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r StartOauthResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r StartOauthResp) GetJSON500() *ApiError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r StartOauthResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StartOauthResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartOauthResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartOauthResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListOauthProvidersResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ListOauthProvidersResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListOauthProvidersResp) GetJSON200() *ListOauthProvidersResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListOauthProvidersResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListOauthProvidersResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListOauthProvidersResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListOauthProvidersResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListOauthProvidersResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListOauthProvidersResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListOauthProvidersResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ClearOauthProviderResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ClearOauthProviderResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ClearOauthProviderResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ClearOauthProviderResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ClearOauthProviderResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ClearOauthProviderResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ClearOauthProviderResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ClearOauthProviderResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ClearOauthProviderResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ConfigureOauthProviderResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *OauthProviderConfigResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ConfigureOauthProviderResp) GetJSON200() *OauthProviderConfigResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ConfigureOauthProviderResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ConfigureOauthProviderResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ConfigureOauthProviderResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ConfigureOauthProviderResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ConfigureOauthProviderResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ConfigureOauthProviderResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ConfigureOauthProviderResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ConfigureOauthProviderResp) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -22388,6 +25015,142 @@ func (r IdentifyDeviceResp) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r IdentifyDeviceResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetDeviceOwnerResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DeviceDetailResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetDeviceOwnerResp) GetJSON200() *DeviceDetailResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SetDeviceOwnerResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SetDeviceOwnerResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SetDeviceOwnerResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r SetDeviceOwnerResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r SetDeviceOwnerResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r SetDeviceOwnerResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetDeviceOwnerResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetDeviceOwnerResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetDeviceOwnerResp) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -37714,6 +40477,240 @@ func (r UpdateStatusResp) ContentType() string {
 	return ""
 }
 
+type ListUsersResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ListUsersResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListUsersResp) GetJSON200() *ListUsersResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListUsersResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListUsersResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListUsersResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListUsersResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListUsersResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListUsersResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListUsersResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateUserResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UserResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r CreateUserResp) GetJSON200() *UserResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CreateUserResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r CreateUserResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r CreateUserResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CreateUserResp) GetJSON409() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r CreateUserResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateUserResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateUserResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateUserResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateUserResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type MeResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -37794,6 +40791,1550 @@ func (r MeResp) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r MeResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ChangeOwnPasswordResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ChangeOwnPasswordResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ChangeOwnPasswordResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ChangeOwnPasswordResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ChangeOwnPasswordResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ChangeOwnPasswordResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ChangeOwnPasswordResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ChangeOwnPasswordResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ChangeOwnPasswordResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteUserResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r DeleteUserResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DeleteUserResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DeleteUserResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DeleteUserResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r DeleteUserResp) GetJSON409() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r DeleteUserResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteUserResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteUserResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteUserResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteUserResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetUserResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UserResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetUserResp) GetJSON200() *UserResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r GetUserResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r GetUserResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r GetUserResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r GetUserResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r GetUserResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r GetUserResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetUserResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetUserResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetUserResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UpdateProfileResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UserResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UpdateProfileResp) GetJSON200() *UserResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r UpdateProfileResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UpdateProfileResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UpdateProfileResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r UpdateProfileResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r UpdateProfileResp) GetJSON409() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r UpdateProfileResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r UpdateProfileResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UpdateProfileResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UpdateProfileResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UpdateProfileResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListCredentialsResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ListUserCredentialsResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListCredentialsResp) GetJSON200() *ListUserCredentialsResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListCredentialsResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListCredentialsResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListCredentialsResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListCredentialsResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListCredentialsResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListCredentialsResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListCredentialsResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListCredentialsResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListCredentialsResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UnlinkOauthResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r UnlinkOauthResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r UnlinkOauthResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r UnlinkOauthResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r UnlinkOauthResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r UnlinkOauthResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r UnlinkOauthResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UnlinkOauthResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UnlinkOauthResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UnlinkOauthResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetUserEnabledResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UserResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetUserEnabledResp) GetJSON200() *UserResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SetUserEnabledResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SetUserEnabledResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SetUserEnabledResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r SetUserEnabledResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r SetUserEnabledResp) GetJSON409() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r SetUserEnabledResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r SetUserEnabledResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetUserEnabledResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetUserEnabledResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetUserEnabledResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListEnrolmentsResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ListEnrolmentsResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListEnrolmentsResp) GetJSON200() *ListEnrolmentsResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r ListEnrolmentsResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListEnrolmentsResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListEnrolmentsResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListEnrolmentsResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListEnrolmentsResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListEnrolmentsResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListEnrolmentsResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListEnrolmentsResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListEnrolmentsResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type IssueEnrolmentResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *EnrolmentInviteResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r IssueEnrolmentResp) GetJSON200() *EnrolmentInviteResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r IssueEnrolmentResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r IssueEnrolmentResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r IssueEnrolmentResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r IssueEnrolmentResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r IssueEnrolmentResp) GetJSON409() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r IssueEnrolmentResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r IssueEnrolmentResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r IssueEnrolmentResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r IssueEnrolmentResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r IssueEnrolmentResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RevokeEnrolmentResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r RevokeEnrolmentResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r RevokeEnrolmentResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r RevokeEnrolmentResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r RevokeEnrolmentResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r RevokeEnrolmentResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r RevokeEnrolmentResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RevokeEnrolmentResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RevokeEnrolmentResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RevokeEnrolmentResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetRoleResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *UserResponse
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetRoleResp) GetJSON200() *UserResponse {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r SetRoleResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r SetRoleResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r SetRoleResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r SetRoleResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r SetRoleResp) GetJSON409() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r SetRoleResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r SetRoleResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetRoleResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetRoleResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetRoleResp) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -37913,6 +42454,32 @@ func (c *ClientWithResponses) ReevaluateAnomaliesWithResponse(ctx context.Contex
 	return ParseReevaluateAnomaliesResp(rsp)
 }
 
+// RedeemEnrolmentWithBodyWithResponse performs a POST /api/auth/enrolments/redeem (the `RedeemEnrolment` operationId) request,
+// with any type of body and a specified content type.
+//
+// Redeem a one-time enrolment invitation, setting the member's first password. Unauthenticated by necessity: the person redeeming has no credential yet and therefore cannot have a session. The token *is* the authorization, which is why it is single-use, expiring, and checked in SQL. Deliberately **not** rate-limited — see the note on the handler.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) RedeemEnrolmentWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RedeemEnrolmentResp, error) {
+	rsp, err := c.RedeemEnrolmentWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRedeemEnrolmentResp(rsp)
+}
+
+// RedeemEnrolmentWithResponse performs a POST /api/auth/enrolments/redeem (the `RedeemEnrolment` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Redeem a one-time enrolment invitation, setting the member's first password. Unauthenticated by necessity: the person redeeming has no credential yet and therefore cannot have a session. The token *is* the authorization, which is why it is single-use, expiring, and checked in SQL. Deliberately **not** rate-limited — see the note on the handler.
+func (c *ClientWithResponses) RedeemEnrolmentWithResponse(ctx context.Context, body RedeemEnrolmentJSONRequestBody, reqEditors ...RequestEditorFn) (*RedeemEnrolmentResp, error) {
+	rsp, err := c.RedeemEnrolment(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRedeemEnrolmentResp(rsp)
+}
+
 // LoginWithBodyWithResponse performs a POST /api/auth/login (the `Login` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -37950,6 +42517,97 @@ func (c *ClientWithResponses) LogoutWithResponse(ctx context.Context, reqEditors
 		return nil, err
 	}
 	return ParseLogoutResp(rsp)
+}
+
+// AvailableMethodsWithResponse performs a GET /api/auth/methods (the `AvailableMethods` operationId) request.
+//
+// Which sign-in methods this box can actually offer right now. A sign-in surface reads this to decide which buttons to render, rather than showing a federated button that fails at the provider. Reports availability only — never a credential, a client secret, or whether any particular account exists, so it discloses nothing an unauthenticated caller should not see. `password` is always true: the local password is the floor and no path removes it.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) AvailableMethodsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*AvailableMethodsResp, error) {
+	rsp, err := c.AvailableMethods(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAvailableMethodsResp(rsp)
+}
+
+// CompleteOauthCallbackWithResponse performs a GET /api/auth/oauth/{provider}/callback (the `CompleteOauthCallback` operationId) request.
+//
+// The provider's redirect target, and **the only OAuth callback entry point**. This exact URL is registered by hand with Google or GitHub by every household, so its shape is fixed. One URL serves both ceremonies the model allows, and the request arriving here carries nothing that says which — the stored ceremony does, and the service dispatches on it. Always answers 303 back to the admin surface the ceremony began on: on success with a session cookie set, on failure with a stable `oauth_error` code and no cookie. Never renders, and never reflects an error message.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) CompleteOauthCallbackWithResponse(ctx context.Context, provider string, params *CompleteOauthCallbackParams, reqEditors ...RequestEditorFn) (*CompleteOauthCallbackResp, error) {
+	rsp, err := c.CompleteOauthCallback(ctx, provider, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCompleteOauthCallbackResp(rsp)
+}
+
+// StartOauthWithResponse performs a GET /api/auth/oauth/{provider}/start (the `StartOauth` operationId) request.
+//
+// Begin an OAuth ceremony and return the provider URL to send the browser to. Returns JSON rather than a redirect so the caller controls the navigation — a fetch that followed a 302 to an external origin would be opaque to the client. A ceremony started by a signed-in caller is a **link** (attaching a provider account to their own user); one started anonymously is a **sign-in**. Which of the two it is, is recorded on the ceremony here and never re-guessed at the callback.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) StartOauthWithResponse(ctx context.Context, provider string, params *StartOauthParams, reqEditors ...RequestEditorFn) (*StartOauthResp, error) {
+	rsp, err := c.StartOauth(ctx, provider, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartOauthResp(rsp)
+}
+
+// ListOauthProvidersWithResponse performs a GET /api/auth/providers (the `ListOauthProviders` operationId) request.
+//
+// Every federated provider's full configuration, for the admin sign-in-methods screen: the client id, whether a secret is stored, the redirect URI to register, and the admin's **stored** on/off flag. Distinct from `GET /api/auth/methods`, which is unauthenticated and therefore reports availability only — the client id names the household's own OAuth application and is admin-only. The `enabled` here is the stored flag, so a settings form can round-trip it; `/api/auth/methods` reports the effective availability instead. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ListOauthProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListOauthProvidersResp, error) {
+	rsp, err := c.ListOauthProviders(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListOauthProvidersResp(rsp)
+}
+
+// ClearOauthProviderWithResponse performs a DELETE /api/auth/providers/{provider} (the `ClearOauthProvider` operationId) request.
+//
+// Forget a provider's configuration entirely, including its client secret. Existing links to that provider are left alone — this removes the box's ability to run the ceremony, not the record of who linked what. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ClearOauthProviderWithResponse(ctx context.Context, provider string, reqEditors ...RequestEditorFn) (*ClearOauthProviderResp, error) {
+	rsp, err := c.ClearOauthProvider(ctx, provider, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseClearOauthProviderResp(rsp)
+}
+
+// ConfigureOauthProviderWithBodyWithResponse performs a PUT /api/auth/providers/{provider} (the `ConfigureOauthProvider` operationId) request,
+// with any type of body and a specified content type.
+//
+// Configure a federated provider's client id and secret, and whether it is offered. Each household registers its own OAuth app. The secret goes to the `SecretStore` and is never readable back through any endpoint; reads report `configured: true|false`. Omitting `client_secret` leaves an existing one in place, so an admin can toggle `enabled` or fix a typo'd client id without re-pasting it. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ConfigureOauthProviderWithBodyWithResponse(ctx context.Context, provider string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ConfigureOauthProviderResp, error) {
+	rsp, err := c.ConfigureOauthProviderWithBody(ctx, provider, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfigureOauthProviderResp(rsp)
+}
+
+// ConfigureOauthProviderWithResponse performs a PUT /api/auth/providers/{provider} (the `ConfigureOauthProvider` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Configure a federated provider's client id and secret, and whether it is offered. Each household registers its own OAuth app. The secret goes to the `SecretStore` and is never readable back through any endpoint; reads report `configured: true|false`. Omitting `client_secret` leaves an existing one in place, so an admin can toggle `enabled` or fix a typo'd client id without re-pasting it. Admin only.
+func (c *ClientWithResponses) ConfigureOauthProviderWithResponse(ctx context.Context, provider string, body ConfigureOauthProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*ConfigureOauthProviderResp, error) {
+	rsp, err := c.ConfigureOauthProvider(ctx, provider, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseConfigureOauthProviderResp(rsp)
 }
 
 // RefreshWithResponse performs a POST /api/auth/refresh (the `Refresh` operationId) request.
@@ -38458,6 +43116,32 @@ func (c *ClientWithResponses) IdentifyDeviceWithResponse(ctx context.Context, id
 		return nil, err
 	}
 	return ParseIdentifyDeviceResp(rsp)
+}
+
+// SetDeviceOwnerWithBodyWithResponse performs a PUT /api/devices/{id}/owner (the `SetDeviceOwner` operationId) request,
+// with any type of body and a specified content type.
+//
+// Assign or clear the household user a device belongs to (ADR-0031 §4). Pass `null` to clear. This is **attribution, never authentication**: the owner's role has no effect on what the device may do, and a device caller still resolves to the `Device` principal whoever owns it — including an admin. Device identity is derived from the source IP, so treating ownership as a credential would collapse admin access to IP spoofing. Returns the updated device detail. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) SetDeviceOwnerWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetDeviceOwnerResp, error) {
+	rsp, err := c.SetDeviceOwnerWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetDeviceOwnerResp(rsp)
+}
+
+// SetDeviceOwnerWithResponse performs a PUT /api/devices/{id}/owner (the `SetDeviceOwner` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Assign or clear the household user a device belongs to (ADR-0031 §4). Pass `null` to clear. This is **attribution, never authentication**: the owner's role has no effect on what the device may do, and a device caller still resolves to the `Device` principal whoever owns it — including an admin. Device identity is derived from the source IP, so treating ownership as a credential would collapse admin access to IP spoofing. Returns the updated device detail. Admin only.
+func (c *ClientWithResponses) SetDeviceOwnerWithResponse(ctx context.Context, id openapi_types.UUID, body SetDeviceOwnerJSONRequestBody, reqEditors ...RequestEditorFn) (*SetDeviceOwnerResp, error) {
+	rsp, err := c.SetDeviceOwner(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetDeviceOwnerResp(rsp)
 }
 
 // ReleaseDeviceWithResponse performs a POST /api/devices/{id}/release (the `ReleaseDevice` operationId) request.
@@ -40900,6 +45584,45 @@ func (c *ClientWithResponses) UpdateStatusWithResponse(ctx context.Context, reqE
 	return ParseUpdateStatusResp(rsp)
 }
 
+// ListUsersWithResponse performs a GET /api/users (the `ListUsers` operationId) request.
+//
+// Every household user, for the admin directory. Carries no credential material of any kind. Admin only — the list is the household's roster, and a member has no business enumerating it.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ListUsersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListUsersResp, error) {
+	rsp, err := c.ListUsers(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListUsersResp(rsp)
+}
+
+// CreateUserWithBodyWithResponse performs a POST /api/users (the `CreateUser` operationId) request,
+// with any type of body and a specified content type.
+//
+// Create a household user with **no credential**. The account cannot be used until it is enrolled: the admin never learns a member's password, so account creation and credential creation are deliberately separate steps. Issue an invitation with `POST /api/users/{id}/enrolments` next. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) CreateUserWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateUserResp, error) {
+	rsp, err := c.CreateUserWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateUserResp(rsp)
+}
+
+// CreateUserWithResponse performs a POST /api/users (the `CreateUser` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Create a household user with **no credential**. The account cannot be used until it is enrolled: the admin never learns a member's password, so account creation and credential creation are deliberately separate steps. Issue an invitation with `POST /api/users/{id}/enrolments` next. Admin only.
+func (c *ClientWithResponses) CreateUserWithResponse(ctx context.Context, body CreateUserJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateUserResp, error) {
+	rsp, err := c.CreateUser(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateUserResp(rsp)
+}
+
 // MeWithResponse performs a GET /api/users/me (the `Me` operationId) request.
 //
 // Return the authenticated household user's identity. Used by the web UI (e.g. the setup wizard's review step) to display the account name without a separate credential store, and to decide which admin-only surfaces to render. Available to any authenticated user, including members reading their own profile.
@@ -40911,6 +45634,201 @@ func (c *ClientWithResponses) MeWithResponse(ctx context.Context, reqEditors ...
 		return nil, err
 	}
 	return ParseMeResp(rsp)
+}
+
+// ChangeOwnPasswordWithBodyWithResponse performs a POST /api/users/me/password (the `ChangeOwnPassword` operationId) request,
+// with any type of body and a specified content type.
+//
+// Set your own password, proving the current one first. **Every** live session for the account is invalidated, including the one making this call — a password change is usually a response to 'somebody may know my password', and leaving that person's session alive would make the change cosmetic. The caller must sign in again with the new password. Not an admin route in either direction: an admin cannot set someone else's password (they would then know it), and a member changing their own needs no admin.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ChangeOwnPasswordWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeOwnPasswordResp, error) {
+	rsp, err := c.ChangeOwnPasswordWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangeOwnPasswordResp(rsp)
+}
+
+// ChangeOwnPasswordWithResponse performs a POST /api/users/me/password (the `ChangeOwnPassword` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Set your own password, proving the current one first. **Every** live session for the account is invalidated, including the one making this call — a password change is usually a response to 'somebody may know my password', and leaving that person's session alive would make the change cosmetic. The caller must sign in again with the new password. Not an admin route in either direction: an admin cannot set someone else's password (they would then know it), and a member changing their own needs no admin.
+func (c *ClientWithResponses) ChangeOwnPasswordWithResponse(ctx context.Context, body ChangeOwnPasswordJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeOwnPasswordResp, error) {
+	rsp, err := c.ChangeOwnPassword(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangeOwnPasswordResp(rsp)
+}
+
+// DeleteUserWithResponse performs a DELETE /api/users/{id} (the `DeleteUser` operationId) request.
+//
+// Delete a household user. Credentials, enrolment tokens and sessions cascade; `devices.owner_user_id` is set to NULL, because deleting a person must not delete the household's hardware. Refuses to delete the last enabled admin — a box with no admin is a box nobody can administer, and there is no recovery path from outside. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) DeleteUserWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*DeleteUserResp, error) {
+	rsp, err := c.DeleteUser(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteUserResp(rsp)
+}
+
+// GetUserWithResponse performs a GET /api/users/{id} (the `GetUser` operationId) request.
+//
+// One household user. Readable by an admin, or by that user about themselves — a member must not be able to enumerate the household by walking ids.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) GetUserWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*GetUserResp, error) {
+	rsp, err := c.GetUser(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetUserResp(rsp)
+}
+
+// UpdateProfileWithBodyWithResponse performs a PATCH /api/users/{id} (the `UpdateProfile` operationId) request,
+// with any type of body and a specified content type.
+//
+// Update a user's display name and email. A user may edit their own profile; changing anybody else's is an admin action. Both fields are replacements — omitting `email` clears it.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) UpdateProfileWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*UpdateProfileResp, error) {
+	rsp, err := c.UpdateProfileWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateProfileResp(rsp)
+}
+
+// UpdateProfileWithResponse performs a PATCH /api/users/{id} (the `UpdateProfile` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Update a user's display name and email. A user may edit their own profile; changing anybody else's is an admin action. Both fields are replacements — omitting `email` clears it.
+func (c *ClientWithResponses) UpdateProfileWithResponse(ctx context.Context, id openapi_types.UUID, body UpdateProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateProfileResp, error) {
+	rsp, err := c.UpdateProfile(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUpdateProfileResp(rsp)
+}
+
+// ListCredentialsWithResponse performs a GET /api/users/{id}/credentials (the `ListCredentials` operationId) request.
+//
+// List a user's credentials, without secrets. The response type structurally has no secret field, so this cannot leak one by a later widening. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ListCredentialsWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*ListCredentialsResp, error) {
+	rsp, err := c.ListCredentials(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListCredentialsResp(rsp)
+}
+
+// UnlinkOauthWithResponse performs a DELETE /api/users/{id}/credentials/{provider} (the `UnlinkOauth` operationId) request.
+//
+// Unlink every credential of one federated provider from a user. Never touches the local password: that is the floor, and an account whose only credential depended on a reachable provider would be unreachable during a WAN outage. Idempotent — unlinking a provider that was never linked succeeds. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) UnlinkOauthWithResponse(ctx context.Context, id openapi_types.UUID, provider string, reqEditors ...RequestEditorFn) (*UnlinkOauthResp, error) {
+	rsp, err := c.UnlinkOauth(ctx, id, provider, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUnlinkOauthResp(rsp)
+}
+
+// SetUserEnabledWithBodyWithResponse performs a PUT /api/users/{id}/enabled (the `SetUserEnabled` operationId) request,
+// with any type of body and a specified content type.
+//
+// Enable or disable a household user. Disabling revokes immediately: every live session is deleted, and the login join filters the account out from the next request onward. Refuses to disable the last enabled admin. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) SetUserEnabledWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetUserEnabledResp, error) {
+	rsp, err := c.SetUserEnabledWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetUserEnabledResp(rsp)
+}
+
+// SetUserEnabledWithResponse performs a PUT /api/users/{id}/enabled (the `SetUserEnabled` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Enable or disable a household user. Disabling revokes immediately: every live session is deleted, and the login join filters the account out from the next request onward. Refuses to disable the last enabled admin. Admin only.
+func (c *ClientWithResponses) SetUserEnabledWithResponse(ctx context.Context, id openapi_types.UUID, body SetUserEnabledJSONRequestBody, reqEditors ...RequestEditorFn) (*SetUserEnabledResp, error) {
+	rsp, err := c.SetUserEnabled(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetUserEnabledResp(rsp)
+}
+
+// ListEnrolmentsWithResponse performs a GET /api/users/{id}/enrolments (the `ListEnrolments` operationId) request.
+//
+// Outstanding and spent invitations for a user, so an admin can see whether one is still open before issuing another. Tokens are never included — only their metadata. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ListEnrolmentsWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*ListEnrolmentsResp, error) {
+	rsp, err := c.ListEnrolments(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListEnrolmentsResp(rsp)
+}
+
+// IssueEnrolmentWithResponse performs a POST /api/users/{id}/enrolments (the `IssueEnrolment` operationId) request.
+//
+// Issue a one-time enrolment invitation for a user who has no password yet. The `token` in the response is shown **exactly once** — only its hash is stored, so an admin who loses it must issue another. Hand it over out of band; the member redeems it at `POST /api/auth/enrolments/redeem` and chooses their own password, which the admin never learns. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) IssueEnrolmentWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*IssueEnrolmentResp, error) {
+	rsp, err := c.IssueEnrolment(ctx, id, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseIssueEnrolmentResp(rsp)
+}
+
+// RevokeEnrolmentWithResponse performs a DELETE /api/users/{id}/enrolments/{enrolment_id} (the `RevokeEnrolment` operationId) request.
+//
+// Revoke an unredeemed invitation, for an admin who issued one by mistake or to the wrong person. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) RevokeEnrolmentWithResponse(ctx context.Context, id openapi_types.UUID, enrolmentId openapi_types.UUID, reqEditors ...RequestEditorFn) (*RevokeEnrolmentResp, error) {
+	rsp, err := c.RevokeEnrolment(ctx, id, enrolmentId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeEnrolmentResp(rsp)
+}
+
+// SetRoleWithBodyWithResponse performs a PUT /api/users/{id}/role (the `SetRole` operationId) request,
+// with any type of body and a specified content type.
+//
+// Change a user's role between `admin` and `member`. An `admin` household user is exactly equal to the legacy local admin — there is no second tier. Refuses to demote the last enabled admin. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) SetRoleWithBodyWithResponse(ctx context.Context, id openapi_types.UUID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetRoleResp, error) {
+	rsp, err := c.SetRoleWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetRoleResp(rsp)
+}
+
+// SetRoleWithResponse performs a PUT /api/users/{id}/role (the `SetRole` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Change a user's role between `admin` and `member`. An `admin` household user is exactly equal to the legacy local admin — there is no second tier. Refuses to demote the last enabled admin. Admin only.
+func (c *ClientWithResponses) SetRoleWithResponse(ctx context.Context, id openapi_types.UUID, body SetRoleJSONRequestBody, reqEditors ...RequestEditorFn) (*SetRoleResp, error) {
+	rsp, err := c.SetRole(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetRoleResp(rsp)
 }
 
 // HealthWithResponse performs a GET /health (the `Health` operationId) request.
@@ -41213,6 +46131,53 @@ func ParseReevaluateAnomaliesResp(rsp *http.Response) (*ReevaluateAnomaliesResp,
 	return response, nil
 }
 
+// ParseRedeemEnrolmentResp parses an HTTP response from a RedeemEnrolmentWithResponse call
+func ParseRedeemEnrolmentResp(rsp *http.Response) (*RedeemEnrolmentResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RedeemEnrolmentResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UserResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseLoginResp parses an HTTP response from a LoginWithResponse call
 func ParseLoginResp(rsp *http.Response) (*LoginResp, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -41300,6 +46265,337 @@ func ParseLogoutResp(rsp *http.Response) (*LogoutResp, error) {
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAvailableMethodsResp parses an HTTP response from a AvailableMethodsWithResponse call
+func ParseAvailableMethodsResp(rsp *http.Response) (*AvailableMethodsResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AvailableMethodsResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest AuthMethodsResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCompleteOauthCallbackResp parses an HTTP response from a CompleteOauthCallbackWithResponse call
+func ParseCompleteOauthCallbackResp(rsp *http.Response) (*CompleteOauthCallbackResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CompleteOauthCallbackResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 303:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStartOauthResp parses an HTTP response from a StartOauthWithResponse call
+func ParseStartOauthResp(rsp *http.Response) (*StartOauthResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartOauthResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest OauthStartResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListOauthProvidersResp parses an HTTP response from a ListOauthProvidersWithResponse call
+func ParseListOauthProvidersResp(rsp *http.Response) (*ListOauthProvidersResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListOauthProvidersResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListOauthProvidersResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseClearOauthProviderResp parses an HTTP response from a ClearOauthProviderWithResponse call
+func ParseClearOauthProviderResp(rsp *http.Response) (*ClearOauthProviderResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ClearOauthProviderResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseConfigureOauthProviderResp parses an HTTP response from a ConfigureOauthProviderWithResponse call
+func ParseConfigureOauthProviderResp(rsp *http.Response) (*ConfigureOauthProviderResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ConfigureOauthProviderResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest OauthProviderConfigResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -43003,6 +48299,97 @@ func ParseIdentifyDeviceResp(rsp *http.Response) (*IdentifyDeviceResp, error) {
 			return nil, err
 		}
 		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetDeviceOwnerResp parses an HTTP response from a SetDeviceOwnerWithResponse call
+func ParseSetDeviceOwnerResp(rsp *http.Response) (*SetDeviceOwnerResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetDeviceOwnerResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeviceDetailResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest struct {
@@ -53275,6 +58662,162 @@ func ParseUpdateStatusResp(rsp *http.Response) (*UpdateStatusResp, error) {
 	return response, nil
 }
 
+// ParseListUsersResp parses an HTTP response from a ListUsersWithResponse call
+func ParseListUsersResp(rsp *http.Response) (*ListUsersResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListUsersResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListUsersResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateUserResp parses an HTTP response from a CreateUserWithResponse call
+func ParseCreateUserResp(rsp *http.Response) (*CreateUserResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateUserResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UserResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseMeResp parses an HTTP response from a MeWithResponse call
 func ParseMeResp(rsp *http.Response) (*MeResp, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -53324,6 +58867,1043 @@ func ParseMeResp(rsp *http.Response) (*MeResp, error) {
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseChangeOwnPasswordResp parses an HTTP response from a ChangeOwnPasswordWithResponse call
+func ParseChangeOwnPasswordResp(rsp *http.Response) (*ChangeOwnPasswordResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ChangeOwnPasswordResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteUserResp parses an HTTP response from a DeleteUserWithResponse call
+func ParseDeleteUserResp(rsp *http.Response) (*DeleteUserResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteUserResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetUserResp parses an HTTP response from a GetUserWithResponse call
+func ParseGetUserResp(rsp *http.Response) (*GetUserResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetUserResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UserResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUpdateProfileResp parses an HTTP response from a UpdateProfileWithResponse call
+func ParseUpdateProfileResp(rsp *http.Response) (*UpdateProfileResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UpdateProfileResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UserResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListCredentialsResp parses an HTTP response from a ListCredentialsWithResponse call
+func ParseListCredentialsResp(rsp *http.Response) (*ListCredentialsResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListCredentialsResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListUserCredentialsResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUnlinkOauthResp parses an HTTP response from a UnlinkOauthWithResponse call
+func ParseUnlinkOauthResp(rsp *http.Response) (*UnlinkOauthResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UnlinkOauthResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetUserEnabledResp parses an HTTP response from a SetUserEnabledWithResponse call
+func ParseSetUserEnabledResp(rsp *http.Response) (*SetUserEnabledResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetUserEnabledResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UserResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListEnrolmentsResp parses an HTTP response from a ListEnrolmentsWithResponse call
+func ParseListEnrolmentsResp(rsp *http.Response) (*ListEnrolmentsResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListEnrolmentsResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ListEnrolmentsResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseIssueEnrolmentResp parses an HTTP response from a IssueEnrolmentWithResponse call
+func ParseIssueEnrolmentResp(rsp *http.Response) (*IssueEnrolmentResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &IssueEnrolmentResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest EnrolmentInviteResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRevokeEnrolmentResp parses an HTTP response from a RevokeEnrolmentWithResponse call
+func ParseRevokeEnrolmentResp(rsp *http.Response) (*RevokeEnrolmentResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RevokeEnrolmentResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetRoleResp parses an HTTP response from a SetRoleWithResponse call
+func ParseSetRoleResp(rsp *http.Response) (*SetRoleResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetRoleResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest UserResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}

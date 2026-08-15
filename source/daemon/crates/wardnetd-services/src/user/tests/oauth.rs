@@ -145,9 +145,12 @@ fn signed_in(outcome: OauthOutcome) -> (crate::user::UserProfile, UserRole) {
 }
 
 /// Unwrap a callback that must have resolved to a **link**.
-fn linked(outcome: OauthOutcome) -> Uuid {
+///
+/// By reference, unlike [`signed_in`]: the only thing a link yields is a
+/// `Copy` id, so there is nothing to consume.
+fn linked(outcome: &OauthOutcome) -> Uuid {
     match outcome {
-        OauthOutcome::Linked { user_id, .. } => user_id,
+        OauthOutcome::Linked { user_id, .. } => *user_id,
         OauthOutcome::SignedIn { .. } => panic!("expected a link, got a sign-in"),
     }
 }
@@ -632,7 +635,7 @@ async fn link_oauth_attaches_the_provider_account_to_the_caller() {
             .await
             .unwrap();
     assert_eq!(
-        linked(outcome),
+        linked(&outcome),
         member(),
         "a ceremony started while signed in must dispatch to the link arm"
     );
@@ -878,7 +881,7 @@ async fn a_link_ceremony_started_by_the_caller_still_works() {
         .await
         .expect("the caller who started the ceremony may complete it");
 
-    assert_eq!(linked(outcome), member());
+    assert_eq!(linked(&outcome), member());
     assert_eq!(f.credentials.rows.lock().unwrap().len(), 1);
 }
 

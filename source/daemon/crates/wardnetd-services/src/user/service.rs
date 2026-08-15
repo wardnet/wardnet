@@ -163,8 +163,13 @@ pub trait UserService: Send + Sync {
     /// Outstanding and spent invitations for a user.
     async fn list_enrolments(&self, user_id: Uuid) -> Result<Vec<EnrolmentSummary>, AppError>;
 
-    /// Revoke an unredeemed invitation.
-    async fn revoke_enrolment(&self, enrolment_id: Uuid) -> Result<(), AppError>;
+    /// Revoke an unredeemed invitation belonging to `user_id`.
+    ///
+    /// Scoped to the owner rather than keyed on the enrolment alone: the URL
+    /// asserts that relation, and a handler that ignored it would let a
+    /// copy-pasted wrong user id silently revoke the right invitation from the
+    /// wrong page.
+    async fn revoke_enrolment(&self, user_id: Uuid, enrolment_id: Uuid) -> Result<(), AppError>;
 
     /// Redeem an enrolment token, setting the member's first password.
     ///
@@ -185,6 +190,13 @@ pub trait UserService: Send + Sync {
     /// reachable before anybody has a session. It reports only whether a method
     /// is available, never any credential or client secret.
     async fn available_methods(&self) -> Result<AuthMethods, AppError>;
+
+    /// Every provider's full configuration, for the admin provider screen.
+    ///
+    /// **Admin-guarded**, unlike [`available_methods`](Self::available_methods)
+    /// — this carries the household's client ids and the stored on/off flags,
+    /// which an anonymous caller has no business reading.
+    async fn list_oauth_providers(&self) -> Result<Vec<ProviderStatus>, AppError>;
 
     /// Configure a provider's client id and secret.
     ///
@@ -285,6 +297,11 @@ pub enum OauthOutcome {
     SignedIn {
         profile: UserProfile,
         role: UserRole,
+        /// The provider the **ceremony** used. Carried so the audit log names
+        /// the provider that actually verified the person, rather than the one
+        /// in the callback URL — the two need not agree, and only this one is
+        /// authoritative.
+        provider: OauthProvider,
         return_to: ReturnTo,
         remember_me: bool,
     },
@@ -924,8 +941,23 @@ impl UserService for UserServiceImpl {
             .collect()
     }
 
-    async fn revoke_enrolment(&self, enrolment_id: Uuid) -> Result<(), AppError> {
+    async fn revoke_enrolment(&self, user_id: Uuid, enrolment_id: Uuid) -> Result<(), AppError> {
         auth_context::require_admin()?;
+
+        // Confirm the invitation really belongs to the user in the path before
+        // deleting it. Without this the owner segment is decoration, and a
+        // mistyped user id revokes somebody else's invitation while the audit
+        // trail records only the enrolment.
+        let owned = self
+            .enrolments
+            .list_for_user(&user_id.to_string())
+            .await
+            .map_err(AppError::Internal)?
+            .into_iter()
+            .any(|row| row.id == enrolment_id.to_string());
+        if !owned {
+            return Err(AppError::NotFound("enrolment not found".to_owned()));
+        }
 
         let removed = self
             .enrolments
@@ -1052,6 +1084,15 @@ impl UserService for UserServiceImpl {
             .delete_expired(&now)
             .await
             .map_err(AppError::Internal)
+    }
+
+    async fn list_oauth_providers(&self) -> Result<Vec<ProviderStatus>, AppError> {
+        auth_context::require_admin()?;
+
+        Ok(vec![
+            self.oauth_config.status(OauthProvider::Google).await?,
+            self.oauth_config.status(OauthProvider::Github).await?,
+        ])
     }
 
     async fn available_methods(&self) -> Result<AuthMethods, AppError> {
@@ -1306,6 +1347,7 @@ impl UserServiceImpl {
         Ok(OauthOutcome::SignedIn {
             profile,
             role,
+            provider,
             return_to,
             remember_me,
         })

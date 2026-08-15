@@ -18,10 +18,36 @@ use wardnetd_services::error::AppError;
 /// the [`SecureTransport`] marker that `guarded_https_app` layers onto the
 /// `:443` app. The plain-HTTP `:7411` surface (and the mock/dev server) omit it,
 /// because browsers refuse to store a `Secure` cookie delivered over `http://`.
-fn session_cookie(token: &str, max_age_seconds: u64, secure: bool) -> String {
+///
+/// `pub(crate)` because the OAuth callback in [`crate::api::user_auth`] sets
+/// the same cookie after a federated sign-in. Sharing this function rather
+/// than repeating the attribute list is the point: a callback that set
+/// `SameSite=Strict`, or omitted `HttpOnly`, would diverge from the cookie
+/// login sets and nothing would flag it.
+pub(crate) fn session_cookie(token: &str, max_age_seconds: u64, secure: bool) -> String {
     let secure_attr = if secure { "; Secure" } else { "" };
     format!(
-        "wardnet_session={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={max_age_seconds}{secure_attr}"
+        // `SameSite=Lax`, not `Strict`. The OAuth callback is a **cross-site
+        // top-level navigation** — the browser arrives at
+        // `/api/auth/oauth/{p}/callback` from accounts.google.com — and
+        // `Strict` withholds the cookie on exactly that. The *link* ceremony
+        // would then resolve as `Anonymous`, fail `require_authenticated`, and
+        // burn its single-use `state` on every attempt (ADR-0031 §11); a
+        // federated *sign-in* would land on `/admin/` with the cookie set but
+        // not yet sent, bouncing the person through the login screen they just
+        // came back from.
+        //
+        // The cost is bounded, and was checked rather than assumed: `Lax`
+        // sends the cookie only on top-level GET navigations, and of this
+        // API's ~80 GET operations exactly two change state — `start_oauth`
+        // and this callback. Neither is CSRF-reachable, because both need a
+        // `state` the attacker cannot obtain: the value lives in a JSON body
+        // that same-origin policy keeps unreadable cross-origin. Every other
+        // mutation is POST/PUT/DELETE, which `Lax` does not send cross-site at
+        // all. `Lax` is also what browsers apply by default when no `SameSite`
+        // is given, so this is the ordinary posture rather than a relaxation
+        // below it.
+        "wardnet_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={max_age_seconds}{secure_attr}"
     )
 }
 
