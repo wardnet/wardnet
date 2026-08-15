@@ -731,6 +731,13 @@ impl AnomalyService for NoopAnomalyService {
     async fn resolve(&self, _id: uuid::Uuid) -> Result<(), wardnetd_services::error::AppError> {
         Ok(())
     }
+    async fn resolve_subject(
+        &self,
+        _anomaly_type: wardnet_common::anomaly::AnomalyType,
+        _subject_id: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
     async fn run_detector(
         &self,
         _anomaly_type: wardnet_common::anomaly::AnomalyType,

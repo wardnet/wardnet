@@ -120,6 +120,9 @@ impl AnomalyService for RecordingAnomalyService {
     async fn resolve(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn resolve_subject(&self, _t: AnomalyType, _subject_id: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn run_detector(&self, _t: AnomalyType) -> Result<(), AppError> {
         unimplemented!()
     }

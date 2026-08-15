@@ -5,7 +5,8 @@ use async_trait::async_trait;
 use chrono::Utc;
 use uuid::Uuid;
 use wardnet_common::anomaly::{
-    Anomaly, AnomalyFilter, AnomalyReport, AnomalyStatus, AnomalyType, ReevaluateSummary,
+    Anomaly, AnomalyFilter, AnomalyQueryStatus, AnomalyReport, AnomalyStatus, AnomalyType,
+    ReevaluateSummary,
 };
 use wardnetd_data::repository::sqlite::format_ts;
 use wardnetd_data::repository::{AnomalyRepository, NewAnomaly};
@@ -39,6 +40,20 @@ pub trait AnomalyService: Send + Sync {
 
     /// Close an anomaly, notifying the admins if its open was notified.
     async fn resolve(&self, id: Uuid) -> Result<(), AppError>;
+
+    /// Resolve every open anomaly of `anomaly_type` about `subject_id`.
+    ///
+    /// The event-driven counterpart to [`Self::resolve`]. Some conditions stop
+    /// holding because of an explicit admin action rather than because a
+    /// detector noticed a state change — and for those the *action* is the
+    /// only unambiguous signal. Stopping a tunnel is the motivating case: the
+    /// resulting `TunnelStatus::Down` is indistinguishable from a broken
+    /// tunnel, so only the tear-down event itself can say an admin meant it.
+    async fn resolve_subject(
+        &self,
+        anomaly_type: AnomalyType,
+        subject_id: &str,
+    ) -> Result<(), AppError>;
 
     /// Run one detector's preventive sweep and submit whatever it reports.
     async fn run_detector(&self, anomaly_type: AnomalyType) -> Result<(), AppError>;
@@ -257,6 +272,37 @@ impl AnomalyService for AnomalyServiceImpl {
         // "It is working again" must never arrive without its "it is broken".
         if was_notified && let Err(error) = self.push.notify_anomaly_resolved(&anomaly).await {
             tracing::warn!(%error, anomaly_id = %id, "anomaly: failed to notify admins of a resolved anomaly");
+        }
+        Ok(())
+    }
+
+    async fn resolve_subject(
+        &self,
+        anomaly_type: AnomalyType,
+        subject_id: &str,
+    ) -> Result<(), AppError> {
+        auth_context::require_admin()?;
+
+        // The partial unique index allows at most one *open* anomaly per
+        // (type, subject), so this is a one-element loop in practice — but
+        // filtering by type here rather than assuming that keeps it honest if
+        // the index ever changes.
+        let open = self
+            .repo
+            .list(
+                &AnomalyFilter {
+                    status: AnomalyQueryStatus::Open,
+                    subject_id: Some(subject_id.to_owned()),
+                },
+                200,
+            )
+            .await
+            .map_err(AppError::Internal)?;
+
+        for anomaly in open.into_iter().filter(|a| a.anomaly_type == anomaly_type) {
+            // Reuse `resolve` so the recovery notification stays gated on the
+            // open having been notified.
+            self.resolve(anomaly.id).await?;
         }
         Ok(())
     }

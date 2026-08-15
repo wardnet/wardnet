@@ -91,9 +91,10 @@ impl AnomalyDetector for TunnelStartFailedDetector {
 /// every surviving anomaly at boot, because shutdown records every tunnel
 /// `Down` (ADR-0028) before the routing reconcile brings them back up.
 ///
-/// The cost of the stricter rule is a stale open anomaly when an admin stops
-/// an already-unhealthy tunnel. That is visible and correctable; a false
-/// recovery notification is neither.
+/// An admin deliberately stopping the tunnel *does* clear this anomaly — but
+/// it is cleared by the tear-down **event**, in
+/// [`resolutions_from_event`](crate::anomaly::listener::resolutions_from_event),
+/// because only the event distinguishes the admin's intent from a failure.
 pub struct TunnelUnhealthyDetector {
     tunnels: Arc<dyn TunnelService>,
 }
