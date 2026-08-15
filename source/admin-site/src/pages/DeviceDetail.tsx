@@ -12,6 +12,7 @@ import { DeviceReleaseCard } from "@/components/features/DeviceReleaseCard";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
 import { DeviceRoutingProfilesCard } from "@/components/features/DeviceRoutingProfilesCard";
 import { DeviceZoneCard } from "@/components/features/DeviceZoneCard";
+import { DeviceOwnerCard } from "@/components/features/DeviceOwnerCard";
 import {
   useDevice,
   useTunnels,
@@ -23,6 +24,8 @@ import {
   useSetDeviceRoutingProfiles,
   useNetworkZones,
   useAssignDeviceZone,
+  useUsers,
+  useSetDeviceOwner,
   useDeviceFilterSettings,
   useDnsFilterProfiles,
   useDnsFilterConfig,
@@ -133,6 +136,10 @@ function DeviceDetailLoaded({
   const { data: zoneData } = useNetworkZones();
   const assignZone = useAssignDeviceZone({ successMessage: "Zone updated" });
 
+  // Owner card. Attribution only — see `DeviceOwnerCard`.
+  const { data: users } = useUsers();
+  const setOwner = useSetDeviceOwner();
+
   // DNS filter card.
   const { data: filterSettingsData } = useDeviceFilterSettings(device.id);
   const { data: filterProfilesData } = useDnsFilterProfiles();
@@ -213,6 +220,11 @@ function DeviceDetailLoaded({
         device={device}
         zones={zoneData?.zones ?? []}
         assignZone={assignZone}
+      />
+      <DeviceOwnerCard
+        device={device}
+        users={users ?? []}
+        setOwner={setOwner}
       />
       <DeviceDnsFilterCard
         device={device}
