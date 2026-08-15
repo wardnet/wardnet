@@ -703,9 +703,10 @@ impl DeviceIdentificationService for NoopDeviceIdentificationService {
     }
 }
 
-/// No-op [`PushService`] used as the [`AppState::new`] default before the live
-/// service is injected via [`AppState::with_push_service`]. Never delivers.
-/// Rejects every call: an `AppState` without a real anomaly service cannot
+/// No-op [`AnomalyService`] used as the [`AppState::new`] default before the
+/// live service is injected.
+///
+/// Rejects every read: an `AppState` without a real anomaly service cannot
 /// answer for the dashboard, and quietly returning an empty list would read as
 /// "nothing is wrong".
 struct NoopAnomalyService;
@@ -749,6 +750,8 @@ impl AnomalyService for NoopAnomalyService {
     }
 }
 
+/// No-op [`PushService`] used as the [`AppState::new`] default before the live
+/// service is injected via [`AppState::with_push_service`]. Never delivers.
 struct NoopPushService;
 
 #[async_trait::async_trait]

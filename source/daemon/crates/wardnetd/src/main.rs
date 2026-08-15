@@ -521,7 +521,7 @@ async fn run(
     );
     let anomalies_engine = AnomaliesDetectionEngine::start_with_intervals(
         services.anomaly.clone(),
-        Duration::from_secs(config.anomalies.reevaluate_interval_secs),
+        config.anomalies.reevaluate_interval(),
         &root_span,
     );
 
