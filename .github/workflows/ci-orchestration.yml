@@ -6,7 +6,14 @@
 # confuse "absent" with "not started yet".
 #
 # Branch protection requires exactly one check: "ci-gate".
-name: CI
+#
+# Named "gt CI" rather than "CI" for the same reason the file is not ci.yml:
+# every repository already has a workflow called CI, and the stages move into
+# this one a few at a time, so the two coexist for a long while. Two workflows
+# sharing a display name make the Actions list ambiguous and every check read
+# as "CI / …" from one of two places. The `gt ` prefix matches the reusable
+# workflows this calls — gt attest, gt bulwark, gt sync.
+name: gt CI
 
 on:
   # No `branches:` filter: a PR stacked onto a feature branch must run CI too.
