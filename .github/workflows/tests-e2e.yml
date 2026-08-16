@@ -140,7 +140,11 @@ jobs:
           # --builder targets the named builder set up above without making it
           # the default; --load exports the result into the host's docker image
           # store, which is where compose then finds wardnetd:dev-test.
-          args="--builder wardnetd-cache --load --cache-from type=registry,ref=${CACHE_REF}"
+          # Reads both suites' refs — the dependency layer is shared, so a warm
+          # UI cache serves this job too. Writes only this suite's own ref.
+          args="--builder wardnetd-cache --load"
+          args="${args} --cache-from type=registry,ref=${CACHE_REF}"
+          args="${args} --cache-from type=registry,ref=${UI_CACHE_REF}"
           if [[ "${CAN_WRITE_CACHE}" == "true" ]]; then
             args="${args} --cache-to type=registry,ref=${CACHE_REF},mode=max"
           else
@@ -153,6 +157,7 @@ jobs:
             IMAGE_TEST_BUILD_ARGS="${args}"
         env:
           CACHE_REF: ghcr.io/${{ github.repository }}/wardnetd-test-cache:buildcache
+          UI_CACHE_REF: ghcr.io/${{ github.repository }}/wardnetd-ui-test-cache:buildcache
           CAN_WRITE_CACHE: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
 
       - name: Surface captured logs
@@ -226,13 +231,54 @@ jobs:
 
       - uses: ./.github/actions/setup-rust
 
+      - name: Set up buildx
+        # `use: false` for the same reason as the daemon job: this compose stack
+        # also has a `FROM ${WARDNETD_TEST_IMAGE}` (test_debian), which a
+        # docker-container builder cannot resolve from the local image store.
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          name: wardnetd-cache
+          use: false
+
+      - name: Log in to GHCR for the build cache
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Run web-ui e2e suite
-        # `make e2e-ui` chains: build-web → compose up --build --wait
-        # wardnetd-ui (cargo build + WEB_DIST=real embed inside Docker) →
-        # Playwright in ui_runner → trap dumps compose logs into reports/
-        # and tears the stack down. Reports are written even on failure.
+        # `make e2e-ui` chains: build-web → image-test-ui (cargo build +
+        # WEB_DIST=real embed inside Docker) → compose up → Playwright in
+        # ui_runner → trap dumps compose logs into reports/ and tears the stack
+        # down. Reports are written even on failure.
         # CONTAINER_RT=docker forces BuildKit (see the daemon job note).
-        run: make e2e-ui CONTAINER_RT=$(command -v docker)
+        run: |
+          set -euo pipefail
+
+          # Read BOTH cache refs. Everything up to `cargo chef cook` is
+          # byte-identical across the two suites — WEB_DIST only selects the
+          # `web` stage, and the builder's `COPY --from=web` comes after cook —
+          # so a warm daemon cache serves this job's dependency layer even the
+          # first time the UI ref is empty. Writes stay on this suite's own ref,
+          # so the two jobs never race to publish the same tag.
+          args="--builder wardnetd-cache --load"
+          args="${args} --cache-from type=registry,ref=${UI_CACHE_REF}"
+          args="${args} --cache-from type=registry,ref=${DAEMON_CACHE_REF}"
+          if [[ "${CAN_WRITE_CACHE}" == "true" ]]; then
+            args="${args} --cache-to type=registry,ref=${UI_CACHE_REF},mode=max"
+          else
+            echo "read-only token — restoring the build cache without updating it"
+          fi
+
+          make e2e-ui \
+            CONTAINER_RT="$(command -v docker)" \
+            IMAGE_BUILDER="docker buildx" \
+            IMAGE_TEST_UI_BUILD_ARGS="${args}"
+        env:
+          UI_CACHE_REF: ghcr.io/${{ github.repository }}/wardnetd-ui-test-cache:buildcache
+          DAEMON_CACHE_REF: ghcr.io/${{ github.repository }}/wardnetd-test-cache:buildcache
+          CAN_WRITE_CACHE: ${{ github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]') }}
 
       - name: Surface captured logs
         if: always()

@@ -35,6 +35,9 @@ BINDGEN_APT := apt-get update -qq && apt-get install -y -qq clang libclang-dev >
 #   make image IMAGE_VERSION=0.2.0
 IMAGE_TAG      ?= wardnetd:dev
 IMAGE_TEST_TAG ?= wardnetd:dev-test
+# Must match compose.ui.yaml's ${WARDNETD_UI_TEST_IMAGE} default, since the UI
+# suite's services resolve the image by that name.
+IMAGE_TEST_UI_TAG ?= wardnetd:dev-test-ui
 IMAGE_BASE_TAG ?= wardnet-base:dev
 IMAGE_VERSION  ?= latest
 # Linux build artefacts live here (gitignored, persists on host for
@@ -60,7 +63,7 @@ COV_RUNNER ?=
         coverage-daemon-report-json \
         openapi check-openapi \
         fmt clippy test \
-        image image-multiarch image-test image-base \
+        image image-multiarch image-test image-test-ui image-base \
         end2end-daemon e2e-ui e2e-ui-update-snapshots e2e-all \
         run-dev run-dev-daemon run-dev-web run-dev-user-app run-dev-admin-app \
         run-dev-push \
@@ -568,6 +571,31 @@ image-test:
 		-t $(IMAGE_TEST_TAG) \
 		.
 
+# The web-UI variant of image-test: same Dockerfile, same builder plumbing, but
+# WEB_DIST=real so the image embeds the actual dist/ trees the Playwright suite
+# drives, instead of the placeholder the API-only daemon suite is happy with.
+#
+# It exists as its own target for the same reason image-test does: it gives the
+# UI suite one producer for the image, which can then be pointed at a build
+# cache. Everything up to and including `cargo chef cook` is byte-identical to
+# the daemon image — WEB_DIST only selects the `web` stage, and the builder
+# stage's `COPY --from=web` happens after cook — so the two suites share a
+# dependency layer even though the final images differ.
+IMAGE_TEST_UI_BUILD_ARGS ?=
+
+# build-web is a prerequisite, not just an ordering convention: the web-real
+# stage COPYs source/*/dist out of the build context, so those trees must exist
+# on the host before this image is built. Naming it here keeps that true even
+# under `make -j`, where prerequisite order alone would not.
+image-test-ui: build-web
+	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
+	$(IMAGE_BUILDER) build \
+		$(IMAGE_TEST_UI_BUILD_ARGS) \
+		--build-arg WEB_DIST=real \
+		-f source/daemon/Dockerfile.test \
+		-t $(IMAGE_TEST_UI_TAG) \
+		.
+
 # Build the wardnet-base image locally. Published copies of this image
 # live on GHCR (see .github/workflows/release-base-image.yml); use this
 # target to validate Dockerfile.base changes before tagging a base-vN
@@ -637,10 +665,23 @@ end2end-daemon: image-test
 # land on the host ready to `git add`.
 PW_RUN_FLAGS ?=
 
-e2e-ui: build-web
+# image-test-ui is a prerequisite for the same reason image-test is one of
+# end2end-daemon: it makes a single target the producer of wardnetd:dev-test-ui,
+# so the build can be pointed at a cache. compose then consumes that image
+# rather than rebuilding it.
+#
+# Hence the first `up` below dropped its `--build`. Of the services it starts,
+# only wardnetd-ui and nordvpn_mock have a build section, and wardnetd-ui now
+# has a producer — so nordvpn_mock gets an explicit `compose build` to keep its
+# rebuild-every-run behaviour, which a bare `up` would only do when its image
+# is missing entirely. test_debian keeps `--build` further down: it has no
+# other producer, and its `FROM ${WARDNETD_TEST_IMAGE}` resolves the UI image
+# out of the local store.
+e2e-ui: build-web image-test-ui
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
 	@mkdir -p $(E2E_UI_DIR)/reports $(E2E_UI_DIR)/snapshots
 	@set -euo pipefail; \
+	export WARDNETD_UI_TEST_IMAGE=$(IMAGE_TEST_UI_TAG); \
 	REPORTS=$(E2E_UI_DIR)/reports; \
 	trap '$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) ps -a > '"$$REPORTS"'/compose-ps.txt 2>&1 || true; \
 	      $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) logs --no-color > '"$$REPORTS"'/compose-logs.txt 2>&1 || true; \
@@ -648,7 +689,8 @@ e2e-ui: build-web
 	        $(CONTAINER_RT) inspect "$$cid" >> '"$$REPORTS"'/inspect.json 2>&1 || true; \
 	      done; \
 	      $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) down -v --remove-orphans' EXIT; \
-	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait wardnetd-ui wardnetd-ui-fresh tls_proxy tls_proxy_lan blocklist_server nordvpn_mock; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) build nordvpn_mock; \
+	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --wait wardnetd-ui wardnetd-ui-fresh tls_proxy tls_proxy_lan blocklist_server nordvpn_mock; \
 	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait test_debian || \
 	    echo "warning: test_debian (LAN client) not healthy; running playwright anyway so failures surface as assertions"; \
 	echo "::group::compose ps before playwright"; \
