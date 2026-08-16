@@ -81,6 +81,26 @@ describe("household identity hooks", () => {
     expect(userService.getById).not.toHaveBeenCalled();
   });
 
+  it("fetches one user once an id arrives", async () => {
+    userService.getById.mockResolvedValue(ana);
+    const { result } = renderHook(() => useUser("u-ana"), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(userService.getById).toHaveBeenCalledWith("u-ana");
+  });
+
+  it("fetches enrolments once an id arrives", async () => {
+    userService.listEnrolments.mockResolvedValue([]);
+    const { result } = renderHook(() => useEnrolments("u-ana"), {
+      wrapper: createQueryWrapper(),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(userService.listEnrolments).toHaveBeenCalledWith("u-ana");
+  });
+
   it("fetches credentials and enrolments only with an id", async () => {
     const { result: creds } = renderHook(() => useUserCredentials(undefined), {
       wrapper: createQueryWrapper(),

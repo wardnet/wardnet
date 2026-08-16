@@ -164,6 +164,66 @@ describe("SignInMethods", () => {
     );
   });
 
+  it("closes the form and forgets the typed secret once saved", async () => {
+    // The secret must not linger in a re-opened form: it is write-only, and a
+    // stale value would be resubmitted as if the admin had retyped it.
+    useConfigureOauthProvider.mockReturnValue(
+      mutation((_vars, opts) => opts.onSuccess?.()),
+    );
+    renderWithProviders(<SignInMethods />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Update credentials" }),
+    );
+    await userEvent.type(screen.getByLabelText("Client secret"), "s3cr3t");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(screen.queryByLabelText("Client secret")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Update credentials" }),
+    );
+    expect(screen.getByLabelText("Client secret")).toHaveValue("");
+  });
+
+  it("sends an edited client id", async () => {
+    const configure = mutation();
+    useConfigureOauthProvider.mockReturnValue(configure);
+    renderWithProviders(<SignInMethods />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Update credentials" }),
+    );
+    await userEvent.clear(screen.getByLabelText("Client ID"));
+    await userEvent.type(screen.getByLabelText("Client ID"), "a-new-id");
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(configure.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        body: expect.objectContaining({ client_id: "a-new-id" }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("abandons an edit on cancel, restoring the stored client id", async () => {
+    renderWithProviders(<SignInMethods />);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Update credentials" }),
+    );
+    await userEvent.clear(screen.getByLabelText("Client ID"));
+    await userEvent.type(screen.getByLabelText("Client ID"), "half-typed");
+    await userEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByLabelText("Client ID")).not.toBeInTheDocument();
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Update credentials" }),
+    );
+    expect(screen.getByLabelText("Client ID")).toHaveValue("the-id");
+  });
+
   it("clears a provider only after confirmation", async () => {
     const clear = mutation();
     useClearOauthProvider.mockReturnValue(clear);
