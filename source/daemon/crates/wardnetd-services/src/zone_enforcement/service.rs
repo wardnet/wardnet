@@ -1133,16 +1133,12 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         // stay without DNS) until it happened to re-DHCP or an admin touched
         // it. `add_host_route` replaces rather than skips, so this repairs a
         // stale route in place.
-        // Non-fatal: everything else in this trailing block warn-logs rather
-        // than aborting, and a transient `system_config` read must not make a
-        // fully-applied reconcile report failure and skip its completion log.
-        let dhcp_enabled = self.dhcp_enabled().await.unwrap_or_else(|e| {
-            tracing::warn!(
-                error = %e,
-                "zone enforcer: DHCP-mode read failed during reconcile; assuming disabled"
-            );
-            false
-        });
+        // Propagate rather than defaulting: `false` would take
+        // `manage_host_route` down its *removal* path, so a transient
+        // `system_config` read failure would silently strip every member's host
+        // route. Aborting leaves the existing routes in place for the next
+        // reconcile, and matches how every other repository read here behaves.
+        let dhcp_enabled = self.dhcp_enabled().await?;
         for device in &devices {
             if device.last_ip.parse::<Ipv4Addr>().is_err() {
                 continue;
@@ -1240,14 +1236,9 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         // appear but no `/32` is ever installed. Neither transition raises a
         // per-device event, so without this pass both wait for an unrelated
         // device event or a daemon restart (#1198).
-        let dhcp_enabled = self.dhcp_enabled().await.unwrap_or_else(|e| {
-            tracing::warn!(
-                error = %e,
-                zone_id = %zone_id,
-                "zone enforcer: DHCP-mode read failed in apply_zone; assuming disabled"
-            );
-            false
-        });
+        // Propagate rather than defaulting to `false` — see `reconcile`: the
+        // default is the destructive direction, not the safe one.
+        let dhcp_enabled = self.dhcp_enabled().await?;
         for device in &devices {
             if device.zone_id != zone_id || device.last_ip.parse::<Ipv4Addr>().is_err() {
                 continue;

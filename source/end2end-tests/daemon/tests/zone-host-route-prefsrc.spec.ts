@@ -10,25 +10,31 @@
  * postrouting `masquerade` rewrites the address back and reallocates the source
  * port out of netfilter's reserved sub-512 pool, and no client's connected UDP
  * socket accepts the answer. Every device in the zone loses DNS and reports
- * "no internet".
+ * "no internet" — which is exactly how this surfaced in production.
  *
- * This is the shape the bug took in production: a phone joined, landed in a
- * member-isolated guest zone, took a lease from that zone's pool, and had no
- * working DNS from the moment it associated.
+ * Two things are asserted, both unreachable from a unit test because
+ * `rtnetlink` has no mockable boundary:
  *
- * None of it is reachable from a unit test — `rtnetlink` has no mockable
- * boundary, so what the kernel actually stores, and whether `NLM_F_REPLACE`
- * repairs a route an older build installed, can only be asserted here.
+ * 1. **Contents** — the `/32` the kernel actually stores carries the zone
+ *    gateway as its preferred source.
+ * 2. **Healing** — a `/32` rewritten *without* one (what older daemons left
+ *    behind) is repaired by reconcile on the next restart. That is the upgrade
+ *    path: without it an operator upgrading to fix a live outage keeps every
+ *    broken route until each device happens to re-DHCP.
  *
- * The device's address comes from the zone's own DHCP pool rather than being
- * hand-picked, so the in-subnet guard on the host route is exercised for real.
- * `test_guest` is dedicated to this spec: it gets moved between zones and
- * re-leased, which would shift another spec's device address mid-suite.
+ * Deliberately minimal footprint on the shared stack. The zone claims the e2e
+ * LAN's own subnet, so its gateway is `10.91.0.1` — an address the daemon
+ * already holds, which both keeps the client in-subnet without re-leasing and
+ * avoids the kernel's `EINVAL` on a non-local `RTA_PREFSRC`. An earlier version
+ * added a dedicated client and drove it through a re-lease into a separate zone
+ * subnet; that was more faithful to how a phone joins, but adding a third
+ * client shifted docker's IPAM assignments and the release/renew churn broke
+ * lease acquisition for the other specs sharing this daemon. No DHCP
+ * configuration is touched here, and no container added.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  DeviceService,
   NetworkZonesService,
   SystemService,
   WardnetClient,
@@ -39,54 +45,39 @@ import {
   API_BASE_URL,
   AuthedClient,
   DAEMON_AGENT,
-  TEST_GUEST_AGENT,
-  acquireLeaseInRange,
   clearHostRoutePrefsrc,
   daemonPid,
   daemonRoutes,
   ensureAdminAndLogin,
-  ensureLeasedAgent,
   findDeviceByIpRangeOrNull,
   hostRouteFor,
-  pollUntil,
-  resolveViaAgent,
   waitForDaemonRestart,
   waitForHostRouteSrc,
   waitForReady,
 } from "./helpers.js";
 
-// The isolated zone's own subnet. Deliberately outside the e2e LAN
-// (10.91.0.0/24) so a lease from this range proves the device really moved
-// into the zone's scope rather than keeping its old address.
-const ZONE_CIDR = "10.44.1.0/24";
-const ZONE_GATEWAY = "10.44.1.1";
-const ZONE_RANGE_START = "10.44.1.2";
-const ZONE_RANGE_END = "10.44.1.254";
+// The e2e LAN itself. The daemon holds .1 here, so a zone claiming this subnet
+// has a gateway that is already a local address.
+const ZONE_CIDR = "10.91.0.0/24";
+const ZONE_GATEWAY = "10.91.0.1";
 
-// Base-LAN pool used to get the guest client discovered in the first place.
-//
-// Must be the pool every other spec uses: `ensureLeasedAgent` rewrites the
-// daemon's *global* DHCP config, so inventing a range here would leave the
-// shared stack serving it — and the clients other specs lease would stop
-// getting addresses in the range they expect. (.160/.170 are also
-// dhcp-reservations' and backup-roundtrip's reserved addresses.)
-const LAN_POOL_START = "10.91.0.100";
-const LAN_POOL_END = "10.91.0.150";
+// Where the other specs' clients hold their leases. We only read a device from
+// this range — never re-lease, never touch the DHCP config.
+const LEASE_RANGE_START = "10.91.0.100";
+const LEASE_RANGE_END = "10.91.0.150";
 
-const ZONE_NAME = "e2e-guest-isolated";
+const ZONE_NAME = "e2e-prefsrc-isolated";
 
 describe("member-isolation host route preferred source (#1198)", () => {
   let authed: AuthedClient;
   let zones: NetworkZonesService;
-  let devices: DeviceService;
   let system: SystemService;
 
-  /** Null when the daemon never discovered the guest client (see below). */
-  let guest: Device | null = null;
+  /** Null when the daemon never discovered a LAN client (see below). */
+  let device: Device | null = null;
   let zoneId: string | undefined;
   let originalZoneId: string | undefined;
-  /** The address the guest holds inside the zone subnet. */
-  let zoneIp: string | undefined;
+  let deviceIp: string | undefined;
   let lanIface: string | undefined;
 
   beforeAll(async () => {
@@ -94,121 +85,81 @@ describe("member-isolation host route preferred source (#1198)", () => {
     await waitForReady(client);
     authed = await ensureAdminAndLogin(client);
     zones = new NetworkZonesService(authed);
-    devices = new DeviceService(authed);
     system = new SystemService(authed);
 
-    // Get the guest client onto the LAN so the daemon discovers it. Where
-    // packet capture can't reach `wardnet_lan` no device row ever appears —
-    // an environment limitation the other kernel-state specs also skip on.
-    await ensureLeasedAgent(
+    // Whichever client the earlier specs already drove through DHCP. Where
+    // packet capture can't reach `wardnet_lan` no device row ever appears — an
+    // environment limitation the other kernel-state specs also skip on.
+    device = await findDeviceByIpRangeOrNull(
       authed,
-      TEST_GUEST_AGENT,
-      "eth0",
-      LAN_POOL_START,
-      LAN_POOL_END,
+      LEASE_RANGE_START,
+      LEASE_RANGE_END,
     );
-    guest = await findDeviceByIpRangeOrNull(
-      authed,
-      LAN_POOL_START,
-      LAN_POOL_END,
-    );
-    if (!guest) return;
-    originalZoneId = guest.zone_id;
+    if (!device) return;
+    deviceIp = device.last_ip;
+    originalZoneId = device.zone_id;
 
     const created = await zones.create({
       name: ZONE_NAME,
       isolation_stance: "isolate_members",
       allowed_targets: ["direct", "tunnel"],
       member_isolation: true,
+      // Leave the admin surfaces reachable: the gate would otherwise TCP-reset
+      // this device's traffic to the Pi, which is not what we're testing.
       admin_ui_reachable: true,
       subnet: { cidr: ZONE_CIDR },
     });
     zoneId = created.zone.id;
 
-    await zones.assignDevice(guest.id, zoneId);
-
-    // Re-lease: the daemon serves a subnetted zone's members from that zone's
-    // own scope, so the renew is what moves the guest into 10.44.1.0/24.
-    zoneIp = await acquireLeaseInRange(
-      TEST_GUEST_AGENT,
-      "eth0",
-      ZONE_RANGE_START,
-      ZONE_RANGE_END,
-      5,
-    );
-
-    // The host route keys on the device row's `last_ip`, and that only moves
-    // once the daemon *observes traffic* from the new address. The client keeps
-    // its docker-IPAM address alongside the lease, so discovery will happily
-    // keep re-keying onto the docker one unless we actively source traffic from
-    // the zone address — hence a lookup on every poll rather than a passive
-    // wait. Match on the subnet rather than the exact address dhclient
-    // reported: what matters is that the device is keyed inside the zone.
-    const rekeyed = await pollUntil(
-      async () => {
-        await resolveViaAgent(TEST_GUEST_AGENT, "example.com").catch(
-          () => undefined,
-        );
-        return (await devices.getById(guest!.id)).device;
-      },
-      (d) => d.last_ip.startsWith("10.44.1."),
-      {
-        timeoutMs: 90_000,
-        intervalMs: 3_000,
-        describe: (last) =>
-          `device never re-keyed into ${ZONE_CIDR} (last_ip=${last?.last_ip}, ` +
-          `dhclient reported ${zoneIp})`,
-      },
-    );
-    // Assert against the address the daemon actually keyed on.
-    zoneIp = rekeyed.last_ip;
-  }, 180_000);
+    // Assigning the device is what makes it a member and installs the /32.
+    await zones.assignDevice(device.id, zoneId);
+  }, 120_000);
 
   afterAll(async () => {
-    // Member isolation installs cross-subnet drops and moves the client off the
-    // base LAN; both would follow every later spec in the shared stack.
+    // Member isolation adds isolation rules for the whole e2e LAN; put the
+    // device and the zone back before handing the stack on.
     try {
-      if (guest && originalZoneId) {
-        await zones.assignDevice(guest.id, originalZoneId);
+      if (device && originalZoneId) {
+        await zones.assignDevice(device.id, originalZoneId);
       }
       if (zoneId) await zones.delete(zoneId);
-      // Put the client back on the base LAN so it stops holding a zone address.
-      await acquireLeaseInRange(
-        TEST_GUEST_AGENT,
-        "eth0",
-        LAN_POOL_START,
-        LAN_POOL_END,
-        5,
-      ).catch(() => undefined);
     } catch {
       // Best-effort: cleanup failure must not mask a real assertion failure.
     }
   }, 120_000);
 
-  it("gives a leased member the zone gateway as preferred source", async (ctx) => {
-    if (!guest || !zoneIp) return ctx.skip();
+  it("gives a member's /32 the zone gateway as preferred source", async (ctx) => {
+    if (!device || !deviceIp) return ctx.skip();
 
-    const route = await waitForHostRouteSrc(DAEMON_AGENT, zoneIp, ZONE_GATEWAY);
+    const route = await waitForHostRouteSrc(
+      DAEMON_AGENT,
+      deviceIp,
+      ZONE_GATEWAY,
+    );
 
     expect(route.src).toBe(ZONE_GATEWAY);
     expect(route.dev).toBeTruthy();
     // The compose fixture pins LAN_INTERFACE=eth0 but warns it can land
     // elsewhere, so read the interface the daemon actually used.
     lanIface = route.dev;
-  });
+  }, 120_000);
 
   it("repairs a prefsrc-less route left by an older build on restart", async (ctx) => {
-    if (!guest || !zoneIp || !lanIface) return ctx.skip();
+    if (!device || !deviceIp || !lanIface) return ctx.skip();
 
     // Fabricate the pre-fix state: same /32, no preferred source.
-    const cleared = await clearHostRoutePrefsrc(DAEMON_AGENT, zoneIp, lanIface);
+    const cleared = await clearHostRoutePrefsrc(
+      DAEMON_AGENT,
+      deviceIp,
+      lanIface,
+    );
     expect(cleared.success, `ip route change failed: ${cleared.stderr}`).toBe(
       true,
     );
 
     // Confirm the fabrication took — otherwise the assertion below would pass
     // against a route that was never broken.
-    await waitForHostRouteSrc(DAEMON_AGENT, zoneIp, undefined, 15_000);
+    await waitForHostRouteSrc(DAEMON_AGENT, deviceIp, undefined, 15_000);
 
     const before = await daemonPid(DAEMON_AGENT);
     await system.restart();
@@ -219,35 +170,28 @@ describe("member-isolation host route preferred source (#1198)", () => {
     // repair a stale route in place instead of leaving it alone.
     const healed = await waitForHostRouteSrc(
       DAEMON_AGENT,
-      zoneIp,
+      deviceIp,
       ZONE_GATEWAY,
     );
     expect(healed.src).toBe(ZONE_GATEWAY);
   }, 180_000);
 
-  it("leaves no host route in the zone subnet without a source hint", async (ctx) => {
-    if (!guest || !zoneIp) return ctx.skip();
+  it("leaves no member host route without a source hint", async (ctx) => {
+    if (!device || !deviceIp) return ctx.skip();
 
-    // The invariant itself, independent of which path installed the route: any
-    // /32 the daemon owns inside the zone subnet must name a source.
+    // The invariant itself, independent of which code path installed the
+    // route: a /32 the daemon owns for a member must name a source.
     const { routes } = await daemonRoutes(DAEMON_AGENT);
-    const orphans = routes.filter(
-      (r) =>
-        r.dst.startsWith("10.44.1.") &&
-        !r.dst.includes("/") &&
-        r.dst !== ZONE_GATEWAY &&
-        !r.src,
-    );
-    expect(
-      orphans,
-      `host routes without a preferred source: ${JSON.stringify(orphans)}`,
-    ).toEqual([]);
+    const route = hostRouteFor(routes, deviceIp);
+    expect(route, `no /32 host route for ${deviceIp}`).toBeDefined();
+    expect(route?.src, `host route without a preferred source: ${route?.dst}`)
+      .toBeDefined();
   });
 
   it("keeps the member's host route on the LAN interface", async (ctx) => {
-    if (!guest || !zoneIp || !lanIface) return ctx.skip();
+    if (!device || !deviceIp || !lanIface) return ctx.skip();
 
     const { routes } = await daemonRoutes(DAEMON_AGENT);
-    expect(hostRouteFor(routes, zoneIp)?.dev).toBe(lanIface);
+    expect(hostRouteFor(routes, deviceIp)?.dev).toBe(lanIface);
   });
 });

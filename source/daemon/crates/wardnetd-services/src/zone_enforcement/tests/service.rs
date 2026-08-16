@@ -150,6 +150,9 @@ struct RecordingPolicy {
     /// When set, the pneigh add/remove + proxy-arp mutations fail, to exercise
     /// the enforcer's warn-and-continue error paths.
     fail_neigh_mutations: Arc<std::sync::atomic::AtomicBool>,
+    /// When set, host-route add/remove fail, so the enforcer's warn-and-continue
+    /// path around `manage_host_route` is exercised (#1198).
+    fail_host_routes: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[async_trait]
@@ -303,6 +306,12 @@ impl PolicyRouter for RecordingPolicy {
             .lock()
             .await
             .push(format!("add_host_route:{ip}:{i}:{pref_src}"));
+        if self
+            .fail_host_routes
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("mock add_host_route failure");
+        }
         Ok(())
     }
     async fn remove_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
@@ -449,6 +458,7 @@ struct Harness {
     existing_neigh_proxies: Arc<Mutex<Vec<String>>>,
     fail_list_neigh: Arc<std::sync::atomic::AtomicBool>,
     fail_neigh_mutations: Arc<std::sync::atomic::AtomicBool>,
+    fail_host_routes: Arc<std::sync::atomic::AtomicBool>,
     clamps: Arc<Mutex<Vec<String>>>,
     switchback: Arc<Mutex<Vec<String>>>,
 }
@@ -488,12 +498,14 @@ async fn build() -> Harness {
     let existing_neigh_proxies = Arc::new(Mutex::new(Vec::new()));
     let fail_list_neigh = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let fail_neigh_mutations = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fail_host_routes = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let policy_router: Arc<dyn PolicyRouter> = Arc::new(RecordingPolicy {
         calls: policy_calls.clone(),
         existing_aliases: existing_aliases.clone(),
         existing_neigh_proxies: existing_neigh_proxies.clone(),
         fail_list_neigh: fail_list_neigh.clone(),
         fail_neigh_mutations: fail_neigh_mutations.clone(),
+        fail_host_routes: fail_host_routes.clone(),
     });
     let clamps = Arc::new(Mutex::new(Vec::new()));
     let switchback = Arc::new(Mutex::new(Vec::new()));
@@ -542,6 +554,7 @@ async fn build() -> Harness {
         existing_neigh_proxies,
         fail_list_neigh,
         fail_neigh_mutations,
+        fail_host_routes,
         clamps,
         switchback,
     }
@@ -1033,6 +1046,31 @@ async fn casting_exception_yields_bidirectional_allows() {
             .iter()
             .any(|c| c.starts_with("isolation:allows=")),
         "a chain rebuild was triggered"
+    );
+}
+
+/// A host-route failure must be warn-logged, never fatal: the device's packet
+/// rules and the zone's isolation state are already applied by the time the
+/// route is managed, so aborting there would leave enforcement half-applied
+/// with no retry (#1198).
+#[tokio::test]
+async fn host_route_failure_is_warned_not_fatal() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    h.fail_host_routes
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    as_admin(h.svc.apply_device(member))
+        .await
+        .expect("a failing host route must not fail the whole apply");
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.iter()
+            .any(|c| c.starts_with("add_host_route:10.44.1.10")),
+        "the add was still attempted: {pc:?}"
     );
 }
 
