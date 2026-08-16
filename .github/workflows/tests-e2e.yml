@@ -76,7 +76,25 @@ jobs:
       - uses: ./.github/actions/setup-rust
 
       - name: Set up buildx
+        # `use: false` is load-bearing. The action defaults to `use: true`,
+        # which makes this docker-container builder the DEFAULT for everything
+        # docker builds afterwards — including `docker compose build`, which we
+        # do not want touched. That driver runs in its own container with its
+        # own image store and cannot see the host's local images, so
+        # deploy/docker/Dockerfile.client's `FROM ${WARDNETD_TEST_IMAGE}` (i.e.
+        # the just-built wardnetd:dev-test) stopped resolving locally and was
+        # looked up as docker.io/library/wardnetd:dev-test instead:
+        #
+        #   target test_debian: failed to solve: pull access denied,
+        #   repository does not exist or may require authorization
+        #
+        # A named builder referenced explicitly by --builder keeps the cache
+        # export scoped to the one image that wants it and leaves compose on
+        # the default docker driver, exactly as before.
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        with:
+          name: wardnetd-cache
+          use: false
 
       - name: Log in to GHCR for the build cache
         # Read access to the cache image comes from the job's packages scope;
@@ -101,9 +119,11 @@ jobs:
         # default.
         #
         # IMAGE_BUILDER is separate because this target also runs `compose`,
-        # which buildx has no subcommand for. Only the image build goes through
-        # buildx, whose docker-container driver is the one that can export a
-        # cache. The cache lives on GHCR rather than in
+        # which buildx has no subcommand for — and which must keep using the
+        # default docker driver so `FROM wardnetd:dev-test` still resolves from
+        # the local image store. Only the image build goes through the named
+        # buildx builder, whose docker-container driver is the one that can
+        # export a cache. The cache lives on GHCR rather than in
         # the Actions cache: a Rust dependency layer is GB-scale, and the
         # Actions cache is a 10 GiB per-repo budget the Rust caches already
         # compete over. Registry cache is also shared across branches, where an
@@ -117,7 +137,10 @@ jobs:
           # Restoring only needs a readable registry; exporting needs a
           # writable token, which a fork PR and any Dependabot event do not
           # have. Push the cache where we can, read it everywhere.
-          args="--load --cache-from type=registry,ref=${CACHE_REF}"
+          # --builder targets the named builder set up above without making it
+          # the default; --load exports the result into the host's docker image
+          # store, which is where compose then finds wardnetd:dev-test.
+          args="--builder wardnetd-cache --load --cache-from type=registry,ref=${CACHE_REF}"
           if [[ "${CAN_WRITE_CACHE}" == "true" ]]; then
             args="${args} --cache-to type=registry,ref=${CACHE_REF},mode=max"
           else

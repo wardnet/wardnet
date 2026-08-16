@@ -595,6 +595,16 @@ E2E_DAEMON_COMPOSE := $(E2E_DAEMON_DIR)/compose.yaml
 E2E_UI_DIR := source/end2end-tests/web-ui
 E2E_UI_COMPOSE := $(E2E_UI_DIR)/compose.ui.yaml
 
+# The wardnetd service is brought up WITHOUT --build: the image-test
+# prerequisite above has already built and tagged that exact image from that
+# exact Dockerfile, so `--build` only rebuilt it a second time. That was free
+# while both builds shared one builder and hit cache, but it stops being free
+# as soon as they don't — and it was always a duplicate. compose still builds
+# the service on its own if the image is genuinely absent.
+#
+# test_debian/test_ubuntu keep --build: they have no other producer, and their
+# Dockerfile.client does `FROM ${WARDNETD_TEST_IMAGE}`, which resolves from the
+# local image store that image-test just loaded into.
 end2end-daemon: image-test
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
 	@mkdir -p $(E2E_DAEMON_DIR)/reports
@@ -607,7 +617,7 @@ end2end-daemon: image-test
 	        $(CONTAINER_RT) inspect "$$cid" >> '"$$REPORTS"'/inspect.json 2>&1 || true; \
 	      done; \
 	      $(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) down -v --remove-orphans' EXIT; \
-	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --build --wait wardnetd; \
+	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --wait wardnetd; \
 	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --build --wait test_debian test_ubuntu || \
 	    echo "warning: client services not healthy; running vitest anyway so failures surface as assertions"; \
 	echo "::group::compose ps before vitest"; \
