@@ -145,16 +145,20 @@ jobs:
           args="--builder wardnetd-cache --load"
           args="${args} --cache-from type=registry,ref=${CACHE_REF}"
           args="${args} --cache-from type=registry,ref=${UI_CACHE_REF}"
+          read_args="${args}"
           if [[ "${CAN_WRITE_CACHE}" == "true" ]]; then
             args="${args} --cache-to type=registry,ref=${CACHE_REF},mode=max"
           else
             echo "read-only token — restoring the build cache without updating it"
           fi
 
+          # The release-server image reads the cache but never writes it, so
+          # its shorter layer set cannot replace the daemon image's in the ref.
           make end2end-daemon \
             CONTAINER_RT="$(command -v docker)" \
             IMAGE_BUILDER="docker buildx" \
-            IMAGE_TEST_BUILD_ARGS="${args}"
+            IMAGE_TEST_BUILD_ARGS="${args}" \
+            IMAGE_TEST_RELEASE_BUILD_ARGS="${read_args}"
         env:
           CACHE_REF: ghcr.io/${{ github.repository }}/wardnetd-test-cache:buildcache
           UI_CACHE_REF: ghcr.io/${{ github.repository }}/wardnetd-ui-test-cache:buildcache

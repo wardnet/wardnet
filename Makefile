@@ -38,6 +38,9 @@ IMAGE_TEST_TAG ?= wardnetd:dev-test
 # Must match compose.ui.yaml's ${WARDNETD_UI_TEST_IMAGE} default, since the UI
 # suite's services resolve the image by that name.
 IMAGE_TEST_UI_TAG ?= wardnetd:dev-test-ui
+# Must match compose.yaml's update_release_server `image:`, which is a fixed
+# literal rather than a variable.
+IMAGE_TEST_RELEASE_SERVER_TAG ?= wardnet-e2e-release-server:dev
 IMAGE_BASE_TAG ?= wardnet-base:dev
 IMAGE_VERSION  ?= latest
 # Linux build artefacts live here (gitignored, persists on host for
@@ -562,6 +565,12 @@ image-multiarch:
 # podman.
 IMAGE_BUILDER ?= $(CONTAINER_RT)
 IMAGE_TEST_BUILD_ARGS ?=
+# Defaults to the same flags, but CI overrides it with a cache-READ-only
+# variant: both builds below would otherwise export to the same cache ref, and
+# the release-server build — which stops at the builder stage and never touches
+# stage-7 — would publish last and drop the daemon image's final layers from
+# the cache.
+IMAGE_TEST_RELEASE_BUILD_ARGS ?= $(IMAGE_TEST_BUILD_ARGS)
 
 image-test:
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
@@ -569,6 +578,20 @@ image-test:
 		$(IMAGE_TEST_BUILD_ARGS) \
 		-f source/daemon/Dockerfile.test \
 		-t $(IMAGE_TEST_TAG) \
+		.
+	@# The release-server image MUST come from the same builder, back to back
+	@# with the daemon image above. Both are `COPY --from=builder`, and that
+	@# builder stage generates an EPHEMERAL minisign keypair at build time: the
+	@# daemon embeds the public half, and the release bundle this image serves
+	@# is signed with the private half. Build them on two builders (or two cold
+	@# caches) and you get two different keypairs, so the daemon rejects the
+	@# bundle with "signature verification failed" — at runtime, long after the
+	@# build looked fine. Same invocation, same cache, same key.
+	$(IMAGE_BUILDER) build \
+		$(IMAGE_TEST_RELEASE_BUILD_ARGS) \
+		--target release-server \
+		-f source/daemon/Dockerfile.test \
+		-t $(IMAGE_TEST_RELEASE_SERVER_TAG) \
 		.
 
 # The web-UI variant of image-test: same Dockerfile, same builder plumbing, but
@@ -630,9 +653,17 @@ E2E_UI_COMPOSE := $(E2E_UI_DIR)/compose.ui.yaml
 # as soon as they don't — and it was always a duplicate. compose still builds
 # the service on its own if the image is genuinely absent.
 #
-# test_debian/test_ubuntu keep --build: they have no other producer, and their
-# Dockerfile.client does `FROM ${WARDNETD_TEST_IMAGE}`, which resolves from the
-# local image store that image-test just loaded into.
+# test_debian/test_ubuntu still need building — they have no other producer —
+# but via `compose build`, never `up --build`. `up --build` builds every
+# service it brings up INCLUDING dependencies, and both depend_on wardnetd, so
+# it silently rebuilt and re-tagged the daemon image behind image-test's back.
+# That is not merely wasteful, it corrupts the run: the rebuild produces a
+# fresh ephemeral minisign keypair, compose recreates the container on the new
+# image, and the wardnet_state volume keeps the OLD image's signed
+# wardnet-postupgrade.bin — Docker seeds a named volume only when it is first
+# created, never on recreate. The daemon then boots trusting a key that did not
+# sign the payload and fails with "signature verification failed".
+# `compose build` takes only the services named, which is what we want.
 end2end-daemon: image-test
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
 	@mkdir -p $(E2E_DAEMON_DIR)/reports
@@ -646,7 +677,8 @@ end2end-daemon: image-test
 	      done; \
 	      $(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) down -v --remove-orphans' EXIT; \
 	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --wait wardnetd; \
-	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --build --wait test_debian test_ubuntu || \
+	{ $(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) build test_debian test_ubuntu && \
+	  $(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --wait test_debian test_ubuntu; } || \
 	    echo "warning: client services not healthy; running vitest anyway so failures surface as assertions"; \
 	echo "::group::compose ps before vitest"; \
 	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) ps -a; \
@@ -691,7 +723,8 @@ e2e-ui: build-web image-test-ui
 	      $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) down -v --remove-orphans' EXIT; \
 	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) build nordvpn_mock; \
 	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --wait wardnetd-ui wardnetd-ui-fresh tls_proxy tls_proxy_lan blocklist_server nordvpn_mock; \
-	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --build --wait test_debian || \
+	{ $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) build test_debian && \
+	  $(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) up -d --wait test_debian; } || \
 	    echo "warning: test_debian (LAN client) not healthy; running playwright anyway so failures surface as assertions"; \
 	echo "::group::compose ps before playwright"; \
 	$(CONTAINER_RT) compose -f $(E2E_UI_COMPOSE) ps -a; \
