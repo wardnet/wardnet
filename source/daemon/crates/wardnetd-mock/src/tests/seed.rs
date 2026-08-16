@@ -181,3 +181,179 @@ async fn populate_routing_rule_references_first_device_and_tunnel() {
 
     assert!(rule.is_some(), "first device should have a routing rule");
 }
+
+// ── The household directory (ADR-0031, #1147) ───────────────────────────────
+//
+// Seeded separately from `populate`, and *after* the setup wizard has created
+// the first admin — `setup_admin` refuses once any user row exists, so seeding
+// a directory at boot would silently switch off the one flow this mock exists
+// to let a developer replay.
+
+use crate::seed::{DEMO_ENROLMENT_TOKEN, populate_household};
+use wardnet_common::auth::UserRole;
+use wardnetd_services::auth::password::hash_token;
+
+/// A factory with the real migrations applied, plus the demo devices.
+async fn seeded_factory() -> (Box<dyn RepositoryFactory>, Vec<uuid::Uuid>) {
+    let pool = init_pool_from_connection_string(":memory:")
+        .await
+        .expect("in-memory pool should initialise");
+    let factory: Box<dyn RepositoryFactory> = Box::new(SqliteRepositoryFactory::from_pool(
+        pool,
+        std::path::PathBuf::from(":memory:"),
+    ));
+    let ids = populate(factory.as_ref()).await.expect("populate");
+    (factory, ids.device_ids)
+}
+
+async fn run_household(factory: &dyn RepositoryFactory, device_ids: &[uuid::Uuid]) {
+    populate_household(
+        factory.user().as_ref(),
+        factory.user_enrolment().as_ref(),
+        factory.device().as_ref(),
+        device_ids,
+    )
+    .await
+    .expect("populate_household");
+}
+
+#[tokio::test]
+async fn populate_household_seeds_three_credential_less_users() {
+    let (factory, device_ids) = seeded_factory().await;
+    run_household(factory.as_ref(), &device_ids).await;
+
+    let users = factory.user().find_all().await.unwrap();
+    assert_eq!(users.len(), 3);
+
+    let by_name = |name: &str| {
+        users
+            .iter()
+            .find(|u| u.display_name == name)
+            .unwrap_or_else(|| panic!("{name} should be seeded"))
+    };
+
+    // One admin, one enabled member, one disabled member — so the directory
+    // shows every state without an admin breaking their own account to see it.
+    assert_eq!(by_name("Ana").role, UserRole::Admin);
+    assert!(by_name("Ana").enabled);
+    assert_eq!(by_name("Bruno").role, UserRole::Member);
+    assert!(by_name("Bruno").enabled);
+    assert!(!by_name("Cleo").enabled);
+    // Cleo has no email: several household members legitimately have none, and
+    // the unique index must tolerate more than one of them.
+    assert_eq!(by_name("Cleo").email, None);
+
+    // **No credentials.** An admin never learns a member's password, so a
+    // member holding one nobody typed is a state the product cannot reach.
+    for user in &users {
+        let creds = factory
+            .user_credential()
+            .list_for_user(&user.id)
+            .await
+            .unwrap();
+        assert!(
+            creds.is_empty(),
+            "{} must be seeded credential-less",
+            user.display_name
+        );
+    }
+}
+
+#[tokio::test]
+async fn populate_household_seeds_one_open_and_one_spent_invitation() {
+    let (factory, device_ids) = seeded_factory().await;
+    run_household(factory.as_ref(), &device_ids).await;
+
+    let bruno = factory
+        .user()
+        .find_by_email("bruno@example.invalid")
+        .await
+        .unwrap()
+        .expect("Bruno should be seeded");
+    let rows = factory
+        .user_enrolment()
+        .list_for_user(&bruno.id)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 2);
+
+    let open = rows.iter().filter(|r| r.used_at.is_none()).count();
+    let spent = rows.iter().filter(|r| r.used_at.is_some()).count();
+    assert_eq!((open, spent), (1, 1), "one of each, so the UI shows both");
+
+    // The open one is genuinely redeemable with the documented token — only
+    // its hash is stored, exactly as in production, so the mock does not
+    // short-circuit the real single-use check.
+    let hash = hash_token(DEMO_ENROLMENT_TOKEN);
+    assert!(
+        rows.iter()
+            .any(|r| r.token_hash == hash && r.used_at.is_none()),
+        "the advertised token must match the outstanding invitation"
+    );
+}
+
+#[tokio::test]
+async fn populate_household_assigns_two_device_owners() {
+    let (factory, device_ids) = seeded_factory().await;
+    run_household(factory.as_ref(), &device_ids).await;
+
+    let devices = factory.device().find_all().await.unwrap();
+    let with_owner: Vec<_> = devices
+        .iter()
+        .filter(|d| d.owner_user_id.is_some())
+        .collect();
+    // Two owned and the rest unowned, so the device screens show both states.
+    assert_eq!(with_owner.len(), 2);
+
+    let users = factory.user().find_all().await.unwrap();
+    for device in with_owner {
+        let assigned = device.owner_user_id.unwrap().to_string();
+        assert!(
+            users.iter().any(|u| u.id == assigned),
+            "an owner must name a real user, not a dangling id"
+        );
+    }
+}
+
+#[tokio::test]
+async fn populate_household_is_idempotent_for_on_disk_restarts() {
+    // The waiting task fires as soon as *any* user exists, which on a
+    // persisted database is the very first tick. Re-creating Ana would hit the
+    // unique email index and abort the whole function, silently taking the
+    // device owners and the demo invitation with it.
+    let (factory, device_ids) = seeded_factory().await;
+    run_household(factory.as_ref(), &device_ids).await;
+    run_household(factory.as_ref(), &device_ids).await;
+
+    assert_eq!(factory.user().find_all().await.unwrap().len(), 3);
+
+    let bruno = factory
+        .user()
+        .find_by_email("bruno@example.invalid")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        factory
+            .user_enrolment()
+            .list_for_user(&bruno.id)
+            .await
+            .unwrap()
+            .len(),
+        2,
+        "a second run must not duplicate the invitations"
+    );
+}
+
+#[tokio::test]
+async fn populate_household_tolerates_devices_that_have_gone() {
+    // A miss is logged rather than fatal: the seed should still create the
+    // directory even if the ids it was handed no longer resolve.
+    let (factory, _) = seeded_factory().await;
+    let ghosts = vec![uuid::Uuid::new_v4(), uuid::Uuid::new_v4()];
+    run_household(factory.as_ref(), &ghosts).await;
+
+    assert_eq!(factory.user().find_all().await.unwrap().len(), 3);
+    let devices = factory.device().find_all().await.unwrap();
+    assert!(devices.iter().all(|d| d.owner_user_id.is_none()));
+}

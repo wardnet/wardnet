@@ -10,9 +10,7 @@ import {
 } from "@wardnet/web";
 import type { MutationHandle } from "@/lib/mutationHandle";
 import type { Device, User } from "@wardnet/js";
-
-/** Sentinel for "nobody" — `Select` has no concept of a null option value. */
-const UNASSIGNED = "__unassigned__";
+import { UNASSIGNED_OWNER, ownerValueToId } from "@/lib/deviceOwner";
 
 interface DeviceOwnerCardProps {
   device: Device;
@@ -35,7 +33,7 @@ export function DeviceOwnerCard({
   users,
   setOwner,
 }: DeviceOwnerCardProps) {
-  const value = device.owner_user_id ?? UNASSIGNED;
+  const value = device.owner_user_id ?? UNASSIGNED_OWNER;
 
   return (
     <Card>
@@ -53,7 +51,7 @@ export function DeviceOwnerCard({
             onValueChange={(next) => {
               void setOwner.mutateAsync({
                 deviceId: device.id,
-                ownerUserId: next === UNASSIGNED ? null : next,
+                ownerUserId: ownerValueToId(next),
               });
             }}
           >
@@ -61,7 +59,7 @@ export function DeviceOwnerCard({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={UNASSIGNED}>Nobody</SelectItem>
+              <SelectItem value={UNASSIGNED_OWNER}>Nobody</SelectItem>
               {users.map((user) => (
                 <SelectItem key={user.id} value={user.id}>
                   {user.display_name}

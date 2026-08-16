@@ -89,3 +89,28 @@ fn update_network_zone_request_subnet_is_three_state() {
         serde_json::from_str(r#"{"subnet":{"cidr":"10.44.0.0/24"}}"#).unwrap();
     assert_eq!(set.subnet.unwrap().unwrap().cidr, "10.44.0.0/24");
 }
+
+#[test]
+fn set_device_owner_request_treats_an_absent_field_as_clear() {
+    use crate::api::SetDeviceOwnerRequest;
+
+    // Unlike `UpdateNetworkZoneRequest` above, this is **two**-state, not
+    // three: a `PUT` replaces the owner outright, so there is no "leave as-is"
+    // to distinguish. That matters because the Go SDK's generated body tags
+    // the field `omitempty`, so clearing an owner goes out as `{}` rather than
+    // an explicit null — and both must mean the same thing, or the SDK would
+    // silently no-op instead of unassigning.
+    let absent: SetDeviceOwnerRequest = serde_json::from_str("{}").unwrap();
+    assert_eq!(absent.owner_user_id, None);
+
+    let null: SetDeviceOwnerRequest = serde_json::from_str(r#"{"owner_user_id":null}"#).unwrap();
+    assert_eq!(null.owner_user_id, None);
+
+    let set: SetDeviceOwnerRequest =
+        serde_json::from_str(r#"{"owner_user_id":"6e05df45-1fa4-4327-8c1e-218c79b253ba"}"#)
+            .unwrap();
+    assert_eq!(
+        set.owner_user_id.map(|u| u.to_string()).as_deref(),
+        Some("6e05df45-1fa4-4327-8c1e-218c79b253ba")
+    );
+}
