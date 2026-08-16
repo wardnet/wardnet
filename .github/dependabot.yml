@@ -1,56 +1,234 @@
+# Managed by gt — edit .gt-repo.yaml, then run `gt repo sync`.
+#
+# Shared policy (cooldown, commit-message prefix, schedule) lives in gt's
+# template, not here, so changing it for every repo is a one-line edit in gt.
+#
+# The 7-day cooldown is the supply-chain guard: by the time a PR exists,
+# the upstream release has been in the wild long enough to surface yanks and
+# compromised publishers before an auto-merge-eligible PR lands on the default
+# branch.
 version: 2
 updates:
+  # The daemon workspace. Covers every member crate through the single
+  # Cargo.lock at this directory.
   - package-ecosystem: "cargo"
     directory: "/source/daemon"
     schedule:
       interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
     commit-message:
-      prefix: "chore(deps):"
-    # 3-day cooldown before Dependabot opens a PR for a new version.
-    # Gives the wider ecosystem time to surface supply-chain issues
-    # (yanked releases, compromised publishers) before an auto-merge
-    # eligible PR lands on main.
+      prefix: "build"
+      include: scope
     cooldown:
-      default-days: 3
+      default-days: 7
+    open-pull-requests-limit: 25
 
-  # Two independent Go modules, each with its own go.mod, so each needs its
-  # own entry — gomod has no workspace-root equivalent to the npm setup below.
-  # Both ship: the SDK is published to outside consumers as wardnet.network/go,
-  # and wctl is distributed as a signed release binary, so an unpatched
-  # advisory in either reaches users directly.
+  # Its own workspace, not a member of the daemon's — source/daemon/Cargo.toml
+  # excludes it so libfuzzer-sys and the nightly sanitizer rustflags cannot
+  # leak into normal builds. That separation also means its Cargo.lock is
+  # invisible to the entry above, so it needs its own.
+  - package-ecosystem: "cargo"
+    directory: "/source/daemon/fuzz"
+    schedule:
+      interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
+    commit-message:
+      prefix: "build"
+      include: scope
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 25
+
+  # ClusterFuzzLite build image. Every FROM is digest-pinned for Scorecard and
+  # supply-chain integrity, so Dependabot is the only channel that surfaces
+  # upstream image updates.
+  - package-ecosystem: "docker"
+    directory: "/.clusterfuzzlite"
+    schedule:
+      interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
+    commit-message:
+      prefix: "build"
+      include: scope
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 25
+
+  # Digest-pinned like the above:
+  #
+  #   Dockerfile        production image (FROM wardnet-base)
+  #   Dockerfile.base   shared OS layer (FROM debian:bookworm-slim)
+  #   Dockerfile.test   end-to-end test image (FROM rust + wardnet-base)
+  - package-ecosystem: "docker"
+    directory: "/source/daemon"
+    schedule:
+      interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
+    commit-message:
+      prefix: "build"
+      include: scope
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 25
+
+  - package-ecosystem: "docker"
+    directory: "/source/end2end-tests/daemon/mocks/nordvpn"
+    schedule:
+      interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
+    commit-message:
+      prefix: "build"
+      include: scope
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 25
+
+  - package-ecosystem: "docker"
+    directory: "/source/end2end-tests/daemon/mocks/wg-gateway"
+    schedule:
+      interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
+    commit-message:
+      prefix: "build"
+      include: scope
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 25
+
+  - package-ecosystem: "docker"
+    directory: "/source/end2end-tests/daemon/mocks/wg-tunnel-gateway"
+    schedule:
+      interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
+    commit-message:
+      prefix: "build"
+      include: scope
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 25
+
+  - package-ecosystem: "docker"
+    directory: "/source/end2end-tests/web-ui/mocks/wardnet-cloud"
+    schedule:
+      interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
+    commit-message:
+      prefix: "build"
+      include: scope
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 25
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `ci(deps): bump …`.
+    commit-message:
+      prefix: "ci"
+      include: scope
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 25
+    # Grouped dependencies share a single PR. A group exists when its members
+    # must move together: landing one alone breaks the default branch, and the
+    # sibling PR then fails that same broken check — so auto-merge cannot
+    # recover on its own.
+    groups:
+      # codeql-action/init and codeql-action/analyze MUST move in lockstep:
+      # init writes a config file stamped with its own version and analyze
+      # refuses to read one written by a different version, failing with
+      # "Loaded a configuration file for version X, but running version Y".
+      #
+      # Dependabot treats each action path as its own dependency, so without
+      # this group it opens a separate PR per path. The daily auto-merge batch
+      # then lands one of them alone and main goes red — and because the
+      # sibling PR now fails that same broken CodeQL job, auto-merge won't
+      # merge it either, so main stays red until a human intervenes. That
+      # deadlock cost us #991, #1059 and #1069.
+      codeql-action:
+        patterns:
+          - "github/codeql-action*"
+
   - package-ecosystem: "gomod"
     directory: "/source/sdk/wardnet-go"
     schedule:
       interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
     commit-message:
-      prefix: "chore(deps):"
+      prefix: "build"
+      include: scope
     cooldown:
-      default-days: 3
+      default-days: 7
+    open-pull-requests-limit: 25
 
   - package-ecosystem: "gomod"
     directory: "/source/wctl"
     schedule:
       interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
     commit-message:
-      prefix: "chore(deps):"
+      prefix: "build"
+      include: scope
     cooldown:
-      default-days: 3
+      default-days: 7
+    open-pull-requests-limit: 25
 
-  # The web codebase is a Yarn-workspaces monorepo with a SINGLE lockfile
-  # at /source/yarn.lock. Dependabot must point at the workspace ROOT so
-  # every version bump also regenerates the lockfile — per-workspace
-  # entries (e.g. /source/admin-site) edit only that package.json, leave
-  # yarn.lock stale, and every PR fails CI's `yarn install --immutable`.
+  # The web codebase is a Yarn-workspaces monorepo with a SINGLE lockfile at
+  # /source/yarn.lock. Dependabot must point at the workspace ROOT so every
+  # version bump also regenerates the lockfile — per-workspace entries (e.g.
+  # /source/admin-site) edit only that package.json, leave yarn.lock stale,
+  # and every PR then fails CI's `yarn install --immutable`.
+  #
   # This one entry covers the root manifest plus all workspaces
   # (sdk/wardnet-js, web, admin-site, admin-app, user-app, marketing-site).
   - package-ecosystem: "npm"
     directory: "/source"
     schedule:
       interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
     commit-message:
-      prefix: "chore(deps):"
+      prefix: "build"
+      include: scope
     cooldown:
-      default-days: 3
+      default-days: 7
+    open-pull-requests-limit: 25
 
   # Standalone package with its own yarn.lock — not part of the /source
   # workspace, so it keeps its own entry.
@@ -58,61 +236,29 @@ updates:
     directory: "/source/end2end-tests/daemon"
     schedule:
       interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
     commit-message:
-      prefix: "chore(deps):"
+      prefix: "build"
+      include: scope
     cooldown:
-      default-days: 3
+      default-days: 7
+    open-pull-requests-limit: 25
 
-  - package-ecosystem: "github-actions"
-    directory: "/"
+  # Standalone package with its own yarn.lock, same as the daemon suite above.
+  - package-ecosystem: "npm"
+    directory: "/source/end2end-tests/web-ui"
     schedule:
       interval: "weekly"
+    # Dependabot's commit message is also its PR title, and PRs are
+    # squash-merged, so the prefix is what keeps dependency updates inside
+    # Conventional Commits. `include: scope` appends the dependency scope,
+    # producing e.g. `build(deps): bump …`.
     commit-message:
-      prefix: "chore(ci):"
+      prefix: "build"
+      include: scope
     cooldown:
-      default-days: 3
-    # codeql-action/init and codeql-action/analyze MUST move in lockstep:
-    # init writes a config file stamped with its own version and analyze
-    # refuses to read one written by a different version, failing with
-    # "Loaded a configuration file for version X, but running version Y".
-    #
-    # Dependabot treats each action path as its own dependency, so without
-    # this group it opens a separate PR per path. The daily auto-merge batch
-    # then lands one of them alone and main goes red — and because the
-    # sibling PR now fails that same broken CodeQL job, auto-merge won't
-    # merge it either, so main stays red until a human intervenes. That
-    # deadlock cost us #991, #1059 and #1069.
-    #
-    # Grouping makes every codeql-action bump a single atomic PR.
-    groups:
-      codeql-action:
-        patterns:
-          - "github/codeql-action*"
-
-  # source/daemon/ Dockerfiles — all FROM lines are pinned by digest
-  # for Scorecard / supply-chain integrity, so Dependabot is the
-  # channel that surfaces upstream image updates.
-  #
-  #   Dockerfile        — production image (FROM wardnet-base)
-  #   Dockerfile.base   — shared OS layer (FROM debian:bookworm-slim)
-  #   Dockerfile.test   — end-to-end test image (FROM rust + wardnet-base)
-  - package-ecosystem: "docker"
-    directory: "/source/daemon"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore(deps):"
-    cooldown:
-      default-days: 3
-
-  # ClusterFuzzLite build image (.clusterfuzzlite/Dockerfile) — same
-  # pin-then-bump story.
-  - package-ecosystem: "docker"
-    directory: "/.clusterfuzzlite"
-    schedule:
-      interval: "weekly"
-    commit-message:
-      prefix: "chore(deps):"
-    cooldown:
-      default-days: 3
-
+      default-days: 7
+    open-pull-requests-limit: 25

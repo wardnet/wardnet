@@ -1,0 +1,25 @@
+# Managed by gt — edit .gt-repo.yaml, then run `gt repo sync`.
+#
+# Weekly drift check and repair. Runs `gt repo sync`, and opens a PR only if
+# something changed — it never pushes to main, so gt's own updates are
+# reviewed by the gate like any other change.
+#
+# Workflow files are deliberately excluded: GITHUB_TOKEN cannot create or
+# update anything under .github/workflows/**. When one of them has drifted the
+# job reports it and asks for a local `gt repo fleet sync`, which runs with
+# your own credentials. Because the callers pin the moving v1 tag, this is
+# rare — gate logic changes need no file change at all.
+name: gt sync
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    uses: pedromvgomes/gt/.github/workflows/reusable-sync.yml@v1

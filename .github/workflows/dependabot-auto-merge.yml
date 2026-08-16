@@ -1,159 +1,28 @@
+# Managed by gt — edit .gt-repo.yaml, then run `gt repo sync`.
+#
+# Daily batch window for merging Dependabot's eligible bumps. The Dependabot
+# cooldown (set in .github/dependabot.yml) is the supply-chain guard; this is
+# the merge executor on top of it.
+#
+# Bumps above `minor` are left for human review.
+#
+# Known gap, not a bug: Dependabot PRs touching .github/workflows/** can never
+# be merged here. There is no permissions: key granting GITHUB_TOKEN the
+# `workflow` scope, so the github-actions ecosystem always needs a human or
+# `gt repo fleet merge-pending`, which runs with your own credentials.
 name: Dependabot auto-merge
-
-# Daily batch window for merging Dependabot's patch and minor bumps.
-#
-# The Dependabot cooldown (3 days, set in .github/dependabot.yml) is
-# the supply-chain guard — by the time a PR exists, the upstream
-# release has been in the wild long enough to surface yanks /
-# compromises. This workflow is the merge executor on top of that:
-#
-#   1. List open Dependabot PRs
-#   2. For each: parse the bump type from the title, check the PR is
-#      actually mergeable (all required checks green, no review blocks)
-#   3. Squash-merge the eligible ones
-#
-# Major bumps are skipped — those get a human review. Non-Dependabot
-# PRs are untouched.
-#
-# Production exposure is further bounded by the release cycle:
-# dependency updates ride the next tagged release, not every merge to
-# main, so a bad merge has more chances to be caught before users see
-# it.
 
 on:
   schedule:
-    - cron: "0 1 * * *"  # 01:00 UTC daily
-  workflow_dispatch:     # allow manual triggering for debugging
+    - cron: "0 1 * * *"
+  workflow_dispatch:
 
-# Minimal top-level default; the write scopes are granted only to the
-# job that actually needs them (see below).
+# A called reusable workflow can only narrow the caller's token, never widen
+# it, so the writes the merge job needs have to be granted here.
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
 
 jobs:
   auto-merge:
-    name: Auto-merge Dependabot patch/minor PRs
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write        # required to squash-merge PRs and delete their branches
-      pull-requests: write
-    steps:
-      - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
-        with:
-          egress-policy: audit
-
-      - name: Merge eligible Dependabot PRs
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-
-          # Pull every open Dependabot PR's merge-relevant fields.
-          # mergeStateStatus ∈ {BEHIND, BLOCKED, CLEAN, DIRTY, DRAFT,
-          # HAS_HOOKS, UNKNOWN, UNSTABLE}; CLEAN / HAS_HOOKS mean the
-          # PR is ready per branch protection.
-          gh pr list --repo "$REPO" \
-            --author app/dependabot \
-            --state open \
-            --json number,title,mergeable,mergeStateStatus,isDraft \
-            > prs.json
-
-          count=$(jq 'length' prs.json)
-          echo "Found ${count} open Dependabot PR(s)."
-
-          # Track per-PR merge failures so one bad PR doesn't abort the
-          # whole batch (the loop runs under `set -e`). We surface a red
-          # X at the end if any eligible merge failed.
-          failed=0
-
-          # Extract "from X.Y.Z to A.B.C" out of the title, classify
-          # the bump via semver comparison, merge if patch/minor and
-          # the PR is ready.
-          # Fed via process substitution (not a pipe) so the loop runs
-          # in this shell and `failed` survives past `done`.
-          while read -r pr; do
-            number=$(echo "$pr" | jq -r '.number')
-            title=$(echo "$pr" | jq -r '.title')
-            mergeable=$(echo "$pr" | jq -r '.mergeable')
-            state=$(echo "$pr" | jq -r '.mergeStateStatus')
-            draft=$(echo "$pr" | jq -r '.isDraft')
-
-            echo ""
-            echo "── PR #${number}: ${title}"
-            echo "   mergeable=${mergeable} state=${state} draft=${draft}"
-
-            if [[ "$draft" == "true" ]]; then
-              echo "   → skip: draft"
-              continue
-            fi
-            if [[ "$mergeable" != "MERGEABLE" ]]; then
-              echo "   → skip: not mergeable (conflicts?)"
-              continue
-            fi
-            if [[ "$state" != "CLEAN" && "$state" != "HAS_HOOKS" && "$state" != "UNSTABLE" ]]; then
-              # UNSTABLE = required checks passed but optional checks failed.
-              # Treat as eligible; branch protection already enforces the required set.
-              echo "   → skip: mergeStateStatus=${state} (checks not green)"
-              continue
-            fi
-
-            # Parse versions from the title. Dependabot's format is
-            # stable: "bump <pkg> from <old> to <new>" (possibly with
-            # " in /path" suffix). Extract old/new.
-            if [[ ! "$title" =~ from\ ([0-9]+\.[0-9]+\.[0-9]+)(-[A-Za-z0-9\.\-]+)?\ to\ ([0-9]+\.[0-9]+\.[0-9]+)(-[A-Za-z0-9\.\-]+)? ]]; then
-              echo "   → skip: couldn't parse versions from title"
-              continue
-            fi
-            old="${BASH_REMATCH[1]}"
-            new="${BASH_REMATCH[3]}"
-            old_major="${old%%.*}"
-            new_major="${new%%.*}"
-            old_rest="${old#*.}"; old_minor="${old_rest%%.*}"
-            new_rest="${new#*.}"; new_minor="${new_rest%%.*}"
-
-            if [[ "$old_major" != "$new_major" ]]; then
-              bump="major"
-            elif [[ "$old_minor" != "$new_minor" ]]; then
-              bump="minor"
-            else
-              bump="patch"
-            fi
-            echo "   bump: ${old} → ${new} (${bump})"
-
-            if [[ "$bump" == "major" ]]; then
-              echo "   → skip: major bumps require human review"
-              continue
-            fi
-
-            echo "   → merging (squash)"
-            if out=$(gh pr merge "$number" --repo "$REPO" --squash --delete-branch 2>&1); then
-              echo "   → merged"
-              continue
-            fi
-            # The merge was rejected. Classify: some reasons are
-            # expected and benign for a daily batch and must NOT fail
-            # the job; anything else is a genuine problem.
-            echo "$out" | sed 's/^/     /'
-            if echo "$out" | grep -qiE 'merge conflict|not mergeable'; then
-              # MERGEABLE at list time can go stale by merge time.
-              # Dependabot rebases conflicted PRs; a later run merges it.
-              echo "   → skip: merge conflict — Dependabot will rebase; picked up next run"
-            elif echo "$out" | grep -qi "without .workflows. permission"; then
-              # The default GITHUB_TOKEN cannot merge PRs that touch
-              # .github/workflows/** — there is no permissions: key that
-              # grants the `workflow` scope. These need a human/PAT merge.
-              echo "   → skip: touches a workflow file; GITHUB_TOKEN can't merge these — merge manually"
-            else
-              echo "   → FAILED to merge #${number}; continuing with the rest"
-              failed=1
-            fi
-          done < <(jq -c '.[]' prs.json)
-
-          if [[ "$failed" -ne 0 ]]; then
-            echo ""
-            echo "One or more eligible PRs failed to merge — see log above."
-            exit 1
-          fi
+    uses: pedromvgomes/gt/.github/workflows/reusable-dependabot-auto-merge.yml@v1

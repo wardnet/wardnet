@@ -1,0 +1,42 @@
+# ci-preflight — this file is yours.
+#
+# gt created it once and will never modify or delete it again.
+#
+# This stage decides which later stages run. Emit `false` for a stage to skip
+# it; anything else — including nothing at all, as below — runs it. That is why
+# the stub is a no-op: out of the box every stage runs, and change detection is
+# something you opt into rather than out of.
+#
+# A typical implementation sets these from a paths filter, so an untouched area
+# is not rebuilt. A skipped stage still passes the gate.
+name: ci-preflight
+
+on:
+  workflow_call:
+    outputs:
+      run-build:
+        description: Set to "false" to skip the build stage.
+        value: ${{ jobs.preflight.outputs.run-build }}
+      run-test:
+        description: Set to "false" to skip the test stage.
+        value: ${{ jobs.preflight.outputs.run-test }}
+      run-end2end:
+        description: Set to "false" to skip the end2end stage.
+        value: ${{ jobs.preflight.outputs.run-end2end }}
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
+    outputs:
+      run-build: ${{ steps.decide.outputs.run-build }}
+      run-test: ${{ steps.decide.outputs.run-test }}
+      run-end2end: ${{ steps.decide.outputs.run-end2end }}
+    steps:
+      - name: Decide which stages to run
+        id: decide
+        # Emitting nothing runs everything. Replace with change detection.
+        run: echo "every stage runs by default"

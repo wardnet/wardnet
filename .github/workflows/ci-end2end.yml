@@ -1,0 +1,23 @@
+# ci-end2end — this file is yours.
+#
+# gt created it once and will never modify or delete it again. Put this
+# repository's end-to-end tests here; the orchestration around it stays gt's.
+#
+# It is called by ci-orchestration.yml and must keep `workflow_call`, or the
+# orchestrator loses the stage.
+name: ci-end2end
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  end2end:
+    name: end2end
+    runs-on: ubuntu-latest
+    steps:
+      # A no-op so the stage is green from the first run. Replace it.
+      - name: Nothing to do yet
+        run: echo "No end2end steps defined. Add them in .github/workflows/ci-end2end.yml"
