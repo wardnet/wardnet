@@ -26,6 +26,9 @@ export const API_BASE_URL =
   process.env.WARDNET_API_BASE_URL ?? "http://wardnetd:7411/api";
 export const TEST_DEBIAN_AGENT =
   process.env.WARDNET_TEST_DEBIAN_AGENT ?? "http://test_debian:3001";
+export const TEST_GUEST_AGENT =
+  process.env.WARDNET_TEST_GUEST_AGENT ?? "http://test_guest:3001";
+
 export const TEST_UBUNTU_AGENT =
   process.env.WARDNET_TEST_UBUNTU_AGENT ?? "http://test_ubuntu:3001";
 // The wardnetd container also hosts the test-agent in *server* mode on

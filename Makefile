@@ -596,7 +596,7 @@ end2end-daemon: image-test
 	      done; \
 	      $(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) down -v --remove-orphans' EXIT; \
 	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --build --wait wardnetd; \
-	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --build --wait test_debian test_ubuntu || \
+	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) up -d --build --wait test_debian test_ubuntu test_guest || \
 	    echo "warning: client services not healthy; running vitest anyway so failures surface as assertions"; \
 	echo "::group::compose ps before vitest"; \
 	$(CONTAINER_RT) compose -f $(E2E_DAEMON_COMPOSE) ps -a; \

@@ -21,6 +21,10 @@ source/marketing-site/dist/
 # ones such as source/sdk/wardnet-js).
 source/**/coverage/
 source/**/test-results/
+# Repo-root coverage artefacts. `make coverage-daemon` writes the daemon's
+# LCOV/JSON here (CI reads them from this path), and cargo-llvm-cov runs
+# land alongside — all generated, none of it belongs in the tree.
+/coverage/
 # `go test -coverprofile` output. Written inside the module it measures —
 # that is where bulwark's per-module lookup expects it — so it lands in the
 # working tree of whoever runs the Go coverage job locally.
