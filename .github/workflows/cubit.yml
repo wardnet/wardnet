@@ -20,6 +20,10 @@ name: Cubit
 # benched.
 
 on:
+  # Dispatchable directly: cubit no longer runs on every pull request, so an
+  # on-demand run is how a perf question gets answered without pushing a commit
+  # to provoke one.
+  workflow_dispatch:
   workflow_call:
     secrets:
       PERF_REPORTS_TOKEN:
