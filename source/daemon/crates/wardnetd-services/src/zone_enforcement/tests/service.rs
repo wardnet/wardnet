@@ -1036,6 +1036,72 @@ async fn casting_exception_yields_bidirectional_allows() {
     );
 }
 
+/// A zone whose CIDR won't parse yields no gateway, so there is no preferred
+/// source to install and the host route must be skipped rather than added
+/// without one — adding it without a source is the #1198 bug itself. Write-time
+/// validation rejects such a CIDR, so this only guards a direct DB edit or
+/// older data, but the fallback has to be the safe direction.
+#[tokio::test]
+async fn unparseable_zone_subnet_installs_no_host_route() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "BadZone", "not-a-cidr", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        !pc.iter().any(|c| c.starts_with("add_host_route:")),
+        "an unparseable zone subnet must not produce a host route: {pc:?}"
+    );
+}
+
+/// `handle_ip_change` must drop the old address's `/32` and install one for the
+/// new address, preferring the zone gateway — the path a device takes when it
+/// re-DHCPs into its zone's subnet, which is exactly how a phone acquires the
+/// route in production (#1198).
+#[tokio::test]
+async fn handle_ip_change_rekeys_the_host_route_onto_the_new_ip() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.handle_ip_change(member, "10.44.1.10", "10.44.1.11"))
+        .await
+        .unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"remove_host_route:10.44.1.10:eth0".to_owned()),
+        "the stale IP's host route is dropped: {pc:?}"
+    );
+    assert!(
+        pc.contains(&"add_host_route:10.44.1.11:eth0:10.44.1.1".to_owned()),
+        "the new IP gets a host route preferring the zone gateway: {pc:?}"
+    );
+}
+
+/// A zone move re-applies the device's host route for its new zone, so the
+/// preferred source follows the device rather than naming the gateway of a zone
+/// it has left (#1198).
+#[tokio::test]
+async fn handle_zone_change_installs_the_new_zones_host_route() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.handle_zone_change(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"add_host_route:10.44.1.10:eth0:10.44.1.1".to_owned()),
+        "the device's host route is re-applied for its new zone: {pc:?}"
+    );
+}
+
 /// A device whose address is outside its member-isolated zone's subnet must get
 /// no host route at all.
 ///

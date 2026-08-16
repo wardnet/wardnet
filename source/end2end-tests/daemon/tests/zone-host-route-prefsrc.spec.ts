@@ -49,6 +49,7 @@ import {
   findDeviceByIpRangeOrNull,
   hostRouteFor,
   pollUntil,
+  resolveViaAgent,
   waitForDaemonRestart,
   waitForHostRouteSrc,
   waitForReady,
@@ -63,8 +64,14 @@ const ZONE_RANGE_START = "10.44.1.2";
 const ZONE_RANGE_END = "10.44.1.254";
 
 // Base-LAN pool used to get the guest client discovered in the first place.
-const LAN_POOL_START = "10.91.0.150";
-const LAN_POOL_END = "10.91.0.170";
+//
+// Must be the pool every other spec uses: `ensureLeasedAgent` rewrites the
+// daemon's *global* DHCP config, so inventing a range here would leave the
+// shared stack serving it — and the clients other specs lease would stop
+// getting addresses in the range they expect. (.160/.170 are also
+// dhcp-reservations' and backup-roundtrip's reserved addresses.)
+const LAN_POOL_START = "10.91.0.100";
+const LAN_POOL_END = "10.91.0.150";
 
 const ZONE_NAME = "e2e-guest-isolated";
 
@@ -130,17 +137,31 @@ describe("member-isolation host route preferred source (#1198)", () => {
       5,
     );
 
-    // The host route keys on the device row's `last_ip`, which only updates
-    // once the daemon observes traffic from the new address.
-    await pollUntil(
-      () => devices.getById(guest!.id).then((r) => r.device),
-      (d) => d.last_ip === zoneIp,
+    // The host route keys on the device row's `last_ip`, and that only moves
+    // once the daemon *observes traffic* from the new address. The client keeps
+    // its docker-IPAM address alongside the lease, so discovery will happily
+    // keep re-keying onto the docker one unless we actively source traffic from
+    // the zone address — hence a lookup on every poll rather than a passive
+    // wait. Match on the subnet rather than the exact address dhclient
+    // reported: what matters is that the device is keyed inside the zone.
+    const rekeyed = await pollUntil(
+      async () => {
+        await resolveViaAgent(TEST_GUEST_AGENT, "example.com").catch(
+          () => undefined,
+        );
+        return (await devices.getById(guest!.id)).device;
+      },
+      (d) => d.last_ip.startsWith("10.44.1."),
       {
-        timeoutMs: 60_000,
+        timeoutMs: 90_000,
+        intervalMs: 3_000,
         describe: (last) =>
-          `device never re-keyed onto its zone address ${zoneIp} (last_ip=${last?.last_ip})`,
+          `device never re-keyed into ${ZONE_CIDR} (last_ip=${last?.last_ip}, ` +
+          `dhclient reported ${zoneIp})`,
       },
     );
+    // Assert against the address the daemon actually keyed on.
+    zoneIp = rekeyed.last_ip;
   }, 180_000);
 
   afterAll(async () => {
