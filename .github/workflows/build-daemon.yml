@@ -86,6 +86,9 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           components: clippy, rustfmt
+          # Shared with check-openapi: same workspace, same debug profile, so
+          # two lineages held two ~900MB copies of the same dependency build.
+          shared-key: daemon-debug
 
       - name: Install clippy SARIF tooling
         uses: taiki-e/install-action@6c6fd71fe4fb72c3697d269963d0e15df8adedad # v2
@@ -133,6 +136,10 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - uses: ./.github/actions/setup-rust
+        with:
+          # Same workspace and profile as check-daemon, so they share one
+          # lineage rather than each holding its own ~900MB copy.
+          shared-key: daemon-debug
 
       - name: Regenerate docs/openapi.json and verify no drift
         # `make check-openapi` runs `dump_openapi` against the current
