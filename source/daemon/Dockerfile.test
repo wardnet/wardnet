@@ -58,7 +58,9 @@ FROM web-${WEB_DIST} AS web
 # ---- Builder stage: compile wardnetd + wardnet-test-agent ----
 # Pinned by digest for supply-chain integrity. Matches the workspace
 # rust-version in source/daemon/rust-toolchain.toml.
-FROM rust:1.97-slim-bookworm@sha256:96c0af8cf054fd006435089f0076729716784ec9be485bd655de59c55df105ce AS builder
+# The toolchain layer every Rust stage below shares, so the apt install and the
+# cargo-chef install are paid once and cached rather than repeated per stage.
+FROM rust:1.97-slim-bookworm@sha256:96c0af8cf054fd006435089f0076729716784ec9be485bd655de59c55df105ce AS chef
 
 # minisign is needed at build time to generate the ephemeral signing
 # key + sign the synthetic release tarball that install.sh consumes.
@@ -76,14 +78,41 @@ RUN apt-get update \
         linux-libc-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# cargo-chef splits dependency compilation from workspace compilation. Without
+# it a single layer carries both, so any change under source/daemon/ rebuilds
+# ~500 dependencies from scratch — most of the 21 minutes this image took, on
+# exactly the changes that trigger it.
+# Version-pinned, and not below 0.1.77: the workspace Cargo.toml sets
+# `resolver = "3"`, which every cargo-chef before 0.1.69 rejects outright
+# ("unknown variant `3`, expected `1` or `2`") because it bundles a
+# pre-Rust-2024 TOML parser.
+RUN cargo install cargo-chef --locked --version 0.1.77
+
 WORKDIR /build
-# Rust workspace lives at /build; rust-embed paths in wardnetd-api are
-# three ../ steps from /build/crates/wardnetd-api/, resolving at the
-# filesystem root — so asset trees land at /admin-site/dist,
-# /user-app/dist, and /admin-app/dist. /deploy/keys/wardnet-release.pub is
-# baked into wardnetd-services via include_str! against a six-level
-# relative path that walks back to the repo root, so the deploy tree
-# must mirror its repo location too.
+
+# Reduces the workspace to its manifests. recipe.json changes only when a
+# Cargo.toml or Cargo.lock does, which is what lets the cook layer below
+# survive an ordinary source change.
+FROM chef AS planner
+COPY source/daemon/ /build/
+RUN cargo chef prepare --recipe-path /recipe.json
+
+FROM chef AS builder
+
+# cook compiles the workspace skeleton, so each crate's build.rs still runs:
+# build-support/version.rs reads ../../../../CALVER and wardnetd-services
+# include_str!s deploy/keys/wardnet-release.pub. Both must exist before
+# dependency compilation, and both are near-static, so putting them ahead of
+# the cook layer costs no cache hits.
+COPY CALVER /CALVER
+COPY deploy/ /deploy/
+
+COPY --from=planner /recipe.json /recipe.json
+RUN cargo chef cook --release --recipe-path /recipe.json
+
+# The real sources, replacing the skeleton cook left behind. This is the first
+# layer an ordinary daemon change invalidates, so everything above it — the
+# toolchain, the apt packages and the ~500 compiled dependencies — survives.
 COPY source/daemon/ /build/
 # web.rs embeds three asset trees via rust-embed; paths resolve from the
 # crate manifest dir (/build/crates/wardnetd-api/) three ../ steps up,
@@ -95,12 +124,6 @@ COPY --from=web /web/admin-site/dist /admin-site/dist
 COPY --from=web /web/user-app/dist /user-app/dist
 COPY --from=web /web/admin-app/dist /admin-app/dist
 COPY --from=web /web/admin-site/src/assets /admin-site/src/assets
-COPY deploy/ /deploy/
-# CALVER is read by the daemon build scripts (build-support/version.rs)
-# and resolved as `../../../../CALVER` from each crate's build.rs cwd
-# inside /build/crates/<crate>/, which lands at /CALVER. Copy it here
-# so the build doesn't panic with "No such file or directory".
-COPY CALVER /CALVER
 
 # Default to a synthetic dev version when no release tag exists.
 # install.sh extracts the version from the tarball filename, so any

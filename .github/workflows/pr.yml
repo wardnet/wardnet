@@ -187,10 +187,12 @@ jobs:
     # warrants the full e2e validation.
     if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true'
     # build-web (run on the host before the Docker build) reads @wardnet/*
-    # from GitHub Packages.
+    # from GitHub Packages, and the image build exports its layer cache to a
+    # GHCR image. A called workflow can only narrow what the caller grants, so
+    # the write has to be given here.
     permissions:
       contents: read
-      packages: read
+      packages: write
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
 
