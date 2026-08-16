@@ -55,6 +55,13 @@ jobs:
     needs: [attest]
     if: needs.attest.outputs.validated != 'true'
     uses: ./.github/workflows/ci-preflight.yml
+    # `inherit` rather than an enumerated `secrets:` block, and semgrep's
+    # secrets-inherit rule is answered rather than silenced: gt renders this
+    # orchestrator for every repository and cannot know their secret names, so
+    # there is no list to write. The callee is this same repository's own
+    # workflow, so no secret crosses a trust boundary that `inherit` did not
+    # already sit inside.
+    # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit
     # packages: read because several repositories resolve private @scope
     # dependencies from GitHub Packages during install, and a called workflow
@@ -69,6 +76,13 @@ jobs:
     needs: [attest, preflight]
     if: needs.attest.outputs.validated != 'true' && needs.preflight.outputs.run-build != 'false'
     uses: ./.github/workflows/ci-build.yml
+    # `inherit` rather than an enumerated `secrets:` block, and semgrep's
+    # secrets-inherit rule is answered rather than silenced: gt renders this
+    # orchestrator for every repository and cannot know their secret names, so
+    # there is no list to write. The callee is this same repository's own
+    # workflow, so no secret crosses a trust boundary that `inherit` did not
+    # already sit inside.
+    # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit
     # packages: read because several repositories resolve private @scope
     # dependencies from GitHub Packages during install, and a called workflow
@@ -83,6 +97,13 @@ jobs:
     needs: [attest, build, preflight]
     if: needs.attest.outputs.validated != 'true' && needs.preflight.outputs.run-test != 'false'
     uses: ./.github/workflows/ci-test.yml
+    # `inherit` rather than an enumerated `secrets:` block, and semgrep's
+    # secrets-inherit rule is answered rather than silenced: gt renders this
+    # orchestrator for every repository and cannot know their secret names, so
+    # there is no list to write. The callee is this same repository's own
+    # workflow, so no secret crosses a trust boundary that `inherit` did not
+    # already sit inside.
+    # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit
     # packages: read because several repositories resolve private @scope
     # dependencies from GitHub Packages during install, and a called workflow
@@ -97,6 +118,13 @@ jobs:
     needs: [attest, build, preflight]
     if: needs.attest.outputs.validated != 'true' && needs.preflight.outputs.run-end2end != 'false'
     uses: ./.github/workflows/ci-end2end.yml
+    # `inherit` rather than an enumerated `secrets:` block, and semgrep's
+    # secrets-inherit rule is answered rather than silenced: gt renders this
+    # orchestrator for every repository and cannot know their secret names, so
+    # there is no list to write. The callee is this same repository's own
+    # workflow, so no secret crosses a trust boundary that `inherit` did not
+    # already sit inside.
+    # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit
     # packages: read because several repositories resolve private @scope
     # dependencies from GitHub Packages during install, and a called workflow
