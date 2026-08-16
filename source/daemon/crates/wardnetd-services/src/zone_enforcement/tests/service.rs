@@ -293,11 +293,16 @@ impl PolicyRouter for RecordingPolicy {
         }
         Ok(self.existing_neigh_proxies.lock().await.clone())
     }
-    async fn add_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
+    async fn add_host_route(
+        &self,
+        ip: &str,
+        i: &str,
+        pref_src: std::net::Ipv4Addr,
+    ) -> anyhow::Result<()> {
         self.calls
             .lock()
             .await
-            .push(format!("add_host_route:{ip}:{i}"));
+            .push(format!("add_host_route:{ip}:{i}:{pref_src}"));
         Ok(())
     }
     async fn remove_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
@@ -1031,6 +1036,112 @@ async fn casting_exception_yields_bidirectional_allows() {
     );
 }
 
+/// A device whose address is outside its member-isolated zone's subnet must get
+/// no host route at all.
+///
+/// It keeps its old base-subnet address until it re-DHCPs, so a `/32` naming
+/// this zone's gateway as preferred source would make the daemon's replies
+/// leave with an address outside the device's own subnet — the same
+/// wrong-source-IP failure the preferred source exists to fix (#1198). The
+/// proxy-neighbour path already applies exactly this in-subnet guard.
+#[tokio::test]
+async fn out_of_subnet_member_gets_no_host_route() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    // Still on the base subnet, not yet re-DHCPed into 10.44.1.0/24.
+    let stale = insert_device(&h.devices, "192.168.100.50", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(stale)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        !pc.iter()
+            .any(|c| c.starts_with("add_host_route:192.168.100.50")),
+        "an out-of-subnet device must not get a /32 sourced from a zone \
+         gateway it is not behind (#1198): {pc:?}"
+    );
+}
+
+/// A zone edit moves the gateway alias, leaving every member's `/32` naming an
+/// address that is no longer local — which the kernel then drops, silently
+/// removing the on-link path member isolation needs. `apply_zone` raises no
+/// per-device event, so it must re-manage the routes itself (#1198).
+#[tokio::test]
+async fn apply_zone_reasserts_member_host_routes() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.apply_zone(ZONE_A.parse().unwrap()))
+        .await
+        .unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"add_host_route:10.44.1.10:eth0:10.44.1.1".to_owned()),
+        "a zone edit must re-assert its members' host routes, or they keep a \
+         preferred source the alias reconcile just removed (#1198): {pc:?}"
+    );
+}
+
+/// Regression test for #1198.
+///
+/// Every other host-route call site is device-event-driven (`apply_device`,
+/// `handle_ip_change`, `handle_zone_change`). Older builds installed these
+/// `/32`s with no preferred source, so a box upgrading into the fix would keep
+/// its broken routes — and its member-isolated devices would stay without DNS —
+/// until each device happened to re-DHCP or an admin touched it. Startup
+/// reconcile must re-assert the host route for every member-isolated device so
+/// the upgrade alone repairs the box.
+#[tokio::test]
+async fn reconcile_reasserts_member_host_routes_with_the_zone_gateway() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.reconcile()).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"add_host_route:10.44.1.10:eth0:10.44.1.1".to_owned()),
+        "startup reconcile must re-assert the member host route so an upgrade \
+         heals a box carrying prefsrc-less routes (#1198): {pc:?}"
+    );
+}
+
+/// The host route names the zone gateway as its preferred source, and the
+/// kernel rejects a route whose `RTA_PREFSRC` is not a local address. So the
+/// gateway alias — installed by `reconcile_isolation` — must be in place before
+/// the route is added, on every path that does both.
+#[tokio::test]
+async fn gateway_alias_is_installed_before_the_host_route_that_prefers_it() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    let alias = pc
+        .iter()
+        .position(|c| c.starts_with("add_alias:eth0:10.44.1.1/"));
+    let route = pc
+        .iter()
+        .position(|c| c.starts_with("add_host_route:10.44.1.10"));
+    let (Some(alias), Some(route)) = (alias, route) else {
+        panic!("expected both a gateway alias and a host route: {pc:?}");
+    };
+    assert!(
+        alias < route,
+        "the zone gateway alias must exist before a route prefers it as source, \
+         or the kernel rejects the add with EINVAL (#1198): {pc:?}"
+    );
+}
+
 #[tokio::test]
 async fn member_isolation_adds_proxy_neigh_entry_not_interface_proxy_arp() {
     // Issue #1107: interface-wide `proxy_arp=1` made the Pi answer ARP for ANY
@@ -1063,8 +1174,8 @@ async fn member_isolation_adds_proxy_neigh_entry_not_interface_proxy_arp() {
         "interface-wide proxy-arp must never be enabled (#1107): {pc:?}"
     );
     assert!(
-        pc.contains(&"add_host_route:10.44.1.10:eth0".to_owned()),
-        "member host route added: {pc:?}"
+        pc.contains(&"add_host_route:10.44.1.10:eth0:10.44.1.1".to_owned()),
+        "member host route added, preferring the zone gateway as source (#1198): {pc:?}"
     );
 }
 

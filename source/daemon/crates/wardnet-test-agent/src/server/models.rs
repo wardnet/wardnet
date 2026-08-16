@@ -50,6 +50,30 @@ pub struct IpRulesResponse {
     pub raw: String,
 }
 
+/// Request for `POST /routes/clear-prefsrc`.
+///
+/// Rewrites an existing `/32` host route without its preferred source, which
+/// is exactly the state older daemons left behind (#1198). Specs use it to
+/// fabricate a pre-fix box and then assert that reconcile repairs it.
+#[derive(Debug, Deserialize)]
+pub struct ClearPrefsrcRequest {
+    /// Host address whose `/32` should lose its preferred source.
+    pub dest: String,
+    /// Output interface the route points at.
+    pub dev: String,
+}
+
+/// Response for `POST /routes/clear-prefsrc`.
+#[derive(Debug, Serialize)]
+pub struct ClearPrefsrcResponse {
+    /// The command that was run, for failure diagnosis.
+    pub command: String,
+    /// Whether `ip route change` exited zero.
+    pub success: bool,
+    /// Combined stderr, when it did not.
+    pub stderr: String,
+}
+
 // ---------------------------------------------------------------------------
 // nft
 // ---------------------------------------------------------------------------

@@ -54,6 +54,11 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/health", get(health))
         .route("/pid", get(handlers::pid::get_pid))
         .route("/ip-rules", get(handlers::kernel::get_ip_rules))
+        .route("/routes", get(handlers::kernel::get_routes))
+        .route(
+            "/routes/clear-prefsrc",
+            post(handlers::kernel::post_clear_prefsrc),
+        )
         .route("/nft-rules", get(handlers::kernel::get_nft_rules))
         .route("/wg/{interface}", get(handlers::kernel::get_wg_show))
         .route("/link/{interface}", get(handlers::kernel::get_link_show))

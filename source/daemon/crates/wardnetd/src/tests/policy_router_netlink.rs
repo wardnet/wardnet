@@ -13,7 +13,7 @@ use rtnetlink::packet_route::route::{
 };
 use rtnetlink::packet_route::rule::{RuleAttribute, RuleMessage};
 
-use crate::policy_router_netlink::{is_removable_host_route, rule_table};
+use crate::policy_router_netlink::{build_host_route, is_removable_host_route, rule_table};
 
 /// `main` (254) is where `add_host_route` files our routes; `local` (255) is
 /// the kernel-owned table holding the `scope host` route that delivers each of
@@ -116,6 +116,70 @@ fn non_host_prefix_is_not_removable() {
     let mut route = our_host_route(DEVICE_IP);
     route.header.destination_prefix_length = 24;
     assert!(!is_removable_host_route(&route, DEVICE_IP, OIF));
+}
+
+// -- build_host_route: the `/32` must carry a preferred source (#1198) --------
+
+/// The zone gateway a member-isolated device's `/32` must prefer as source.
+const ZONE_GATEWAY: Ipv4Addr = Ipv4Addr::new(192, 168, 250, 1);
+const GUEST_DEVICE_IP: Ipv4Addr = Ipv4Addr::new(192, 168, 250, 11);
+
+/// The `RTA_PREFSRC` carried by `route`, if any.
+fn pref_source(route: &RouteMessage) -> Option<Ipv4Addr> {
+    route.attributes.iter().find_map(|a| match a {
+        RouteAttribute::PrefSource(RouteAddress::Inet(ip)) => Some(*ip),
+        _ => None,
+    })
+}
+
+/// Regression test for #1198.
+///
+/// `add_host_route` built the `/32` with destination + oif + `scope link` and
+/// nothing else. That route is more specific than the zone's `/24`, so it wins
+/// the lookup — and because it carries no `RTA_PREFSRC`, the `src <gateway>`
+/// hint on the `/24` is lost. Source selection for locally-generated traffic
+/// then falls back to the LAN interface's primary address, so the daemon's DNS
+/// replies to a member-isolated device left with the wrong source IP. The
+/// postrouting `masquerade` rule then rewrote the address back to the gateway
+/// *and* reallocated the source port out of netfilter's reserved sub-512 pool
+/// (53 -> e.g. 280), which no client's connected UDP socket will accept. Every
+/// device in a member-isolated zone lost DNS entirely and reported "no
+/// internet".
+#[test]
+fn host_route_carries_the_zone_gateway_as_preferred_source() {
+    let route = build_host_route(GUEST_DEVICE_IP, OIF, ZONE_GATEWAY);
+    assert_eq!(
+        pref_source(&route),
+        Some(ZONE_GATEWAY),
+        "the /32 shadows the zone's /24 and must carry its `src` hint, or \
+         locally-generated replies pick the LAN primary address (#1198)"
+    );
+}
+
+/// The preferred source must be the *device's own zone* gateway, not the LAN
+/// interface's primary address — that substitution is precisely the bug.
+#[test]
+fn host_route_preferred_source_is_not_the_lan_primary_address() {
+    let route = build_host_route(GUEST_DEVICE_IP, OIF, ZONE_GATEWAY);
+    assert_ne!(
+        pref_source(&route),
+        Some(LAN_IP),
+        "a member-isolated device's /32 must not prefer the LAN primary \
+         address; that is the wrong-source-IP failure of #1198"
+    );
+}
+
+/// The `/32` this builds must still satisfy the #886 predicate — it is table
+/// `main`, `scope link`, and ours to remove. Adding a preferred source must not
+/// change what reconcile is allowed to delete.
+#[test]
+fn built_host_route_is_still_recognised_as_removable() {
+    let route = build_host_route(GUEST_DEVICE_IP, OIF, ZONE_GATEWAY);
+    assert!(
+        is_removable_host_route(&route, GUEST_DEVICE_IP, OIF),
+        "adding RTA_PREFSRC must not make our own route unrecognisable to \
+         remove_host_route"
+    );
 }
 
 // -- rule_table: switchback prune must only see `main`-table rules ------------

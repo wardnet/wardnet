@@ -916,24 +916,37 @@ impl PolicyRouter for NetlinkPolicyRouter {
         Ok(out)
     }
 
-    async fn add_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+    async fn add_host_route(
+        &self,
+        ip: &str,
+        interface: &str,
+        pref_src: Ipv4Addr,
+    ) -> anyhow::Result<()> {
         let addr: Ipv4Addr = ip
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid host-route IP {ip}: {e}"))?;
         let index = self.link_index(interface).await?;
 
-        let route = RouteMessageBuilder::<Ipv4Addr>::new()
-            .destination_prefix(addr, 32)
-            .output_interface(index)
-            .scope(RouteScope::Link)
-            .build();
+        let route = build_host_route(addr, index, pref_src);
 
-        match self.handle.route().add(route).execute().await {
+        // `replace()` rather than the default `NLM_F_EXCL`, so this is both
+        // idempotent *and* self-healing. Skipping on `File exists` (what we
+        // used to do) meant a route installed by an older build — carrying no
+        // preferred source — survived every reconcile untouched, and only
+        // devices that happened to re-DHCP after the upgrade were repaired.
+        //
+        // Scope of the replace: `fib_table_insert` matches the existing alias on
+        // table + destination/prefix (+ tos/priority) — NOT on `oif` — and
+        // replaces the first match. So this overwrites any `main`-table `/32`
+        // for this address, including one pointing at a different interface.
+        // That is what we want (there should only ever be ours, and a stale one
+        // on another interface is exactly what wants replacing), but it is
+        // wider than "only the route we installed": a second caller passing a
+        // different interface would clobber this one rather than coexist.
+        // The kernel's `local`-table route for one of our own addresses lives in
+        // a different table and is never a candidate (#886, #1198).
+        match self.handle.route().add(route).replace().execute().await {
             Ok(()) => Ok(()),
-            Err(rtnetlink::Error::NetlinkError(msg)) if msg.to_string().contains("File exists") => {
-                tracing::debug!(ip, interface, "host route already exists, skipping");
-                Ok(())
-            }
             Err(e) => anyhow::bail!("failed to add host route {ip}/32 dev {interface}: {e}"),
         }
     }
@@ -964,6 +977,28 @@ fn neigh_destination(msg: &NeighbourMessage) -> Option<Ipv4Addr> {
         NeighbourAttribute::Destination(NeighbourAddress::Inet(v)) => Some(*v),
         _ => None,
     })
+}
+
+/// The `/32` host route [`PolicyRouter::add_host_route`] installs for a device
+/// in an isolate-members zone: table `main`, `scope link`, out of `oif`.
+///
+/// `pref_src` (the device's zone gateway) is load-bearing, not decoration. This
+/// `/32` is more specific than the zone's `/24`, so it wins the route lookup —
+/// and a route with no `RTA_PREFSRC` drops the `src <gateway>` hint the `/24`
+/// carried. Source selection for locally-generated traffic then falls back to
+/// the output interface's primary address, which for a multi-zone LAN
+/// interface belongs to a *different* zone. The daemon's DNS replies to a
+/// member-isolated device went out with that wrong source, postrouting
+/// `masquerade` rewrote the address back and reallocated the source port out of
+/// netfilter's reserved sub-512 pool, and no client would accept the answer
+/// (#1198).
+pub(crate) fn build_host_route(addr: Ipv4Addr, oif: u32, pref_src: Ipv4Addr) -> RouteMessage {
+    RouteMessageBuilder::<Ipv4Addr>::new()
+        .destination_prefix(addr, 32)
+        .output_interface(oif)
+        .scope(RouteScope::Link)
+        .pref_source(pref_src)
+        .build()
 }
 
 /// True if `route` is a host route that [`PolicyRouter::add_host_route`] itself

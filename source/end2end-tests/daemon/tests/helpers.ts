@@ -26,6 +26,9 @@ export const API_BASE_URL =
   process.env.WARDNET_API_BASE_URL ?? "http://wardnetd:7411/api";
 export const TEST_DEBIAN_AGENT =
   process.env.WARDNET_TEST_DEBIAN_AGENT ?? "http://test_debian:3001";
+export const TEST_GUEST_AGENT =
+  process.env.WARDNET_TEST_GUEST_AGENT ?? "http://test_guest:3001";
+
 export const TEST_UBUNTU_AGENT =
   process.env.WARDNET_TEST_UBUNTU_AGENT ?? "http://test_ubuntu:3001";
 // The wardnetd container also hosts the test-agent in *server* mode on
@@ -665,6 +668,103 @@ export async function daemonIpRules(
   daemonAgent: string,
 ): Promise<DaemonIpRulesResponse> {
   return agentGet<DaemonIpRulesResponse>(daemonAgent, "/ip-rules");
+}
+
+/**
+ * A single entry from the daemon agent's `GET /routes` (the same `ip -j route`
+ * probe the client agents serve).
+ */
+export interface DaemonRoute {
+  /** Destination as rendered (`"default"`, `"10.44.1.0/24"`, `"10.44.1.10"`). */
+  dst: string;
+  gateway?: string;
+  dev?: string;
+  table?: string;
+  protocol?: string;
+  scope?: string;
+  /** Preferred source (`RTA_PREFSRC`), if set. */
+  src?: string;
+  metric?: number;
+}
+
+export interface DaemonRoutesResponse {
+  routes: DaemonRoute[];
+}
+
+/**
+ * Read the daemon's live routing table via the test-agent inside the wardnetd
+ * container. The member-isolation `/32` must carry its zone gateway as `src`;
+ * without it the `/32` shadows the zone's `/24` and drops that route's source
+ * hint, so daemon-originated replies leave with the wrong address (#1198).
+ */
+export async function daemonRoutes(
+  daemonAgent: string,
+): Promise<DaemonRoutesResponse> {
+  return agentGet<DaemonRoutesResponse>(daemonAgent, "/routes");
+}
+
+/** The `/32` host route for `ip`, if the daemon currently has one installed. */
+export function hostRouteFor(
+  routes: DaemonRoute[],
+  ip: string,
+): DaemonRoute | undefined {
+  return routes.find((r) => r.dst === ip || r.dst === `${ip}/32`);
+}
+
+/**
+ * Poll [`daemonIpRoutes`] until `ip`'s `/32` has the given preferred source
+ * (`undefined` waits for it to have none). Returns the matching route.
+ *
+ * Host routes are installed asynchronously off zone/device events, so a
+ * mutation is never visible on the first read.
+ */
+export async function waitForHostRouteSrc(
+  daemonAgent: string,
+  ip: string,
+  wantSrc: string | undefined,
+  timeoutMs = 45_000,
+): Promise<DaemonRoute> {
+  const res = await pollUntil(
+    () => daemonRoutes(daemonAgent),
+    (value) => {
+      const route = hostRouteFor(value.routes, ip);
+      // A missing route is never a match — even when waiting for "no src",
+      // the /32 itself must exist or the assertion means nothing.
+      return route !== undefined && route.src === wantSrc;
+    },
+    {
+      timeoutMs,
+      describe: (last) =>
+        `host route for ${ip} never reached src=${wantSrc ?? "(none)"}; ` +
+        `last routes:\n${JSON.stringify(last?.routes ?? [], null, 2)}`,
+    },
+  );
+  const route = hostRouteFor(res.routes, ip);
+  if (!route) throw new Error(`no /32 host route for ${ip}`);
+  return route;
+}
+
+/** Response from the daemon agent's `POST /ip-routes/clear-prefsrc`. */
+export interface ClearPrefsrcResponse {
+  command: string;
+  success: boolean;
+  stderr: string;
+}
+
+/**
+ * Rewrite `ip`'s `/32` host route without a preferred source, reproducing what
+ * an older daemon left behind (#1198). Used to fabricate a pre-fix box so a
+ * spec can assert that reconcile repairs it on restart.
+ */
+export async function clearHostRoutePrefsrc(
+  daemonAgent: string,
+  ip: string,
+  dev: string,
+): Promise<ClearPrefsrcResponse> {
+  return agentPost<ClearPrefsrcResponse>(daemonAgent, "/routes/clear-prefsrc", {
+    dest: ip,
+    dev,
+  });
 }
 
 /**
