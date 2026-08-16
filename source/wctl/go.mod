@@ -2,7 +2,7 @@ module github.com/wardnet/wardnet/source/wctl
 
 go 1.26.0
 
-toolchain go1.26.5
+toolchain go1.26.6
 
 require (
 	github.com/BurntSushi/toml v1.6.0
