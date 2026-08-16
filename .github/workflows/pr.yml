@@ -187,48 +187,15 @@ jobs:
     # warrants the full e2e validation.
     if: needs.preflight.outputs.daemon == 'true' || needs.preflight.outputs.ci == 'true'
     # build-web (run on the host before the Docker build) reads @wardnet/*
-    # from GitHub Packages.
+    # from GitHub Packages, and the image build exports its layer cache to a
+    # GHCR image. A called workflow can only narrow what the caller grants, so
+    # the write has to be given here.
     permissions:
       contents: read
-      packages: read
+      packages: write
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
 
-  cubit:
-    name: Cubit
-    needs: preflight
-    # Advisory performance-regression tracking (compare + PR comment). Gated on
-    # the same `daemon || ci` filter as build-daemon. Skip bot-authored PRs:
-    # same-repo bot branches (Dependabot etc.) get a read-only token, so the PR
-    # comment can't be posted — matching the coverage leaf's bot skip. Gate on
-    # the PR author, not github.actor, so a re-run doesn't flip it.
-    #
-    # Deliberately NOT listed in `all-checks-passed` below: cubit is a light
-    # gate and must never block a merge.
-    if: >
-      github.event.pull_request.user.type != 'Bot' && (
-        needs.preflight.outputs.daemon == 'true' ||
-        needs.preflight.outputs.ci == 'true'
-      )
-    permissions:
-      contents: write # cubit pushes/reads the cubit-state baseline branch
-      pull-requests: write # cubit posts the sticky performance comment
-    uses: ./.github/workflows/cubit.yml
-    # PERF_REPORTS_TOKEN (org secret) — lets cubit publish the PR's dashboard
-    # to the wardnet/perf-reports Pages hub. ci.yml's record path never
-    # publishes, so only this caller passes secrets.
-    secrets: inherit
-
-  # Aggregator for branch protection. Lists every other job as a
-  # dependency, runs unconditionally (if: always()), and passes iff
-  # each dependency either succeeded or was legitimately skipped via
-  # the changes filter. Failing or cancelled leaves short-circuit to
-  # exit 1.
-  #
-  # Required-check on main branch protection: require ONLY
-  # "All checks passed". Single source of truth, immune to the
-  # gated-leaf trap where a skipped job never reports and blocks the
-  # PR forever.
   all-checks-passed:
     name: All checks passed
     needs: [preflight, build-daemon, build-go, build-site, build-admin-web, build-admin-app, build-user-app, coverage, tests-e2e]

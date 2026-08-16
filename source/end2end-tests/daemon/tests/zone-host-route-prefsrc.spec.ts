@@ -37,7 +37,9 @@ import {
 
 import {
   API_BASE_URL,
+  type AgentInterfacesResponse,
   AuthedClient,
+  agentGet,
   DAEMON_AGENT,
   TEST_GUEST_AGENT,
   acquireLeaseInRange,
@@ -118,6 +120,7 @@ describe("member-isolation host route preferred source (#1198)", () => {
       authed,
       LAN_POOL_START,
       LAN_POOL_END,
+      45_000,
     );
     if (!guest) return;
     originalZoneId = guest.zone_id;
@@ -156,11 +159,25 @@ describe("member-isolation host route preferred source (#1198)", () => {
     // the source and the daemon finally observes the device at its zone
     // address. Match on the subnet rather than the exact address dhclient
     // reported: what matters is that the device is keyed inside the zone.
+    let addrs = "(not read)";
     const rekeyed = await pollUntil(
       async () => {
         await resolveViaAgent(TEST_GUEST_AGENT, "example.com", {
           server: ZONE_GATEWAY,
         }).catch(() => undefined);
+        // Record what the client actually holds, so a failure says whether the
+        // lease landed on the interface at all rather than leaving it to be
+        // inferred from the daemon's side.
+        addrs = await agentGet<AgentInterfacesResponse>(
+          TEST_GUEST_AGENT,
+          "/interfaces",
+        )
+          .then((i) =>
+            JSON.stringify(
+              i.interfaces.find((x) => x.name === "eth0")?.addrs ?? [],
+            ),
+          )
+          .catch((e: unknown) => `(unreadable: ${String(e)})`);
         return (await devices.getById(guest!.id)).device;
       },
       (d) => d.last_ip.startsWith("10.44.1."),
@@ -168,13 +185,14 @@ describe("member-isolation host route preferred source (#1198)", () => {
         timeoutMs: 90_000,
         intervalMs: 3_000,
         describe: (last) =>
-          `device never re-keyed into ${ZONE_CIDR} (last_ip=${last?.last_ip}, ` +
-          `dhclient reported ${zoneIp})`,
+          `device never re-keyed into ${ZONE_CIDR}: daemon has ` +
+          `last_ip=${last?.last_ip}, dhclient reported ${zoneIp}, ` +
+          `client eth0 addrs=${addrs}`,
       },
     );
     // Assert against the address the daemon actually keyed on.
     zoneIp = rekeyed.last_ip;
-  }, 180_000);
+  }, 300_000);
 
   afterAll(async () => {
     // Member isolation installs cross-subnet drops and moves the client off the

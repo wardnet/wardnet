@@ -208,12 +208,26 @@ export interface AgentDhcpRenewResponse {
   stderr: string;
 }
 
+/**
+ * How long any single test-agent request may take before it is aborted.
+ *
+ * Node's `fetch` has no default timeout: a container that accepts the
+ * connection and then stops responding leaves the promise pending forever. A
+ * poll loop awaiting such a request never re-checks its own deadline, so the
+ * whole hook wedges until vitest's hook timeout kills it — with no indication
+ * of which call hung. Bounding the request turns that into a normal rejection
+ * the caller can retry or report.
+ */
+const AGENT_REQUEST_TIMEOUT_MS = 30_000;
+
 /** GET against a test-agent serve URL. Throws on non-2xx. */
 export async function agentGet<T>(
   baseUrl: string,
   path: string,
 ): Promise<T> {
-  const res = await fetch(`${baseUrl}${path}`);
+  const res = await fetch(`${baseUrl}${path}`, {
+    signal: AbortSignal.timeout(AGENT_REQUEST_TIMEOUT_MS),
+  });
   if (!res.ok) {
     throw new Error(
       `agent GET ${baseUrl}${path} failed: ${res.status} ${await res.text()}`,
@@ -232,6 +246,7 @@ export async function agentPost<T>(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(AGENT_REQUEST_TIMEOUT_MS),
   });
   if (!res.ok) {
     throw new Error(

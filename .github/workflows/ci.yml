@@ -184,7 +184,7 @@ jobs:
     # from GitHub Packages.
     permissions:
       contents: read
-      packages: read
+      packages: write # the image build exports its layer cache to GHCR
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
 
