@@ -549,9 +549,21 @@ image-multiarch:
 # after git checkout. Building placeholder content inside the image
 # sidesteps that cache entirely. The e2e suite targets API endpoints,
 # not the web UI, so placeholder content is sufficient.
+# IMAGE_BUILDER is the command that builds images, separate from CONTAINER_RT
+# because the rest of this target also runs `compose`, which buildx has no
+# subcommand for. CI overrides it with "docker buildx": the default docker
+# driver cannot export a build cache, and only buildx can.
+#
+# IMAGE_TEST_BUILD_ARGS carries extra builder flags. Both default to today's
+# behaviour, so a local `make image-test` is unchanged and still works under
+# podman.
+IMAGE_BUILDER ?= $(CONTAINER_RT)
+IMAGE_TEST_BUILD_ARGS ?=
+
 image-test:
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required"; exit 1; }
-	$(CONTAINER_RT) build \
+	$(IMAGE_BUILDER) build \
+		$(IMAGE_TEST_BUILD_ARGS) \
 		-f source/daemon/Dockerfile.test \
 		-t $(IMAGE_TEST_TAG) \
 		.
