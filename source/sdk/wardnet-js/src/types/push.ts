@@ -26,15 +26,29 @@ export interface VapidPublicKeyResponse {
  * Stable machine tags for push notifications, mirroring the daemon's
  * `NotificationKind` enum. Kept open (`string & {}`) so an older client keeps
  * working when the daemon ships a new kind.
+ *
+ * Openness is for kinds this SDK has not heard of yet — every kind it *has*
+ * heard of belongs in the union, so a mistyped `case "tunnel_unhealty"` is a
+ * compile error instead of dead code that silently never matches.
  */
 export type NotificationKind =
   | "routing_locked"
   | "routing_unlocked"
   | "routing_changed"
-  | "tunnel_offline"
   | "new_device_quarantined"
   | "rule_request_created"
   | "private_dns_granted"
+  // Anomaly-backed notifications carry the anomaly type's own slug, from
+  // `AnomalyType::as_str` — there is no generic "anomaly" kind.
+  | "tunnel_start_failed"
+  | "tunnel_unhealthy"
+  | "update_failed"
+  | "dhcp_conflict"
+  | "route_table_lost"
+  | "blocklist_refresh_failing"
+  // Retired: tunnel failures are anomalies now. Kept because historic feed
+  // rows still carry it.
+  | "tunnel_offline"
   | (string & {});
 
 /**
