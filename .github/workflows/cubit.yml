@@ -20,6 +20,10 @@ name: Cubit
 # benched.
 
 on:
+  # Dispatchable directly: cubit no longer runs on every pull request, so an
+  # on-demand run is how a perf question gets answered without pushing a commit
+  # to provoke one.
+  workflow_dispatch:
   workflow_call:
     secrets:
       PERF_REPORTS_TOKEN:
@@ -47,7 +51,7 @@ jobs:
       pull-requests: write # post/update the sticky performance comment (compare, on PRs)
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 

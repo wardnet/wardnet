@@ -1,15 +1,35 @@
 # bulwark configuration for the wardnet monorepo.
 #
-# This file can only NARROW what bulwark does — it cannot tune rule severity or
-# suppress individual findings, and that is deliberate. Genuine findings get
-# fixed; a reviewed false positive gets an `eslint-disable-next-line <rule> --
-# <why>` on the exact line, with a reason naming where the value actually comes
-# from. No rule is switched off globally — that would hide the next genuine
-# finding, which is the whole point of running this.
-#
-# There is nothing to narrow today, so this file sets nothing. It is kept as the
-# place such decisions would be recorded, and to explain why two tempting ones
-# were rejected:
+# Beyond declaring how coverage is produced, this file can only NARROW what
+# bulwark does — it cannot tune rule severity or suppress individual findings,
+# and that is deliberate. Genuine findings get fixed; a reviewed false positive
+# gets an `eslint-disable-next-line <rule> -- <why>` on the exact line, with a
+# reason naming where the value actually comes from. No rule is switched off
+# globally — that would hide the next genuine finding, which is the whole point
+# of running this.
+
+coverage:
+  # This repo's CI already runs every suite instrumented and uploads the
+  # reports, so bulwark must never execute anything itself — it runs last in
+  # coverage.yml purely as a report consumer. The default is `run`, which would
+  # execute the Rust and TypeScript suites a third time (they already run once
+  # plain for pass/fail and once instrumented for coverage).
+  #
+  # This lives here rather than at the call site because it describes how the
+  # repo's pipeline is built — one answer, true for every workflow — which is
+  # why bulwark v1.7.0 removed the `tests-mode` action input that used to carry
+  # it. See wardnet/bulwark ADR 0003.
+  #
+  # No report paths are set: coverage.yml stages every report at the path
+  # bulwark's own candidate search already checks — Rust at
+  # daemon/coverage/{llvm-cov.json,lcov.info}, Go at each module's
+  # coverage.out, TypeScript at each package's coverage/ directory. An override
+  # here would have to be keyed per unit and would go stale the moment a module
+  # is added.
+  source: report
+
+# Nothing is narrowed today. The file is also the place such decisions would be
+# recorded, and explains why two tempting ones were rejected:
 #
 #   * `typescript: {enabled: false}` — used briefly while bulwark's ESLint check
 #     was broken: it declared no `files:` glob, so it silently linted no

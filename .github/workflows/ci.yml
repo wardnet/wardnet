@@ -49,7 +49,7 @@ jobs:
       ci: ${{ steps.detect.outputs.ci }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 
@@ -184,7 +184,7 @@ jobs:
     # from GitHub Packages.
     permissions:
       contents: read
-      packages: read
+      packages: write # the image build exports its layer cache to GHCR
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
 

@@ -75,7 +75,7 @@ jobs:
     timeout-minutes: 30
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 
@@ -139,7 +139,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 
@@ -193,7 +193,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 
@@ -262,7 +262,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 
@@ -326,7 +326,7 @@ jobs:
       pull-requests: write # bulwark posts/updates a sticky PR summary comment
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@b09bb98e06d4d774595224525879c09bc6e98c40 # v2.20.1
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 
@@ -407,35 +407,37 @@ jobs:
           path: coverage/
 
       - name: Restore per-package coverage reports for bulwark
-        # bulwark's TS coverage auto-discovery reads
-        # <pkgDir>/coverage/{coverage-summary.json,lcov.info} in-place (no
-        # flag), so the downloaded pkg-summaries have to land back at their
-        # original per-package paths. Rust coverage is a pair of explicit
-        # flags instead: --rust-report (the llvm-cov JSON, aggregate) and
-        # --rust-lcov-report (the lcov export, patch coverage — without it
-        # bulwark's patch gate has no per-line data and reports the language
-        # as unmeasured, while Codecov happily grades the same diff from the
-        # lcov it auto-discovered; that's how #957 got a green bulwark
-        # comment next to a red codecov/patch). All of these are skipped
-        # gracefully (empty flag outputs, package simply absent) when their
-        # producer job didn't run — bulwark just measures whatever's present.
+        # Every language is staged at the path bulwark's auto-discovery already
+        # searches, so nothing here is named again at the call site. bulwark
+        # v1.7.0 removed the --rust-report/--rust-lcov-report/--tests-mode
+        # inputs; coverage production is declared once in source/.bulwark.yml
+        # as `coverage.source: report`, and the reports are found by convention.
+        #
+        # Rust needs BOTH exports. The llvm-cov JSON carries the aggregate
+        # percentage and no per-line data at all, so without the lcov export
+        # bulwark's patch gate reports the language as unmeasured while Codecov
+        # happily grades the same diff from the lcov it auto-discovered — that
+        # is how #957 got a green bulwark comment next to a red codecov/patch.
+        #
+        # All of it is skipped gracefully (file simply absent) when the
+        # producing job didn't run — bulwark measures whatever is present.
         id: restore
         run: |
           set -euo pipefail
-          rust_report=""
+          # Rust: source/daemon is the only crate dir bulwark discovers, since
+          # its Cargo.toml declares [workspace] and members under a workspace
+          # ancestor are dropped. Its candidate lists are
+          # coverage/llvm-cov.json and coverage/lcov.info relative to that dir,
+          # which is why the JSON is renamed on the way in — the artifact's
+          # own name is not one bulwark looks for.
           if [[ -f coverage/daemon-llvm-cov.json ]]; then
             mkdir -p source/daemon/coverage
-            cp coverage/daemon-llvm-cov.json source/daemon/coverage/daemon-llvm-cov.json
-            rust_report="daemon/coverage/daemon-llvm-cov.json"
+            cp coverage/daemon-llvm-cov.json source/daemon/coverage/llvm-cov.json
           fi
-          echo "rust-report=${rust_report}" >> "$GITHUB_OUTPUT"
-          rust_lcov_report=""
           if [[ -f coverage/daemon.coverage.info ]]; then
             mkdir -p source/daemon/coverage
             cp coverage/daemon.coverage.info source/daemon/coverage/lcov.info
-            rust_lcov_report="daemon/coverage/lcov.info"
           fi
-          echo "rust-lcov-report=${rust_lcov_report}" >> "$GITHUB_OUTPUT"
           # Go: each module's profile goes back inside that module, where
           # bulwark's per-module candidate search (coverage.out / cover.out /
           # c.out, relative to the module dir) finds it with no flag. Passing
@@ -460,10 +462,10 @@ jobs:
 
       - uses: wardnet/bulwark@v1
         with:
+          # `dir` is the only input left that concerns coverage: it is the scan
+          # root, and bulwark must know the root before it can read the
+          # .bulwark.yml that declares everything else.
           dir: source
-          tests-mode: skip
-          rust-report: ${{ steps.restore.outputs.rust-report }}
-          rust-lcov-report: ${{ steps.restore.outputs.rust-lcov-report }}
           codecov-token: ${{ secrets.CODECOV_TOKEN }}
           semgrep-app-token: ${{ secrets.SEMGREP_APP_TOKEN }}
 
