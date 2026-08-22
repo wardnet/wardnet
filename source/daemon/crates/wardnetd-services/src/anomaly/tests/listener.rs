@@ -249,6 +249,8 @@ use crate::event::{BroadcastEventBus, EventPublisher};
 struct RecordingService {
     submitted: StdMutex<Vec<AnomalyType>>,
     resolved: StdMutex<Vec<(AnomalyType, String)>>,
+    /// Make `resolve_subject` fail, to exercise the listener's error path.
+    fail_resolve: bool,
 }
 
 impl RecordingService {
@@ -282,6 +284,9 @@ impl AnomalyService for RecordingService {
             .lock()
             .unwrap()
             .push((anomaly_type, subject_id.to_owned()));
+        if self.fail_resolve {
+            return Err(AppError::Internal(anyhow::anyhow!("resolve blew up")));
+        }
         Ok(())
     }
     async fn run_detector(&self, _t: AnomalyType) -> Result<(), AppError> {
@@ -378,4 +383,37 @@ async fn the_listener_exits_when_the_event_bus_closes() {
     tokio::time::timeout(Duration::from_secs(5), listener.shutdown())
         .await
         .expect("listener should exit when the bus closes");
+}
+
+/// A failing resolve must not take the listener down with it. The bus is the
+/// only path anomalies arrive on, so a listener that dies on one bad event
+/// stops reporting every later problem too.
+#[tokio::test]
+async fn a_failing_resolve_is_logged_and_the_listener_keeps_running() {
+    let events: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+    let service = Arc::new(RecordingService {
+        fail_resolve: true,
+        ..RecordingService::default()
+    });
+    let listener = AnomalyListener::start(&events, service.clone(), &tracing::Span::current());
+
+    // A tear-down, whose resolve will fail...
+    events.publish(WardnetEvent::TunnelDown {
+        tunnel_id: Uuid::new_v4(),
+        interface_name: "wg_ward0".to_owned(),
+        reason: "admin requested".to_owned(),
+        timestamp: Utc::now(),
+    });
+    // ...followed by an ordinary failure, which must still be reported.
+    events.publish(WardnetEvent::TunnelStartFailed {
+        tunnel_id: Uuid::new_v4(),
+        interface_name: "wg_ward1".to_owned(),
+        error: "boom".to_owned(),
+        timestamp: Utc::now(),
+    });
+
+    settle(&service, 1).await;
+    listener.shutdown().await;
+
+    assert_eq!(service.submitted(), vec![AnomalyType::TunnelStartFailed]);
 }
