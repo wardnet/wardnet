@@ -91,7 +91,7 @@ jobs:
         # A named builder referenced explicitly by --builder keeps the cache
         # export scoped to the one image that wants it and leaves compose on
         # the default docker driver, exactly as before.
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
         with:
           name: wardnetd-cache
           use: false
@@ -239,7 +239,7 @@ jobs:
         # `use: false` for the same reason as the daemon job: this compose stack
         # also has a `FROM ${WARDNETD_TEST_IMAGE}` (test_debian), which a
         # docker-container builder cannot resolve from the local image store.
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
         with:
           name: wardnetd-cache
           use: false
