@@ -75,7 +75,11 @@ enum NotificationKind {
     RoutingLocked,
     RoutingUnlocked,
     RoutingChanged,
-    TunnelOffline,
+    // NOTE: `TunnelOffline` used to live here. Tunnel failures are now
+    // reported as anomalies (`Anomaly(AnomalyType::TunnelStartFailed |
+    // TunnelUnhealthy)`), so nothing constructs it. Historic feed rows keep
+    // the literal string `tunnel_offline`; the kind is only ever written, never
+    // parsed back, so removing the variant does not invalidate them.
     NewDeviceQuarantined,
     RuleRequestCreated,
     PrivateDnsGranted,
@@ -88,7 +92,6 @@ impl NotificationKind {
             Self::RoutingLocked => "routing_locked",
             Self::RoutingUnlocked => "routing_unlocked",
             Self::RoutingChanged => "routing_changed",
-            Self::TunnelOffline => "tunnel_offline",
             Self::NewDeviceQuarantined => "new_device_quarantined",
             Self::RuleRequestCreated => "rule_request_created",
             Self::PrivateDnsGranted => "private_dns_granted",
@@ -543,56 +546,18 @@ impl PushService for PushServiceImpl {
                 }
             }
 
-            WardnetEvent::TunnelStartFailed { tunnel_id, .. } => {
-                let label = self.tunnel_label(&tunnel_id.to_string()).await;
-                self.deliver_to_admins(Notification {
-                    title: "Tunnel offline",
-                    body: format!("{label} failed to start."),
-                    data: NotificationData {
-                        kind: NotificationKind::TunnelOffline,
-                        url: Some("/tunnels"),
-                        subject_id: Some(tunnel_id.to_string()),
-                        state: None,
-                    },
-                })
-                .await;
-            }
-
-            // A running tunnel became unreachable. `TunnelReconnecting` is a
-            // stale-handshake signal; `TunnelDown` with the
-            // `TUNNEL_DOWN_INTERFACE_ABSENT` reason is the kernel interface
-            // vanishing. Deliberate tear-downs (every other `TunnelDown`
-            // reason) are intentionally NOT notified.
-            WardnetEvent::TunnelReconnecting { tunnel_id, .. } => {
-                let label = self.tunnel_label(&tunnel_id.to_string()).await;
-                self.deliver_to_admins(Notification {
-                    title: "Tunnel offline",
-                    body: format!("{label} went offline."),
-                    data: NotificationData {
-                        kind: NotificationKind::TunnelOffline,
-                        url: Some("/tunnels"),
-                        subject_id: Some(tunnel_id.to_string()),
-                        state: None,
-                    },
-                })
-                .await;
-            }
-            WardnetEvent::TunnelDown {
-                tunnel_id, reason, ..
-            } if reason == wardnet_common::event::TUNNEL_DOWN_INTERFACE_ABSENT => {
-                let label = self.tunnel_label(&tunnel_id.to_string()).await;
-                self.deliver_to_admins(Notification {
-                    title: "Tunnel offline",
-                    body: format!("{label} went offline."),
-                    data: NotificationData {
-                        kind: NotificationKind::TunnelOffline,
-                        url: Some("/tunnels"),
-                        subject_id: Some(tunnel_id.to_string()),
-                        state: None,
-                    },
-                })
-                .await;
-            }
+            // `TunnelStartFailed`, `TunnelReconnecting` and `TunnelDown` with
+            // the `TUNNEL_DOWN_INTERFACE_ABSENT` reason are deliberately NOT
+            // notified here. Each is converted into an anomaly by
+            // `anomaly::listener::report_from_event`, and the anomaly service
+            // pushes on the open edge — so notifying here too delivered two
+            // web pushes per incident ("Tunnel offline" and "Wardnet found a
+            // problem"). The anomaly path is the better of the two: it is
+            // deduplicated by the partial unique index, so a flapping tunnel
+            // alerts once instead of on every event, and it carries a
+            // per-type deep link and a matching resolved notification.
+            // Deliberate tear-downs (every other `TunnelDown` reason) are
+            // still not notified at all.
 
             // A previously-unseen device landed in the quarantine (default-for-new)
             // zone while new-device quarantine is on (#738). Nudge the admins to

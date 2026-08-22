@@ -122,6 +122,35 @@ pub fn report_from_event(event: &WardnetEvent) -> Option<AnomalyReport> {
     }
 }
 
+/// Turn a domain event into the anomalies it *clears*.
+///
+/// The mirror of [`report_from_event`], and the only place an anomaly is
+/// resolved by an admin action rather than by a detector re-checking state.
+///
+/// It exists because some conditions cannot be re-derived from state at all.
+/// A tunnel an admin deliberately stopped and a tunnel whose interface
+/// vanished both sit at `TunnelStatus::Down`; `Tunnel` carries no
+/// desired-state field to separate them, and the interface-absent path
+/// actually *sets* `Down` before publishing its event — so a status-derived
+/// rule closes the very anomaly it just opened. The tear-down event is the
+/// unambiguous signal, so the resolution is keyed on it.
+#[must_use]
+pub fn resolutions_from_event(event: &WardnetEvent) -> Vec<(AnomalyType, String)> {
+    match event {
+        // A deliberate tear-down. Both tunnel anomalies stop being true: a
+        // tunnel the admin stopped is neither "should be working and isn't"
+        // nor "failed to start". The guard is the inverse of the one in
+        // `report_from_event`, so exactly one of the two fires.
+        WardnetEvent::TunnelDown {
+            tunnel_id, reason, ..
+        } if reason != TUNNEL_DOWN_INTERFACE_ABSENT => vec![
+            (AnomalyType::TunnelUnhealthy, tunnel_id.to_string()),
+            (AnomalyType::TunnelStartFailed, tunnel_id.to_string()),
+        ],
+        _ => Vec::new(),
+    }
+}
+
 /// The reactive half of the subsystem: watches the event bus and submits
 /// anomalies for the error-flavoured events.
 ///
@@ -170,6 +199,21 @@ async fn event_loop(
             result = rx.recv() => {
                 match result {
                     Ok(event) => {
+                        for (anomaly_type, subject_id) in resolutions_from_event(&event) {
+                            if let Err(error) = auth_context::with_context(
+                                admin_ctx.clone(),
+                                service.resolve_subject(anomaly_type, &subject_id),
+                            )
+                            .await
+                            {
+                                tracing::warn!(
+                                    %error,
+                                    anomaly_type = anomaly_type.as_str(),
+                                    %subject_id,
+                                    "anomaly listener: failed to resolve anomalies for a subject",
+                                );
+                            }
+                        }
                         let Some(report) = report_from_event(&event) else { continue };
                         if let Err(error) =
                             auth_context::with_context(admin_ctx.clone(), service.submit(report)).await

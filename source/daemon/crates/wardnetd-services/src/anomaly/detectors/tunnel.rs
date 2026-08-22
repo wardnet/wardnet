@@ -77,11 +77,24 @@ impl AnomalyDetector for TunnelStartFailedDetector {
 /// Reactive only, fed by `TunnelReconnecting` and by the one `TunnelDown`
 /// reason that is not a deliberate tear-down.
 ///
-/// Resolves when the tunnel reaches `Up`, when it is deleted, **and** when it
-/// reaches `Down`. The last case is the difference from
-/// [`TunnelStartFailedDetector`]: this anomaly asserts "it should be working
-/// and isn't", which stops being true the moment an admin deliberately stops
-/// the tunnel.
+/// Resolves when the tunnel reaches `Up`, or when it is deleted — and
+/// deliberately **not** when it reaches `Down`.
+///
+/// `Down` looks like it should mean "an admin stopped it, so the anomaly no
+/// longer applies", but it cannot be read that way: `Tunnel` carries no
+/// desired-state field, so a deliberate tear-down and a broken tunnel leave
+/// exactly the same status behind. Worse, the path that *opens* this anomaly
+/// sets `Down` first — `reconcile_iface_presence` calls `update_status(…,
+/// "down")` before publishing `TunnelDown{interface absent}`. Resolving on
+/// `Down` therefore closed the anomaly on the very next pass and pushed
+/// "Problem resolved" while the interface was still gone, and did the same to
+/// every surviving anomaly at boot, because shutdown records every tunnel
+/// `Down` (ADR-0028) before the routing reconcile brings them back up.
+///
+/// An admin deliberately stopping the tunnel *does* clear this anomaly — but
+/// it is cleared by the tear-down **event**, in
+/// [`resolutions_from_event`](crate::anomaly::listener::resolutions_from_event),
+/// because only the event distinguishes the admin's intent from a failure.
 pub struct TunnelUnhealthyDetector {
     tunnels: Arc<dyn TunnelService>,
 }
@@ -101,12 +114,12 @@ impl AnomalyDetector for TunnelUnhealthyDetector {
 
     async fn reevaluate(&self, anomaly: &Anomaly) -> anyhow::Result<AnomalyStatus> {
         Ok(match subject_tunnel(&self.tunnels, anomaly).await? {
-            SubjectTunnel::Gone | SubjectTunnel::Status(TunnelStatus::Up | TunnelStatus::Down) => {
+            SubjectTunnel::Gone | SubjectTunnel::Status(TunnelStatus::Up) => {
                 AnomalyStatus::Resolved
             }
-            SubjectTunnel::Status(TunnelStatus::Connecting | TunnelStatus::Reconnecting) => {
-                AnomalyStatus::Open
-            }
+            SubjectTunnel::Status(
+                TunnelStatus::Down | TunnelStatus::Connecting | TunnelStatus::Reconnecting,
+            ) => AnomalyStatus::Open,
         })
     }
 }

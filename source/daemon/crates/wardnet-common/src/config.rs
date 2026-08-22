@@ -285,6 +285,20 @@ pub struct LoggingConfig {
     /// calendar day and log a single summary line each; anything per-request or
     /// per-query belongs in the log file, not the journal.
     pub journal_info_targets: Vec<String>,
+    /// Accepted and ignored.
+    ///
+    /// The in-memory recent-errors buffer this sized was removed when the
+    /// anomaly subsystem replaced it (#1193). The key survives here purely as
+    /// a deserialisation sink: [`LoggingConfig`] is `deny_unknown_fields` and
+    /// `ApplicationConfiguration::load` propagates parse errors instead of
+    /// falling back to defaults, so a box whose hand-edited
+    /// `/etc/wardnet/wardnetd.toml` still sets `max_recent_errors` would fail
+    /// to **start** after an auto-update — and because the updater ships
+    /// binaries only, no migration could strip the key first.
+    ///
+    /// Not serialised, so it disappears from any config Wardnet writes back.
+    #[serde(default, skip_serializing)]
+    pub max_recent_errors: Option<usize>,
 }
 
 impl Default for LoggingConfig {
@@ -325,6 +339,7 @@ impl Default for LoggingConfig {
                 "wardnetd_services::db_maintenance_runner".to_owned(),
                 "wardnetd_services::dns::query_log_runner".to_owned(),
             ],
+            max_recent_errors: None,
         }
     }
 }
@@ -661,13 +676,6 @@ impl Default for OtelLogsConfig {
     }
 }
 
-/// VPN provider enable/disable overrides.
-///
-/// By default all registered providers are enabled. To disable a provider,
-/// set its ID to `false`:
-///
-/// ```toml
-/// [vpn_providers.enabled]
 /// Anomaly detection tuning.
 ///
 /// ```toml
@@ -694,6 +702,38 @@ pub struct AnomaliesConfig {
     pub enabled: std::collections::HashMap<String, bool>,
 }
 
+impl AnomaliesConfig {
+    /// Floor applied to both tunables.
+    ///
+    /// A `0` here is not a useful setting and is actively harmful: the engine
+    /// reschedules at `Instant::now() + interval`, so a zero interval makes
+    /// `sleep_until` return immediately and spins `reevaluate_all` — a
+    /// `list_open` plus one detector call per open anomaly — in a tight loop.
+    /// A zero detector timeout makes every sweep time out instantly instead.
+    const MIN_SECS: u64 = 1;
+
+    /// How often every open anomaly is re-checked, floored so a hand-edited
+    /// `0` cannot turn the engine into a busy loop.
+    #[must_use]
+    pub const fn reevaluate_interval(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(if self.reevaluate_interval_secs < Self::MIN_SECS {
+            Self::MIN_SECS
+        } else {
+            self.reevaluate_interval_secs
+        })
+    }
+
+    /// Ceiling on a single detector call, floored for the same reason.
+    #[must_use]
+    pub const fn detect_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(if self.detect_timeout_secs < Self::MIN_SECS {
+            Self::MIN_SECS
+        } else {
+            self.detect_timeout_secs
+        })
+    }
+}
+
 impl Default for AnomaliesConfig {
     fn default() -> Self {
         Self {
@@ -704,6 +744,13 @@ impl Default for AnomaliesConfig {
     }
 }
 
+/// VPN provider enable/disable overrides.
+///
+/// By default all registered providers are enabled. To disable a provider,
+/// set its ID to `false`:
+///
+/// ```toml
+/// [vpn_providers.enabled]
 /// nordvpn = false
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

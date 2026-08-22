@@ -143,6 +143,60 @@ async fn submit_requires_an_admin_context() {
 // resolve
 // ---------------------------------------------------------------------------
 
+/// `resolve_subject` closes the open anomaly for one subject and leaves every
+/// other subject's alone. This is the path an admin tear-down takes.
+#[tokio::test]
+async fn resolve_subject_closes_only_that_subjects_anomaly() {
+    let h = harness().await;
+    as_admin(h.service.submit(report("bl-1"))).await.unwrap();
+    as_admin(h.service.submit(report("bl-2"))).await.unwrap();
+
+    as_admin(
+        h.service
+            .resolve_subject(AnomalyType::BlocklistRefreshFailing, "bl-1"),
+    )
+    .await
+    .unwrap();
+
+    let open = h.repo.list_open().await.unwrap();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].subject_id.as_deref(), Some("bl-2"));
+}
+
+/// A type mismatch must not close someone else's anomaly: the subject alone is
+/// not the identity, the (type, subject) pair is.
+#[tokio::test]
+async fn resolve_subject_ignores_a_different_anomaly_type() {
+    let h = harness().await;
+    as_admin(h.service.submit(report("bl-1"))).await.unwrap();
+
+    as_admin(
+        h.service
+            .resolve_subject(AnomalyType::TunnelUnhealthy, "bl-1"),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(h.repo.list_open().await.unwrap().len(), 1);
+}
+
+/// Resolving a subject with nothing open is a no-op, not an error — the
+/// listener calls this on every deliberate tear-down, almost always when no
+/// anomaly exists.
+#[tokio::test]
+async fn resolve_subject_is_a_no_op_when_nothing_is_open() {
+    let h = harness().await;
+
+    as_admin(
+        h.service
+            .resolve_subject(AnomalyType::TunnelUnhealthy, "no-such-subject"),
+    )
+    .await
+    .unwrap();
+
+    assert!(h.push.resolved_ids().is_empty());
+}
+
 #[tokio::test]
 async fn resolving_a_notified_anomaly_sends_one_recovery_notice() {
     let h = harness().await;

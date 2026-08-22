@@ -844,9 +844,7 @@ fn create_services(
             anomaly_registry,
             push_service.clone(),
         )
-        .with_detector_timeout(std::time::Duration::from_secs(
-            config.anomalies.detect_timeout_secs,
-        )),
+        .with_detector_timeout(config.anomalies.detect_timeout()),
     );
 
     let device_ip_snapshot = Arc::new(device::DeviceIpSnapshot::new(device_repo.clone()));

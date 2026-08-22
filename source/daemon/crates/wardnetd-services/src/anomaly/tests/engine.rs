@@ -57,6 +57,9 @@ impl AnomalyService for RecordingService {
     async fn resolve(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!()
     }
+    async fn resolve_subject(&self, _t: AnomalyType, _subject_id: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
     async fn run_detector(&self, anomaly_type: AnomalyType) -> Result<(), AppError> {
         self.note_context();
         self.detector_runs.lock().unwrap().push(anomaly_type);

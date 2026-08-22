@@ -151,10 +151,21 @@ impl AnomalyDetector for BlocklistRefreshFailingDetector {
             return Ok(AnomalyStatus::Resolved);
         };
 
+        // Alerting switched off since the anomaly opened. Without this the
+        // anomaly would sit on the dashboard forever: setting the threshold to
+        // `0` is documented as turning the alert off, but it only stops
+        // `detect` from re-reporting — a failing list's counter never returns
+        // to zero on its own, so nothing else would ever close it.
+        let Some(threshold) = self.threshold().await? else {
+            return Ok(AnomalyStatus::Resolved);
+        };
+
         // Any successful refresh zeroes the counter — that is the recovery
         // signal, and it is also what a URL fix or a manual refresh produces.
-        // A list that has been disabled since is likewise no longer failing.
-        if blocklist.consecutive_failures == 0 || !blocklist.enabled {
+        // A list that has been disabled since is likewise no longer failing,
+        // and a threshold raised above where this list sits means the
+        // condition that opened the anomaly no longer holds.
+        if !blocklist.enabled || blocklist.consecutive_failures < threshold {
             return Ok(AnomalyStatus::Resolved);
         }
         Ok(AnomalyStatus::Open)

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use wardnet_common::anomaly::{Anomaly, AnomalyStatus, AnomalyType};
 
 use crate::anomaly::detector::AnomalyDetector;
+use crate::update::service::is_newer;
 
 /// A daemon self-update that failed.
 ///
@@ -9,10 +10,16 @@ use crate::anomaly::detector::AnomalyDetector;
 /// failure paths, and there is no ambient state to sweep for.
 ///
 /// Resolves once the running release has reached the version the failed
-/// attempt was targeting. Comparing the `CalVer` strings directly is valid
-/// because the format (`YYYY.MM.NN`, zero-padded) sorts lexicographically in
-/// release order, and it catches both the eventual success of the same
+/// attempt was targeting, catching both the eventual success of the same
 /// upgrade and a later one that overtook it.
+///
+/// The comparison goes through [`is_newer`], **not** a string compare. Plain
+/// `CalVer` does sort lexicographically, but releases carry `-beta.N` and
+/// `-edge.N` pre-release suffixes (see `build-daemon.yml`'s
+/// `WARDNET_RELEASE_VERSION_OVERRIDE`), and those do not: `"…edge.9"` sorts
+/// above `"…edge.10"`, so a box running `edge.9` would treat a failed update
+/// to `edge.10` as already-applied, discard the alert, and push a bogus
+/// "Problem resolved".
 pub struct UpdateFailedDetector {
     running_version: String,
 }
@@ -44,10 +51,12 @@ impl AnomalyDetector for UpdateFailedDetector {
             return Ok(AnomalyStatus::Resolved);
         };
 
-        Ok(if self.running_version >= target {
-            AnomalyStatus::Resolved
-        } else {
+        // "the box has caught up" is the negation of "the target is still
+        // ahead of us", which is exactly what `is_newer` answers.
+        Ok(if is_newer(&target, &self.running_version) {
             AnomalyStatus::Open
+        } else {
+            AnomalyStatus::Resolved
         })
     }
 }
