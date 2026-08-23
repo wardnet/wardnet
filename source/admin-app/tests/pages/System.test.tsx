@@ -278,7 +278,7 @@ describe("System page", () => {
       data: [
         {
           id: "n1",
-          kind: "rule_request_created",
+          kind: "access_request_created",
           title: "Rule request",
           body: "Phone asked to allow blocked.example.",
           created_at: "2026-07-03T00:00:00Z",
@@ -291,7 +291,30 @@ describe("System page", () => {
     });
     renderWithProviders(<System />);
     expect(screen.getByTestId("system-notifications-clear")).toBeDisabled();
-    // The rule-request kind renders its own pill label.
+    // The access-request kind renders its own pill label.
+    expect(screen.getByText("Request")).toBeInTheDocument();
+  });
+
+  // Feed rows persist, so entries written before the #919 rename still carry
+  // the old wire string and must keep their label rather than silently
+  // degrading to the generic "System" pill.
+  it("still labels pre-rename rule_request_created rows", () => {
+    h.useRecentNotifications.mockReturnValue({
+      data: [
+        {
+          id: "n0",
+          kind: "rule_request_created",
+          title: "Rule request",
+          body: "Phone asked to allow blocked.example.",
+          created_at: "2026-06-18T00:00:00Z",
+        },
+      ],
+    });
+    h.useClearNotifications.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    });
+    renderWithProviders(<System />);
     expect(screen.getByText("Request")).toBeInTheDocument();
   });
 

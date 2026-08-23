@@ -1,3 +1,4 @@
+pub mod access_request;
 pub mod anomaly;
 pub mod api;
 pub mod auth;
@@ -14,7 +15,6 @@ pub mod net;
 pub mod network_zone;
 pub mod routing;
 pub mod routing_profile;
-pub mod rule_request;
 pub mod serde_util;
 pub mod speed_test;
 pub mod stats;

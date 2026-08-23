@@ -99,10 +99,10 @@ const adminSections: NavSection[] = [
         testId: "nav-dns-filter",
       },
       {
-        to: "/rule-requests",
-        label: "Rule requests",
+        to: "/access-requests",
+        label: "Access requests",
         icon: Inbox,
-        testId: "nav-rule-requests",
+        testId: "nav-access-requests",
       },
     ],
   },

@@ -36,7 +36,7 @@ export type NotificationKind =
   | "routing_unlocked"
   | "routing_changed"
   | "new_device_quarantined"
-  | "rule_request_created"
+  | "access_request_created"
   | "private_dns_granted"
   // Anomaly-backed notifications carry the anomaly type's own slug, from
   // `AnomalyType::as_str` — there is no generic "anomaly" kind.

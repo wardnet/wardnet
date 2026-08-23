@@ -26,7 +26,7 @@ import DnsLogs from "@/pages/DnsLogs";
 import DnsFilter from "@/pages/DnsFilter";
 import DnsFilterProfile from "@/pages/DnsFilterProfile";
 import DnsFilterProfileNew from "@/pages/DnsFilterProfileNew";
-import RuleRequests from "@/pages/RuleRequests";
+import AccessRequests from "@/pages/AccessRequests";
 import Login from "@/pages/Login";
 import Setup from "@/pages/Setup";
 import NotFound from "@/pages/NotFound";
@@ -221,10 +221,10 @@ export default function App() {
           }
         />
         <Route
-          path="rule-requests"
+          path="access-requests"
           element={
             <AdminRoute>
-              <RuleRequests />
+              <AccessRequests />
             </AdminRoute>
           }
         />

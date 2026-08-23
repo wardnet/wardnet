@@ -39,6 +39,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use uuid::Uuid;
 use wardnet_common::api::UpsertRecordRequest;
+use wardnet_common::auth::AuthContext;
 use wardnet_common::dns::{DnsRecordSource, DnsRecordType};
 use wardnet_common::event::WardnetEvent;
 use wardnetd_data::repository::private_dns::DeviceAlreadyGrantedPrivateDnsError;
@@ -526,6 +527,33 @@ impl PrivateDnsService for PrivateDnsServiceImpl {
         // Grant mutations re-emit the change event (enabled is true here —
         // granting requires it) so listeners holding token state refresh.
         self.publish_changed(true);
+
+        // Announce the grant itself so `AccessRequestListener` can resolve any
+        // pending Private-DNS request for this device. It goes over the bus
+        // rather than through a direct call because approving such a request
+        // already depends on *this* service — calling back the other way would
+        // close a cycle. Carries the acting admin so the resolved request
+        // records a truthful `decided_by`.
+        //
+        // Enumerated rather than a bare `Some(User(..))`, because
+        // `AuthContext::system()` *is* a `User` — the nil UUID carrying the
+        // admin role. Matching it would stamp `00000000-…-0000` into
+        // `decided_by`, an id ADR-0031 guarantees has no `users` row, so the
+        // admin UI would show a decision made by nobody. A grant with no human
+        // behind it records no decider at all.
+        let granted_by = match auth_context::try_current() {
+            Some(AuthContext::User(user)) if user.user_id() != Uuid::nil() => {
+                Some(user.user_id().to_string())
+            }
+            Some(AuthContext::User(_) | AuthContext::Device { .. } | AuthContext::Anonymous)
+            | None => None,
+        };
+        self.events.publish(WardnetEvent::PrivateDnsGrantCreated {
+            device_id,
+            granted_by,
+            timestamp: Utc::now(),
+        });
+
         PrivateDnsGrant::from_row(&row)
     }
 

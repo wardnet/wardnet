@@ -661,7 +661,7 @@ fn build_state_with_dhcp(
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
-        Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubAccessRequestService),
         Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }
@@ -694,7 +694,7 @@ fn build_state_with_tunnel_svc(
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
-        Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubAccessRequestService),
         Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }
@@ -2159,7 +2159,7 @@ async fn release_revokes_every_artefact_the_device_actually_has() {
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
-        Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubAccessRequestService),
         Arc::new(ExceptioningZones {
             audit: audit.clone(),
         }),

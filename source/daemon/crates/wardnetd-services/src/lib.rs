@@ -11,6 +11,7 @@ pub mod stats;
 pub mod subnet;
 pub mod version;
 
+pub mod access_request;
 pub mod anomaly;
 pub mod auth;
 pub mod backup;
@@ -32,7 +33,6 @@ pub mod private_dns;
 pub mod push;
 pub mod routing;
 pub mod routing_profile;
-pub mod rule_request;
 pub mod system;
 pub mod tls;
 pub mod tunnel;
@@ -59,6 +59,7 @@ use crate::dns::log_sink::{DnsLogSink, DnsLogSinkChannels};
 use crate::stats::Meter;
 use crate::stats::service::StatsServiceImpl;
 
+use crate::access_request::{AccessRequestServiceImpl, ApproverRegistry, PrivateDnsApprover};
 use crate::anomaly::{AnomalyDetectorRegistry, AnomalyService, AnomalyServiceImpl, DetectorDeps};
 use crate::auth::AuthServiceImpl;
 use crate::backup::BackupServiceImpl;
@@ -78,7 +79,6 @@ use crate::network_zone::NetworkZoneServiceImpl;
 use crate::private_dns::PrivateDnsServiceImpl;
 use crate::routing::RoutingServiceImpl;
 use crate::routing_profile::{DomainRouteRequest, RoutingProfileServiceImpl};
-use crate::rule_request::RuleRequestServiceImpl;
 use crate::system::SystemServiceImpl;
 use crate::tls::TlsServiceImpl;
 use crate::tunnel::TunnelServiceImpl;
@@ -88,6 +88,7 @@ use crate::vpn::{VpnProviderRegistry, VpnProviderServiceImpl};
 use crate::zone_enforcement::ZoneEnforcementServiceImpl;
 use crate::zone_exception::ZoneExceptionServiceImpl;
 
+pub use crate::access_request::AccessRequestService;
 pub use crate::anomaly::{AnomalyListener, listener::report_from_event};
 pub use crate::auth::AuthService;
 pub use crate::backup::BackupService;
@@ -112,7 +113,6 @@ pub use crate::private_dns::{PrivateDnsGrant, PrivateDnsService, PrivateDnsStatu
 pub use crate::push::PushService;
 pub use crate::routing::RoutingService;
 pub use crate::routing_profile::RoutingProfileService;
-pub use crate::rule_request::RuleRequestService;
 pub use crate::stats::{
     DEFAULT_FLUSH_INTERVAL, DEFAULT_MAINTENANCE_INTERVAL, StatsBuffer, StatsFlushRunner,
     StatsService,
@@ -260,7 +260,7 @@ pub struct Services {
     /// Enforcement queue drained by `DomainRouteRunner`, taken once at startup
     /// (mirrors `dns_log_persist_rx`).
     pub domain_route_rx: Mutex<Option<mpsc::Receiver<DomainRouteRequest>>>,
-    pub rule_request: Arc<dyn RuleRequestService>,
+    pub access_request: Arc<dyn AccessRequestService>,
     /// Push notifications: VAPID keys, subscription CRUD, and event-driven Web
     /// Push delivery. Driven by `PushNotificationListener`.
     pub push: Arc<dyn PushService>,
@@ -578,12 +578,6 @@ fn create_services(
             event_publisher.clone(),
         ));
 
-    let rule_request_service: Arc<dyn RuleRequestService> = Arc::new(RuleRequestServiceImpl::new(
-        repo_factory.rule_request(),
-        device_service.clone(),
-        event_publisher.clone(),
-    ));
-
     let push_service: Arc<dyn PushService> = Arc::new(crate::push::PushServiceImpl::new(
         repo_factory.push(),
         repo_factory.notification(),
@@ -759,6 +753,21 @@ fn create_services(
         lan_ip,
     ));
 
+    // Built after Private DNS because approving a `private_dns` access request
+    // mints the grant through it. The dependency runs one way only — Private
+    // DNS reconciles the inbox over the event bus (see `AccessRequestListener`)
+    // rather than depending back on this service.
+    let access_request_service: Arc<dyn AccessRequestService> =
+        Arc::new(AccessRequestServiceImpl::new(
+            repo_factory.access_request(),
+            device_service.clone(),
+            private_dns_service.clone(),
+            ApproverRegistry::new(vec![Arc::new(PrivateDnsApprover::new(
+                private_dns_service.clone(),
+            ))]),
+            event_publisher.clone(),
+        ));
+
     let discovery_service = build_discovery_service(
         device_repo.clone(),
         network_zone_repo.clone(),
@@ -872,7 +881,7 @@ fn create_services(
         network_zone: network_zone_service,
         zone_enforcement: zone_enforcement_service,
         zone_exception: zone_exception_service,
-        rule_request: rule_request_service,
+        access_request: access_request_service,
         push: push_service,
         system: system_service,
         tunnel: tunnel_service,

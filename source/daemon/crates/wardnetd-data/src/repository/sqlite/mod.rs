@@ -3,6 +3,7 @@
 //! Each module provides a concrete `Sqlite*Repository` struct that implements
 //! the corresponding trait from the parent [`repository`](super) module.
 
+pub mod access_request;
 pub mod anomaly;
 pub mod api_key;
 pub mod device;
@@ -19,7 +20,6 @@ pub mod notification;
 pub mod private_dns;
 pub mod push;
 pub mod routing_profile;
-pub mod rule_request;
 pub mod session;
 pub mod stats;
 pub mod system_config;
@@ -31,6 +31,7 @@ pub mod user_credential;
 pub mod user_enrolment;
 pub mod zone_exception;
 
+pub use access_request::SqliteAccessRequestRepository;
 pub use anomaly::{SqliteAnomalyRepository, format_ts};
 pub use api_key::SqliteApiKeyRepository;
 pub use device::SqliteDeviceRepository;
@@ -47,7 +48,6 @@ pub use notification::SqliteNotificationRepository;
 pub use private_dns::SqlitePrivateDnsGrantRepository;
 pub use push::SqlitePushRepository;
 pub use routing_profile::SqliteRoutingProfileRepository;
-pub use rule_request::SqliteRuleRequestRepository;
 pub use session::SqliteSessionRepository;
 pub use stats::SqliteStatsRepository;
 pub use system_config::SqliteSystemConfigRepository;

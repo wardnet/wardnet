@@ -144,6 +144,18 @@ you're about to make, rather than the whole set.
   maps. Invariant: **`managed = 0` implies no admin artefacts exist**, which is
   what makes the prune safe. A new per-device table must decide whether it
   promotes. See [ADR 0032](docs/adr/0032-managed-devices-and-retention.md).
+- **[Household access requests](docs/adr/0033-household-access-requests.md)** —
+  the single **access-request** inbox (`device_access_requests`, one `kind`
+  discriminator) that replaced the rule-request one, and why approval dispatches
+  through an **approver registry** rather than a `match` — a kind with no
+  registered approver is record-only *by construction*, which is exactly the
+  state `allow`/`block` are in. Covers why `/api/requests` was rejected as a
+  resource name, why reconciliation with out-of-band grants goes over the event
+  bus (approving calls `PrivateDnsService`, so the reverse would be a cycle),
+  and the two filter-model facts that pushed rule auto-apply into its own issue:
+  profiles combine by **rank, not order**, and assigning any explicit
+  `profile_ids` **drops the household defaults**. Invariant: **asking never
+  promotes a device to managed** — only the approval's `grant_device` does.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

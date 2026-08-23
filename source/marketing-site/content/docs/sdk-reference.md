@@ -83,7 +83,7 @@ source and kept in sync on every release.
 | [StatsService](/sdk-docs/classes/StatsService.html) | Time-series and top-N metrics. |
 | [InfoService](/sdk-docs/classes/InfoService.html) | Unauthenticated daemon version/health info. |
 | [JobsService](/sdk-docs/classes/JobsService.html) | Background job status polling. |
-| [RuleRequestService](/sdk-docs/classes/RuleRequestService.html) | Device-initiated routing rule requests. |
+| [AccessRequestService](/sdk-docs/classes/AccessRequestService.html) | Device-initiated access requests: domain allow/block, and Private DNS. |
 | [PushService](/sdk-docs/classes/PushService.html) | Web Push subscription and notifications. |
 | [LogService](/sdk-docs/classes/LogService.html) | Structured log streaming and filters. |
 

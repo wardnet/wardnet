@@ -16,11 +16,11 @@ use wardnetd_services::error::AppError;
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubBackupService, StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService,
-    StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher,
-    StubJobService, StubLogService, StubNetworkZoneService, StubProviderService,
-    StubRoutingService, StubRuleRequestService, StubStatsService, StubSystemService,
-    StubTunnelService, StubUpdateService, StubZoneExceptionService,
+    StubAccessRequestService, StubBackupService, StubDeviceService, StubDhcpServer,
+    StubDhcpService, StubDiscoveryService, StubDnsFilterService, StubDnsLocalService,
+    StubDnsServer, StubDnsService, StubEventPublisher, StubJobService, StubLogService,
+    StubNetworkZoneService, StubProviderService, StubRoutingService, StubStatsService,
+    StubSystemService, StubTunnelService, StubUpdateService, StubZoneExceptionService,
 };
 use uuid::Uuid;
 use wardnet_common::auth::{AuthenticatedUser, UserRole};
@@ -115,7 +115,7 @@ fn make_state() -> AppState {
         Arc::new(StubEventPublisher),
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
-        Arc::new(StubRuleRequestService),
+        Arc::new(StubAccessRequestService),
         Arc::new(StubZoneExceptionService),
     )
 }

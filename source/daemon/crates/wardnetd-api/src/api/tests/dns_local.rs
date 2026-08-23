@@ -31,10 +31,10 @@ use wardnet_common::dns::{
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    AlwaysSessionAuth, StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer,
-    StubDhcpService, StubDiscoveryService, StubDnsFilterService, StubDnsServer, StubDnsService,
-    StubEventPublisher, StubJobService, StubLogService, StubNetworkZoneService,
-    StubProviderService, StubRoutingService, StubRuleRequestService, StubStatsService,
+    AlwaysSessionAuth, StubAccessRequestService, StubBackupService, StubDdnsService,
+    StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
+    StubDnsServer, StubDnsService, StubEventPublisher, StubJobService, StubLogService,
+    StubNetworkZoneService, StubProviderService, StubRoutingService, StubStatsService,
     StubSystemService, StubTlsService, StubTunnelService, StubUpdateService,
     StubZoneExceptionService,
 };
@@ -226,7 +226,7 @@ fn make_state() -> AppState {
         Arc::new(StubEventPublisher),
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
-        Arc::new(StubRuleRequestService),
+        Arc::new(StubAccessRequestService),
         Arc::new(StubZoneExceptionService),
     )
 }

@@ -10,10 +10,10 @@ import { makeDevice, renderWithProviders } from "../test-utils";
 // Stats owns the create-rule-request mutation and passes it down to
 // RequestRuleModal as onSubmit/isSubmitting, so the hook is mocked here because
 // the page itself calls it — not because it leaks through the modal.
-const { useMyDevice, useCreateRuleRequest, createRuleMutate } = vi.hoisted(
+const { useMyDevice, useCreateAccessRequest, createRuleMutate } = vi.hoisted(
   () => ({
     useMyDevice: vi.fn(),
-    useCreateRuleRequest: vi.fn(),
+    useCreateAccessRequest: vi.fn(),
     createRuleMutate: vi.fn(),
   }),
 );
@@ -21,7 +21,7 @@ const { useDnsStats } = vi.hoisted(() => ({ useDnsStats: vi.fn() }));
 
 vi.mock("@wardnet/web", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, useMyDevice, useCreateRuleRequest };
+  return { ...actual, useMyDevice, useCreateAccessRequest };
 });
 
 vi.mock("@/hooks/useDnsStats", () => ({ useDnsStats }));
@@ -58,7 +58,7 @@ function statsData(overrides: Partial<DnsStatsData> = {}): DnsStatsData {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useCreateRuleRequest.mockReturnValue({
+  useCreateAccessRequest.mockReturnValue({
     mutate: createRuleMutate,
     isPending: false,
   });

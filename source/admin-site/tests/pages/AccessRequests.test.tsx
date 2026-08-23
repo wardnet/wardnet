@@ -3,24 +3,24 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useRuleRequests, useDevices, useDecideRuleRequest } = vi.hoisted(
+const { useAccessRequests, useDevices, useDecideAccessRequest } = vi.hoisted(
   () => ({
-    useRuleRequests: vi.fn(),
+    useAccessRequests: vi.fn(),
     useDevices: vi.fn(),
-    useDecideRuleRequest: vi.fn(),
+    useDecideAccessRequest: vi.fn(),
   }),
 );
 
 vi.mock("@wardnet/web", async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
-  return { ...actual, useRuleRequests, useDevices, useDecideRuleRequest };
+  return { ...actual, useAccessRequests, useDevices, useDecideAccessRequest };
 });
 
 vi.mock("@/components/compound/PageHeader", () => ({
   PageHeader: ({ title }: { title: ReactNode }) => <h1>{title}</h1>,
 }));
 
-import RuleRequests from "@/pages/RuleRequests";
+import AccessRequests from "@/pages/AccessRequests";
 import { makeDevice, renderWithProviders } from "../test-utils";
 
 const decideMutate = vi.fn();
@@ -40,7 +40,7 @@ function req(overrides: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  useDecideRuleRequest.mockReturnValue({
+  useDecideAccessRequest.mockReturnValue({
     mutate: decideMutate,
     isPending: false,
     isError: false,
@@ -49,7 +49,7 @@ beforeEach(() => {
   useDevices.mockReturnValue({
     data: { devices: [makeDevice({ id: "dev-1", name: "Kids iPad" })] },
   });
-  useRuleRequests.mockReturnValue({
+  useAccessRequests.mockReturnValue({
     data: [],
     isLoading: false,
     isError: false,
@@ -57,38 +57,38 @@ beforeEach(() => {
   });
 });
 
-describe("RuleRequests", () => {
+describe("AccessRequests", () => {
   it("shows loading state", () => {
-    useRuleRequests.mockReturnValue({
+    useAccessRequests.mockReturnValue({
       data: undefined,
       isLoading: true,
       isError: false,
       error: null,
     });
-    renderWithProviders(<RuleRequests />);
+    renderWithProviders(<AccessRequests />);
     expect(screen.getByText("Loading…")).toBeInTheDocument();
   });
 
   it("shows error state", () => {
-    useRuleRequests.mockReturnValue({
+    useAccessRequests.mockReturnValue({
       data: undefined,
       isLoading: false,
       isError: true,
       error: {},
     });
-    renderWithProviders(<RuleRequests />);
+    renderWithProviders(<AccessRequests />);
     expect(
-      screen.getByText("Failed to load rule requests"),
+      screen.getByText("Failed to load access requests"),
     ).toBeInTheDocument();
   });
 
   it("shows empty state when no pending requests", () => {
-    renderWithProviders(<RuleRequests />);
+    renderWithProviders(<AccessRequests />);
     expect(screen.getByText("No requests.")).toBeInTheDocument();
   });
 
   it("renders a pending block request with tab counts", () => {
-    useRuleRequests.mockReturnValue({
+    useAccessRequests.mockReturnValue({
       data: [
         req({ id: "a", status: "pending", kind: "block" }),
         req({ id: "b", status: "approved", kind: "allow", reason: null }),
@@ -98,7 +98,7 @@ describe("RuleRequests", () => {
       isError: false,
       error: null,
     });
-    renderWithProviders(<RuleRequests />);
+    renderWithProviders(<AccessRequests />);
     expect(screen.getByText("Block request")).toBeInTheDocument();
     expect(screen.getByText("ads.example.com")).toBeInTheDocument();
     expect(
@@ -106,28 +106,64 @@ describe("RuleRequests", () => {
         "Kids iPad · " + new Date("2026-01-01T00:00:00Z").toLocaleString(),
       ),
     ).toBeInTheDocument();
-    // Approve/Reject shown for pending row.
+    // Approve/Decline shown for pending row.
     expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reject" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Decline" })).toBeInTheDocument();
   });
 
-  it("approves and rejects a pending request", async () => {
-    useRuleRequests.mockReturnValue({
+  it("approves and declines a pending request", async () => {
+    useAccessRequests.mockReturnValue({
       data: [req({ id: "a", status: "pending" })],
       isLoading: false,
       isError: false,
       error: null,
     });
     const user = userEvent.setup();
-    renderWithProviders(<RuleRequests />);
+    renderWithProviders(<AccessRequests />);
     await user.click(screen.getByRole("button", { name: "Approve" }));
-    expect(decideMutate).toHaveBeenCalledWith({ id: "a", status: "approved" });
-    await user.click(screen.getByRole("button", { name: "Reject" }));
+    // A rule request carries no approval params — that kind needs no admin
+    // input, and the auto-apply follow-up is what will add some.
+    expect(decideMutate).toHaveBeenCalledWith({
+      id: "a",
+      status: "approved",
+      approval: undefined,
+    });
+    await user.click(screen.getByRole("button", { name: "Decline" }));
     expect(decideMutate).toHaveBeenCalledWith({ id: "a", status: "rejected" });
   });
 
+  it("renders a Private DNS request with no domain and its own approval params", async () => {
+    useAccessRequests.mockReturnValue({
+      data: [
+        req({
+          id: "p",
+          status: "pending",
+          kind: "private_dns",
+          domain: null,
+          reason: null,
+        }),
+      ],
+      isLoading: false,
+      isError: false,
+      error: null,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<AccessRequests />);
+
+    expect(screen.getByText("Private DNS request")).toBeInTheDocument();
+    // The device is the subject, so no domain line is rendered.
+    expect(screen.queryByText("ads.example.com")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Approve" }));
+    expect(decideMutate).toHaveBeenCalledWith({
+      id: "p",
+      status: "approved",
+      approval: { kind: "private_dns" },
+    });
+  });
+
   it("switches tabs to show approved and all requests", async () => {
-    useRuleRequests.mockReturnValue({
+    useAccessRequests.mockReturnValue({
       data: [
         req({ id: "a", status: "pending" }),
         req({ id: "b", status: "approved", kind: "allow" }),
@@ -137,7 +173,7 @@ describe("RuleRequests", () => {
       error: null,
     });
     const user = userEvent.setup();
-    renderWithProviders(<RuleRequests />);
+    renderWithProviders(<AccessRequests />);
     // Default pending filter shows the block request.
     expect(screen.getByText("Block request")).toBeInTheDocument();
     // Switch to Approved.
@@ -150,7 +186,7 @@ describe("RuleRequests", () => {
   });
 
   it("labels an unknown device", () => {
-    useRuleRequests.mockReturnValue({
+    useAccessRequests.mockReturnValue({
       data: [
         req({ id: "a", device_id: "missing-device-id", status: "pending" }),
       ],
@@ -158,24 +194,24 @@ describe("RuleRequests", () => {
       isError: false,
       error: null,
     });
-    renderWithProviders(<RuleRequests />);
+    renderWithProviders(<AccessRequests />);
     expect(screen.getByText(/Unknown device/)).toBeInTheDocument();
   });
 
   it("shows a decide error alert inside the row", () => {
-    useDecideRuleRequest.mockReturnValue({
+    useDecideAccessRequest.mockReturnValue({
       mutate: decideMutate,
       isPending: false,
       isError: true,
       error: {},
     });
-    useRuleRequests.mockReturnValue({
+    useAccessRequests.mockReturnValue({
       data: [req({ id: "a", status: "pending" })],
       isLoading: false,
       isError: false,
       error: null,
     });
-    renderWithProviders(<RuleRequests />);
+    renderWithProviders(<AccessRequests />);
     expect(screen.getByText("Failed to update request")).toBeInTheDocument();
   });
 });
