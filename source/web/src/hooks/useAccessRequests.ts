@@ -13,7 +13,7 @@ import { accessRequestService } from "../lib/sdk";
  *
  * `refetchOnWindowFocus` deliberately overrides the user PWA's global `false`,
  * for the same reason `usePrivateDnsMe` does: the decision is made in the
- * *admin's* browser, so this device's cache cannot learn about it on its own.
+ * admin's own browser, so this device's cache cannot learn about it itself.
  * An approval arrives with a push the member taps, but a **decline** sends
  * nothing — without this, "Requested — waiting for your administrator" would
  * sit there indefinitely on an already-answered request. Foregrounding the app
