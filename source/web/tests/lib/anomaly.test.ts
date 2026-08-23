@@ -37,6 +37,7 @@ function anomaly(overrides: Partial<Anomaly> = {}): Anomaly {
   };
 }
 
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 describe("anomalySubjectLink", () => {
   it("links a blocklist anomaly to its profile page, anchored on the row", () => {
     const link = anomalySubjectLink(anomaly(), RICH);

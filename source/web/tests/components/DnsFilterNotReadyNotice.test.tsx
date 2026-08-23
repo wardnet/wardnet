@@ -13,6 +13,7 @@ const w = createQueryWrapper;
 
 /** The whole point of this notice: filtering fails open on startup and after the
  *  blocklist-cache reset, and the admin must not have to guess that. */
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 describe("DnsFilterNotReadyNotice", () => {
   beforeEach(() => vi.clearAllMocks());
 

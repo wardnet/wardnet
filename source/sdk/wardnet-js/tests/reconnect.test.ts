@@ -99,6 +99,7 @@ const cases = [
     },
   },
   {
+    // biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
     name: "DnsLogStreamService",
     endpoint: "ws://localhost:7411/api/dns/log/stream",
     filterPayload: { type: "set_filter", domain: "example.com" },
@@ -323,6 +324,7 @@ describe("wsUrl resolution for a relative base URL", () => {
     expect(MockWebSocket.last().url).toBe("wss://gateway.example/api/system/logs/stream");
   });
 
+  // biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
   it("derives a wss:// URL from an https origin (DnsLogStreamService)", () => {
     new DnsLogStreamService(relativeClient, "https://gateway.example").connect({
       onEvent: vi.fn(),

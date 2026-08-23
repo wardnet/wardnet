@@ -11,7 +11,9 @@ import {
 // Two runners share one bind-mounted `reports/` dir; the LAN runner sets
 // REPORT_SUBDIR=lan so its JUnit/HTML report lands in `reports/lan/` and
 // doesn't clobber the mgmt runner's.
+// biome-ignore lint/correctness/noProcessGlobal: build config, executed by Node at build time and never bundled
 const REPORT_DIR = process.env.REPORT_SUBDIR
+  // biome-ignore lint/correctness/noProcessGlobal: build config, executed by Node at build time and never bundled
   ? `reports/${process.env.REPORT_SUBDIR}`
   : "reports";
 
@@ -106,6 +108,7 @@ export default defineConfig({
   // run (correct for CI). `make e2e-ui-update-snapshots` sets
   // PW_UPDATE_SNAPSHOTS=1 to regenerate every baseline into the bind-mounted
   // `snapshots/` dir. See README → "Visual regression snapshots".
+  // biome-ignore lint/correctness/noProcessGlobal: build config, executed by Node at build time and never bundled
   updateSnapshots: process.env.PW_UPDATE_SNAPSHOTS === "1" ? "all" : "none",
   reporter: [
     ["list"],

@@ -19,6 +19,7 @@ import { api, ensureAdminSetup } from "./seed";
  * so a Docker service name wouldn't resolve from inside it.
  */
 export const BLOCKLIST_FIXTURE_URL =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_BLOCKLIST_FIXTURE_URL ?? "http://10.90.0.20/hosts.txt";
 
 /** Name of the profile the ad-blocking spec creates through the UI. */

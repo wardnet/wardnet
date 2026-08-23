@@ -5,7 +5,7 @@ import { useLocation } from "react-router";
  * How long we keep correcting the scroll position after a deep link arms it.
  *
  * The scroll itself is layout-driven, not timed — this only bounds how long a
- * *late* sibling is still allowed to drag the target back into place, so the
+ * a late sibling is still allowed to drag the target back into place, so the
  * hook never fights a page that keeps growing (an infinite list, a slow image)
  * long after the user has arrived.
  */

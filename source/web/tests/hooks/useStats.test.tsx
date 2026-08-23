@@ -224,6 +224,7 @@ describe("useDnsPeriodComparison", () => {
   });
 });
 
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 describe("useDnsPerDeviceStats", () => {
   beforeEach(() => vi.clearAllMocks());
 

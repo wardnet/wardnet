@@ -23,8 +23,11 @@
  * prior build) it logs and exits 0 rather than failing the pipeline.
  */
 
+// biome-ignore lint/correctness/noNodejsModules: build/codegen script, run by Node from the CLI
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+// biome-ignore lint/correctness/noNodejsModules: build/codegen script, run by Node from the CLI
 import { resolve } from "node:path";
+// biome-ignore lint/correctness/noNodejsModules: build/codegen script, run by Node from the CLI
 import { fileURLToPath } from "node:url";
 
 import { parse } from "yaml";

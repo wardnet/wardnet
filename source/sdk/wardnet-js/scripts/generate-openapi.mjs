@@ -11,8 +11,11 @@
 // `check-sdk-openapi` target in the repo Makefile, and the `generate:check`
 // package script), mirroring the daemon's own `check-openapi` gate.
 
+// biome-ignore lint/correctness/noNodejsModules: build/codegen script, run by Node from the CLI
 import { readFile, writeFile } from "node:fs/promises";
+// biome-ignore lint/correctness/noNodejsModules: build/codegen script, run by Node from the CLI
 import { fileURLToPath } from "node:url";
+// biome-ignore lint/correctness/noNodejsModules: build/codegen script, run by Node from the CLI
 import { dirname, resolve } from "node:path";
 import openapiTS, { astToString } from "openapi-typescript";
 
@@ -144,10 +147,13 @@ async function main() {
   ].join("\n");
 
   await writeFile(OUT_PATH, header + body, "utf8");
+  // biome-ignore lint/correctness/noProcessGlobal: build/codegen script, run by Node from the CLI
   process.stdout.write(`Wrote ${OUT_PATH}\n`);
 }
 
 main().catch((err) => {
+  // biome-ignore lint/correctness/noProcessGlobal: build/codegen script, run by Node from the CLI
   process.stderr.write(`${err?.stack ?? err}\n`);
+  // biome-ignore lint/correctness/noProcessGlobal: build/codegen script, run by Node from the CLI
   process.exit(1);
 });
