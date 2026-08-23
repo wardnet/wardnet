@@ -45,6 +45,7 @@ const noop = {
   onSearchChange: vi.fn(),
 };
 
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 describe("DhcpEntryTable", () => {
   it("shows the discovery placeholder when there are no entries", () => {
     renderWithProviders(

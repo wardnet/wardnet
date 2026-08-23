@@ -149,6 +149,7 @@ vi.mock("@/components/features/ConditionalForwardingCard", () => ({
     </div>
   ),
 }));
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 vi.mock("@/components/features/DhcpLanInfoCard", () => ({
   DhcpLanInfoCard: ({ dhcpRecordCount }: { dhcpRecordCount: number }) => (
     <div data-testid="dhcp-lan-info">{dhcpRecordCount}</div>

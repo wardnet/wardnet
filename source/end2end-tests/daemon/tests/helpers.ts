@@ -1,4 +1,6 @@
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { randomBytes } from "node:crypto";
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { readFileSync } from "node:fs";
 
 import {
@@ -23,10 +25,13 @@ import {
 // it reaches the daemon API) and wardnet_lan (where the test-agent
 // HTTP servers listen on :3001).
 export const API_BASE_URL =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_API_BASE_URL ?? "http://wardnetd:7411/api";
 export const TEST_DEBIAN_AGENT =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_TEST_DEBIAN_AGENT ?? "http://test_debian:3001";
 export const TEST_UBUNTU_AGENT =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_TEST_UBUNTU_AGENT ?? "http://test_ubuntu:3001";
 // The wardnetd container also hosts the test-agent in *server* mode on
 // :3001 (baked in via Dockerfile.test). It exposes kernel state the
@@ -34,6 +39,7 @@ export const TEST_UBUNTU_AGENT =
 // specs can assert against the real routing tables. Same URL scheme as
 // the LAN client agents, different (server) route set.
 export const DAEMON_AGENT =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_DAEMON_AGENT ?? "http://wardnetd:3001";
 
 // Setup-wizard credentials. Generated per-process so a leaked log line

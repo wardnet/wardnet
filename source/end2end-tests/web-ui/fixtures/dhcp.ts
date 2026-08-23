@@ -15,6 +15,7 @@ import { api, ensureAdminSetup } from "./seed";
 
 /** The LAN-client agent's serve URL (compose service name on wardnet_lan). */
 export const TEST_DEBIAN_AGENT =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_TEST_DEBIAN_AGENT ?? "http://test_debian:3001";
 
 /**

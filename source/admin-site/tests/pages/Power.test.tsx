@@ -43,6 +43,7 @@ vi.mock("@/components/features/RestartProgressDialog", () => ({
       </div>
     ) : null,
 }));
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 vi.mock("@/components/features/ShutdownProgressDialog", () => ({
   ShutdownProgressDialog: ({ open, onDismiss }: any) =>
     open ? (

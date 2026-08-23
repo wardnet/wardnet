@@ -1,9 +1,12 @@
 @import "tailwindcss";
-@source "../../../web/src/**/*.{ts,tsx}";
 @import "@wardnet/styles";
 @import "@wardnet/ui/styles.css";
 @import "@fontsource-variable/inter-tight";
 @import "@fontsource-variable/jetbrains-mono";
+
+/* Must follow every @import: CSS requires @import to precede all other
+   at-rules, and an @source in between makes the ones after it invalid. */
+@source "../../../web/src/**/*.{ts,tsx}";
 
 /*
  * Forge is the source of truth for tokens (design-system/styles.css).

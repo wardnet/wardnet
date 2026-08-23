@@ -9,6 +9,7 @@ vi.mock("../../src/lib/sdk", () => ({ dnsService }));
 
 import { useDnsQueryLog } from "../../src/hooks/useDnsLogs";
 
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 describe("useDnsQueryLog", () => {
   beforeEach(() => vi.clearAllMocks());
 

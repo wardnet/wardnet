@@ -45,6 +45,7 @@ function setup(assigned: string[] = ["p1", "p2"]) {
   );
 }
 
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 describe("DeviceRoutingProfilesCard", () => {
   beforeEach(() => {
     vi.clearAllMocks();

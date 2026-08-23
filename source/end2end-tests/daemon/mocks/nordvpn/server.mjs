@@ -14,12 +14,18 @@
 // literal "token", password is the user's NordVPN token). We accept a single
 // valid token, configurable via NORDVPN_VALID_TOKEN.
 
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { createServer } from "node:http";
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { readFileSync } from "node:fs";
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { join } from "node:path";
 
+// biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
 const PORT = Number(process.env.PORT ?? 8080);
+// biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
 const FIXTURES_DIR = process.env.FIXTURES_DIR ?? "/fixtures";
+// biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
 const VALID_TOKEN = process.env.NORDVPN_VALID_TOKEN ?? "valid-nordvpn-token";
 
 // Read a fixture fresh on each request so a mounted-volume edit takes effect
@@ -80,6 +86,7 @@ const server = createServer((req, res) => {
       // Optional `filters[hostname]` narrowing — the daemon uses this path for
       // dedicated-IP lookups. With our single-server fixture we filter to match
       // real API semantics but otherwise return the list unchanged.
+      // biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
       const wanted = url.searchParams.get("filters[hostname]");
       const servers = JSON.parse(fixture("servers.json"));
       const body = wanted
