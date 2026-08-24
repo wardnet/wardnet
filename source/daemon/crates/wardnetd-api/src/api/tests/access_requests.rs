@@ -1,5 +1,5 @@
-//! Tests for the device rule-request API endpoints.
-//! POST/GET /api/devices/me/rule-requests, GET/PATCH /api/rule-requests.
+//! Tests for the device access-request API endpoints.
+//! POST/GET /api/devices/me/access-requests, GET/PATCH /api/access-requests.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -11,7 +11,9 @@ use axum::extract::ConnectInfo;
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, patch};
 use tower::ServiceExt;
-use wardnet_common::rule_request::{DeviceRuleRequest, RuleRequestKind, RuleRequestStatus};
+use wardnet_common::access_request::{
+    AccessRequestKind, AccessRequestStatus, ApprovalParams, DeviceAccessRequest,
+};
 
 use crate::state::AppState;
 use crate::tests::stubs::{
@@ -23,8 +25,8 @@ use crate::tests::stubs::{
 use uuid::Uuid;
 use wardnet_common::auth::{AuthenticatedUser, UserRole};
 use wardnet_test_support::principal;
+use wardnetd_services::AccessRequestService;
 use wardnetd_services::LogService;
-use wardnetd_services::RuleRequestService;
 use wardnetd_services::auth::service::LoginResult;
 use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 use wardnetd_services::error::AppError;
@@ -83,63 +85,74 @@ impl wardnetd_services::AuthService for MockAuthService {
     }
 }
 
-// --- MockRuleRequestService -------------------------------------------------
+// --- MockAccessRequestService -------------------------------------------------
 
-fn sample_request() -> DeviceRuleRequest {
-    DeviceRuleRequest {
+fn sample_request() -> DeviceAccessRequest {
+    DeviceAccessRequest {
         id: "req-1".to_owned(),
         device_id: "00000000-0000-0000-0000-000000000001".to_owned(),
-        kind: RuleRequestKind::Block,
-        domain: "ads.example.com".to_owned(),
+        kind: AccessRequestKind::Block,
+        domain: Some("ads.example.com".to_owned()),
         reason: Some("too many ads".to_owned()),
-        status: RuleRequestStatus::Pending,
+        status: AccessRequestStatus::Pending,
         created_at: "2026-06-18T00:00:00Z".to_owned(),
         decided_at: None,
         decided_by: None,
     }
 }
 
-struct MockRuleRequestService {
+#[derive(Default)]
+struct MockAccessRequestService {
     decide_not_found: bool,
 }
 
 #[async_trait]
-impl RuleRequestService for MockRuleRequestService {
+impl AccessRequestService for MockAccessRequestService {
     async fn create_for_ip(
         &self,
         _ip: &str,
-        kind: RuleRequestKind,
-        domain: &str,
+        kind: AccessRequestKind,
+        domain: Option<String>,
         reason: Option<String>,
-    ) -> Result<DeviceRuleRequest, AppError> {
-        Ok(DeviceRuleRequest {
+    ) -> Result<DeviceAccessRequest, AppError> {
+        Ok(DeviceAccessRequest {
             kind,
-            domain: domain.to_owned(),
+            domain,
             reason,
             ..sample_request()
         })
     }
-    async fn list_for_ip(&self, _ip: &str) -> Result<Vec<DeviceRuleRequest>, AppError> {
+    async fn list_for_ip(&self, _ip: &str) -> Result<Vec<DeviceAccessRequest>, AppError> {
         Ok(vec![sample_request()])
     }
     async fn list(
         &self,
-        _status: Option<RuleRequestStatus>,
-    ) -> Result<Vec<DeviceRuleRequest>, AppError> {
+        _status: Option<AccessRequestStatus>,
+    ) -> Result<Vec<DeviceAccessRequest>, AppError> {
         Ok(vec![sample_request()])
     }
     async fn decide(
         &self,
         _id: &str,
-        status: RuleRequestStatus,
-    ) -> Result<DeviceRuleRequest, AppError> {
+        status: AccessRequestStatus,
+        _params: Option<ApprovalParams>,
+    ) -> Result<DeviceAccessRequest, AppError> {
         if self.decide_not_found {
-            return Err(AppError::NotFound("rule request not found".to_owned()));
+            return Err(AppError::NotFound("access request not found".to_owned()));
         }
-        Ok(DeviceRuleRequest {
+        Ok(DeviceAccessRequest {
             status,
             ..sample_request()
         })
+    }
+    async fn resolve_pending(
+        &self,
+        _device_id: Uuid,
+        _kind: AccessRequestKind,
+        _status: AccessRequestStatus,
+        _decided_by: Option<String>,
+    ) -> Result<Option<DeviceAccessRequest>, AppError> {
+        unimplemented!("the listener is exercised in the services crate")
     }
 }
 
@@ -149,7 +162,7 @@ fn connect_info() -> ConnectInfo<SocketAddr> {
     ConnectInfo(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 12345))
 }
 
-fn build_state(rule_svc: impl RuleRequestService + 'static) -> AppState {
+fn build_state(rule_svc: impl AccessRequestService + 'static) -> AppState {
     AppState::new(
         Arc::new(MockAuthService),
         Arc::new(crate::tests::stubs::StubBackupService),
@@ -179,15 +192,15 @@ fn build_state(rule_svc: impl RuleRequestService + 'static) -> AppState {
 }
 
 fn router(state: AppState) -> Router {
-    use crate::api::rule_requests::*;
+    use crate::api::access_requests::*;
 
     Router::new()
         .route(
-            "/api/devices/me/rule-requests",
-            get(list_my_rule_requests).post(create_my_rule_request),
+            "/api/devices/me/access-requests",
+            get(list_my_access_requests).post(create_my_access_request),
         )
-        .route("/api/rule-requests", get(list_rule_requests))
-        .route("/api/rule-requests/{id}", patch(decide_rule_request))
+        .route("/api/access-requests", get(list_access_requests))
+        .route("/api/access-requests/{id}", patch(decide_access_request))
         .with_state(state)
 }
 
@@ -224,13 +237,13 @@ async fn send(
 
 #[tokio::test]
 async fn create_my_request_returns_201_and_echoes_fields() {
-    let app = router(build_state(MockRuleRequestService {
+    let app = router(build_state(MockAccessRequestService {
         decide_not_found: false,
     }));
     let (status, json) = send(
         app,
         "POST",
-        "/api/devices/me/rule-requests",
+        "/api/devices/me/access-requests",
         Some(r#"{"kind":"allow","domain":"good.example.com","reason":"need it"}"#),
         false,
     )
@@ -243,12 +256,31 @@ async fn create_my_request_returns_201_and_echoes_fields() {
     assert_eq!(json["status"], "pending");
 }
 
+/// A Private-DNS request carries no domain at all — the wire shape has to
+/// accept the field being absent rather than requiring an empty string.
+#[tokio::test]
+async fn create_my_private_dns_request_needs_no_domain() {
+    let app = router(build_state(MockAccessRequestService::default()));
+    let (status, json) = send(
+        app,
+        "POST",
+        "/api/devices/me/access-requests",
+        Some(r#"{"kind":"private_dns"}"#),
+        false,
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(json["kind"], "private_dns");
+    assert!(json["domain"].is_null());
+}
+
 #[tokio::test]
 async fn list_my_requests_returns_200() {
-    let app = router(build_state(MockRuleRequestService {
+    let app = router(build_state(MockAccessRequestService {
         decide_not_found: false,
     }));
-    let (status, json) = send(app, "GET", "/api/devices/me/rule-requests", None, false).await;
+    let (status, json) = send(app, "GET", "/api/devices/me/access-requests", None, false).await;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json[0]["domain"], "ads.example.com");
@@ -256,10 +288,17 @@ async fn list_my_requests_returns_200() {
 
 #[tokio::test]
 async fn admin_list_returns_200_with_cookie() {
-    let app = router(build_state(MockRuleRequestService {
+    let app = router(build_state(MockAccessRequestService {
         decide_not_found: false,
     }));
-    let (status, json) = send(app, "GET", "/api/rule-requests?status=pending", None, true).await;
+    let (status, json) = send(
+        app,
+        "GET",
+        "/api/access-requests?status=pending",
+        None,
+        true,
+    )
+    .await;
 
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json[0]["id"], "req-1");
@@ -267,23 +306,23 @@ async fn admin_list_returns_200_with_cookie() {
 
 #[tokio::test]
 async fn admin_list_without_cookie_returns_401() {
-    let app = router(build_state(MockRuleRequestService {
+    let app = router(build_state(MockAccessRequestService {
         decide_not_found: false,
     }));
-    let (status, _json) = send(app, "GET", "/api/rule-requests", None, false).await;
+    let (status, _json) = send(app, "GET", "/api/access-requests", None, false).await;
 
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
 #[tokio::test]
 async fn admin_decide_returns_200() {
-    let app = router(build_state(MockRuleRequestService {
+    let app = router(build_state(MockAccessRequestService {
         decide_not_found: false,
     }));
     let (status, json) = send(
         app,
         "PATCH",
-        "/api/rule-requests/req-1",
+        "/api/access-requests/req-1",
         Some(r#"{"status":"approved"}"#),
         true,
     )
@@ -295,13 +334,13 @@ async fn admin_decide_returns_200() {
 
 #[tokio::test]
 async fn admin_decide_unknown_returns_404() {
-    let app = router(build_state(MockRuleRequestService {
+    let app = router(build_state(MockAccessRequestService {
         decide_not_found: true,
     }));
     let (status, _json) = send(
         app,
         "PATCH",
-        "/api/rule-requests/does-not-exist",
+        "/api/access-requests/does-not-exist",
         Some(r#"{"status":"rejected"}"#),
         true,
     )

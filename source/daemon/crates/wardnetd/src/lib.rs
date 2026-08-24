@@ -39,6 +39,7 @@ pub mod uninstall;
 pub mod tls_server;
 
 // Background tasks.
+pub mod access_request_listener;
 pub mod device_detector;
 pub mod device_snapshot_listener;
 pub mod dns_device_snapshot_listener;

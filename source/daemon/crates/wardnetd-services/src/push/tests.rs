@@ -955,11 +955,11 @@ async fn rule_request_notifies_admins_and_lands_in_the_feed() {
 
     handle(
         &h.service,
-        WardnetEvent::RuleRequestCreated {
+        WardnetEvent::AccessRequestCreated {
             request_id: "req-1".to_owned(),
             device_id: device_id.to_string(),
-            kind: wardnet_common::rule_request::RuleRequestKind::Allow,
-            domain: "blocked.example".to_owned(),
+            kind: wardnet_common::access_request::AccessRequestKind::Allow,
+            domain: Some("blocked.example".to_owned()),
             timestamp: Utc::now(),
         },
     )
@@ -972,20 +972,50 @@ async fn rule_request_notifies_admins_and_lands_in_the_feed() {
         assert_eq!(sent.len(), 1);
         assert_eq!(sent[0].endpoint, "https://push/admin");
         let payload: serde_json::Value = serde_json::from_str(&sent[0].payload).unwrap();
-        assert_eq!(payload["title"], "Rule request");
+        assert_eq!(payload["title"], "Access request");
         assert_eq!(
             payload["body"],
             "Kid's iPad asked to allow blocked.example."
         );
-        assert_eq!(payload["data"]["kind"], "rule_request_created");
-        // No admin-app surface for rule requests yet — no deep link.
+        assert_eq!(payload["data"]["kind"], "access_request_created");
+        // No admin-app surface for access requests yet — no deep link.
         assert!(payload["data"].get("url").is_none());
         assert_eq!(payload["data"]["subject_id"], "req-1");
     }
 
     let feed = h.notifications.list_recent(10).await.unwrap();
     assert_eq!(feed.len(), 1);
-    assert_eq!(feed[0].kind, "rule_request_created");
+    assert_eq!(feed[0].kind, "access_request_created");
+}
+
+/// A Private-DNS request names no domain, so its body is worded from the kind
+/// alone rather than falling through the allow/block phrasing.
+#[tokio::test]
+async fn private_dns_request_notifies_admins_without_a_domain() {
+    let device_id = Uuid::new_v4();
+    let h = build(SendOutcome::Delivered).await;
+    insert_device(&h.devices, device_id, "aa:bb:cc:08", Some("Kid's iPad")).await;
+    seed(&h, OWNER_KIND_USER, "admin-1", "https://push/admin").await;
+
+    handle(
+        &h.service,
+        WardnetEvent::AccessRequestCreated {
+            request_id: "req-2".to_owned(),
+            device_id: device_id.to_string(),
+            kind: wardnet_common::access_request::AccessRequestKind::PrivateDns,
+            domain: None,
+            timestamp: Utc::now(),
+        },
+    )
+    .await;
+
+    let sent = h.sender.sent.lock().unwrap();
+    assert_eq!(sent.len(), 1);
+    let payload: serde_json::Value = serde_json::from_str(&sent[0].payload).unwrap();
+    assert_eq!(payload["title"], "Access request");
+    assert_eq!(payload["body"], "Kid's iPad asked for Private DNS.");
+    assert_eq!(payload["data"]["kind"], "access_request_created");
+    assert_eq!(payload["data"]["subject_id"], "req-2");
 }
 
 #[tokio::test]

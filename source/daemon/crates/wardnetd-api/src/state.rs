@@ -9,11 +9,11 @@ use wardnetd_services::event::EventPublisher;
 use wardnetd_services::private_dns::PrivateDnsService;
 use wardnetd_services::tls::runner::TlsRetryNudge;
 use wardnetd_services::{
-    AuthService, BackupService, DdnsService, DeviceDiscoveryService, DeviceService, DhcpService,
-    DnsFilterService, DnsLocalService, DnsService, HealthMonitor, InboundWgService, JobService,
-    LogService, NetworkZoneService, PushService, RoutingProfileService, RoutingService,
-    RuleRequestService, StatsService, SystemService, TlsService, TunnelService, UpdateService,
-    VpnProviderService, ZoneExceptionService,
+    AccessRequestService, AuthService, BackupService, DdnsService, DeviceDiscoveryService,
+    DeviceService, DhcpService, DnsFilterService, DnsLocalService, DnsService, HealthMonitor,
+    InboundWgService, JobService, LogService, NetworkZoneService, PushService,
+    RoutingProfileService, RoutingService, StatsService, SystemService, TlsService, TunnelService,
+    UpdateService, VpnProviderService, ZoneExceptionService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -53,7 +53,7 @@ struct Inner {
     event_publisher: Arc<dyn EventPublisher>,
     job_service: Arc<dyn JobService>,
     stats_service: Arc<dyn StatsService>,
-    rule_request_service: Arc<dyn RuleRequestService>,
+    access_request_service: Arc<dyn AccessRequestService>,
     push_service: Arc<dyn PushService>,
     anomaly_service: Arc<dyn AnomalyService>,
     health_monitor: Arc<HealthMonitor>,
@@ -99,7 +99,7 @@ impl AppState {
         event_publisher: Arc<dyn EventPublisher>,
         job_service: Arc<dyn JobService>,
         stats_service: Arc<dyn StatsService>,
-        rule_request_service: Arc<dyn RuleRequestService>,
+        access_request_service: Arc<dyn AccessRequestService>,
         zone_exception_service: Arc<dyn ZoneExceptionService>,
     ) -> Self {
         Self {
@@ -127,7 +127,7 @@ impl AppState {
                 event_publisher,
                 job_service,
                 stats_service,
-                rule_request_service,
+                access_request_service,
                 // Defaults to a no-op; production and the mock inject the live
                 // service via `with_inbound_wg_service`.
                 inbound_wg_service: Arc::new(NoopInboundWgService),
@@ -469,10 +469,10 @@ impl AppState {
         self.inner.stats_service.as_ref()
     }
 
-    /// Access the rule-request inbox service.
+    /// Access the access-request inbox service.
     #[must_use]
-    pub fn rule_request_service(&self) -> &dyn RuleRequestService {
-        self.inner.rule_request_service.as_ref()
+    pub fn access_request_service(&self) -> &dyn AccessRequestService {
+        self.inner.access_request_service.as_ref()
     }
 
     /// Access the push-notification service.

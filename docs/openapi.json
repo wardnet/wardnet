@@ -9,6 +9,334 @@
     "version": "2026.08.00"
   },
   "paths": {
+    "/api/access-requests": {
+      "get": {
+        "tags": [
+          "access-requests"
+        ],
+        "description": "List all device access requests, optionally filtered by status. Admin only.",
+        "operationId": "list_access_requests",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "description": "Optional status filter (`pending` | `approved` | `rejected`).",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/AccessRequestStatus"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Access requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DeviceAccessRequest"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/access-requests/{id}": {
+      "patch": {
+        "tags": [
+          "access-requests"
+        ],
+        "description": "Approve or reject an access request. What approval *does* depends on the request's kind: approving a `private_dns` request mints the device's grant, while `allow` / `block` only record the decision — the admin still applies the DNS filter rule via the DNS filter UI. Admin only.",
+        "operationId": "decide_access_request",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Access request id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideAccessRequestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceAccessRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed or invalid request body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already decided, or the approval could not be carried out",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/anomalies": {
       "get": {
         "tags": [
@@ -2411,6 +2739,125 @@
         ]
       }
     },
+    "/api/devices/me/access-requests": {
+      "get": {
+        "tags": [
+          "access-requests"
+        ],
+        "description": "List the access requests made by this device (by source IP), newest first.",
+        "operationId": "list_my_access_requests",
+        "responses": {
+          "200": {
+            "description": "The caller's access requests",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DeviceAccessRequest"
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found for this IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      },
+      "post": {
+        "tags": [
+          "access-requests"
+        ],
+        "description": "Ask an admin for something this device cannot grant itself: a domain blocked or allowed (`block` / `allow`, which take a `domain`), or Private DNS access (`private_dns`, which takes none). The device is identified by source IP — no authentication required.",
+        "operationId": "create_my_access_request",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAccessRequestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Request created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceAccessRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Device not found for this IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Already pending, or the feature is not enabled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {}
+        ]
+      }
+    },
     "/api/devices/me/dns-capture": {
       "patch": {
         "tags": [
@@ -2609,115 +3056,6 @@
           },
           "403": {
             "description": "Device is admin-locked",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {}
-        ]
-      }
-    },
-    "/api/devices/me/rule-requests": {
-      "get": {
-        "tags": [
-          "rule-requests"
-        ],
-        "description": "List the rule requests made by this device (by source IP), newest first.",
-        "operationId": "list_my_rule_requests",
-        "responses": {
-          "200": {
-            "description": "The caller's rule requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/DeviceRuleRequest"
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Device not found for this IP",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {}
-        ]
-      },
-      "post": {
-        "tags": [
-          "rule-requests"
-        ],
-        "description": "Submit a request to the admin to block or allow a domain. The device is identified by source IP — no authentication required.",
-        "operationId": "create_my_rule_request",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateRuleRequestRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Request created",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeviceRuleRequest"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Device not found for this IP",
             "content": {
               "application/json": {
                 "schema": {
@@ -20103,324 +20441,6 @@
         }
       }
     },
-    "/api/rule-requests": {
-      "get": {
-        "tags": [
-          "rule-requests"
-        ],
-        "description": "List all device rule requests, optionally filtered by status. Admin only.",
-        "operationId": "list_rule_requests",
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "description": "Optional status filter (`pending` | `approved` | `rejected`).",
-            "required": false,
-            "schema": {
-              "oneOf": [
-                {
-                  "type": "null"
-                },
-                {
-                  "$ref": "#/components/schemas/RuleRequestStatus"
-                }
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Rule requests",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/DeviceRuleRequest"
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated - session cookie or API key missing/invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden - caller is not an admin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/rule-requests/{id}": {
-      "patch": {
-        "tags": [
-          "rule-requests"
-        ],
-        "description": "Approve or reject a rule request. Recording a decision does not apply the DNS rule — the admin applies it via the DNS filter UI. Admin only.",
-        "operationId": "decide_rule_request",
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "description": "Rule request id",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DecideRuleRequestRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Updated request",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeviceRuleRequest"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed or invalid request body",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Unauthenticated - session cookie or API key missing/invalid",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Forbidden - caller is not an admin",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Resource not found",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "description": "Standard API error response.",
-                  "required": [
-                    "error"
-                  ],
-                  "properties": {
-                    "detail": {
-                      "type": [
-                        "string",
-                        "null"
-                      ]
-                    },
-                    "error": {
-                      "type": "string"
-                    },
-                    "request_id": {
-                      "type": [
-                        "string",
-                        "null"
-                      ],
-                      "description": "Request ID for correlation with server logs."
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/setup": {
       "post": {
         "tags": [
@@ -24663,6 +24683,24 @@
   },
   "components": {
     "schemas": {
+      "AccessRequestKind": {
+        "type": "string",
+        "description": "What the member is asking for.\n\n`Allow` / `Block` carry a `domain`; `PrivateDns` carries no payload at all —\nthe request is fully determined by which device asked. The database enforces\nthat pairing with a `CHECK`, so a kind added here must decide which side of\nit the new variant falls on.",
+        "enum": [
+          "block",
+          "allow",
+          "private_dns"
+        ]
+      },
+      "AccessRequestStatus": {
+        "type": "string",
+        "description": "Lifecycle state of a request.",
+        "enum": [
+          "pending",
+          "approved",
+          "rejected"
+        ]
+      },
       "AddInboundWgPeerRequest": {
         "type": "object",
         "description": "Request body for `POST /api/inbound-wg/peers`.\n\nA remote-access grant targets an already-managed device (issue #810): the\npeer's user-facing name is taken from that device, not supplied here.",
@@ -24966,6 +25004,25 @@
           }
         }
       },
+      "ApprovalParams": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "private_dns"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Kind-specific parameters an admin supplies when **approving**.\n\nApproval is not uniform across kinds, so the decision body carries a typed\npayload rather than a bag of optional fields. `PrivateDns` needs none — the\ngrant is fully determined by the requesting device — but the variant exists\nso the wire shape is explicit rather than \"absent means Private DNS\"."
+      },
       "AssignDeviceZoneRequest": {
         "type": "object",
         "description": "Request body for PUT /api/devices/{id}/zone.",
@@ -25263,6 +25320,31 @@
           "name": {
             "type": "string",
             "description": "Human-readable country name (e.g. \"United States\")."
+          }
+        }
+      },
+      "CreateAccessRequestRequest": {
+        "type": "object",
+        "description": "Request body for `POST /api/devices/me/access-requests`.",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "domain": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Required for `allow` / `block`, and rejected for kinds that take no\ndomain — the service validates against\n[`AccessRequestKind::requires_domain`]."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AccessRequestKind"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -25678,28 +25760,6 @@
           }
         }
       },
-      "CreateRuleRequestRequest": {
-        "type": "object",
-        "description": "Request body for `POST /api/devices/me/rule-requests`.",
-        "required": [
-          "kind",
-          "domain"
-        ],
-        "properties": {
-          "domain": {
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/RuleRequestKind"
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          }
-        }
-      },
       "CreateTunnelRequest": {
         "type": "object",
         "description": "Request body for POST /api/tunnels (import .conf file).",
@@ -26085,15 +26145,26 @@
           }
         }
       },
-      "DecideRuleRequestRequest": {
+      "DecideAccessRequestRequest": {
         "type": "object",
-        "description": "Request body for `PATCH /api/rule-requests/{id}` (admin decision). Only\n`approved` / `rejected` are accepted — a request cannot be set back to\n`pending`.",
+        "description": "Request body for `PATCH /api/access-requests/{id}` (admin decision). Only\n`approved` / `rejected` are accepted — a request cannot be set back to\n`pending`.",
         "required": [
           "status"
         ],
         "properties": {
+          "approval": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ApprovalParams",
+                "description": "Kind-specific approval parameters. Ignored when rejecting."
+              }
+            ]
+          },
           "status": {
-            "$ref": "#/components/schemas/RuleRequestStatus"
+            "$ref": "#/components/schemas/AccessRequestStatus"
           }
         }
       },
@@ -26364,6 +26435,59 @@
           }
         }
       },
+      "DeviceAccessRequest": {
+        "type": "object",
+        "description": "A single access-request row.",
+        "required": [
+          "id",
+          "device_id",
+          "kind",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "decided_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decided_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "device_id": {
+            "type": "string"
+          },
+          "domain": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`None` for kinds that name no domain — see [`AccessRequestKind::requires_domain`]."
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/AccessRequestKind"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/AccessRequestStatus"
+          }
+        }
+      },
       "DeviceCaptureToggleRequest": {
         "type": "object",
         "description": "Request body for `PATCH /api/devices/me/dns-capture` — the self-service\ncapture toggle. Flips only the `enabled` flag; retention caps stay\nadmin-only (set via `DnsCaptureSettingsRequest` on the admin endpoint).",
@@ -26533,56 +26657,6 @@
               "minimum": 0
             },
             "description": "Every TCP port the probe contacted — the vendor catalog's full probe\nsurface, and by construction its upper bound."
-          }
-        }
-      },
-      "DeviceRuleRequest": {
-        "type": "object",
-        "description": "A single rule request row.",
-        "required": [
-          "id",
-          "device_id",
-          "kind",
-          "domain",
-          "status",
-          "created_at"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "string"
-          },
-          "decided_at": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "decided_by": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "device_id": {
-            "type": "string"
-          },
-          "domain": {
-            "type": "string"
-          },
-          "id": {
-            "type": "string"
-          },
-          "kind": {
-            "$ref": "#/components/schemas/RuleRequestKind"
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "status": {
-            "$ref": "#/components/schemas/RuleRequestStatus"
           }
         }
       },
@@ -29457,23 +29531,6 @@
         ],
         "description": "Where traffic for a device should be routed."
       },
-      "RuleRequestKind": {
-        "type": "string",
-        "description": "What the user is asking for.",
-        "enum": [
-          "block",
-          "allow"
-        ]
-      },
-      "RuleRequestStatus": {
-        "type": "string",
-        "description": "Lifecycle state of a request.",
-        "enum": [
-          "pending",
-          "approved",
-          "rejected"
-        ]
-      },
       "SendPrivateDnsNotificationResponse": {
         "type": "object",
         "description": "Response for `POST /api/private-dns/grants/{device_id}/notify` — the result\nof nudging a granted device's household member to set up Private DNS.",
@@ -31711,8 +31768,8 @@
       "description": "Cross-zone exceptions: admin-granted allowances between isolated zones"
     },
     {
-      "name": "rule-requests",
-      "description": "Device-initiated firewall rule requests and admin decisions"
+      "name": "access-requests",
+      "description": "Device-initiated access requests (domain allow/block, Private DNS) and admin decisions"
     },
     {
       "name": "tunnels",

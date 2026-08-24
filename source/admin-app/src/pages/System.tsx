@@ -83,6 +83,10 @@ function kindPill(kind: NotificationItem["kind"]): {
       return { variant: "warn", label: "New device" };
     case "routing_changed":
       return { variant: "info", label: "Routing" };
+    // `rule_request_created` is the pre-#919 wire string. Feed rows persist, so
+    // entries written before the rename would otherwise fall through to the
+    // generic "System" pill and silently relabel a household member's ask.
+    case "access_request_created":
     case "rule_request_created":
       return { variant: "info", label: "Request" };
     default:

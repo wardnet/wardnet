@@ -20,7 +20,7 @@ export { SetupService } from "./services/setup.js";
 export { InfoService } from "./services/info.js";
 export { DhcpService } from "./services/dhcp.js";
 export { JobsService } from "./services/jobs.js";
-export { RuleRequestService } from "./services/rule-requests.js";
+export { AccessRequestService } from "./services/access-requests.js";
 export { InboundWgService } from "./services/inbound-wg.js";
 export { PrivateDnsService } from "./services/private-dns.js";
 export { PushService } from "./services/push.js";
@@ -161,11 +161,12 @@ export type {
 export type {
   ApiError,
   DeviceCaptureToggleRequest,
-  RuleRequestKind,
-  RuleRequestStatus,
-  DeviceRuleRequest,
-  CreateRuleRequestRequest,
-  DecideRuleRequestRequest,
+  AccessRequestKind,
+  AccessRequestStatus,
+  DeviceAccessRequest,
+  CreateAccessRequestRequest,
+  ApprovalParams,
+  DecideAccessRequestRequest,
   DeviceMeResponse,
   SetMyRuleRequest,
   SetMyRuleResponse,

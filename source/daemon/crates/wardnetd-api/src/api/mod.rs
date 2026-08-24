@@ -1,3 +1,4 @@
+pub mod access_requests;
 pub mod anomalies;
 pub mod auth;
 pub mod backup;
@@ -23,7 +24,6 @@ pub mod providers;
 pub mod push;
 pub mod responses;
 pub mod routing_profiles;
-pub mod rule_requests;
 pub mod setup;
 pub mod stats;
 pub mod system;
@@ -138,7 +138,7 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = zone_exception::register(r);
     r = jobs::register(r);
     r = stats::register(r);
-    r = rule_requests::register(r);
+    r = access_requests::register(r);
     r = push::register(r);
     r = update::register(r);
     r = backup::register(r);

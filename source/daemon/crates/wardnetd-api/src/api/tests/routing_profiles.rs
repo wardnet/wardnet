@@ -18,10 +18,10 @@ use uuid::Uuid;
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    AlwaysSessionAuth, StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer,
-    StubDhcpService, StubDiscoveryService, StubDnsFilterService, StubDnsLocalService,
-    StubDnsServer, StubDnsService, StubEventPublisher, StubJobService, StubLogService,
-    StubNetworkZoneService, StubProviderService, StubRoutingService, StubRuleRequestService,
+    AlwaysSessionAuth, StubAccessRequestService, StubBackupService, StubDdnsService,
+    StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
+    StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubJobService,
+    StubLogService, StubNetworkZoneService, StubProviderService, StubRoutingService,
     StubStatsService, StubSystemService, StubTlsService, StubTunnelService, StubUpdateService,
     StubZoneExceptionService,
 };
@@ -92,7 +92,7 @@ async fn app() -> Router {
         Arc::new(StubEventPublisher),
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
-        Arc::new(StubRuleRequestService),
+        Arc::new(StubAccessRequestService),
         Arc::new(StubZoneExceptionService),
     )
     .with_routing_profile_service(service);

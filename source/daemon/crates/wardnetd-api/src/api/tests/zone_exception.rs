@@ -20,11 +20,11 @@ use wardnet_common::zone_exception::{
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer, StubDhcpService,
-    StubDiscoveryService, StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService,
-    StubEventPublisher, StubJobService, StubLogService, StubNetworkZoneService,
-    StubProviderService, StubRoutingService, StubRuleRequestService, StubStatsService,
-    StubSystemService, StubTlsService, StubTunnelService, StubUpdateService,
+    StubAccessRequestService, StubBackupService, StubDdnsService, StubDeviceService,
+    StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
+    StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubJobService,
+    StubLogService, StubNetworkZoneService, StubProviderService, StubRoutingService,
+    StubStatsService, StubSystemService, StubTlsService, StubTunnelService, StubUpdateService,
 };
 use uuid::Uuid;
 use wardnet_common::auth::{AuthenticatedUser, UserRole};
@@ -169,7 +169,7 @@ fn build_state() -> AppState {
         Arc::new(StubEventPublisher),
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
-        Arc::new(StubRuleRequestService),
+        Arc::new(StubAccessRequestService),
         Arc::new(MockZoneExceptionService),
     )
 }

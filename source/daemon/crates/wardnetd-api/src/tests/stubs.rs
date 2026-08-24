@@ -1306,36 +1306,46 @@ impl StatsService for StubStatsService {
     }
 }
 
-pub struct StubRuleRequestService;
+pub struct StubAccessRequestService;
 
 #[async_trait]
-impl wardnetd_services::RuleRequestService for StubRuleRequestService {
+impl wardnetd_services::AccessRequestService for StubAccessRequestService {
     async fn create_for_ip(
         &self,
         _ip: &str,
-        _kind: wardnet_common::rule_request::RuleRequestKind,
-        _domain: &str,
+        _kind: wardnet_common::access_request::AccessRequestKind,
+        _domain: Option<String>,
         _reason: Option<String>,
-    ) -> Result<wardnet_common::rule_request::DeviceRuleRequest, AppError> {
+    ) -> Result<wardnet_common::access_request::DeviceAccessRequest, AppError> {
         unimplemented!()
     }
     async fn list_for_ip(
         &self,
         _ip: &str,
-    ) -> Result<Vec<wardnet_common::rule_request::DeviceRuleRequest>, AppError> {
+    ) -> Result<Vec<wardnet_common::access_request::DeviceAccessRequest>, AppError> {
         unimplemented!()
     }
     async fn list(
         &self,
-        _status: Option<wardnet_common::rule_request::RuleRequestStatus>,
-    ) -> Result<Vec<wardnet_common::rule_request::DeviceRuleRequest>, AppError> {
+        _status: Option<wardnet_common::access_request::AccessRequestStatus>,
+    ) -> Result<Vec<wardnet_common::access_request::DeviceAccessRequest>, AppError> {
         unimplemented!()
     }
     async fn decide(
         &self,
         _id: &str,
-        _status: wardnet_common::rule_request::RuleRequestStatus,
-    ) -> Result<wardnet_common::rule_request::DeviceRuleRequest, AppError> {
+        _status: wardnet_common::access_request::AccessRequestStatus,
+        _params: Option<wardnet_common::access_request::ApprovalParams>,
+    ) -> Result<wardnet_common::access_request::DeviceAccessRequest, AppError> {
+        unimplemented!()
+    }
+    async fn resolve_pending(
+        &self,
+        _device_id: uuid::Uuid,
+        _kind: wardnet_common::access_request::AccessRequestKind,
+        _status: wardnet_common::access_request::AccessRequestStatus,
+        _decided_by: Option<String>,
+    ) -> Result<Option<wardnet_common::access_request::DeviceAccessRequest>, AppError> {
         unimplemented!()
     }
 }
@@ -1453,7 +1463,7 @@ pub fn test_app_state() -> AppState {
         Arc::new(StubEventPublisher),
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
-        Arc::new(StubRuleRequestService),
+        Arc::new(StubAccessRequestService),
         Arc::new(StubZoneExceptionService),
     )
 }

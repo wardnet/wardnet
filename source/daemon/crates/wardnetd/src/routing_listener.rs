@@ -244,11 +244,13 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         // New-device quarantine (#738) and rule requests (#482) are
         // push-notification concerns only.
         | WardnetEvent::NewDeviceQuarantined { .. }
-        | WardnetEvent::RuleRequestCreated { .. }
+        | WardnetEvent::AccessRequestCreated { .. }
         // Entitlement changes are handled by the dedicated `entitlement_listener`.
         | WardnetEvent::EntitlementChanged { .. }
-        // Private DNS (#912) is the DoT runner's concern.
+        // Private DNS (#912) is the DoT runner's concern; a new grant (#919)
+        // additionally reconciles the access-request inbox in its own listener.
         | WardnetEvent::PrivateDnsChanged { .. }
+        | WardnetEvent::PrivateDnsGrantCreated { .. }
         | WardnetEvent::PrivateDnsGrantRevoked { .. } => {}
     }
 }

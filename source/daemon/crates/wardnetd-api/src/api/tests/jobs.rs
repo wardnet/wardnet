@@ -58,7 +58,7 @@ fn build_state(job_service: Arc<dyn JobService>) -> AppState {
         Arc::new(StubEventPublisher),
         job_service,
         Arc::new(crate::tests::stubs::StubStatsService),
-        Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubAccessRequestService),
         Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }

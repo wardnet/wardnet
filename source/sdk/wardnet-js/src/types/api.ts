@@ -281,35 +281,52 @@ export interface DnsCaptureSettingsResponse {
   size_bytes: number;
 }
 
-/** What a device rule request is asking for. */
-export type RuleRequestKind = "block" | "allow";
+/**
+ * What a device access request is asking for.
+ *
+ * `block` / `allow` name a `domain`; `private_dns` names none — the request is
+ * fully determined by which device asked.
+ */
+export type AccessRequestKind = "block" | "allow" | "private_dns";
 
-/** Lifecycle state of a device rule request. */
-export type RuleRequestStatus = "pending" | "approved" | "rejected";
+/** Lifecycle state of a device access request. */
+export type AccessRequestStatus = "pending" | "approved" | "rejected";
 
-/** A device's request for the admin to block or allow a domain. */
-export interface DeviceRuleRequest {
+/** A device's request for something an admin must grant. */
+export interface DeviceAccessRequest {
   id: string;
   device_id: string;
-  kind: RuleRequestKind;
-  domain: string;
+  kind: AccessRequestKind;
+  /** `null` for kinds that name no domain (`private_dns`). */
+  domain: string | null;
   reason: string | null;
-  status: RuleRequestStatus;
+  status: AccessRequestStatus;
   created_at: string;
   decided_at: string | null;
   decided_by: string | null;
 }
 
-/** Request body for POST /api/devices/me/rule-requests. */
-export interface CreateRuleRequestRequest {
-  kind: RuleRequestKind;
-  domain: string;
+/** Request body for POST /api/devices/me/access-requests. */
+export interface CreateAccessRequestRequest {
+  kind: AccessRequestKind;
+  /** Required for `allow` / `block`; rejected for kinds that take no domain. */
+  domain?: string | null;
   reason?: string | null;
 }
 
-/** Request body for PATCH /api/rule-requests/:id (admin decision). */
-export interface DecideRuleRequestRequest {
-  status: RuleRequestStatus;
+/**
+ * Kind-specific parameters supplied when approving.
+ *
+ * Approval is not uniform across kinds, so the decision body carries a typed
+ * payload rather than a bag of optional fields.
+ */
+export type ApprovalParams = { kind: "private_dns" };
+
+/** Request body for PATCH /api/access-requests/:id (admin decision). */
+export interface DecideAccessRequestRequest {
+  status: AccessRequestStatus;
+  /** Kind-specific approval parameters. Ignored when rejecting. */
+  approval?: ApprovalParams | null;
 }
 
 export interface DnsEventItem {

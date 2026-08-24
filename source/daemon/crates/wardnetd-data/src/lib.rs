@@ -15,16 +15,16 @@ use wardnet_common::config::{ApplicationConfiguration, DatabaseProvider};
 
 use crate::db::DbPools;
 use repository::{
-    AnomalyRepository, ApiKeyRepository, DeviceIdentificationRepository, DeviceRepository,
-    DhcpRepository, DnsEventsRepository, DnsFilterRepository, DnsLocalRepository, DnsRepository,
-    InboundWgPeerRepository, MaintenanceRepository, NetworkZoneRepository, NotificationRepository,
-    PrivateDnsGrantRepository, PushRepository, RoutingProfileRepository, RuleRequestRepository,
-    SessionRepository, SqliteAnomalyRepository, SqliteApiKeyRepository,
-    SqliteDeviceIdentificationRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
-    SqliteDnsRepository, SqliteInboundWgPeerRepository, SqliteMaintenanceRepository,
-    SqliteNetworkZoneRepository, SqliteNotificationRepository, SqlitePrivateDnsGrantRepository,
-    SqlitePushRepository, SqliteRoutingProfileRepository, SqliteRuleRequestRepository,
+    AccessRequestRepository, AnomalyRepository, ApiKeyRepository, DeviceIdentificationRepository,
+    DeviceRepository, DhcpRepository, DnsEventsRepository, DnsFilterRepository, DnsLocalRepository,
+    DnsRepository, InboundWgPeerRepository, MaintenanceRepository, NetworkZoneRepository,
+    NotificationRepository, PrivateDnsGrantRepository, PushRepository, RoutingProfileRepository,
+    SessionRepository, SqliteAccessRequestRepository, SqliteAnomalyRepository,
+    SqliteApiKeyRepository, SqliteDeviceIdentificationRepository, SqliteDeviceRepository,
+    SqliteDhcpRepository, SqliteDnsEventsRepository, SqliteDnsFilterRepository,
+    SqliteDnsLocalRepository, SqliteDnsRepository, SqliteInboundWgPeerRepository,
+    SqliteMaintenanceRepository, SqliteNetworkZoneRepository, SqliteNotificationRepository,
+    SqlitePrivateDnsGrantRepository, SqlitePushRepository, SqliteRoutingProfileRepository,
     SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
     SqliteTunnelRepository, SqliteTunnelSpeedTestRepository, SqliteUpdateRepository,
     SqliteUserCredentialRepository, SqliteUserEnrolmentRepository, SqliteUserRepository,
@@ -61,7 +61,7 @@ pub trait RepositoryFactory: Send + Sync {
     fn stats(&self) -> Arc<dyn StatsRepository>;
     fn update(&self) -> Arc<dyn UpdateRepository>;
     fn maintenance(&self) -> Arc<dyn MaintenanceRepository>;
-    fn rule_request(&self) -> Arc<dyn RuleRequestRepository>;
+    fn access_request(&self) -> Arc<dyn AccessRequestRepository>;
     fn push(&self) -> Arc<dyn PushRepository>;
     fn notification(&self) -> Arc<dyn NotificationRepository>;
     fn anomaly(&self) -> Arc<dyn AnomalyRepository>;
@@ -249,8 +249,8 @@ impl RepositoryFactory for SqliteRepositoryFactory {
         Arc::new(SqliteMaintenanceRepository::new_pools(self.pools.clone()))
     }
 
-    fn rule_request(&self) -> Arc<dyn RuleRequestRepository> {
-        Arc::new(SqliteRuleRequestRepository::new_pools(self.pools.clone()))
+    fn access_request(&self) -> Arc<dyn AccessRequestRepository> {
+        Arc::new(SqliteAccessRequestRepository::new_pools(self.pools.clone()))
     }
 
     fn push(&self) -> Arc<dyn PushRepository> {

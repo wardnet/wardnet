@@ -1,3 +1,4 @@
+pub mod access_request;
 pub mod anomaly;
 pub mod api_key;
 pub mod device;
@@ -14,7 +15,6 @@ pub mod notification;
 pub mod private_dns;
 pub mod push;
 pub mod routing_profile;
-pub mod rule_request;
 pub mod session;
 pub mod sqlite;
 pub mod stats;
@@ -27,6 +27,7 @@ pub mod user_credential;
 pub mod user_enrolment;
 pub mod zone_exception;
 
+pub use access_request::{AccessRequestRepository, DuplicateOpenAccessRequestError};
 pub use anomaly::{ANOMALY_RETENTION_CAP, AnomalyRepository, NewAnomaly};
 pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow, PrunedDevice};
@@ -54,15 +55,14 @@ pub use routing_profile::{
     DeviceAssignment, RoutingProfileRepository, RoutingProfileRow, RoutingProfileUpdate,
     RoutingRuleRow, RoutingRuleUpdate,
 };
-pub use rule_request::RuleRequestRepository;
 pub use session::{SessionForRefresh, SessionPrincipal, SessionRepository, SessionSummary};
 pub use sqlite::{
-    SqliteAnomalyRepository, SqliteApiKeyRepository, SqliteDeviceIdentificationRepository,
-    SqliteDeviceRepository, SqliteDhcpRepository, SqliteDnsEventsRepository,
-    SqliteDnsFilterRepository, SqliteDnsLocalRepository, SqliteDnsRepository,
-    SqliteInboundWgPeerRepository, SqliteMaintenanceRepository, SqliteNetworkZoneRepository,
-    SqliteNotificationRepository, SqlitePrivateDnsGrantRepository, SqlitePushRepository,
-    SqliteRoutingProfileRepository, SqliteRuleRequestRepository, SqliteSessionRepository,
+    SqliteAccessRequestRepository, SqliteAnomalyRepository, SqliteApiKeyRepository,
+    SqliteDeviceIdentificationRepository, SqliteDeviceRepository, SqliteDhcpRepository,
+    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
+    SqliteDnsRepository, SqliteInboundWgPeerRepository, SqliteMaintenanceRepository,
+    SqliteNetworkZoneRepository, SqliteNotificationRepository, SqlitePrivateDnsGrantRepository,
+    SqlitePushRepository, SqliteRoutingProfileRepository, SqliteSessionRepository,
     SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
     SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, SqliteUserCredentialRepository,
     SqliteUserEnrolmentRepository, SqliteUserRepository, SqliteZoneExceptionRepository,

@@ -27,11 +27,11 @@ use wardnetd_services::{AuthService, LogService};
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer, StubDhcpService,
-    StubDiscoveryService, StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService,
-    StubEventPublisher, StubJobService, StubLogService, StubNetworkZoneService,
-    StubProviderService, StubRoutingService, StubRuleRequestService, StubStatsService,
-    StubSystemService, StubTlsService, StubTunnelService, StubUpdateService,
+    StubAccessRequestService, StubBackupService, StubDdnsService, StubDeviceService,
+    StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
+    StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubJobService,
+    StubLogService, StubNetworkZoneService, StubProviderService, StubRoutingService,
+    StubStatsService, StubSystemService, StubTlsService, StubTunnelService, StubUpdateService,
     StubZoneExceptionService,
 };
 
@@ -180,7 +180,7 @@ fn build_state(auth: Arc<dyn AuthService>, anomalies: Arc<dyn AnomalyService>) -
         Arc::new(StubEventPublisher),
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
-        Arc::new(StubRuleRequestService),
+        Arc::new(StubAccessRequestService),
         Arc::new(StubZoneExceptionService),
     )
     .with_anomaly_service(anomalies)
@@ -333,7 +333,7 @@ async fn the_default_service_refuses_to_answer() {
         Arc::new(StubEventPublisher),
         StubJobService::new_arc(),
         Arc::new(StubStatsService),
-        Arc::new(StubRuleRequestService),
+        Arc::new(StubAccessRequestService),
         Arc::new(StubZoneExceptionService),
     );
 

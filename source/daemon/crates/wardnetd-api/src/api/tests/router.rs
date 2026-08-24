@@ -85,10 +85,10 @@ async fn all_api_routes_are_reachable() {
         ("GET", "/api/devices/me/dns-events/stream".to_owned()),
         ("POST", "/api/devices/me/dns-events/ack".to_owned()),
         ("PATCH", "/api/devices/me/dns-capture".to_owned()),
-        ("POST", "/api/devices/me/rule-requests".to_owned()),
-        ("GET", "/api/devices/me/rule-requests".to_owned()),
-        ("GET", "/api/rule-requests".to_owned()),
-        ("PATCH", format!("/api/rule-requests/{fake_uuid}")),
+        ("POST", "/api/devices/me/access-requests".to_owned()),
+        ("GET", "/api/devices/me/access-requests".to_owned()),
+        ("GET", "/api/access-requests".to_owned()),
+        ("PATCH", format!("/api/access-requests/{fake_uuid}")),
         ("GET", format!("/api/devices/{fake_uuid}")),
         ("PUT", format!("/api/devices/{fake_uuid}")),
         ("GET", "/api/info".to_owned()),
@@ -284,7 +284,7 @@ async fn info_sentinel_is_not_served() {
 /// CWE-352 regression guard for the self-service, IP-authenticated endpoints.
 ///
 /// Those endpoints (`PUT /api/devices/me/rule`, `PATCH
-/// /api/devices/me/dns-capture`, the DNS-events stream/ack, rule-requests)
+/// /api/devices/me/dns-capture`, the DNS-events stream/ack, access-requests)
 /// authenticate the caller by TCP peer IP — ambient authority a `SameSite` cookie
 /// cannot protect. The daemon must therefore never help a cross-origin page
 /// reach them: a cross-origin preflight must not be answered, and no actual
