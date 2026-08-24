@@ -1,0 +1,26 @@
+# THROWAWAY. Verifies the Rust half of pedromvgomes/gt@fix/bulwark-toolchain-cache
+# before that change is released. Delete with the branch.
+#
+# Minimal on purpose: the governance branch is 17 commits behind main and
+# conflicting, so GitHub never computes a merge commit for it and dispatches no
+# pull_request workflow at all. This calls the same reusable workflow with the
+# same `dir: source` the repo will use, off current main, so it actually runs.
+name: zz test bulwark toolchain
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bulwark:
+    uses: pedromvgomes/gt/.github/workflows/reusable-bulwark.yml@fix/bulwark-toolchain-cache
+    with:
+      dir: source
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+    permissions:
+      contents: write
+      pull-requests: write
