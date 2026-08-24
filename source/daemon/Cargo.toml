@@ -230,7 +230,7 @@ socket2 = { version = "0.6", features = ["all"] }
 # a specific tunnel interface.
 surge-ping = "0.9"
 # https://crates.io/crates/rtnetlink
-rtnetlink = "0.21"
+rtnetlink = "0.23"
 # https://crates.io/crates/netlink-packet-route
 netlink-packet-route = "0.31"
 # https://crates.io/crates/netlink-sys
