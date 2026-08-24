@@ -29,6 +29,8 @@ export const DHCP_POOL_END = "10.91.0.150";
 /** Subset of the daemon's DhcpConfig we read back before re-saving. */
 interface DhcpConfig {
   enabled: boolean;
+  pool_start: string;
+  pool_end: string;
   subnet_mask: string;
   upstream_dns: string[];
   lease_duration_secs: number;
@@ -174,19 +176,27 @@ export async function seedDhcpLease(): Promise<string> {
       body: JSON.stringify({ enabled: true }),
     });
   }
-  // updateConfig is idempotent — re-setting to the same values is safe.
-  await api("/dhcp/config", {
-    method: "PUT",
-    token,
-    body: JSON.stringify({
-      pool_start: DHCP_POOL_START,
-      pool_end: DHCP_POOL_END,
-      subnet_mask: config.subnet_mask,
-      upstream_dns: config.upstream_dns,
-      lease_duration_secs: config.lease_duration_secs,
-      ...(config.router_ip ? { router_ip: config.router_ip } : {}),
-    }),
-  });
+  // Only write the pool when it actually differs. The PUT respawns the
+  // daemon's DHCP runner, and the renew below lands in that restart
+  // window — which is what makes dhclient miss its first exchange and
+  // sit out its retransmit backoff for the better part of a minute.
+  if (
+    config.pool_start !== DHCP_POOL_START ||
+    config.pool_end !== DHCP_POOL_END
+  ) {
+    await api("/dhcp/config", {
+      method: "PUT",
+      token,
+      body: JSON.stringify({
+        pool_start: DHCP_POOL_START,
+        pool_end: DHCP_POOL_END,
+        subnet_mask: config.subnet_mask,
+        upstream_dns: config.upstream_dns,
+        lease_duration_secs: config.lease_duration_secs,
+        ...(config.router_ip ? { router_ip: config.router_ip } : {}),
+      }),
+    });
+  }
 
   return acquireLeaseInRange(
     TEST_DEBIAN_AGENT,

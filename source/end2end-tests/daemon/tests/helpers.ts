@@ -496,12 +496,17 @@ export async function ensureDnsEnabled(
 
 /**
  * Idempotent DHCP setup for specs that need a leased `test_debian`.
- * Toggles DHCP on, narrows the pool to `[start, end]`, drives the agent
- * through `dhclient renew` until a lease lands, then issues a DNS query
- * via the agent so the daemon's packet-capture-driven device discovery
- * has at least one observation to act on (otherwise `/api/devices`
- * sometimes hasn't seen the agent yet by the time the spec polls).
- * Safe to call across specs that vitest reorders.
+ * Toggles DHCP on, narrows the pool to `[start, end]` if it isn't
+ * already, reuses the agent's existing in-pool address or drives
+ * `dhclient renew` until one lands, then issues a DNS query via the
+ * agent so the daemon's packet-capture-driven device discovery has at
+ * least one observation to act on (otherwise `/api/devices` sometimes
+ * hasn't seen the agent yet by the time the spec polls).
+ *
+ * Every step is conditional because eleven specs call this and vitest
+ * reorders them: the first one through does the real work, the rest
+ * find the daemon and the agent already in the desired state and skip
+ * straight to the DNS poke.
  */
 export async function ensureLeasedAgent(
   client: WardnetClient,
@@ -515,20 +520,35 @@ export async function ensureLeasedAgent(
   if (!cfg.enabled) {
     await dhcp.toggle({ enabled: true });
   }
-  // updateConfig is idempotent; calling it across specs only re-sets to
-  // the same values. Safer than checking each field for drift.
-  await dhcp.updateConfig({
-    pool_start: poolStart,
-    pool_end: poolEnd,
-    subnet_mask: cfg.subnet_mask,
-    upstream_dns: cfg.upstream_dns,
-    lease_duration_secs: cfg.lease_duration_secs,
-    ...(cfg.router_ip ? { router_ip: cfg.router_ip } : {}),
-  });
-  // If the agent already has an in-pool lease, /dhcp/renew is a fast
-  // no-op; if not, it triggers DISCOVER → REQUEST → ACK against the
-  // daemon. Up to 5 attempts spread over ~7.5 s.
-  const ip = await acquireLeaseInRange(agent, iface, poolStart, poolEnd, 5);
+  // Only write the pool when it actually differs. updateConfig respawns
+  // the daemon's DHCP runner, and a renew issued into that restart window
+  // is what made dhclient miss its first exchange and sit out its
+  // retransmit backoff.
+  if (cfg.pool_start !== poolStart || cfg.pool_end !== poolEnd) {
+    await dhcp.updateConfig({
+      pool_start: poolStart,
+      pool_end: poolEnd,
+      subnet_mask: cfg.subnet_mask,
+      upstream_dns: cfg.upstream_dns,
+      lease_duration_secs: cfg.lease_duration_secs,
+      ...(cfg.router_ip ? { router_ip: cfg.router_ip } : {}),
+    });
+  }
+  // Reuse an address the agent already holds. The agent's /dhcp/renew is
+  // NOT a no-op for an already-leased interface: it shells out to
+  // `dhclient -r` and then `dhclient <iface>` unconditionally (see
+  // wardnet-test-agent/src/client/dhcp.rs), dropping a good lease to
+  // re-acquire it. The daemon answers DISCOVER in a few ms, but
+  // dhclient's own release/acquire cycle cost 45-60 s per call — paid
+  // once per spec by each of the eleven specs using this helper.
+  // Checking the interface first turns all but the first into one GET.
+  const ifaces = await agentGet<AgentInterfacesResponse>(
+    agent,
+    `/interfaces?name=${iface}`,
+  );
+  const ip =
+    ipv4InRange(ifaces, iface, poolStart, poolEnd) ??
+    (await acquireLeaseInRange(agent, iface, poolStart, poolEnd, 5));
   // Poke the agent into doing one DNS lookup against the daemon. The
   // daemon registers the device when it observes traffic on the LAN
   // (DeviceDiscoveryService consumes packet_capture events); a single
