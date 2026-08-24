@@ -10,21 +10,18 @@
 # never touches them again. Branch protection needs exactly one check, ci-gate,
 # which waits on all of them.
 #
-# ONBOARDING STATE. This repository's 26 existing workflows still run and are
-# still what branch protection requires. The ci-*/cd-* stages gt scaffolds here
-# are empty no-ops on purpose: landing them changes nothing, and the existing
-# jobs move into them one stage at a time in follow-up PRs. Do not make ci-gate
-# the required check until that migration is done, or the gate will pass on an
-# empty pipeline.
+# Only deliberate overrides are written here. Everything absent follows gt's
+# default and keeps following it as that default changes — a value pinned in
+# this file stops tracking gt, which is why sync removes the ones that merely
+# restate it. Run 'gt repo config' to see the resolved spec, defaults included.
 
-gt_version: v1.0.0
+gt_version: 1.3.0
 dependabot:
   - ecosystem: cargo
     directory: /source/daemon
     note: |
       The daemon workspace. Covers every member crate through the single
       Cargo.lock at this directory.
-
   - ecosystem: cargo
     directory: /source/daemon/fuzz
     note: |
@@ -32,14 +29,12 @@ dependabot:
       excludes it so libfuzzer-sys and the nightly sanitizer rustflags cannot
       leak into normal builds. That separation also means its Cargo.lock is
       invisible to the entry above, so it needs its own.
-
   - ecosystem: docker
     directory: /.clusterfuzzlite
     note: |
       ClusterFuzzLite build image. Every FROM is digest-pinned for Scorecard and
       supply-chain integrity, so Dependabot is the only channel that surfaces
       upstream image updates.
-
   - ecosystem: docker
     directory: /source/daemon
     note: |
@@ -48,7 +43,6 @@ dependabot:
         Dockerfile        production image (FROM wardnet-base)
         Dockerfile.base   shared OS layer (FROM debian:bookworm-slim)
         Dockerfile.test   end-to-end test image (FROM rust + wardnet-base)
-
   - ecosystem: docker
     directory: /source/end2end-tests/daemon/mocks/nordvpn
   - ecosystem: docker
@@ -57,7 +51,6 @@ dependabot:
     directory: /source/end2end-tests/daemon/mocks/wg-tunnel-gateway
   - ecosystem: docker
     directory: /source/end2end-tests/web-ui/mocks/wardnet-cloud
-
   - ecosystem: github-actions
     directory: /
     groups:
@@ -76,12 +69,10 @@ dependabot:
           sibling PR now fails that same broken CodeQL job, auto-merge won't
           merge it either, so main stays red until a human intervenes. That
           deadlock cost us #991, #1059 and #1069.
-
   - ecosystem: gomod
     directory: /source/sdk/wardnet-go
   - ecosystem: gomod
     directory: /source/wctl
-
   - ecosystem: npm
     directory: /source
     note: |
@@ -93,101 +84,17 @@ dependabot:
 
       This one entry covers the root manifest plus all workspaces
       (sdk/wardnet-js, web, admin-site, admin-app, user-app, marketing-site).
-
   - ecosystem: npm
     directory: /source/end2end-tests/daemon
     note: |
       Standalone package with its own yarn.lock — not part of the /source
       workspace, so it keeps its own entry.
-
   - ecosystem: npm
     directory: /source/end2end-tests/web-ui
     note: |
       Standalone package with its own yarn.lock, same as the daemon suite above.
-
-dependabot_auto_merge:
-  enabled: true
-  schedule: 0 1 * * *
-  max_bump: minor
-  delete_branch: true
-
 bulwark:
-  # Off until the test stage migration lands, then flipped on with `dir: source`.
-  #
-  # gt's reusable-bulwark consumes a single `gt-coverage` artifact and drops
-  # coverage.out / lcov.info at the scan root. This repo's coverage.yml does
-  # considerably more: it stages a Rust llvm-cov.json and lcov.info, a
-  # coverage.out per Go module, and a coverage/ directory per TypeScript
-  # package, each at the path bulwark's own candidate search already checks.
-  #
-  # Enabling gt's copy now would run bulwark twice per PR, and the gt run would
-  # find no reports — which is not merely wasted time, because bulwark caches
-  # coverage baselines on the bulwark-state branch and a report-less run would
-  # write an empty baseline over a real one.
-  enabled: false
-
+  dir: source
 pipeline:
-  ci:
-    enabled: true
-    stages:
-      - preflight
-      - build
-      - test
-      - end2end
-    # Merge queues need an organization-owned repository.
-    merge_queue: false
-  # Off until the release workflows migrate, and this one is not merely
-  # cosmetic. CI can land inert — its stages are no-ops and nothing requires
-  # ci-gate yet — but CD cannot, because it claims a live trigger.
-  #
-  # cd-orchestration fires on push of `v*.*.*`, which is exactly the tag
-  # release.yml already ships on, and its verify-attestation runs with
-  # require: true. No tree on main carries a gt attestation yet, so the very
-  # next release would go red on a pipeline that ships nothing.
-  #
-  # Turn this on in the same PR that moves release.yml into the cd-* stages.
   cd:
     enabled: false
-    stages:
-      - preflight
-      - publish
-      - deploy
-      - verify
-    # wardnet ships on more than one pattern — @wardnet/js@*.*.* for the SDK and
-    # base-v* for the base image — so migrating CD means deciding whether those
-    # become separate stages or stay their own workflows.
-    tags:
-      - v*.*.*
-
-conventional_commits:
-  enabled: true
-  scope: pr_title
-  types:
-    - feat
-    - fix
-    - docs
-    - style
-    - refactor
-    - perf
-    - test
-    - build
-    - ci
-    - chore
-    - revert
-
-settings:
-  merge:
-    squash: true
-    merge_commit: false
-    rebase: false
-    delete_branch_on_merge: true
-  branch_protection:
-    branch: main
-    required_approvals: 0
-    # The attestation records the tree a run validated, so an up-to-date
-    # requirement would force re-runs that prove nothing new.
-    require_up_to_date: false
-
-files:
-  - sync
-  - dependabot-auto-merge

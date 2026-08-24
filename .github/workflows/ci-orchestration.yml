@@ -46,10 +46,15 @@ jobs:
     # A called workflow may only narrow these. Granting less than
     # reusable-attest declares fails the run at parse time, before any job
     # starts — so ci-gate never reports and every PR blocks.
+    #
+    # pull-requests: write is for the note attest leaves when it skips the
+    # pipeline. A skipped job is indistinguishable from a broken one at a
+    # glance, so the reason is said out loud on the pull request and withdrawn
+    # when it stops being true.
     permissions:
       contents: read
       statuses: read
-      pull-requests: read
+      pull-requests: write
 
   preflight:
     needs: [attest]
@@ -148,11 +153,42 @@ jobs:
     if: needs.attest.outputs.validated != 'true'
     uses: pedromvgomes/gt/.github/workflows/reusable-governance.yml@v1
 
+  bulwark:
+    needs: [attest, test]
+    # `!cancelled()` because a job whose needs were skipped is skipped too, and
+    # ci-gate counts skipped as a pass. Without it a preflight that skips tests
+    # would silently disable the security gate while the required check stayed
+    # green. bulwark still runs *after* tests, to consume their coverage.
+    if: "!cancelled() && needs.attest.outputs.validated != 'true'"
+    uses: pedromvgomes/gt/.github/workflows/reusable-bulwark.yml@fix/bulwark-toolchain-cache
+    # Named explicitly, NOT `inherit`. GitHub documents inherit as working for
+    # "reusable workflows in the same organization or enterprise", and gt lives
+    # under a different owner than most repositories that call it — so an
+    # organization secret never arrived, bulwark skipped its Codecov upload and
+    # quietly fell back to token-less semgrep. Nothing failed; coverage history
+    # just stopped being recorded.
+    #
+    # Naming them makes this workflow resolve each value in its own context and
+    # pass it in, which works across owners. An unset secret resolves to the
+    # empty string, which bulwark already treats as "not configured", so a
+    # repository using neither is unaffected.
+    #
+    # This also answers semgrep's secrets-inherit rule properly rather than
+    # suppressing it: nothing is inherited here now.
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      dir: source
+
   # The single required check. `if: always()` so it still reports when a stage
   # was skipped, and a skipped stage passes — that is the point of preflight.
   ci-gate:
     name: ci-gate
-    needs: [attest, preflight, build, test, end2end, conventional-commits, governance]
+    needs: [attest, preflight, build, test, end2end, conventional-commits, governance, bulwark]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -194,8 +230,11 @@ jobs:
           # tree of the merged result — which is exactly what a squash merge
           # puts on the default branch.
           tree=$(git rev-parse "HEAD^{tree}")
+          # target_url so a later run can link back to the one that did the
+          # work, rather than asserting an earlier run exists somewhere.
           gh api "repos/${REPO}/statuses/${SHA}" \
             -f state=success \
             -f context=gt/validated-tree \
-            -f description="$tree" >/dev/null
+            -f description="$tree" \
+            -f target_url="${{ github.server_url }}/${REPO}/actions/runs/${{ github.run_id }}" >/dev/null
           echo "attested tree ${tree} on ${SHA}"

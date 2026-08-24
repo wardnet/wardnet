@@ -26,3 +26,13 @@ permissions:
 jobs:
   auto-merge:
     uses: pedromvgomes/gt/.github/workflows/reusable-dependabot-auto-merge.yml@v1
+    # Named, not inherited: `secrets: inherit` is documented as working for
+    # reusable workflows "in the same organization or enterprise", and gt lives
+    # under a different owner than the repositories calling it. The bulwark
+    # stage lost its Codecov token to exactly that, silently.
+    #
+    # Both are optional and resolve to the empty string where the organization
+    # has no bot App, which the called workflow treats as "not configured".
+    secrets:
+      APP_CLIENT_ID: ${{ secrets.APP_CLIENT_ID }}
+      APP_PRIVATE_KEY: ${{ secrets.APP_PRIVATE_KEY }}
