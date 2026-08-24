@@ -234,7 +234,7 @@ rtnetlink = "0.21"
 # https://crates.io/crates/netlink-packet-route
 netlink-packet-route = "0.31"
 # https://crates.io/crates/netlink-sys
-netlink-sys = "0.8"
+netlink-sys = "0.9"
 # https://crates.io/crates/rustables — pure-Rust nftables over netlink (no nft
 # CLI). build.rs runs bindgen against <linux/netfilter/nf_tables.h>, so the
 # BUILD env needs clang/libclang + kernel uapi headers; nothing C links at
