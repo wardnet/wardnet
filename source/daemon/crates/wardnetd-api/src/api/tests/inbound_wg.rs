@@ -18,10 +18,10 @@ use wardnet_common::api::{
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    AlwaysSessionAuth, StubBackupService, StubDdnsService, StubDeviceService, StubDhcpServer,
-    StubDhcpService, StubDiscoveryService, StubDnsFilterService, StubDnsLocalService,
-    StubDnsServer, StubDnsService, StubEventPublisher, StubLogService, StubNetworkZoneService,
-    StubProviderService, StubRoutingService, StubRuleRequestService, StubStatsService,
+    AlwaysSessionAuth, StubAccessRequestService, StubBackupService, StubDdnsService,
+    StubDeviceService, StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
+    StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
+    StubNetworkZoneService, StubProviderService, StubRoutingService, StubStatsService,
     StubSystemService, StubTlsService, StubTunnelService, StubUpdateService,
     StubZoneExceptionService,
 };
@@ -171,7 +171,7 @@ fn make_state(inbound_wg: Arc<dyn InboundWgService>) -> AppState {
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(StubStatsService),
-        Arc::new(StubRuleRequestService),
+        Arc::new(StubAccessRequestService),
         Arc::new(StubZoneExceptionService),
     )
     .with_inbound_wg_service(inbound_wg)

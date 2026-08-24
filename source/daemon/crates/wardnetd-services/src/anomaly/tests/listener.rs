@@ -4,7 +4,7 @@ use wardnet_common::anomaly::AnomalyType;
 use wardnet_common::event::{TUNNEL_DOWN_INTERFACE_ABSENT, WardnetEvent};
 use wardnet_common::update::InstallPhase;
 
-use crate::anomaly::listener::report_from_event;
+use crate::anomaly::listener::{report_from_event, resolutions_from_event};
 
 #[test]
 fn tunnel_start_failed_maps_to_an_anomaly_keyed_on_the_tunnel() {
@@ -108,6 +108,62 @@ fn a_deliberate_tear_down_is_not_an_anomaly() {
     }
 }
 
+/// The other half of a deliberate tear-down: it does not *raise* an anomaly,
+/// and it *clears* both tunnel anomalies for that tunnel. This is how "an
+/// admin stopped it" resolves the alert — keyed on the event, because
+/// `TunnelStatus::Down` is also what a broken tunnel leaves behind.
+#[test]
+fn a_deliberate_tear_down_clears_both_tunnel_anomalies() {
+    let tunnel_id = Uuid::new_v4();
+
+    for reason in ["admin requested", "tunnel deleted", "idle"] {
+        let resolutions = resolutions_from_event(&WardnetEvent::TunnelDown {
+            tunnel_id,
+            interface_name: "wg_ward0".to_owned(),
+            reason: reason.to_owned(),
+            timestamp: Utc::now(),
+        });
+
+        assert_eq!(
+            resolutions,
+            vec![
+                (AnomalyType::TunnelUnhealthy, tunnel_id.to_string()),
+                (AnomalyType::TunnelStartFailed, tunnel_id.to_string()),
+            ],
+            "reason {reason:?} must clear both tunnel anomalies"
+        );
+    }
+}
+
+/// The guard is the exact inverse of `report_from_event`'s, so a vanished
+/// interface raises an anomaly and clears nothing. If both fired, the anomaly
+/// would close itself the instant it opened.
+#[test]
+fn a_vanished_interface_clears_nothing() {
+    assert!(
+        resolutions_from_event(&WardnetEvent::TunnelDown {
+            tunnel_id: Uuid::new_v4(),
+            interface_name: "wg_ward0".to_owned(),
+            reason: TUNNEL_DOWN_INTERFACE_ABSENT.to_owned(),
+            timestamp: Utc::now(),
+        })
+        .is_empty()
+    );
+}
+
+#[test]
+fn ordinary_events_clear_nothing() {
+    assert!(
+        resolutions_from_event(&WardnetEvent::TunnelStartFailed {
+            tunnel_id: Uuid::new_v4(),
+            interface_name: "wg_ward0".to_owned(),
+            error: "boom".to_owned(),
+            timestamp: Utc::now(),
+        })
+        .is_empty()
+    );
+}
+
 #[test]
 fn update_failed_records_the_target_version_for_reevaluation() {
     let report = report_from_event(&WardnetEvent::UpdateFailed {
@@ -192,11 +248,18 @@ use crate::event::{BroadcastEventBus, EventPublisher};
 #[derive(Default)]
 struct RecordingService {
     submitted: StdMutex<Vec<AnomalyType>>,
+    resolved: StdMutex<Vec<(AnomalyType, String)>>,
+    /// Make `resolve_subject` fail, to exercise the listener's error path.
+    fail_resolve: bool,
 }
 
 impl RecordingService {
     fn submitted(&self) -> Vec<AnomalyType> {
         self.submitted.lock().unwrap().clone()
+    }
+
+    fn resolved(&self) -> Vec<(AnomalyType, String)> {
+        self.resolved.lock().unwrap().clone()
     }
 }
 
@@ -211,6 +274,20 @@ impl AnomalyService for RecordingService {
     }
     async fn resolve(&self, _id: Uuid) -> Result<(), AppError> {
         unimplemented!()
+    }
+    async fn resolve_subject(
+        &self,
+        anomaly_type: AnomalyType,
+        subject_id: &str,
+    ) -> Result<(), AppError> {
+        self.resolved
+            .lock()
+            .unwrap()
+            .push((anomaly_type, subject_id.to_owned()));
+        if self.fail_resolve {
+            return Err(AppError::Internal(anyhow::anyhow!("resolve blew up")));
+        }
+        Ok(())
     }
     async fn run_detector(&self, _t: AnomalyType) -> Result<(), AppError> {
         unimplemented!()
@@ -256,6 +333,41 @@ async fn the_listener_submits_error_events_and_ignores_the_rest() {
     assert_eq!(service.submitted(), vec![AnomalyType::TunnelStartFailed]);
 }
 
+/// End-to-end: an admin stopping a tunnel reaches the service as a resolve,
+/// and raises nothing.
+#[tokio::test]
+async fn the_listener_resolves_tunnel_anomalies_on_a_deliberate_tear_down() {
+    let tunnel_id = Uuid::new_v4();
+    let events: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+    let service = Arc::new(RecordingService::default());
+    let listener = AnomalyListener::start(&events, service.clone(), &tracing::Span::current());
+
+    events.publish(WardnetEvent::TunnelDown {
+        tunnel_id,
+        interface_name: "wg_ward0".to_owned(),
+        reason: "admin requested".to_owned(),
+        timestamp: Utc::now(),
+    });
+
+    for _ in 0..200 {
+        if service.resolved().len() >= 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    listener.shutdown().await;
+
+    assert_eq!(
+        service.resolved(),
+        vec![
+            (AnomalyType::TunnelUnhealthy, tunnel_id.to_string()),
+            (AnomalyType::TunnelStartFailed, tunnel_id.to_string()),
+        ]
+    );
+    // A tear-down is not itself a problem.
+    assert!(service.submitted().is_empty());
+}
+
 #[tokio::test]
 async fn the_listener_exits_when_the_event_bus_closes() {
     let bus = Arc::new(BroadcastEventBus::new(16));
@@ -271,4 +383,37 @@ async fn the_listener_exits_when_the_event_bus_closes() {
     tokio::time::timeout(Duration::from_secs(5), listener.shutdown())
         .await
         .expect("listener should exit when the bus closes");
+}
+
+/// A failing resolve must not take the listener down with it. The bus is the
+/// only path anomalies arrive on, so a listener that dies on one bad event
+/// stops reporting every later problem too.
+#[tokio::test]
+async fn a_failing_resolve_is_logged_and_the_listener_keeps_running() {
+    let events: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));
+    let service = Arc::new(RecordingService {
+        fail_resolve: true,
+        ..RecordingService::default()
+    });
+    let listener = AnomalyListener::start(&events, service.clone(), &tracing::Span::current());
+
+    // A tear-down, whose resolve will fail...
+    events.publish(WardnetEvent::TunnelDown {
+        tunnel_id: Uuid::new_v4(),
+        interface_name: "wg_ward0".to_owned(),
+        reason: "admin requested".to_owned(),
+        timestamp: Utc::now(),
+    });
+    // ...followed by an ordinary failure, which must still be reported.
+    events.publish(WardnetEvent::TunnelStartFailed {
+        tunnel_id: Uuid::new_v4(),
+        interface_name: "wg_ward1".to_owned(),
+        error: "boom".to_owned(),
+        timestamp: Utc::now(),
+    });
+
+    settle(&service, 1).await;
+    listener.shutdown().await;
+
+    assert_eq!(service.submitted(), vec![AnomalyType::TunnelStartFailed]);
 }

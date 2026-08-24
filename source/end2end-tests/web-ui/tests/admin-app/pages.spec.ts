@@ -17,7 +17,7 @@ import {
  * `storageState` (see playwright.config.ts). The shell (manifest, service
  * worker, tab-bar navigation, h1 headings, login) is covered by
  * pwa-shell.spec.ts; this spec deliberately exercises page *content* and
- * *actions* instead. Selectors follow the suite's `data-testid` convention
+ * user-visible actions instead. Selectors follow the suite's `data-testid` convention
  * (README.md → "Selector convention"): testids locate, human-facing
  * label/role/text is additionally asserted where meaningful.
  *
@@ -37,7 +37,7 @@ import {
  *   - Tunnel *rebuild* would run against the only seedable tunnel, a
  *     non-functional dummy (status down, throwaway WireGuard keys), so firing
  *     it is meaningless and flaky — presence + enabled is the contract. (The
- *     *speed test* is fired end-to-end against the deterministic stub backends
+ *     a speed test is fired end-to-end against the deterministic stub backends
  *     in tunnel-speed-test.spec.ts; here it too is presence + enabled only.)
  */
 

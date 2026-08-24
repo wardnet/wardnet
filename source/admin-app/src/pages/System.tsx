@@ -45,12 +45,48 @@ function kindPill(kind: NotificationItem["kind"]): {
   label: string;
 } {
   switch (kind) {
+    // Anomaly-backed entries carry the anomaly type's own slug as the kind,
+    // not a generic "anomaly", so each needs a case here — without one a
+    // tunnel going down falls to the "System" default and reads as routine
+    // noise.
+    //
+    // They are deliberately `info` rather than severity-coloured. The feed is
+    // a *history* holding both edges of an anomaly, and the opened and
+    // resolved notifications share a kind: `notify_anomaly_resolved` marks the
+    // difference with `data.state`, which is never persisted (neither
+    // `StoredNotification` nor the SDK's `NotificationItem` carries it). So a
+    // row here cannot be known to be a failure, and colouring it red would
+    // paint "Problem resolved" as an outage. Severity belongs to the
+    // Anomalies card above, which lists only what is currently open and reads
+    // it from `anomaly.severity`.
+    //
+    // The label still names the subsystem, which is what the original bug
+    // cost. Wording mirrors the anomaly's `component`, so both blocks on this
+    // screen use one vocabulary.
+    case "tunnel_start_failed":
+    case "tunnel_unhealthy":
+      return { variant: "info", label: "Tunnel" };
+    case "route_table_lost":
+      return { variant: "info", label: "Routing" };
+    case "blocklist_refresh_failing":
+      return { variant: "info", label: "DNS" };
+    case "dhcp_conflict":
+      return { variant: "info", label: "DHCP" };
+    case "update_failed":
+      return { variant: "info", label: "Update" };
+    // Retired kind, kept for historic rows. Unlike the anomaly kinds it is
+    // unambiguously a failure — nothing ever published a recovery under it —
+    // so it keeps its colour.
     case "tunnel_offline":
       return { variant: "down", label: "Tunnel" };
     case "new_device_quarantined":
       return { variant: "warn", label: "New device" };
     case "routing_changed":
       return { variant: "info", label: "Routing" };
+    // `rule_request_created` is the pre-#919 wire string. Feed rows persist, so
+    // entries written before the rename would otherwise fall through to the
+    // generic "System" pill and silently relabel a household member's ask.
+    case "access_request_created":
     case "rule_request_created":
       return { variant: "info", label: "Request" };
     default:

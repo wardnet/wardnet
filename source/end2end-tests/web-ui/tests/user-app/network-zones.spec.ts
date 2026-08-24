@@ -54,5 +54,6 @@ test("the owner cannot change the zone", async ({ page }) => {
   await expect(card).toBeVisible();
   await expect(card.getByRole("button")).toHaveCount(0);
   await expect(card.getByRole("combobox")).toHaveCount(0);
+  // biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
   await expect(card.locator("select, input, [role='switch']")).toHaveCount(0);
 });

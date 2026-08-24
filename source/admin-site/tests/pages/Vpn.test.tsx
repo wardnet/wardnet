@@ -42,6 +42,7 @@ vi.mock("@/components/compound/PageHeader", () => ({
 }));
 // Stand-ins that surface the callbacks as buttons: the page's contract with
 // these children is *what it does when they fire*, which a null mock hides.
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 vi.mock("@/components/compound/InboundWgPeersTable", () => ({
   InboundWgPeersTable: ({
     peers,

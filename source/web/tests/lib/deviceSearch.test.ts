@@ -103,6 +103,7 @@ describe("matchesDevice", () => {
   });
 });
 
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 describe("findNeighbourMacs", () => {
   // Espressif derives Wi-Fi STA / Wi-Fi AP / BT / ETH from one base address as
   // base+0/+1/+2/+3, which is why a vendor app's Bluetooth MAC lands a few

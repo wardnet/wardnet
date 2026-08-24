@@ -4,7 +4,7 @@
  * A Network Zone is a named policy bucket a device belongs to (exactly one). It
  * gates the device's allowed routing targets, its reachability of the Pi's admin
  * surfaces, and (Phase 2+) its network isolation. Distinct from the DNS
- * *authoritative local zone* (`types/dns-local`).
+ * `authoritative local zone` (`types/dns-local`).
  */
 
 /** A permitted routing-target kind. Coarse: any tunnel, or direct. */

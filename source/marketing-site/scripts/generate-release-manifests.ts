@@ -23,8 +23,11 @@
  *     empty placeholder manifests and logs a warning — never fails the build.
  */
 
+// biome-ignore lint/correctness/noNodejsModules: build/codegen script, run by Node from the CLI
 import { mkdir, writeFile } from "node:fs/promises";
+// biome-ignore lint/correctness/noNodejsModules: build/codegen script, run by Node from the CLI
 import { dirname, resolve } from "node:path";
+// biome-ignore lint/correctness/noNodejsModules: build/codegen script, run by Node from the CLI
 import { fileURLToPath } from "node:url";
 
 import { Octokit } from "@octokit/rest";
@@ -113,6 +116,7 @@ interface GithubRelease {
 }
 
 async function fetchReleases(): Promise<GithubRelease[]> {
+  // biome-ignore lint/correctness/noProcessGlobal: build/codegen script, run by Node from the CLI
   const octokit = new Octokit({ auth: process.env.GITHUB_TOKEN });
   // Paginate in case the release history grows beyond one page.
   const releases = await octokit.paginate(octokit.rest.repos.listReleases, {

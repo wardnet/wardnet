@@ -521,7 +521,7 @@ async fn run(
     );
     let anomalies_engine = AnomaliesDetectionEngine::start_with_intervals(
         services.anomaly.clone(),
-        Duration::from_secs(config.anomalies.reevaluate_interval_secs),
+        config.anomalies.reevaluate_interval(),
         &root_span,
     );
 
@@ -536,6 +536,17 @@ async fn run(
             services.routing.clone(),
             &root_span,
         );
+
+    // Reconciles the access-request inbox with Private DNS grants made outside
+    // it (#919), so granting from the Remote Access card doesn't leave a
+    // phantom pending request. Goes over the bus rather than a direct call
+    // because approving a request already depends on `PrivateDnsService` —
+    // see the listener's own docs.
+    let access_request_listener = wardnetd::access_request_listener::AccessRequestListener::start(
+        &services.event_publisher,
+        services.access_request.clone(),
+        &root_span,
+    );
 
     // Reconcile routing state with kernel on startup.
     auth_context::with_context(AuthContext::system(), services.routing.reconcile())
@@ -1107,7 +1118,7 @@ async fn run(
         services.event_publisher.clone(),
         services.jobs.clone(),
         services.stats.clone(),
-        services.rule_request.clone(),
+        services.access_request.clone(),
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
@@ -1285,6 +1296,7 @@ async fn run(
     health_runner.shutdown().await;
     routing_listener.shutdown().await;
     dns_device_snapshot_listener.shutdown().await;
+    access_request_listener.shutdown().await;
     device_snapshot_listener.shutdown().await;
     zone_enforcement_listener.shutdown().await;
     entitlement_listener.shutdown().await;

@@ -78,7 +78,7 @@ test("speed test: run from the card, see the direct/tunnel comparison and detail
   await expect(history).toContainText("90%");
 });
 
-test("speed test: a concurrent run on the same tunnel returns 409", async ({}) => {
+test("speed test: a concurrent run on the same tunnel returns 409", async () => {
   const token = await ensureAdminSetup();
   const id = await importTunnelReturningId(TUNNEL_SPEED_TEST_409_LABEL);
 

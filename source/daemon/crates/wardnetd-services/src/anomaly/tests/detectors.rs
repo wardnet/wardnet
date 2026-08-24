@@ -301,19 +301,24 @@ async fn tunnel_unhealthy_resolves_once_the_tunnel_is_up() {
     );
 }
 
-/// The difference from `TunnelStartFailed`: "it should be working and isn't"
-/// stops being true the moment an admin deliberately stops the tunnel.
+/// `Down` must NOT resolve this anomaly.
+///
+/// It reads like "an admin stopped it, so the problem is moot", but `Tunnel`
+/// has no desired-state field: a deliberate tear-down and a broken tunnel are
+/// indistinguishable by status. Worse, the path that *opens* this anomaly sets
+/// `Down` first — `reconcile_iface_presence` marks the tunnel down before
+/// publishing `TunnelDown{interface absent}` — so resolving on `Down` closed
+/// the anomaly on the next pass and pushed "Problem resolved" while the
+/// interface was still gone. The same happened to every open anomaly at boot,
+/// because shutdown records all tunnels `Down` before the routing reconcile.
 #[tokio::test]
-async fn tunnel_unhealthy_resolves_when_the_tunnel_is_deliberately_down() {
+async fn tunnel_unhealthy_stays_open_when_the_tunnel_is_down() {
     let id = Uuid::new_v4();
     let detector =
         TunnelUnhealthyDetector::new(FakeTunnels::new(vec![tunnel(id, TunnelStatus::Down)]));
 
     let a = anomaly(AnomalyType::TunnelUnhealthy, Some(&id.to_string()));
-    assert_eq!(
-        detector.reevaluate(&a).await.unwrap(),
-        AnomalyStatus::Resolved
-    );
+    assert_eq!(detector.reevaluate(&a).await.unwrap(), AnomalyStatus::Open);
 }
 
 #[tokio::test]
@@ -364,6 +369,39 @@ async fn update_failed_resolves_when_a_later_release_overtook_the_target() {
     let a = with_details(
         anomaly(AnomalyType::UpdateFailed, None),
         serde_json::json!({ "target_version": "2026.09.00" }),
+    );
+
+    assert_eq!(
+        detector.reevaluate(&a).await.unwrap(),
+        AnomalyStatus::Resolved
+    );
+}
+
+/// Pre-release suffixes do not sort lexicographically: `"…edge.9"` compares
+/// above `"…edge.10"`. A raw string compare therefore treated a failed update
+/// to `edge.10` as already-applied, discarded the alert, and pushed a bogus
+/// "Problem resolved". Edge and beta builds are real (`build-daemon.yml` sets
+/// `WARDNET_RELEASE_VERSION_OVERRIDE` to exactly these shapes), so this is the
+/// common case on a test box, not a corner.
+#[tokio::test]
+async fn update_failed_stays_open_across_a_prerelease_rollover() {
+    let detector = UpdateFailedDetector::new("2026.08.00-edge.9");
+    let a = with_details(
+        anomaly(AnomalyType::UpdateFailed, None),
+        serde_json::json!({ "target_version": "2026.08.00-edge.10" }),
+    );
+
+    assert_eq!(detector.reevaluate(&a).await.unwrap(), AnomalyStatus::Open);
+}
+
+/// A final release is newer than any pre-release of the same base, so a box
+/// that reached `2026.08.00` has caught up with a failed `-beta.5` attempt.
+#[tokio::test]
+async fn update_failed_resolves_when_a_release_supersedes_a_prerelease_target() {
+    let detector = UpdateFailedDetector::new("2026.08.00");
+    let a = with_details(
+        anomaly(AnomalyType::UpdateFailed, None),
+        serde_json::json!({ "target_version": "2026.08.00-beta.5" }),
     );
 
     assert_eq!(

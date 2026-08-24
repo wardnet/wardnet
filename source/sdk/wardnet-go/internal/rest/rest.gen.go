@@ -18,6 +18,48 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for AccessRequestKind.
+const (
+	AccessRequestKindAllow      AccessRequestKind = "allow"
+	AccessRequestKindBlock      AccessRequestKind = "block"
+	AccessRequestKindPrivateDns AccessRequestKind = "private_dns"
+)
+
+// Valid indicates whether the value is a known member of the AccessRequestKind enum.
+func (e AccessRequestKind) Valid() bool {
+	switch e {
+	case AccessRequestKindAllow:
+		return true
+	case AccessRequestKindBlock:
+		return true
+	case AccessRequestKindPrivateDns:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for AccessRequestStatus.
+const (
+	AccessRequestStatusApproved AccessRequestStatus = "approved"
+	AccessRequestStatusPending  AccessRequestStatus = "pending"
+	AccessRequestStatusRejected AccessRequestStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the AccessRequestStatus enum.
+func (e AccessRequestStatus) Valid() bool {
+	switch e {
+	case AccessRequestStatusApproved:
+		return true
+	case AccessRequestStatusPending:
+		return true
+	case AccessRequestStatusRejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for AllowedTargetKind.
 const (
 	AllowedTargetKindDirect AllowedTargetKind = "direct"
@@ -102,6 +144,21 @@ func (e AnomalyType) Valid() bool {
 	case TunnelUnhealthy:
 		return true
 	case UpdateFailed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalParams0Kind.
+const (
+	ApprovalParams0KindPrivateDns ApprovalParams0Kind = "private_dns"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalParams0Kind enum.
+func (e ApprovalParams0Kind) Valid() bool {
+	switch e {
+	case ApprovalParams0KindPrivateDns:
 		return true
 	default:
 		return false
@@ -1068,45 +1125,6 @@ func (e RoutingTarget2Type) Valid() bool {
 	}
 }
 
-// Defines values for RuleRequestKind.
-const (
-	Allow RuleRequestKind = "allow"
-	Block RuleRequestKind = "block"
-)
-
-// Valid indicates whether the value is a known member of the RuleRequestKind enum.
-func (e RuleRequestKind) Valid() bool {
-	switch e {
-	case Allow:
-		return true
-	case Block:
-		return true
-	default:
-		return false
-	}
-}
-
-// Defines values for RuleRequestStatus.
-const (
-	RuleRequestStatusApproved RuleRequestStatus = "approved"
-	RuleRequestStatusPending  RuleRequestStatus = "pending"
-	RuleRequestStatusRejected RuleRequestStatus = "rejected"
-)
-
-// Valid indicates whether the value is a known member of the RuleRequestStatus enum.
-func (e RuleRequestStatus) Valid() bool {
-	switch e {
-	case RuleRequestStatusApproved:
-		return true
-	case RuleRequestStatusPending:
-		return true
-	case RuleRequestStatusRejected:
-		return true
-	default:
-		return false
-	}
-}
-
 // Defines values for ServiceSet.
 const (
 	Casting   ServiceSet = "casting"
@@ -1407,6 +1425,17 @@ func (e ZoneStance) Valid() bool {
 	}
 }
 
+// AccessRequestKind What the member is asking for.
+//
+// `Allow` / `Block` carry a `domain`; `PrivateDns` carries no payload at all —
+// the request is fully determined by which device asked. The database enforces
+// that pairing with a `CHECK`, so a kind added here must decide which side of
+// it the new variant falls on.
+type AccessRequestKind string
+
+// AccessRequestStatus Lifecycle state of a request.
+type AccessRequestStatus string
+
 // AddInboundWgPeerRequest Request body for `POST /api/inbound-wg/peers`.
 //
 // A remote-access grant targets an already-managed device (issue #810): the
@@ -1591,6 +1620,24 @@ type ApplyImportResponse struct {
 	Snapshots []LocalSnapshot `json:"snapshots"`
 }
 
+// ApprovalParams Kind-specific parameters an admin supplies when **approving**.
+//
+// Approval is not uniform across kinds, so the decision body carries a typed
+// payload rather than a bag of optional fields. `PrivateDns` needs none — the
+// grant is fully determined by the requesting device — but the variant exists
+// so the wire shape is explicit rather than "absent means Private DNS".
+type ApprovalParams struct {
+	union json.RawMessage
+}
+
+// ApprovalParams0 defines model for ApprovalParams.0.
+type ApprovalParams0 struct {
+	Kind ApprovalParams0Kind `json:"kind"`
+}
+
+// ApprovalParams0Kind defines model for ApprovalParams.0.Kind.
+type ApprovalParams0Kind string
+
 // AssignDeviceZoneRequest Request body for PUT /api/devices/{id}/zone.
 type AssignDeviceZoneRequest struct {
 	ZoneId openapi_types.UUID `json:"zone_id"`
@@ -1735,6 +1782,23 @@ type CountryInfo struct {
 
 	// Name Human-readable country name (e.g. "United States").
 	Name string `json:"name"`
+}
+
+// CreateAccessRequestRequest Request body for `POST /api/devices/me/access-requests`.
+type CreateAccessRequestRequest struct {
+	// Domain Required for `allow` / `block`, and rejected for kinds that take no
+	// domain — the service validates against
+	// [`AccessRequestKind::requires_domain`].
+	Domain *string `json:"domain,omitempty"`
+
+	// Kind What the member is asking for.
+	//
+	// `Allow` / `Block` carry a `domain`; `PrivateDns` carries no payload at all —
+	// the request is fully determined by which device asked. The database enforces
+	// that pairing with a `CHECK`, so a kind added here must decide which side of
+	// it the new variant falls on.
+	Kind   AccessRequestKind `json:"kind"`
+	Reason *string           `json:"reason,omitempty"`
 }
 
 // CreateAllowlistRequest Request body for POST /api/dns/allowlist.
@@ -1916,15 +1980,6 @@ type CreateRoutingProfileResponse struct {
 	Profile RoutingProfile `json:"profile"`
 }
 
-// CreateRuleRequestRequest Request body for `POST /api/devices/me/rule-requests`.
-type CreateRuleRequestRequest struct {
-	Domain string `json:"domain"`
-
-	// Kind What the user is asking for.
-	Kind   RuleRequestKind `json:"kind"`
-	Reason *string         `json:"reason,omitempty"`
-}
-
 // CreateTunnelRequest Request body for POST /api/tunnels (import .conf file).
 type CreateTunnelRequest struct {
 	Config      string  `json:"config"`
@@ -2101,12 +2156,14 @@ type DdnsStatusResponse struct {
 	Suspended *bool `json:"suspended,omitempty"`
 }
 
-// DecideRuleRequestRequest Request body for `PATCH /api/rule-requests/{id}` (admin decision). Only
+// DecideAccessRequestRequest Request body for `PATCH /api/access-requests/{id}` (admin decision). Only
 // `approved` / `rejected` are accepted — a request cannot be set back to
 // `pending`.
-type DecideRuleRequestRequest struct {
+type DecideAccessRequestRequest struct {
+	Approval *ApprovalParams `json:"approval,omitempty"`
+
 	// Status Lifecycle state of a request.
-	Status RuleRequestStatus `json:"status"`
+	Status AccessRequestStatus `json:"status"`
 }
 
 // DeleteAllowlistResponse Response for DELETE /api/dns/allowlist/{id}.
@@ -2236,6 +2293,30 @@ type Device struct {
 	ZoneId openapi_types.UUID `json:"zone_id"`
 }
 
+// DeviceAccessRequest A single access-request row.
+type DeviceAccessRequest struct {
+	CreatedAt string  `json:"created_at"`
+	DecidedAt *string `json:"decided_at,omitempty"`
+	DecidedBy *string `json:"decided_by,omitempty"`
+	DeviceId  string  `json:"device_id"`
+
+	// Domain `None` for kinds that name no domain — see [`AccessRequestKind::requires_domain`].
+	Domain *string `json:"domain,omitempty"`
+	Id     string  `json:"id"`
+
+	// Kind What the member is asking for.
+	//
+	// `Allow` / `Block` carry a `domain`; `PrivateDns` carries no payload at all —
+	// the request is fully determined by which device asked. The database enforces
+	// that pairing with a `CHECK`, so a kind added here must decide which side of
+	// it the new variant falls on.
+	Kind   AccessRequestKind `json:"kind"`
+	Reason *string           `json:"reason,omitempty"`
+
+	// Status Lifecycle state of a request.
+	Status AccessRequestStatus `json:"status"`
+}
+
 // DeviceCaptureToggleRequest Request body for `PATCH /api/devices/me/dns-capture` — the self-service
 // capture toggle. Flips only the `enabled` flag; retention caps stay
 // admin-only (set via `DnsCaptureSettingsRequest` on the admin endpoint).
@@ -2325,23 +2406,6 @@ type DeviceProbeResponse struct {
 	// PortsProbed Every TCP port the probe contacted — the vendor catalog's full probe
 	// surface, and by construction its upper bound.
 	PortsProbed []int32 `json:"ports_probed"`
-}
-
-// DeviceRuleRequest A single rule request row.
-type DeviceRuleRequest struct {
-	CreatedAt string  `json:"created_at"`
-	DecidedAt *string `json:"decided_at,omitempty"`
-	DecidedBy *string `json:"decided_by,omitempty"`
-	DeviceId  string  `json:"device_id"`
-	Domain    string  `json:"domain"`
-	Id        string  `json:"id"`
-
-	// Kind What the user is asking for.
-	Kind   RuleRequestKind `json:"kind"`
-	Reason *string         `json:"reason,omitempty"`
-
-	// Status Lifecycle state of a request.
-	Status RuleRequestStatus `json:"status"`
 }
 
 // DeviceSignal A single observed fact that helps identify a device (issue #1099).
@@ -3837,12 +3901,6 @@ type RoutingTarget2 struct {
 // RoutingTarget2Type defines model for RoutingTarget.2.Type.
 type RoutingTarget2Type string
 
-// RuleRequestKind What the user is asking for.
-type RuleRequestKind string
-
-// RuleRequestStatus Lifecycle state of a request.
-type RuleRequestStatus string
-
 // SendPrivateDnsNotificationResponse Response for `POST /api/private-dns/grants/{device_id}/notify` — the result
 // of nudging a granted device's household member to set up Private DNS.
 type SendPrivateDnsNotificationResponse struct {
@@ -4841,6 +4899,12 @@ type ZoneSummary struct {
 	Name string `json:"name"`
 }
 
+// ListAccessRequestsParams defines parameters for ListAccessRequests.
+type ListAccessRequestsParams struct {
+	// Status Optional status filter (`pending` | `approved` | `rejected`).
+	Status *AccessRequestStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
 // ListAnomaliesParams defines parameters for ListAnomalies.
 type ListAnomaliesParams struct {
 	// Status Which anomalies to return. Defaults to `open`.
@@ -4896,12 +4960,6 @@ type UnsubscribeParams struct {
 	Endpoint *string `form:"endpoint,omitempty" json:"endpoint,omitempty"`
 }
 
-// ListRuleRequestsParams defines parameters for ListRuleRequests.
-type ListRuleRequestsParams struct {
-	// Status Optional status filter (`pending` | `approved` | `rejected`).
-	Status *RuleRequestStatus `form:"status,omitempty" json:"status,omitempty"`
-}
-
 // QueryParams defines parameters for Query.
 type QueryParams struct {
 	// Metric Single metric name. Mutually exclusive with `metrics`.
@@ -4946,6 +5004,9 @@ type HistoryParams struct {
 	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// DecideAccessRequestJSONRequestBody defines body for DecideAccessRequest for application/json ContentType.
+type DecideAccessRequestJSONRequestBody = DecideAccessRequestRequest
+
 // LoginJSONRequestBody defines body for Login for application/json ContentType.
 type LoginJSONRequestBody = LoginRequest
 
@@ -4970,6 +5031,9 @@ type DdnsEnrollmentCodeJSONRequestBody = DdnsEnrollmentCodeRequest
 // DdnsRegisterJSONRequestBody defines body for DdnsRegister for application/json ContentType.
 type DdnsRegisterJSONRequestBody = DdnsRegisterRequest
 
+// CreateMyAccessRequestJSONRequestBody defines body for CreateMyAccessRequest for application/json ContentType.
+type CreateMyAccessRequestJSONRequestBody = CreateAccessRequestRequest
+
 // SetMyDnsCaptureJSONRequestBody defines body for SetMyDnsCapture for application/json ContentType.
 type SetMyDnsCaptureJSONRequestBody = DeviceCaptureToggleRequest
 
@@ -4978,9 +5042,6 @@ type AckDnsEventsJSONRequestBody = DnsEventsAckRequest
 
 // SetMyRuleJSONRequestBody defines body for SetMyRule for application/json ContentType.
 type SetMyRuleJSONRequestBody = SetMyRuleRequest
-
-// CreateMyRuleRequestJSONRequestBody defines body for CreateMyRuleRequest for application/json ContentType.
-type CreateMyRuleRequestJSONRequestBody = CreateRuleRequestRequest
 
 // UpdateDeviceJSONRequestBody defines body for UpdateDevice for application/json ContentType.
 type UpdateDeviceJSONRequestBody = UpdateDeviceRequest
@@ -5114,9 +5175,6 @@ type CreateRuleJSONRequestBody = CreateDomainRoutingRuleRequest
 // UpdateRuleJSONRequestBody defines body for UpdateRule for application/json ContentType.
 type UpdateRuleJSONRequestBody = UpdateDomainRoutingRuleRequest
 
-// DecideRuleRequestJSONRequestBody defines body for DecideRuleRequest for application/json ContentType.
-type DecideRuleRequestJSONRequestBody = DecideRuleRequestRequest
-
 // SetupJSONRequestBody defines body for Setup for application/json ContentType.
 type SetupJSONRequestBody = SetupRequest
 
@@ -5137,6 +5195,42 @@ type UpdateSetConfigJSONRequestBody = UpdateConfigRequest
 
 // InstallJSONRequestBody defines body for Install for application/json ContentType.
 type InstallJSONRequestBody = InstallUpdateRequest
+
+// AsApprovalParams0 returns the union data inside the ApprovalParams as a ApprovalParams0
+func (t ApprovalParams) AsApprovalParams0() (ApprovalParams0, error) {
+	var body ApprovalParams0
+	err := json.Unmarshal(t.union, &body)
+	return body, err
+}
+
+// FromApprovalParams0 overwrites any union data inside the ApprovalParams as the provided ApprovalParams0
+func (t *ApprovalParams) FromApprovalParams0(v ApprovalParams0) error {
+	b, err := json.Marshal(v)
+	t.union = b
+	return err
+}
+
+// MergeApprovalParams0 performs a merge with any union data inside the ApprovalParams, using the provided ApprovalParams0
+func (t *ApprovalParams) MergeApprovalParams0(v ApprovalParams0) error {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+
+	merged, err := runtime.JSONMerge(t.union, b)
+	t.union = merged
+	return err
+}
+
+func (t ApprovalParams) MarshalJSON() ([]byte, error) {
+	b, err := t.union.MarshalJSON()
+	return b, err
+}
+
+func (t *ApprovalParams) UnmarshalJSON(b []byte) error {
+	err := t.union.UnmarshalJSON(b)
+	return err
+}
 
 // AsBackupStatus0 returns the union data inside the BackupStatus as a BackupStatus0
 func (t BackupStatus) AsBackupStatus0() (BackupStatus0, error) {
@@ -6088,6 +6182,23 @@ func WithRequestEditorFn(fn RequestEditorFn) ClientOption {
 // The interface specification for the client above.
 type ClientInterface interface {
 
+	// ListAccessRequests performs a GET /api/access-requests (the `ListAccessRequests` operationId) request.
+	//
+	// List all device access requests, optionally filtered by status. Admin only.
+	ListAccessRequests(ctx context.Context, params *ListAccessRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DecideAccessRequestWithBody performs a PATCH /api/access-requests/{id} (the `DecideAccessRequest` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Approve or reject an access request. What approval *does* depends on the request's kind: approving a `private_dns` request mints the device's grant, while `allow` / `block` only record the decision — the admin still applies the DNS filter rule via the DNS filter UI. Admin only.
+	DecideAccessRequestWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DecideAccessRequest performs a PATCH /api/access-requests/{id} (the `DecideAccessRequest` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Approve or reject an access request. What approval *does* depends on the request's kind: approving a `private_dns` request mints the device's grant, while `allow` / `block` only record the decision — the admin still applies the DNS filter rule via the DNS filter UI. Admin only.
+	DecideAccessRequest(ctx context.Context, id string, body DecideAccessRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListAnomalies performs a GET /api/anomalies (the `ListAnomalies` operationId) request.
 	//
 	// List anomalies: typed conditions raised by daemon components, each with a message and a remediation hint. Defaults to the ones still open, which is what the dashboard shows. Filter by `subject_id` to ask what is currently wrong with one entity — a tunnel card uses this to surface that tunnel's error. Admin only.
@@ -6238,6 +6349,23 @@ type ClientInterface interface {
 	// Identify the caller by source IP and return their device info, current routing rule, and the list of available tunnels they can route through. Used by the self-service "My Device" page, so no authentication is required — the daemon trusts the source IP of the incoming TCP connection.
 	DevicesGetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListMyAccessRequests performs a GET /api/devices/me/access-requests (the `ListMyAccessRequests` operationId) request.
+	//
+	// List the access requests made by this device (by source IP), newest first.
+	ListMyAccessRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateMyAccessRequestWithBody performs a POST /api/devices/me/access-requests (the `CreateMyAccessRequest` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Ask an admin for something this device cannot grant itself: a domain blocked or allowed (`block` / `allow`, which take a `domain`), or Private DNS access (`private_dns`, which takes none). The device is identified by source IP — no authentication required.
+	CreateMyAccessRequestWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateMyAccessRequest performs a POST /api/devices/me/access-requests (the `CreateMyAccessRequest` operationId) request.
+	// Takes a body of the `application/json` content type.
+	//
+	// Ask an admin for something this device cannot grant itself: a domain blocked or allowed (`block` / `allow`, which take a `domain`), or Private DNS access (`private_dns`, which takes none). The device is identified by source IP — no authentication required.
+	CreateMyAccessRequest(ctx context.Context, body CreateMyAccessRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// SetMyDnsCaptureWithBody performs a PATCH /api/devices/me/dns-capture (the `SetMyDnsCapture` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -6278,23 +6406,6 @@ type ClientInterface interface {
 	//
 	// Let the caller change their own routing rule (direct vs. a specific tunnel). The target device is identified by source IP. Admin-locked devices are rejected with 403 — an admin must lift the lock first. No authentication is required (self-service by IP).
 	SetMyRule(ctx context.Context, body SetMyRuleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// ListMyRuleRequests performs a GET /api/devices/me/rule-requests (the `ListMyRuleRequests` operationId) request.
-	//
-	// List the rule requests made by this device (by source IP), newest first.
-	ListMyRuleRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateMyRuleRequestWithBody performs a POST /api/devices/me/rule-requests (the `CreateMyRuleRequest` operationId) request,
-	// with any type of body and a specified content type.
-	//
-	// Submit a request to the admin to block or allow a domain. The device is identified by source IP — no authentication required.
-	CreateMyRuleRequestWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// CreateMyRuleRequest performs a POST /api/devices/me/rule-requests (the `CreateMyRuleRequest` operationId) request.
-	// Takes a body of the `application/json` content type.
-	//
-	// Submit a request to the admin to block or allow a domain. The device is identified by source IP — no authentication required.
-	CreateMyRuleRequest(ctx context.Context, body CreateMyRuleRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetDevice performs a GET /api/devices/{id} (the `GetDevice` operationId) request.
 	//
@@ -7169,23 +7280,6 @@ type ClientInterface interface {
 	// Update a domain routing rule. Admin only.
 	UpdateRule(ctx context.Context, id openapi_types.UUID, body UpdateRuleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// ListRuleRequests performs a GET /api/rule-requests (the `ListRuleRequests` operationId) request.
-	//
-	// List all device rule requests, optionally filtered by status. Admin only.
-	ListRuleRequests(ctx context.Context, params *ListRuleRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DecideRuleRequestWithBody performs a PATCH /api/rule-requests/{id} (the `DecideRuleRequest` operationId) request,
-	// with any type of body and a specified content type.
-	//
-	// Approve or reject a rule request. Recording a decision does not apply the DNS rule — the admin applies it via the DNS filter UI. Admin only.
-	DecideRuleRequestWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
-
-	// DecideRuleRequest performs a PATCH /api/rule-requests/{id} (the `DecideRuleRequest` operationId) request.
-	// Takes a body of the `application/json` content type.
-	//
-	// Approve or reject a rule request. Recording a decision does not apply the DNS rule — the admin applies it via the DNS filter UI. Admin only.
-	DecideRuleRequest(ctx context.Context, id string, body DecideRuleRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
-
 	// SetupWithBody performs a POST /api/setup (the `Setup` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -7403,6 +7497,53 @@ type ClientInterface interface {
 	//
 	// Liveness/readiness probe. Returns 200 with status `UP` when every registered health check passes (after debounce), or 503 with status `DOWN` when any component is down. Unauthenticated by design — reachable by load balancers and uptime monitors without a session. See issue #214.
 	Health(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+}
+
+// ListAccessRequests performs a GET /api/access-requests (the `ListAccessRequests` operationId) request.
+//
+// List all device access requests, optionally filtered by status. Admin only.
+func (c *Client) ListAccessRequests(ctx context.Context, params *ListAccessRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListAccessRequestsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DecideAccessRequestWithBody performs a PATCH /api/access-requests/{id} (the `DecideAccessRequest` operationId) request,
+// with any type of body and a specified content type.
+//
+// Approve or reject an access request. What approval *does* depends on the request's kind: approving a `private_dns` request mints the device's grant, while `allow` / `block` only record the decision — the admin still applies the DNS filter rule via the DNS filter UI. Admin only.
+func (c *Client) DecideAccessRequestWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecideAccessRequestRequestWithBody(c.Server, id, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DecideAccessRequest performs a PATCH /api/access-requests/{id} (the `DecideAccessRequest` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Approve or reject an access request. What approval *does* depends on the request's kind: approving a `private_dns` request mints the device's grant, while `allow` / `block` only record the decision — the admin still applies the DNS filter rule via the DNS filter UI. Admin only.
+func (c *Client) DecideAccessRequest(ctx context.Context, id string, body DecideAccessRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecideAccessRequestRequest(c.Server, id, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
 }
 
 // ListAnomalies performs a GET /api/anomalies (the `ListAnomalies` operationId) request.
@@ -7825,6 +7966,53 @@ func (c *Client) DevicesGetMe(ctx context.Context, reqEditors ...RequestEditorFn
 	return c.Client.Do(req)
 }
 
+// ListMyAccessRequests performs a GET /api/devices/me/access-requests (the `ListMyAccessRequests` operationId) request.
+//
+// List the access requests made by this device (by source IP), newest first.
+func (c *Client) ListMyAccessRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListMyAccessRequestsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateMyAccessRequestWithBody performs a POST /api/devices/me/access-requests (the `CreateMyAccessRequest` operationId) request,
+// with any type of body and a specified content type.
+//
+// Ask an admin for something this device cannot grant itself: a domain blocked or allowed (`block` / `allow`, which take a `domain`), or Private DNS access (`private_dns`, which takes none). The device is identified by source IP — no authentication required.
+func (c *Client) CreateMyAccessRequestWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateMyAccessRequestRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateMyAccessRequest performs a POST /api/devices/me/access-requests (the `CreateMyAccessRequest` operationId) request.
+// Takes a body of the `application/json` content type.
+//
+// Ask an admin for something this device cannot grant itself: a domain blocked or allowed (`block` / `allow`, which take a `domain`), or Private DNS access (`private_dns`, which takes none). The device is identified by source IP — no authentication required.
+func (c *Client) CreateMyAccessRequest(ctx context.Context, body CreateMyAccessRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateMyAccessRequestRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // SetMyDnsCaptureWithBody performs a PATCH /api/devices/me/dns-capture (the `SetMyDnsCapture` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -7926,53 +8114,6 @@ func (c *Client) SetMyRuleWithBody(ctx context.Context, contentType string, body
 // Let the caller change their own routing rule (direct vs. a specific tunnel). The target device is identified by source IP. Admin-locked devices are rejected with 403 — an admin must lift the lock first. No authentication is required (self-service by IP).
 func (c *Client) SetMyRule(ctx context.Context, body SetMyRuleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetMyRuleRequest(c.Server, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// ListMyRuleRequests performs a GET /api/devices/me/rule-requests (the `ListMyRuleRequests` operationId) request.
-//
-// List the rule requests made by this device (by source IP), newest first.
-func (c *Client) ListMyRuleRequests(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListMyRuleRequestsRequest(c.Server)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// CreateMyRuleRequestWithBody performs a POST /api/devices/me/rule-requests (the `CreateMyRuleRequest` operationId) request,
-// with any type of body and a specified content type.
-//
-// Submit a request to the admin to block or allow a domain. The device is identified by source IP — no authentication required.
-func (c *Client) CreateMyRuleRequestWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateMyRuleRequestRequestWithBody(c.Server, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// CreateMyRuleRequest performs a POST /api/devices/me/rule-requests (the `CreateMyRuleRequest` operationId) request.
-// Takes a body of the `application/json` content type.
-//
-// Submit a request to the admin to block or allow a domain. The device is identified by source IP — no authentication required.
-func (c *Client) CreateMyRuleRequest(ctx context.Context, body CreateMyRuleRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewCreateMyRuleRequestRequest(c.Server, body)
 	if err != nil {
 		return nil, err
 	}
@@ -10426,53 +10567,6 @@ func (c *Client) UpdateRule(ctx context.Context, id openapi_types.UUID, body Upd
 	return c.Client.Do(req)
 }
 
-// ListRuleRequests performs a GET /api/rule-requests (the `ListRuleRequests` operationId) request.
-//
-// List all device rule requests, optionally filtered by status. Admin only.
-func (c *Client) ListRuleRequests(ctx context.Context, params *ListRuleRequestsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewListRuleRequestsRequest(c.Server, params)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// DecideRuleRequestWithBody performs a PATCH /api/rule-requests/{id} (the `DecideRuleRequest` operationId) request,
-// with any type of body and a specified content type.
-//
-// Approve or reject a rule request. Recording a decision does not apply the DNS rule — the admin applies it via the DNS filter UI. Admin only.
-func (c *Client) DecideRuleRequestWithBody(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDecideRuleRequestRequestWithBody(c.Server, id, contentType, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
-// DecideRuleRequest performs a PATCH /api/rule-requests/{id} (the `DecideRuleRequest` operationId) request.
-// Takes a body of the `application/json` content type.
-//
-// Approve or reject a rule request. Recording a decision does not apply the DNS rule — the admin applies it via the DNS filter UI. Admin only.
-func (c *Client) DecideRuleRequest(ctx context.Context, id string, body DecideRuleRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDecideRuleRequestRequest(c.Server, id, body)
-	if err != nil {
-		return nil, err
-	}
-	req = req.WithContext(ctx)
-	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
-		return nil, err
-	}
-	return c.Client.Do(req)
-}
-
 // SetupWithBody performs a POST /api/setup (the `Setup` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -11079,6 +11173,107 @@ func (c *Client) Health(ctx context.Context, reqEditors ...RequestEditorFn) (*ht
 		return nil, err
 	}
 	return c.Client.Do(req)
+}
+
+// NewListAccessRequestsRequest constructs an http.Request for the ListAccessRequests method
+func NewListAccessRequestsRequest(server string, params *ListAccessRequestsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/access-requests")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Status != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDecideAccessRequestRequest calls the generic DecideAccessRequest builder with application/json body
+func NewDecideAccessRequestRequest(server string, id string, body DecideAccessRequestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDecideAccessRequestRequestWithBody(server, id, "application/json", bodyReader)
+}
+
+// NewDecideAccessRequestRequestWithBody constructs an http.Request for the DecideAccessRequest method, with any body, and a specified content type
+func NewDecideAccessRequestRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/access-requests/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
 }
 
 // NewListAnomaliesRequest constructs an http.Request for the ListAnomalies method
@@ -11788,6 +11983,73 @@ func NewDevicesGetMeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListMyAccessRequestsRequest constructs an http.Request for the ListMyAccessRequests method
+func NewListMyAccessRequestsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/devices/me/access-requests")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateMyAccessRequestRequest calls the generic CreateMyAccessRequest builder with application/json body
+func NewCreateMyAccessRequestRequest(server string, body CreateMyAccessRequestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateMyAccessRequestRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateMyAccessRequestRequestWithBody constructs an http.Request for the CreateMyAccessRequest method, with any body, and a specified content type
+func NewCreateMyAccessRequestRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/devices/me/access-requests")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewSetMyDnsCaptureRequest calls the generic SetMyDnsCapture builder with application/json body
 func NewSetMyDnsCaptureRequest(server string, body SetMyDnsCaptureJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -11926,73 +12188,6 @@ func NewSetMyRuleRequestWithBody(server string, contentType string, body io.Read
 	}
 
 	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
-// NewListMyRuleRequestsRequest constructs an http.Request for the ListMyRuleRequests method
-func NewListMyRuleRequestsRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/devices/me/rule-requests")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewCreateMyRuleRequestRequest calls the generic CreateMyRuleRequest builder with application/json body
-func NewCreateMyRuleRequestRequest(server string, body CreateMyRuleRequestJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewCreateMyRuleRequestRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewCreateMyRuleRequestRequestWithBody constructs an http.Request for the CreateMyRuleRequest method, with any body, and a specified content type
-func NewCreateMyRuleRequestRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/devices/me/rule-requests")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -16262,107 +16457,6 @@ func NewUpdateRuleRequestWithBody(server string, id openapi_types.UUID, contentT
 	return req, nil
 }
 
-// NewListRuleRequestsRequest constructs an http.Request for the ListRuleRequests method
-func NewListRuleRequestsRequest(server string, params *ListRuleRequestsParams) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/rule-requests")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	if params != nil {
-		// queryValues collects non-styled parameters (passthrough, JSON)
-		// that are safe to round-trip through url.Values.Encode().
-		queryValues := queryURL.Query()
-		// rawQueryFragments collects pre-encoded query fragments from
-		// styled parameters, preserving literal commas as delimiters
-		// per the OpenAPI spec (e.g. "color=blue,black,brown").
-		var rawQueryFragments []string
-
-		if params.Status != nil {
-
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "", Format: ""}); err != nil {
-				return nil, err
-			} else {
-				for _, qp := range strings.Split(queryFrag, "&") {
-					rawQueryFragments = append(rawQueryFragments, qp)
-				}
-			}
-
-		}
-
-		if encoded := queryValues.Encode(); encoded != "" {
-			rawQueryFragments = append(rawQueryFragments, encoded)
-		}
-		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
-	}
-
-	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewDecideRuleRequestRequest calls the generic DecideRuleRequest builder with application/json body
-func NewDecideRuleRequestRequest(server string, id string, body DecideRuleRequestJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
-	if err != nil {
-		return nil, err
-	}
-	bodyReader = bytes.NewReader(buf)
-	return NewDecideRuleRequestRequestWithBody(server, id, "application/json", bodyReader)
-}
-
-// NewDecideRuleRequestRequestWithBody constructs an http.Request for the DecideRuleRequest method, with any body, and a specified content type
-func NewDecideRuleRequestRequestWithBody(server string, id string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
-
-	var pathParam0 string
-
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
-	if err != nil {
-		return nil, err
-	}
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/api/rule-requests/%s", pathParam0)
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
-	if err != nil {
-		return nil, err
-	}
-
-	req.Header.Add("Content-Type", contentType)
-
-	return req, nil
-}
-
 // NewSetupRequest calls the generic Setup builder with application/json body
 func NewSetupRequest(server string, body SetupJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -17599,6 +17693,27 @@ func WithBaseURL(baseURL string) ClientOption {
 // ClientWithResponsesInterface is the interface specification for the client with responses above.
 type ClientWithResponsesInterface interface {
 
+	// ListAccessRequestsWithResponse performs a GET /api/access-requests (the `ListAccessRequests` operationId) request.
+	//
+	// List all device access requests, optionally filtered by status. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ListAccessRequestsWithResponse(ctx context.Context, params *ListAccessRequestsParams, reqEditors ...RequestEditorFn) (*ListAccessRequestsResp, error)
+
+	// DecideAccessRequestWithBodyWithResponse performs a PATCH /api/access-requests/{id} (the `DecideAccessRequest` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Approve or reject an access request. What approval *does* depends on the request's kind: approving a `private_dns` request mints the device's grant, while `allow` / `block` only record the decision — the admin still applies the DNS filter rule via the DNS filter UI. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	DecideAccessRequestWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideAccessRequestResp, error)
+
+	// DecideAccessRequestWithResponse performs a PATCH /api/access-requests/{id} (the `DecideAccessRequest` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Approve or reject an access request. What approval *does* depends on the request's kind: approving a `private_dns` request mints the device's grant, while `allow` / `block` only record the decision — the admin still applies the DNS filter rule via the DNS filter UI. Admin only.
+	DecideAccessRequestWithResponse(ctx context.Context, id string, body DecideAccessRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideAccessRequestResp, error)
+
 	// ListAnomaliesWithResponse performs a GET /api/anomalies (the `ListAnomalies` operationId) request.
 	//
 	// List anomalies: typed conditions raised by daemon components, each with a message and a remediation hint. Defaults to the ones still open, which is what the dashboard shows. Filter by `subject_id` to ask what is currently wrong with one entity — a tunnel card uses this to surface that tunnel's error. Admin only.
@@ -17789,6 +17904,27 @@ type ClientWithResponsesInterface interface {
 	// Returns a wrapper object for the known response body format(s).
 	DevicesGetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DevicesGetMeResp, error)
 
+	// ListMyAccessRequestsWithResponse performs a GET /api/devices/me/access-requests (the `ListMyAccessRequests` operationId) request.
+	//
+	// List the access requests made by this device (by source IP), newest first.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	ListMyAccessRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListMyAccessRequestsResp, error)
+
+	// CreateMyAccessRequestWithBodyWithResponse performs a POST /api/devices/me/access-requests (the `CreateMyAccessRequest` operationId) request,
+	// with any type of body and a specified content type.
+	//
+	// Ask an admin for something this device cannot grant itself: a domain blocked or allowed (`block` / `allow`, which take a `domain`), or Private DNS access (`private_dns`, which takes none). The device is identified by source IP — no authentication required.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	CreateMyAccessRequestWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateMyAccessRequestResp, error)
+
+	// CreateMyAccessRequestWithResponse performs a POST /api/devices/me/access-requests (the `CreateMyAccessRequest` operationId) request.
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Ask an admin for something this device cannot grant itself: a domain blocked or allowed (`block` / `allow`, which take a `domain`), or Private DNS access (`private_dns`, which takes none). The device is identified by source IP — no authentication required.
+	CreateMyAccessRequestWithResponse(ctx context.Context, body CreateMyAccessRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateMyAccessRequestResp, error)
+
 	// SetMyDnsCaptureWithBodyWithResponse performs a PATCH /api/devices/me/dns-capture (the `SetMyDnsCapture` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -17837,27 +17973,6 @@ type ClientWithResponsesInterface interface {
 	//
 	// Let the caller change their own routing rule (direct vs. a specific tunnel). The target device is identified by source IP. Admin-locked devices are rejected with 403 — an admin must lift the lock first. No authentication is required (self-service by IP).
 	SetMyRuleWithResponse(ctx context.Context, body SetMyRuleJSONRequestBody, reqEditors ...RequestEditorFn) (*SetMyRuleResp, error)
-
-	// ListMyRuleRequestsWithResponse performs a GET /api/devices/me/rule-requests (the `ListMyRuleRequests` operationId) request.
-	//
-	// List the rule requests made by this device (by source IP), newest first.
-	//
-	// Returns a wrapper object for the known response body format(s).
-	ListMyRuleRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListMyRuleRequestsResp, error)
-
-	// CreateMyRuleRequestWithBodyWithResponse performs a POST /api/devices/me/rule-requests (the `CreateMyRuleRequest` operationId) request,
-	// with any type of body and a specified content type.
-	//
-	// Submit a request to the admin to block or allow a domain. The device is identified by source IP — no authentication required.
-	//
-	// Returns a wrapper object for the known response body format(s).
-	CreateMyRuleRequestWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateMyRuleRequestResp, error)
-
-	// CreateMyRuleRequestWithResponse performs a POST /api/devices/me/rule-requests (the `CreateMyRuleRequest` operationId) request.
-	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Submit a request to the admin to block or allow a domain. The device is identified by source IP — no authentication required.
-	CreateMyRuleRequestWithResponse(ctx context.Context, body CreateMyRuleRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateMyRuleRequestResp, error)
 
 	// GetDeviceWithResponse performs a GET /api/devices/{id} (the `GetDevice` operationId) request.
 	//
@@ -18958,27 +19073,6 @@ type ClientWithResponsesInterface interface {
 	// Update a domain routing rule. Admin only.
 	UpdateRuleWithResponse(ctx context.Context, id openapi_types.UUID, body UpdateRuleJSONRequestBody, reqEditors ...RequestEditorFn) (*UpdateRuleResp, error)
 
-	// ListRuleRequestsWithResponse performs a GET /api/rule-requests (the `ListRuleRequests` operationId) request.
-	//
-	// List all device rule requests, optionally filtered by status. Admin only.
-	//
-	// Returns a wrapper object for the known response body format(s).
-	ListRuleRequestsWithResponse(ctx context.Context, params *ListRuleRequestsParams, reqEditors ...RequestEditorFn) (*ListRuleRequestsResp, error)
-
-	// DecideRuleRequestWithBodyWithResponse performs a PATCH /api/rule-requests/{id} (the `DecideRuleRequest` operationId) request,
-	// with any type of body and a specified content type.
-	//
-	// Approve or reject a rule request. Recording a decision does not apply the DNS rule — the admin applies it via the DNS filter UI. Admin only.
-	//
-	// Returns a wrapper object for the known response body format(s).
-	DecideRuleRequestWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideRuleRequestResp, error)
-
-	// DecideRuleRequestWithResponse performs a PATCH /api/rule-requests/{id} (the `DecideRuleRequest` operationId) request.
-	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-	//
-	// Approve or reject a rule request. Recording a decision does not apply the DNS rule — the admin applies it via the DNS filter UI. Admin only.
-	DecideRuleRequestWithResponse(ctx context.Context, id string, body DecideRuleRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideRuleRequestResp, error)
-
 	// SetupWithBodyWithResponse performs a POST /api/setup (the `Setup` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -19260,6 +19354,235 @@ type ClientWithResponsesInterface interface {
 	//
 	// Returns a wrapper object for the known response body format(s).
 	HealthWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*HealthResp, error)
+}
+
+type ListAccessRequestsResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]DeviceAccessRequest
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ApiError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListAccessRequestsResp) GetJSON200() *[]DeviceAccessRequest {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r ListAccessRequestsResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r ListAccessRequestsResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListAccessRequestsResp) GetJSON500() *ApiError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListAccessRequestsResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListAccessRequestsResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListAccessRequestsResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListAccessRequestsResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DecideAccessRequestResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DeviceAccessRequest
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ApiError
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DecideAccessRequestResp) GetJSON200() *DeviceAccessRequest {
+	return r.JSON200
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r DecideAccessRequestResp) GetJSON400() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON400
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DecideAccessRequestResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DecideAccessRequestResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DecideAccessRequestResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r DecideAccessRequestResp) GetJSON409() *ApiError {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r DecideAccessRequestResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r DecideAccessRequestResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DecideAccessRequestResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DecideAccessRequestResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DecideAccessRequestResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
 }
 
 type ListAnomaliesResp struct {
@@ -21162,6 +21485,130 @@ func (r DevicesGetMeResp) ContentType() string {
 	return ""
 }
 
+type ListMyAccessRequestsResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *[]DeviceAccessRequest
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ApiError
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ApiError
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListMyAccessRequestsResp) GetJSON200() *[]DeviceAccessRequest {
+	return r.JSON200
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r ListMyAccessRequestsResp) GetJSON404() *ApiError {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r ListMyAccessRequestsResp) GetJSON500() *ApiError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r ListMyAccessRequestsResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListMyAccessRequestsResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListMyAccessRequestsResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListMyAccessRequestsResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateMyAccessRequestResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *DeviceAccessRequest
+	// JSON400 the response for an HTTP 400 `application/json` response
+	JSON400 *ApiError
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *ApiError
+	// JSON409 the response for an HTTP 409 `application/json` response
+	JSON409 *ApiError
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *ApiError
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateMyAccessRequestResp) GetJSON201() *DeviceAccessRequest {
+	return r.JSON201
+}
+
+// GetJSON400 returns the response for an HTTP 400 `application/json` response
+func (r CreateMyAccessRequestResp) GetJSON400() *ApiError {
+	return r.JSON400
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r CreateMyAccessRequestResp) GetJSON404() *ApiError {
+	return r.JSON404
+}
+
+// GetJSON409 returns the response for an HTTP 409 `application/json` response
+func (r CreateMyAccessRequestResp) GetJSON409() *ApiError {
+	return r.JSON409
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r CreateMyAccessRequestResp) GetJSON500() *ApiError {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateMyAccessRequestResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateMyAccessRequestResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateMyAccessRequestResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateMyAccessRequestResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type SetMyDnsCaptureResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -21383,123 +21830,6 @@ func (r SetMyRuleResp) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetMyRuleResp) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type ListMyRuleRequestsResp struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *[]DeviceRuleRequest
-	// JSON404 the response for an HTTP 404 `application/json` response
-	JSON404 *ApiError
-	// JSON500 the response for an HTTP 500 `application/json` response
-	JSON500 *ApiError
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ListMyRuleRequestsResp) GetJSON200() *[]DeviceRuleRequest {
-	return r.JSON200
-}
-
-// GetJSON404 returns the response for an HTTP 404 `application/json` response
-func (r ListMyRuleRequestsResp) GetJSON404() *ApiError {
-	return r.JSON404
-}
-
-// GetJSON500 returns the response for an HTTP 500 `application/json` response
-func (r ListMyRuleRequestsResp) GetJSON500() *ApiError {
-	return r.JSON500
-}
-
-// GetBody returns the raw response body bytes
-func (r ListMyRuleRequestsResp) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r ListMyRuleRequestsResp) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListMyRuleRequestsResp) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListMyRuleRequestsResp) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type CreateMyRuleRequestResp struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON201 the response for an HTTP 201 `application/json` response
-	JSON201 *DeviceRuleRequest
-	// JSON400 the response for an HTTP 400 `application/json` response
-	JSON400 *ApiError
-	// JSON404 the response for an HTTP 404 `application/json` response
-	JSON404 *ApiError
-	// JSON500 the response for an HTTP 500 `application/json` response
-	JSON500 *ApiError
-}
-
-// GetJSON201 returns the response for an HTTP 201 `application/json` response
-func (r CreateMyRuleRequestResp) GetJSON201() *DeviceRuleRequest {
-	return r.JSON201
-}
-
-// GetJSON400 returns the response for an HTTP 400 `application/json` response
-func (r CreateMyRuleRequestResp) GetJSON400() *ApiError {
-	return r.JSON400
-}
-
-// GetJSON404 returns the response for an HTTP 404 `application/json` response
-func (r CreateMyRuleRequestResp) GetJSON404() *ApiError {
-	return r.JSON404
-}
-
-// GetJSON500 returns the response for an HTTP 500 `application/json` response
-func (r CreateMyRuleRequestResp) GetJSON500() *ApiError {
-	return r.JSON500
-}
-
-// GetBody returns the raw response body bytes
-func (r CreateMyRuleRequestResp) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r CreateMyRuleRequestResp) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r CreateMyRuleRequestResp) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r CreateMyRuleRequestResp) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -34285,228 +34615,6 @@ func (r UpdateRuleResp) ContentType() string {
 	return ""
 }
 
-type ListRuleRequestsResp struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *[]DeviceRuleRequest
-	// JSON401 the response for an HTTP 401 `application/json` response
-	JSON401 *struct {
-		Detail *string `json:"detail,omitempty"`
-		Error  string  `json:"error"`
-
-		// RequestId Request ID for correlation with server logs.
-		RequestId *string `json:"request_id,omitempty"`
-	}
-	// JSON403 the response for an HTTP 403 `application/json` response
-	JSON403 *struct {
-		Detail *string `json:"detail,omitempty"`
-		Error  string  `json:"error"`
-
-		// RequestId Request ID for correlation with server logs.
-		RequestId *string `json:"request_id,omitempty"`
-	}
-	// JSON500 the response for an HTTP 500 `application/json` response
-	JSON500 *ApiError
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r ListRuleRequestsResp) GetJSON200() *[]DeviceRuleRequest {
-	return r.JSON200
-}
-
-// GetJSON401 returns the response for an HTTP 401 `application/json` response
-func (r ListRuleRequestsResp) GetJSON401() *struct {
-	Detail *string `json:"detail,omitempty"`
-	Error  string  `json:"error"`
-
-	// RequestId Request ID for correlation with server logs.
-	RequestId *string `json:"request_id,omitempty"`
-} {
-	return r.JSON401
-}
-
-// GetJSON403 returns the response for an HTTP 403 `application/json` response
-func (r ListRuleRequestsResp) GetJSON403() *struct {
-	Detail *string `json:"detail,omitempty"`
-	Error  string  `json:"error"`
-
-	// RequestId Request ID for correlation with server logs.
-	RequestId *string `json:"request_id,omitempty"`
-} {
-	return r.JSON403
-}
-
-// GetJSON500 returns the response for an HTTP 500 `application/json` response
-func (r ListRuleRequestsResp) GetJSON500() *ApiError {
-	return r.JSON500
-}
-
-// GetBody returns the raw response body bytes
-func (r ListRuleRequestsResp) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r ListRuleRequestsResp) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r ListRuleRequestsResp) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r ListRuleRequestsResp) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type DecideRuleRequestResp struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *DeviceRuleRequest
-	// JSON400 the response for an HTTP 400 `application/json` response
-	JSON400 *struct {
-		Detail *string `json:"detail,omitempty"`
-		Error  string  `json:"error"`
-
-		// RequestId Request ID for correlation with server logs.
-		RequestId *string `json:"request_id,omitempty"`
-	}
-	// JSON401 the response for an HTTP 401 `application/json` response
-	JSON401 *struct {
-		Detail *string `json:"detail,omitempty"`
-		Error  string  `json:"error"`
-
-		// RequestId Request ID for correlation with server logs.
-		RequestId *string `json:"request_id,omitempty"`
-	}
-	// JSON403 the response for an HTTP 403 `application/json` response
-	JSON403 *struct {
-		Detail *string `json:"detail,omitempty"`
-		Error  string  `json:"error"`
-
-		// RequestId Request ID for correlation with server logs.
-		RequestId *string `json:"request_id,omitempty"`
-	}
-	// JSON404 the response for an HTTP 404 `application/json` response
-	JSON404 *struct {
-		Detail *string `json:"detail,omitempty"`
-		Error  string  `json:"error"`
-
-		// RequestId Request ID for correlation with server logs.
-		RequestId *string `json:"request_id,omitempty"`
-	}
-	// JSON500 the response for an HTTP 500 `application/json` response
-	JSON500 *struct {
-		Detail *string `json:"detail,omitempty"`
-		Error  string  `json:"error"`
-
-		// RequestId Request ID for correlation with server logs.
-		RequestId *string `json:"request_id,omitempty"`
-	}
-}
-
-// GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r DecideRuleRequestResp) GetJSON200() *DeviceRuleRequest {
-	return r.JSON200
-}
-
-// GetJSON400 returns the response for an HTTP 400 `application/json` response
-func (r DecideRuleRequestResp) GetJSON400() *struct {
-	Detail *string `json:"detail,omitempty"`
-	Error  string  `json:"error"`
-
-	// RequestId Request ID for correlation with server logs.
-	RequestId *string `json:"request_id,omitempty"`
-} {
-	return r.JSON400
-}
-
-// GetJSON401 returns the response for an HTTP 401 `application/json` response
-func (r DecideRuleRequestResp) GetJSON401() *struct {
-	Detail *string `json:"detail,omitempty"`
-	Error  string  `json:"error"`
-
-	// RequestId Request ID for correlation with server logs.
-	RequestId *string `json:"request_id,omitempty"`
-} {
-	return r.JSON401
-}
-
-// GetJSON403 returns the response for an HTTP 403 `application/json` response
-func (r DecideRuleRequestResp) GetJSON403() *struct {
-	Detail *string `json:"detail,omitempty"`
-	Error  string  `json:"error"`
-
-	// RequestId Request ID for correlation with server logs.
-	RequestId *string `json:"request_id,omitempty"`
-} {
-	return r.JSON403
-}
-
-// GetJSON404 returns the response for an HTTP 404 `application/json` response
-func (r DecideRuleRequestResp) GetJSON404() *struct {
-	Detail *string `json:"detail,omitempty"`
-	Error  string  `json:"error"`
-
-	// RequestId Request ID for correlation with server logs.
-	RequestId *string `json:"request_id,omitempty"`
-} {
-	return r.JSON404
-}
-
-// GetJSON500 returns the response for an HTTP 500 `application/json` response
-func (r DecideRuleRequestResp) GetJSON500() *struct {
-	Detail *string `json:"detail,omitempty"`
-	Error  string  `json:"error"`
-
-	// RequestId Request ID for correlation with server logs.
-	RequestId *string `json:"request_id,omitempty"`
-} {
-	return r.JSON500
-}
-
-// GetBody returns the raw response body bytes
-func (r DecideRuleRequestResp) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r DecideRuleRequestResp) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DecideRuleRequestResp) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DecideRuleRequestResp) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
 type SetupResp struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -37740,6 +37848,45 @@ func (r HealthResp) ContentType() string {
 	return ""
 }
 
+// ListAccessRequestsWithResponse performs a GET /api/access-requests (the `ListAccessRequests` operationId) request.
+//
+// List all device access requests, optionally filtered by status. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ListAccessRequestsWithResponse(ctx context.Context, params *ListAccessRequestsParams, reqEditors ...RequestEditorFn) (*ListAccessRequestsResp, error) {
+	rsp, err := c.ListAccessRequests(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListAccessRequestsResp(rsp)
+}
+
+// DecideAccessRequestWithBodyWithResponse performs a PATCH /api/access-requests/{id} (the `DecideAccessRequest` operationId) request,
+// with any type of body and a specified content type.
+//
+// Approve or reject an access request. What approval *does* depends on the request's kind: approving a `private_dns` request mints the device's grant, while `allow` / `block` only record the decision — the admin still applies the DNS filter rule via the DNS filter UI. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) DecideAccessRequestWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideAccessRequestResp, error) {
+	rsp, err := c.DecideAccessRequestWithBody(ctx, id, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecideAccessRequestResp(rsp)
+}
+
+// DecideAccessRequestWithResponse performs a PATCH /api/access-requests/{id} (the `DecideAccessRequest` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Approve or reject an access request. What approval *does* depends on the request's kind: approving a `private_dns` request mints the device's grant, while `allow` / `block` only record the decision — the admin still applies the DNS filter rule via the DNS filter UI. Admin only.
+func (c *ClientWithResponses) DecideAccessRequestWithResponse(ctx context.Context, id string, body DecideAccessRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideAccessRequestResp, error) {
+	rsp, err := c.DecideAccessRequest(ctx, id, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecideAccessRequestResp(rsp)
+}
+
 // ListAnomaliesWithResponse performs a GET /api/anomalies (the `ListAnomalies` operationId) request.
 //
 // List anomalies: typed conditions raised by daemon components, each with a message and a remediation hint. Defaults to the ones still open, which is what the dashboard shows. Filter by `subject_id` to ask what is currently wrong with one entity — a tunnel card uses this to surface that tunnel's error. Admin only.
@@ -38092,6 +38239,45 @@ func (c *ClientWithResponses) DevicesGetMeWithResponse(ctx context.Context, reqE
 	return ParseDevicesGetMeResp(rsp)
 }
 
+// ListMyAccessRequestsWithResponse performs a GET /api/devices/me/access-requests (the `ListMyAccessRequests` operationId) request.
+//
+// List the access requests made by this device (by source IP), newest first.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) ListMyAccessRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListMyAccessRequestsResp, error) {
+	rsp, err := c.ListMyAccessRequests(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListMyAccessRequestsResp(rsp)
+}
+
+// CreateMyAccessRequestWithBodyWithResponse performs a POST /api/devices/me/access-requests (the `CreateMyAccessRequest` operationId) request,
+// with any type of body and a specified content type.
+//
+// Ask an admin for something this device cannot grant itself: a domain blocked or allowed (`block` / `allow`, which take a `domain`), or Private DNS access (`private_dns`, which takes none). The device is identified by source IP — no authentication required.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) CreateMyAccessRequestWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateMyAccessRequestResp, error) {
+	rsp, err := c.CreateMyAccessRequestWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateMyAccessRequestResp(rsp)
+}
+
+// CreateMyAccessRequestWithResponse performs a POST /api/devices/me/access-requests (the `CreateMyAccessRequest` operationId) request.
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Ask an admin for something this device cannot grant itself: a domain blocked or allowed (`block` / `allow`, which take a `domain`), or Private DNS access (`private_dns`, which takes none). The device is identified by source IP — no authentication required.
+func (c *ClientWithResponses) CreateMyAccessRequestWithResponse(ctx context.Context, body CreateMyAccessRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateMyAccessRequestResp, error) {
+	rsp, err := c.CreateMyAccessRequest(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateMyAccessRequestResp(rsp)
+}
+
 // SetMyDnsCaptureWithBodyWithResponse performs a PATCH /api/devices/me/dns-capture (the `SetMyDnsCapture` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -38181,45 +38367,6 @@ func (c *ClientWithResponses) SetMyRuleWithResponse(ctx context.Context, body Se
 		return nil, err
 	}
 	return ParseSetMyRuleResp(rsp)
-}
-
-// ListMyRuleRequestsWithResponse performs a GET /api/devices/me/rule-requests (the `ListMyRuleRequests` operationId) request.
-//
-// List the rule requests made by this device (by source IP), newest first.
-//
-// Returns a wrapper object for the known response body format(s).
-func (c *ClientWithResponses) ListMyRuleRequestsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListMyRuleRequestsResp, error) {
-	rsp, err := c.ListMyRuleRequests(ctx, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListMyRuleRequestsResp(rsp)
-}
-
-// CreateMyRuleRequestWithBodyWithResponse performs a POST /api/devices/me/rule-requests (the `CreateMyRuleRequest` operationId) request,
-// with any type of body and a specified content type.
-//
-// Submit a request to the admin to block or allow a domain. The device is identified by source IP — no authentication required.
-//
-// Returns a wrapper object for the known response body format(s).
-func (c *ClientWithResponses) CreateMyRuleRequestWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateMyRuleRequestResp, error) {
-	rsp, err := c.CreateMyRuleRequestWithBody(ctx, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateMyRuleRequestResp(rsp)
-}
-
-// CreateMyRuleRequestWithResponse performs a POST /api/devices/me/rule-requests (the `CreateMyRuleRequest` operationId) request.
-// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-//
-// Submit a request to the admin to block or allow a domain. The device is identified by source IP — no authentication required.
-func (c *ClientWithResponses) CreateMyRuleRequestWithResponse(ctx context.Context, body CreateMyRuleRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateMyRuleRequestResp, error) {
-	rsp, err := c.CreateMyRuleRequest(ctx, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseCreateMyRuleRequestResp(rsp)
 }
 
 // GetDeviceWithResponse performs a GET /api/devices/{id} (the `GetDevice` operationId) request.
@@ -40263,45 +40410,6 @@ func (c *ClientWithResponses) UpdateRuleWithResponse(ctx context.Context, id ope
 	return ParseUpdateRuleResp(rsp)
 }
 
-// ListRuleRequestsWithResponse performs a GET /api/rule-requests (the `ListRuleRequests` operationId) request.
-//
-// List all device rule requests, optionally filtered by status. Admin only.
-//
-// Returns a wrapper object for the known response body format(s).
-func (c *ClientWithResponses) ListRuleRequestsWithResponse(ctx context.Context, params *ListRuleRequestsParams, reqEditors ...RequestEditorFn) (*ListRuleRequestsResp, error) {
-	rsp, err := c.ListRuleRequests(ctx, params, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseListRuleRequestsResp(rsp)
-}
-
-// DecideRuleRequestWithBodyWithResponse performs a PATCH /api/rule-requests/{id} (the `DecideRuleRequest` operationId) request,
-// with any type of body and a specified content type.
-//
-// Approve or reject a rule request. Recording a decision does not apply the DNS rule — the admin applies it via the DNS filter UI. Admin only.
-//
-// Returns a wrapper object for the known response body format(s).
-func (c *ClientWithResponses) DecideRuleRequestWithBodyWithResponse(ctx context.Context, id string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideRuleRequestResp, error) {
-	rsp, err := c.DecideRuleRequestWithBody(ctx, id, contentType, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDecideRuleRequestResp(rsp)
-}
-
-// DecideRuleRequestWithResponse performs a PATCH /api/rule-requests/{id} (the `DecideRuleRequest` operationId) request.
-// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
-//
-// Approve or reject a rule request. Recording a decision does not apply the DNS rule — the admin applies it via the DNS filter UI. Admin only.
-func (c *ClientWithResponses) DecideRuleRequestWithResponse(ctx context.Context, id string, body DecideRuleRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideRuleRequestResp, error) {
-	rsp, err := c.DecideRuleRequest(ctx, id, body, reqEditors...)
-	if err != nil {
-		return nil, err
-	}
-	return ParseDecideRuleRequestResp(rsp)
-}
-
 // SetupWithBodyWithResponse performs a POST /api/setup (the `Setup` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -40816,6 +40924,163 @@ func (c *ClientWithResponses) HealthWithResponse(ctx context.Context, reqEditors
 		return nil, err
 	}
 	return ParseHealthResp(rsp)
+}
+
+// ParseListAccessRequestsResp parses an HTTP response from a ListAccessRequestsWithResponse call
+func ParseListAccessRequestsResp(rsp *http.Response) (*ListAccessRequestsResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListAccessRequestsResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []DeviceAccessRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDecideAccessRequestResp parses an HTTP response from a DecideAccessRequestWithResponse call
+func ParseDecideAccessRequestResp(rsp *http.Response) (*DecideAccessRequestResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DecideAccessRequestResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeviceAccessRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
 }
 
 // ParseListAnomaliesResp parses an HTTP response from a ListAnomaliesWithResponse call
@@ -42103,6 +42368,100 @@ func ParseDevicesGetMeResp(rsp *http.Response) (*DevicesGetMeResp, error) {
 	return response, nil
 }
 
+// ParseListMyAccessRequestsResp parses an HTTP response from a ListMyAccessRequestsWithResponse call
+func ParseListMyAccessRequestsResp(rsp *http.Response) (*ListMyAccessRequestsResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListMyAccessRequestsResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest []DeviceAccessRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateMyAccessRequestResp parses an HTTP response from a CreateMyAccessRequestWithResponse call
+func ParseCreateMyAccessRequestResp(rsp *http.Response) (*CreateMyAccessRequestResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateMyAccessRequestResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest DeviceAccessRequest
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 409:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON409 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest ApiError
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseSetMyDnsCaptureResp parses an HTTP response from a SetMyDnsCaptureWithResponse call
 func ParseSetMyDnsCaptureResp(rsp *http.Response) (*SetMyDnsCaptureResp, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -42263,93 +42622,6 @@ func ParseSetMyRuleResp(rsp *http.Response) (*SetMyRuleResp, error) {
 			return nil, err
 		}
 		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest ApiError
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListMyRuleRequestsResp parses an HTTP response from a ListMyRuleRequestsWithResponse call
-func ParseListMyRuleRequestsResp(rsp *http.Response) (*ListMyRuleRequestsResp, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListMyRuleRequestsResp{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest []DeviceRuleRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest ApiError
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest ApiError
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseCreateMyRuleRequestResp parses an HTTP response from a CreateMyRuleRequestWithResponse call
-func ParseCreateMyRuleRequestResp(rsp *http.Response) (*CreateMyRuleRequestResp, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &CreateMyRuleRequestResp{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
-		var dest DeviceRuleRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON201 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest ApiError
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest ApiError
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest ApiError
@@ -50911,156 +51183,6 @@ func ParseUpdateRuleResp(rsp *http.Response) (*UpdateRuleResp, error) {
 			return nil, err
 		}
 		response.JSON409 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest struct {
-			Detail *string `json:"detail,omitempty"`
-			Error  string  `json:"error"`
-
-			// RequestId Request ID for correlation with server logs.
-			RequestId *string `json:"request_id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseListRuleRequestsResp parses an HTTP response from a ListRuleRequestsWithResponse call
-func ParseListRuleRequestsResp(rsp *http.Response) (*ListRuleRequestsResp, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &ListRuleRequestsResp{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest []DeviceRuleRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest struct {
-			Detail *string `json:"detail,omitempty"`
-			Error  string  `json:"error"`
-
-			// RequestId Request ID for correlation with server logs.
-			RequestId *string `json:"request_id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest struct {
-			Detail *string `json:"detail,omitempty"`
-			Error  string  `json:"error"`
-
-			// RequestId Request ID for correlation with server logs.
-			RequestId *string `json:"request_id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
-		var dest ApiError
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON500 = &dest
-
-	}
-
-	return response, nil
-}
-
-// ParseDecideRuleRequestResp parses an HTTP response from a DecideRuleRequestWithResponse call
-func ParseDecideRuleRequestResp(rsp *http.Response) (*DecideRuleRequestResp, error) {
-	bodyBytes, err := io.ReadAll(rsp.Body)
-	defer func() { _ = rsp.Body.Close() }()
-	if err != nil {
-		return nil, err
-	}
-
-	response := &DecideRuleRequestResp{
-		Body:         bodyBytes,
-		HTTPResponse: rsp,
-	}
-
-	switch {
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest DeviceRuleRequest
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON200 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 400:
-		var dest struct {
-			Detail *string `json:"detail,omitempty"`
-			Error  string  `json:"error"`
-
-			// RequestId Request ID for correlation with server logs.
-			RequestId *string `json:"request_id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON400 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
-		var dest struct {
-			Detail *string `json:"detail,omitempty"`
-			Error  string  `json:"error"`
-
-			// RequestId Request ID for correlation with server logs.
-			RequestId *string `json:"request_id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON401 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
-		var dest struct {
-			Detail *string `json:"detail,omitempty"`
-			Error  string  `json:"error"`
-
-			// RequestId Request ID for correlation with server logs.
-			RequestId *string `json:"request_id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON403 = &dest
-
-	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
-		var dest struct {
-			Detail *string `json:"detail,omitempty"`
-			Error  string  `json:"error"`
-
-			// RequestId Request ID for correlation with server logs.
-			RequestId *string `json:"request_id,omitempty"`
-		}
-		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
-			return nil, err
-		}
-		response.JSON404 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
 		var dest struct {

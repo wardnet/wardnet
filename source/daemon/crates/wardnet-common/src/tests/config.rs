@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::config::{
-    AdminConfig, ApplicationConfiguration, LogFormat, LogRotation, LoggingConfig,
+    AdminConfig, AnomaliesConfig, ApplicationConfiguration, LogFormat, LogRotation, LoggingConfig,
     SecretStoreConfig, TunnelConfig,
 };
 
@@ -540,4 +540,50 @@ fn journal_ignores_empty_prefixes() {
         &[],
         &empty_entry,
     ));
+}
+
+/// A `0` interval is not a useful setting and is actively harmful: the engine
+/// reschedules at `Instant::now() + interval`, so zero makes `sleep_until`
+/// return immediately and spins `reevaluate_all` — a `list_open` plus one
+/// detector call per open anomaly — in a tight loop. A zero detector timeout
+/// makes every sweep time out instantly instead. Both are floored.
+#[test]
+fn anomaly_intervals_are_floored_at_one_second() {
+    let zeroed = AnomaliesConfig {
+        reevaluate_interval_secs: 0,
+        detect_timeout_secs: 0,
+        ..AnomaliesConfig::default()
+    };
+
+    assert_eq!(
+        zeroed.reevaluate_interval(),
+        std::time::Duration::from_secs(1)
+    );
+    assert_eq!(zeroed.detect_timeout(), std::time::Duration::from_secs(1));
+}
+
+/// The floor must not clamp ordinary values — only rescue the degenerate one.
+#[test]
+fn anomaly_intervals_pass_through_above_the_floor() {
+    let config = AnomaliesConfig {
+        reevaluate_interval_secs: 60,
+        detect_timeout_secs: 30,
+        ..AnomaliesConfig::default()
+    };
+
+    assert_eq!(
+        config.reevaluate_interval(),
+        std::time::Duration::from_mins(1)
+    );
+    assert_eq!(config.detect_timeout(), std::time::Duration::from_secs(30));
+
+    let defaults = AnomaliesConfig::default();
+    assert_eq!(
+        defaults.reevaluate_interval(),
+        std::time::Duration::from_mins(1)
+    );
+    assert_eq!(
+        defaults.detect_timeout(),
+        std::time::Duration::from_secs(30)
+    );
 }

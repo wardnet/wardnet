@@ -23,12 +23,12 @@
     "@wardnet/ui": "^0.3.0",
     "@wardnet/web": "workspace:*",
     "leaflet": "^1.9.4",
-    "lucide-react": "1.24.0",
+    "lucide-react": "1.31.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-leaflet": "^5.0.0",
     "react-router": "8.3.0",
-    "zustand": "5.0.14"
+    "zustand": "5.0.15"
   },
   "devDependencies": {
     "@tailwindcss/vite": "4.3.3",

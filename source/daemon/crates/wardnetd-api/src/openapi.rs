@@ -68,7 +68,7 @@ use wardnetd_services::version::RELEASE_VERSION;
         (name = "network", description = "LAN interface status and gateway discovery"),
         (name = "network-zones", description = "Network Zones: device policy buckets"),
         (name = "zone-exceptions", description = "Cross-zone exceptions: admin-granted allowances between isolated zones"),
-        (name = "rule-requests", description = "Device-initiated firewall rule requests and admin decisions"),
+        (name = "access-requests", description = "Device-initiated access requests (domain allow/block, Private DNS) and admin decisions"),
         (name = "tunnels", description = "WireGuard tunnel lifecycle"),
         (name = "inbound-wg", description = "Inbound WireGuard remote-access server and peers"),
         (name = "private-dns", description = "Private DNS: per-device encrypted DNS (DoT) grants and the signed iOS profile"),

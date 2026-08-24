@@ -49,6 +49,7 @@ describe("internal ApiClient", () => {
     await apiClient(client).get("/dns/log", {
       query: { limit: 5, domain: "example.com", result: undefined },
     });
+    // biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
     expect(calls[0].path).toBe("/dns/log?limit=5&domain=example.com");
   });
 
@@ -57,6 +58,7 @@ describe("internal ApiClient", () => {
     await apiClient(client).get("/stats", {
       query: { from: "1", to: "2", bucket: "minute", metrics: ["dns", "block"] },
     });
+    // biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
     expect(calls[0].path).toBe("/stats?from=1&to=2&bucket=minute&metrics=dns&metrics=block");
   });
 

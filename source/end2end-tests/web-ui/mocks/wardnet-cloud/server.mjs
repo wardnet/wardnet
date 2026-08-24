@@ -32,9 +32,12 @@
 //   PUT    /v1/acme-challenge             -> 204 (best-effort background publish)
 //   DELETE /v1/acme-challenge             -> 204
 
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { createServer } from "node:http";
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { randomUUID } from "node:crypto";
 
+// biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
 const PORT = Number(process.env.PORT ?? 8080);
 
 function sendJson(res, status, body) {

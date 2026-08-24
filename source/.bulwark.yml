@@ -3,10 +3,22 @@
 # Beyond declaring how coverage is produced, this file can only NARROW what
 # bulwark does — it cannot tune rule severity or suppress individual findings,
 # and that is deliberate. Genuine findings get fixed; a reviewed false positive
-# gets an `eslint-disable-next-line <rule> -- <why>` on the exact line, with a
-# reason naming where the value actually comes from. No rule is switched off
-# globally — that would hide the next genuine finding, which is the whole point
-# of running this.
+# gets a `biome-ignore <category>: <why>` on the line above, with a reason naming
+# where the value actually comes from. No rule is switched off globally — that
+# would hide the next genuine finding, which is the whole point of running this.
+#
+# The suppression syntax changed with bulwark v2, which made Biome the only
+# TypeScript linter (bulwark ADR-0008). Two things about that run are worth
+# knowing before reaching for a config file here:
+#
+#   * bulwark lints with its OWN bundled Biome config, passed via
+#     `--config-path`, enabling the `security` and `correctness` groups at
+#     `error` with no path overrides. A `biome.json` added to this repo does not
+#     configure that run.
+#   * A nested config marked `"root": false` *is* merged into it by Biome, which
+#     is exactly why one is not used here. It would let us switch the noisy
+#     rules off repo-wide and silently narrow what bulwark checks — the outcome
+#     this file's policy exists to prevent.
 
 coverage:
   # This repo's CI already runs every suite instrumented and uploads the

@@ -1,4 +1,6 @@
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { createHash } from "node:crypto";
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { mkdirSync, rmSync } from "node:fs";
 
 /**
@@ -24,6 +26,7 @@ import { mkdirSync, rmSync } from "node:fs";
  * with `WARDNET_UI_BASE_URL=https://localhost:8443`.
  */
 export const UI_BASE_URL =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_UI_BASE_URL ?? "https://wardnetd-ui-tls";
 
 /** Hostname the session cookie is scoped to (derived from UI_BASE_URL). */
@@ -34,6 +37,7 @@ export const UI_HOST = new URL(UI_BASE_URL).hostname;
  * first-run setup-wizard spec (A1), via its own TLS proxy vhost.
  */
 export const UI_FRESH_BASE_URL =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_UI_FRESH_BASE_URL ?? "https://wardnetd-ui-fresh-tls";
 
 /**
@@ -44,6 +48,7 @@ export const UI_FRESH_BASE_URL =
  * device so `GET /api/devices/me` resolves non-null.
  */
 export const UI_LAN_BASE_URL =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_UI_LAN_BASE_URL ?? "https://wardnetd-ui-lan-tls";
 
 /**
@@ -61,6 +66,7 @@ export const LAN_PROXY_IP = "10.91.0.20";
  * avoids Node self-signed-TLS handling.
  */
 export const API_BASE_URL =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_API_BASE_URL ?? "http://wardnetd-ui:7411/api";
 
 /**
@@ -73,6 +79,7 @@ export const API_BASE_URL =
  * `Secure` cookie would be stored regardless and hide that bug.
  */
 export const UI_HTTP_BASE_URL =
+  // biome-ignore lint/correctness/noProcessGlobal: test harness, run by Node — never shipped to a browser
   process.env.WARDNET_UI_HTTP_BASE_URL ?? "http://wardnetd-ui:7411";
 
 /** Where the `setup` project writes the admin session for authed surfaces. */

@@ -66,6 +66,8 @@ Payload identifiers are `UUIDv5` derived from the hostname, so a re-download **r
 
 v1 has no user-initiated request flow (that is #919): an admin grants a device, and the admin-site granted-modal shows the hostname, a copy button, the per-platform steps, and a QR to the profile. The user PWA shows the same steps on the device itself.
 
+> **Superseded in part by [ADR-0033](0033-household-access-requests.md) (#919).** A member can now *ask* from the user PWA, and approving that request mints the grant. Two things in this section survive unchanged: an admin is still the only one who can **grant**, and the push is still a convenience rather than the onboarding path. Two things changed: the member may request whenever the feature is enabled and their device is ungranted, and `grant_device` now also publishes `PrivateDnsGrantCreated` so a grant made from the admin card resolves any pending request — over the event bus, because approving already depends on this service and calling back would close a cycle.
+
 #1041 added a **device-keyed `private_dns_granted` push** — "Send to device" (`POST /api/private-dns/grants/{device_id}/notify` → `{ delivered }`) — deep-linking the user PWA to `/settings#private-dns`. It is **device-audience** (`owner_kind = device`), so like every device-keyed push it is **not** written to the admin **Notification feed**. It is an admin-triggered convenience for the common case of granting a device whose owner is not standing next to you; the modal's hostname and instructions remain the always-present fallback, and `delivered: false` (a `200`, not an error) simply means that member hasn't enabled notifications.
 
 ## Consequences

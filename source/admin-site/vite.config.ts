@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+// biome-ignore lint/correctness/noNodejsModules: build config, executed by Node at build time and never bundled
 import path from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -9,6 +10,7 @@ export default defineConfig({
   base: "/admin/",
   resolve: {
     alias: {
+      // biome-ignore lint/correctness/noGlobalDirnameFilename: build config, executed by Node at build time and never bundled
       "@": path.resolve(__dirname, "src"),
     },
     preserveSymlinks: true,

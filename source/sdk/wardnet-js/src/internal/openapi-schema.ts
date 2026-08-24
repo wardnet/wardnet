@@ -9,6 +9,40 @@
 // change breaks the build here instead of drifting silently.
 
 export interface paths {
+    "/api/access-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List all device access requests, optionally filtered by status. Admin only. */
+        get: operations["get_api_access_requests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/access-requests/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** @description Approve or reject an access request. What approval *does* depends on the request's kind: approving a `private_dns` request mints the device's grant, while `allow` / `block` only record the decision — the admin still applies the DNS filter rule via the DNS filter UI. Admin only. */
+        patch: operations["patch_api_access_requests_id"];
+        trace?: never;
+    };
     "/api/anomalies": {
         parameters: {
             query?: never;
@@ -436,6 +470,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/me/access-requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List the access requests made by this device (by source IP), newest first. */
+        get: operations["get_api_devices_me_access_requests"];
+        put?: never;
+        /** @description Ask an admin for something this device cannot grant itself: a domain blocked or allowed (`block` / `allow`, which take a `domain`), or Private DNS access (`private_dns`, which takes none). The device is identified by source IP — no authentication required. */
+        post: operations["post_api_devices_me_access_requests"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/me/dns-capture": {
         parameters: {
             query?: never;
@@ -498,24 +550,6 @@ export interface paths {
         /** @description Let the caller change their own routing rule (direct vs. a specific tunnel). The target device is identified by source IP. Admin-locked devices are rejected with 403 — an admin must lift the lock first. No authentication is required (self-service by IP). */
         put: operations["put_api_devices_me_rule"];
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/devices/me/rule-requests": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description List the rule requests made by this device (by source IP), newest first. */
-        get: operations["get_api_devices_me_rule_requests"];
-        put?: never;
-        /** @description Submit a request to the admin to block or allow a domain. The device is identified by source IP — no authentication required. */
-        post: operations["post_api_devices_me_rule_requests"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1684,40 +1718,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/rule-requests": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** @description List all device rule requests, optionally filtered by status. Admin only. */
-        get: operations["get_api_rule_requests"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/rule-requests/{id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /** @description Approve or reject a rule request. Recording a decision does not apply the DNS rule — the admin applies it via the DNS filter UI. Admin only. */
-        patch: operations["patch_api_rule_requests_id"];
-        trace?: never;
-    };
     "/api/setup": {
         parameters: {
             query?: never;
@@ -2231,6 +2231,21 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /**
+         * @description What the member is asking for.
+         *
+         *     `Allow` / `Block` carry a `domain`; `PrivateDns` carries no payload at all —
+         *     the request is fully determined by which device asked. The database enforces
+         *     that pairing with a `CHECK`, so a kind added here must decide which side of
+         *     it the new variant falls on.
+         * @enum {string}
+         */
+        AccessRequestKind: "block" | "allow" | "private_dns";
+        /**
+         * @description Lifecycle state of a request.
+         * @enum {string}
+         */
+        AccessRequestStatus: "pending" | "approved" | "rejected";
         /** @description Request body for `POST /api/inbound-wg/peers`.
          *
          *     A remote-access grant targets an already-managed device (issue #810): the
@@ -2386,6 +2401,16 @@ export interface components {
              *     Retained by the background cleanup task for 24 h. */
             snapshots: components["schemas"]["LocalSnapshot"][];
         };
+        /** @description Kind-specific parameters an admin supplies when **approving**.
+         *
+         *     Approval is not uniform across kinds, so the decision body carries a typed
+         *     payload rather than a bag of optional fields. `PrivateDns` needs none — the
+         *     grant is fully determined by the requesting device — but the variant exists
+         *     so the wire shape is explicit rather than "absent means Private DNS". */
+        ApprovalParams: {
+            /** @enum {string} */
+            kind: "private_dns";
+        };
         /** @description Request body for PUT /api/devices/{id}/zone. */
         AssignDeviceZoneRequest: {
             /** Format: uuid */
@@ -2510,6 +2535,15 @@ export interface components {
             code: string;
             /** @description Human-readable country name (e.g. "United States"). */
             name: string;
+        };
+        /** @description Request body for `POST /api/devices/me/access-requests`. */
+        CreateAccessRequestRequest: {
+            /** @description Required for `allow` / `block`, and rejected for kinds that take no
+             *     domain — the service validates against
+             *     [`AccessRequestKind::requires_domain`]. */
+            domain?: string | null;
+            kind: components["schemas"]["AccessRequestKind"];
+            reason?: string | null;
         };
         /** @description Request body for POST /api/dns/allowlist. */
         CreateAllowlistRequest: {
@@ -2639,12 +2673,6 @@ export interface components {
         CreateRoutingProfileResponse: {
             message: string;
             profile: components["schemas"]["RoutingProfile"];
-        };
-        /** @description Request body for `POST /api/devices/me/rule-requests`. */
-        CreateRuleRequestRequest: {
-            domain: string;
-            kind: components["schemas"]["RuleRequestKind"];
-            reason?: string | null;
         };
         /** @description Request body for POST /api/tunnels (import .conf file). */
         CreateTunnelRequest: {
@@ -2781,11 +2809,12 @@ export interface components {
              *     Always `false` for BYOD-Cloudflare. */
             suspended?: boolean;
         };
-        /** @description Request body for `PATCH /api/rule-requests/{id}` (admin decision). Only
+        /** @description Request body for `PATCH /api/access-requests/{id}` (admin decision). Only
          *     `approved` / `rejected` are accepted — a request cannot be set back to
          *     `pending`. */
-        DecideRuleRequestRequest: {
-            status: components["schemas"]["RuleRequestStatus"];
+        DecideAccessRequestRequest: {
+            approval?: null | components["schemas"]["ApprovalParams"];
+            status: components["schemas"]["AccessRequestStatus"];
         };
         /** @description Response for DELETE /api/dns/allowlist/{id}. */
         DeleteAllowlistResponse: {
@@ -2904,6 +2933,19 @@ export interface components {
              */
             zone_id: string;
         };
+        /** @description A single access-request row. */
+        DeviceAccessRequest: {
+            created_at: string;
+            decided_at?: string | null;
+            decided_by?: string | null;
+            device_id: string;
+            /** @description `None` for kinds that name no domain — see [`AccessRequestKind::requires_domain`]. */
+            domain?: string | null;
+            id: string;
+            kind: components["schemas"]["AccessRequestKind"];
+            reason?: string | null;
+            status: components["schemas"]["AccessRequestStatus"];
+        };
         /** @description Request body for `PATCH /api/devices/me/dns-capture` — the self-service
          *     capture toggle. Flips only the `enabled` flag; retention caps stay
          *     admin-only (set via `DnsCaptureSettingsRequest` on the admin endpoint). */
@@ -2976,18 +3018,6 @@ export interface components {
             /** @description Every TCP port the probe contacted — the vendor catalog's full probe
              *     surface, and by construction its upper bound. */
             ports_probed: number[];
-        };
-        /** @description A single rule request row. */
-        DeviceRuleRequest: {
-            created_at: string;
-            decided_at?: string | null;
-            decided_by?: string | null;
-            device_id: string;
-            domain: string;
-            id: string;
-            kind: components["schemas"]["RuleRequestKind"];
-            reason?: string | null;
-            status: components["schemas"]["RuleRequestStatus"];
         };
         /** @description A single observed fact that helps identify a device (issue #1099).
          *
@@ -4167,16 +4197,6 @@ export interface components {
             /** @enum {string} */
             type: "default";
         };
-        /**
-         * @description What the user is asking for.
-         * @enum {string}
-         */
-        RuleRequestKind: "block" | "allow";
-        /**
-         * @description Lifecycle state of a request.
-         * @enum {string}
-         */
-        RuleRequestStatus: "pending" | "approved" | "rejected";
         /** @description Response for `POST /api/private-dns/grants/{device_id}/notify` — the result
          *     of nudging a granted device's household member to set up Private DNS. */
         SendPrivateDnsNotificationResponse: {
@@ -5047,6 +5067,172 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_api_access_requests: {
+        parameters: {
+            query?: {
+                /** @description Optional status filter (`pending` | `approved` | `rejected`). */
+                status?: null | components["schemas"]["AccessRequestStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Access requests */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceAccessRequest"][];
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    patch_api_access_requests_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Access request id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideAccessRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated request */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceAccessRequest"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Already decided, or the approval could not be carried out */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
     get_api_anomalies: {
         parameters: {
             query?: {
@@ -6950,6 +7136,104 @@ export interface operations {
             };
         };
     };
+    get_api_devices_me_access_requests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's access requests */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceAccessRequest"][];
+                };
+            };
+            /** @description Device not found for this IP */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    post_api_devices_me_access_requests: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAccessRequestRequest"];
+            };
+        };
+        responses: {
+            /** @description Request created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceAccessRequest"];
+                };
+            };
+            /** @description Malformed request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Device not found for this IP */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Already pending, or the feature is not enabled */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     patch_api_devices_me_dns_capture: {
         parameters: {
             query?: never;
@@ -7119,95 +7403,6 @@ export interface operations {
             };
             /** @description Device is admin-locked */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    get_api_devices_me_rule_requests: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The caller's rule requests */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeviceRuleRequest"][];
-                };
-            };
-            /** @description Device not found for this IP */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    post_api_devices_me_rule_requests: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateRuleRequestRequest"];
-            };
-        };
-        responses: {
-            /** @description Request created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeviceRuleRequest"];
-                };
-            };
-            /** @description Malformed request */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-            /** @description Device not found for this IP */
-            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -15333,163 +15528,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DeleteDomainRoutingRuleResponse"];
-                };
-            };
-            /** @description Unauthenticated - session cookie or API key missing/invalid */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        detail?: string | null;
-                        error: string;
-                        /** @description Request ID for correlation with server logs. */
-                        request_id?: string | null;
-                    };
-                };
-            };
-            /** @description Forbidden - caller is not an admin */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        detail?: string | null;
-                        error: string;
-                        /** @description Request ID for correlation with server logs. */
-                        request_id?: string | null;
-                    };
-                };
-            };
-            /** @description Resource not found */
-            404: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        detail?: string | null;
-                        error: string;
-                        /** @description Request ID for correlation with server logs. */
-                        request_id?: string | null;
-                    };
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        detail?: string | null;
-                        error: string;
-                        /** @description Request ID for correlation with server logs. */
-                        request_id?: string | null;
-                    };
-                };
-            };
-        };
-    };
-    get_api_rule_requests: {
-        parameters: {
-            query?: {
-                /** @description Optional status filter (`pending` | `approved` | `rejected`). */
-                status?: null | components["schemas"]["RuleRequestStatus"];
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Rule requests */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeviceRuleRequest"][];
-                };
-            };
-            /** @description Unauthenticated - session cookie or API key missing/invalid */
-            401: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        detail?: string | null;
-                        error: string;
-                        /** @description Request ID for correlation with server logs. */
-                        request_id?: string | null;
-                    };
-                };
-            };
-            /** @description Forbidden - caller is not an admin */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        detail?: string | null;
-                        error: string;
-                        /** @description Request ID for correlation with server logs. */
-                        request_id?: string | null;
-                    };
-                };
-            };
-            /** @description Internal server error */
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiError"];
-                };
-            };
-        };
-    };
-    patch_api_rule_requests_id: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                /** @description Rule request id */
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DecideRuleRequestRequest"];
-            };
-        };
-        responses: {
-            /** @description Updated request */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DeviceRuleRequest"];
-                };
-            };
-            /** @description Malformed or invalid request body */
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": {
-                        detail?: string | null;
-                        error: string;
-                        /** @description Request ID for correlation with server logs. */
-                        request_id?: string | null;
-                    };
                 };
             };
             /** @description Unauthenticated - session cookie or API key missing/invalid */

@@ -1,18 +1,20 @@
 import { WifiOffIcon } from "lucide-react";
 import {
   ApiErrorAlert,
+  Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   PrivateDnsInstructions,
-  RuleRequestStatusPill,
+  AccessRequestStatusPill,
   Text,
   Toggle,
   isIosBrowserTab,
   privateDnsService,
   useMyDevice,
-  useMyRuleRequests,
+  useCreateAccessRequest,
+  useMyAccessRequests,
   usePrivateDnsMe,
   usePushNotifications,
   useSetMyCaptureEnabled,
@@ -67,9 +69,15 @@ function Notifications() {
 }
 
 function MyRequests() {
-  const { data, isLoading } = useMyRuleRequests();
+  const { data, isLoading } = useMyAccessRequests();
 
-  if (isLoading || !data || data.length === 0) {
+  // `private_dns` requests are deliberately excluded: the Private DNS card
+  // below owns that state end to end (pending → declined → setup steps), and
+  // listing them here too would show the member the same request twice, in two
+  // places, saying different things.
+  const requests = (data ?? []).filter((r) => r.kind !== "private_dns");
+
+  if (isLoading || requests.length === 0) {
     return null;
   }
 
@@ -80,7 +88,7 @@ function MyRequests() {
       </CardHeader>
       <CardContent>
         <ul className="flex flex-col gap-2" data-testid="my-requests">
-          {data.map((r) => (
+          {requests.map((r) => (
             <li key={r.id} className="flex items-center justify-between gap-3">
               <span className="min-w-0">
                 <Text
@@ -94,7 +102,7 @@ function MyRequests() {
                   {r.kind === "block" ? "Block request" : "Allow request"}
                 </Text>
               </span>
-              <RuleRequestStatusPill status={r.status} />
+              <AccessRequestStatusPill status={r.status} />
             </li>
           ))}
         </ul>
@@ -115,11 +123,33 @@ const PRIVATE_DNS_HASH = "#private-dns";
  * is on a different screen and needs one, here the phone would be scanning
  * itself. Hence `variant="on-device"`.
  *
- * Grants are admin-only in v1, so the ungranted states are informational — a
- * household member can't fix the prerequisite themselves, only ask.
+ * The member can *ask* for a grant from here (#919), but only once the feature
+ * is enabled network-wide: `grant_device` requires it, so a request raised
+ * while Private DNS is off would be one the admin cannot approve. The
+ * not-enabled state therefore stays informational — that prerequisite is the
+ * admin's to fix, and the daemon refuses such a request anyway.
  */
 function PrivateDns() {
-  const { data: me, isLoading } = usePrivateDnsMe();
+  const { data: me, isLoading: grantLoading } = usePrivateDnsMe();
+  const { data: requests, isLoading: requestsLoading } = useMyAccessRequests();
+  const createRequest = useCreateAccessRequest();
+
+  // Both queries gate the card, because the ungranted branch is written from
+  // *both*. Reading only the grant's `isLoading` would, on a cold open, show a
+  // member who already asked "This device hasn't been granted Private DNS yet"
+  // with a live Request button — and tapping it earns a 409 from the partial
+  // unique index, surfaced as an error for doing nothing wrong.
+  const isLoading = grantLoading || requestsLoading;
+
+  // This device's most recent Private-DNS request. The list is newest-first,
+  // and the partial unique index means at most one can be open at a time.
+  //
+  // Read from the access-requests query rather than from `/private-dns/me`
+  // deliberately: extending that response would make `PrivateDnsService` depend
+  // on `AccessRequestService`, while approving a request already depends the
+  // other way — a cycle. One extra query is the cost of keeping that graph
+  // one-way.
+  const request = (requests ?? []).find((r) => r.kind === "private_dns");
 
   // The push deep-links to `/settings#private-dns`, but this card is the last
   // of four — without this the member taps "Private DNS is ready" and lands on
@@ -155,7 +185,14 @@ function PrivateDns() {
       : !me.enabled
         ? "Private DNS isn't enabled on your network yet. Ask your administrator to turn it on."
         : !me.granted
-          ? "This device hasn't been granted Private DNS yet. Ask your administrator to grant it, then reopen this page."
+          ? // Ungranted splits three ways once the member can ask. The
+            // approved case is deliberately absent: an approved request means
+            // a grant exists, so `me.granted` is true and we never land here.
+            request?.status === "pending"
+            ? "Requested — waiting for your administrator."
+            : request?.status === "rejected"
+              ? "Your request was declined. You can ask again if something's changed."
+              : "This device hasn't been granted Private DNS yet."
           : !me.hostname
             ? // Granted, but the domain lookup didn't resolve — transient and
               // self-healing, so don't send the member to their admin over it.
@@ -165,6 +202,23 @@ function PrivateDns() {
   // Non-null exactly when every check above passed, so the setup view can rely
   // on it without an assertion.
   const hostname = message === null ? (me?.hostname ?? null) : null;
+
+  // Offer the ask only where the admin can actually act on it: the feature is
+  // on, this device has no grant, and nothing is already waiting. A declined
+  // request re-opens the button rather than closing the door — the household
+  // circumstance that prompted the "no" may have changed.
+  //
+  // `approved` is excluded as well as `pending`. The two queries resolve
+  // independently and both refetch on focus, so there is a real window where
+  // the access-requests query has landed on `approved` while `usePrivateDnsMe`
+  // still holds a stale `granted: false` — offering the button there earns a
+  // 409 from the already-granted guard for doing nothing wrong.
+  const canRequest =
+    !isLoading &&
+    !!me?.enabled &&
+    !me.granted &&
+    request?.status !== "pending" &&
+    request?.status !== "approved";
 
   return (
     <Card
@@ -178,9 +232,28 @@ function PrivateDns() {
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {hostname === null ? (
-          <Text as="p" size="sm" className="text-ink-3">
-            {message}
-          </Text>
+          <>
+            <Text as="p" size="sm" className="text-ink-3">
+              {message}
+            </Text>
+            {canRequest && (
+              <Button
+                onClick={() => createRequest.mutate({ kind: "private_dns" })}
+                disabled={createRequest.isPending}
+                data-testid="request-private-dns"
+              >
+                {request?.status === "rejected"
+                  ? "Ask again"
+                  : "Request access"}
+              </Button>
+            )}
+            {createRequest.isError && (
+              <ApiErrorAlert
+                error={createRequest.error}
+                fallback="Failed to send request"
+              />
+            )}
+          </>
         ) : (
           <>
             <Text as="p" size="sm" className="text-ink-3">
