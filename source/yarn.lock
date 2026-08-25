@@ -5520,7 +5520,7 @@ __metadata:
     eslint-plugin-react-hooks: "npm:7.1.1"
     eslint-plugin-react-refresh: "npm:0.5.4"
     eslint-plugin-security: "npm:4.0.1"
-    globals: "npm:17.7.0"
+    globals: "npm:17.11.0"
     jsdom: "npm:30.0.1"
     lucide-react: "npm:1.31.0"
     next-themes: "npm:0.4.6"
@@ -5607,7 +5607,7 @@ __metadata:
     eslint-plugin-react-hooks: "npm:7.1.1"
     eslint-plugin-react-refresh: "npm:0.5.4"
     eslint-plugin-security: "npm:4.0.1"
-    globals: "npm:17.7.0"
+    globals: "npm:17.11.0"
     jsdom: "npm:30.0.1"
     lucide-react: "npm:1.31.0"
     prettier: "npm:3.9.6"
@@ -5720,7 +5720,7 @@ __metadata:
     eslint-plugin-prettier: "npm:5.5.6"
     eslint-plugin-react-hooks: "npm:7.1.1"
     eslint-plugin-security: "npm:4.0.1"
-    globals: "npm:17.7.0"
+    globals: "npm:17.11.0"
     jsdom: "npm:30.0.1"
     prettier: "npm:3.9.6"
     qrcode: "npm:1.5.4"
@@ -7635,10 +7635,10 @@ __metadata:
   languageName: node
   linkType: hard
 
-"globals@npm:17.7.0":
-  version: 17.7.0
-  resolution: "globals@npm:17.7.0"
-  checksum: 10c0/e83f791acf537b85fa1632ac48a45432a1999a61acd9f955b5c2145f66d6b5000a7945029874b6184fa2dfac8d33af03885a5a7ffa457866f1bcf0b40d0c1291
+"globals@npm:17.11.0":
+  version: 17.11.0
+  resolution: "globals@npm:17.11.0"
+  checksum: 10c0/5e1be3d816e04d4d0d01b1cdd40e46b5fb6b5e9f15aece9a5919b060e0fb1b3f1b9e7327dce97ef19e05513a6d65872e0834999ddea251557556dddd0f5fde30
   languageName: node
   linkType: hard
 
