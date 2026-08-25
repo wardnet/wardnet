@@ -46,6 +46,7 @@ import {
   type AgentInterfacesResponse,
   AuthedClient,
   agentGet,
+  agentPost,
   DAEMON_AGENT,
   TEST_UBUNTU_AGENT,
   acquireLeaseInRange,
@@ -53,7 +54,7 @@ import {
   daemonPid,
   daemonRoutes,
   ensureAdminAndLogin,
-  findDeviceByIpRangeOrNull,
+  findDeviceByIpOrNull,
   hostRouteFor,
   pollUntil,
   resolveViaAgent,
@@ -69,16 +70,6 @@ const ZONE_CIDR = "10.44.1.0/24";
 const ZONE_GATEWAY = "10.44.1.1";
 const ZONE_RANGE_START = "10.44.1.2";
 const ZONE_RANGE_END = "10.44.1.254";
-
-// Base-LAN pool used to get the guest client discovered in the first place.
-//
-// Must be the pool every other spec uses: `ensureLeasedAgent` rewrites the
-// daemon's *global* DHCP config, so inventing a range here would leave the
-// shared stack serving it — and the clients other specs lease would stop
-// getting addresses in the range they expect. (.160/.170 are also
-// dhcp-reservations' and backup-roundtrip's reserved addresses.)
-const LAN_POOL_START = "10.91.0.100";
-const LAN_POOL_END = "10.91.0.150";
 
 const ZONE_NAME = "e2e-guest-isolated";
 
@@ -104,30 +95,34 @@ describe("member-isolation host route preferred source (#1198)", () => {
     devices = new DeviceService(authed);
     system = new SystemService(authed);
 
-    // Get the guest client onto the LAN so the daemon discovers it.
+    // Find the client's device row by whatever address it currently holds.
     //
-    // Deliberately NOT `ensureLeasedAgent`: that rewrites the daemon's *global*
-    // DHCP config, and this spec has no business changing the pool the rest of
-    // the suite leases from. `acquireLeaseInRange` only drives this one client.
-    await acquireLeaseInRange(
+    // Deliberately not "give it a lease inside the base pool first": that
+    // needs `ensureLeasedAgent`, which rewrites the daemon's *global* DHCP
+    // config, and even `acquireLeaseInRange` fails when an earlier spec has
+    // left the client somewhere outside the pool — the last run died on
+    // `renew_success=true, no in-pool IP yet`. This spec does not care which
+    // address the client starts on, only that a device row exists to move
+    // into the zone, so read what it actually has and look that up.
+    const before = await agentGet<AgentInterfacesResponse>(
       TEST_UBUNTU_AGENT,
-      "eth0",
-      LAN_POOL_START,
-      LAN_POOL_END,
-      5,
+      "/interfaces",
     );
-    // The daemon only materialises a device row once it observes LAN traffic.
+    const startingAddrs = (
+      before.interfaces.find((i) => i.name === "eth0")?.addrs ?? []
+    )
+      .filter((a) => a.family === "inet")
+      .map((a) => a.local);
+    // The daemon only materialises a row once it observes LAN traffic.
     await resolveViaAgent(TEST_UBUNTU_AGENT, "example.com").catch(
       () => undefined,
     );
     // Where packet capture can't reach `wardnet_lan` no row ever appears — an
     // environment limitation the other kernel-state specs also skip on.
-    guest = await findDeviceByIpRangeOrNull(
-      authed,
-      LAN_POOL_START,
-      LAN_POOL_END,
-      45_000,
-    );
+    for (const addr of startingAddrs) {
+      guest = await findDeviceByIpOrNull(authed, addr, 20_000);
+      if (guest) break;
+    }
     if (!guest) return;
     originalZoneId = guest.zone_id;
 
@@ -208,14 +203,12 @@ describe("member-isolation host route preferred source (#1198)", () => {
         await zones.assignDevice(guest.id, originalZoneId);
       }
       if (zoneId) await zones.delete(zoneId);
-      // Put the client back on the base LAN so it stops holding a zone address.
-      await acquireLeaseInRange(
-        TEST_UBUNTU_AGENT,
-        "eth0",
-        LAN_POOL_START,
-        LAN_POOL_END,
-        5,
-      ).catch(() => undefined);
+      // Put the client back on the base LAN so it stops holding a zone
+      // address. Best-effort and range-agnostic: the point is to renew off the
+      // zone subnet, not to land anywhere specific.
+      await agentPost(TEST_UBUNTU_AGENT, "/dhcp/renew", {
+        interface: "eth0",
+      }).catch(() => undefined);
     } catch {
       // Best-effort: cleanup failure must not mask a real assertion failure.
     }
