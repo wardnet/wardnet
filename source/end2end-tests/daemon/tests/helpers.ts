@@ -219,6 +219,12 @@ export interface AgentDhcpRenewResponse {
  * release+renew cycle, which legitimately takes tens of seconds under DHCP
  * retransmit backoff. This exists to break an infinite wedge, not to police
  * latency — too tight and it aborts work that was about to succeed.
+ *
+ * Because it is longer than any `pollUntil` deadline that wraps it, and
+ * `pollUntil` does not catch probe rejections, a stalled agent still overruns
+ * its poll and surfaces as a bare `TimeoutError` rather than that poll's
+ * `describe()` message. A probe that wants the friendlier message must catch
+ * its own errors — see the #1198 spec's re-key loop.
  */
 const AGENT_REQUEST_TIMEOUT_MS = 120_000;
 
@@ -729,7 +735,7 @@ export function hostRouteFor(
 }
 
 /**
- * Poll [`daemonIpRoutes`] until `ip`'s `/32` has the given preferred source
+ * Poll [`daemonRoutes`] until `ip`'s `/32` has the given preferred source
  * (`undefined` waits for it to have none). Returns the matching route.
  *
  * Host routes are installed asynchronously off zone/device events, so a
@@ -761,7 +767,7 @@ export async function waitForHostRouteSrc(
   return route;
 }
 
-/** Response from the daemon agent's `POST /ip-routes/clear-prefsrc`. */
+/** Response from the daemon agent's `POST /routes/clear-prefsrc`. */
 export interface ClearPrefsrcResponse {
   command: string;
   success: boolean;

@@ -1157,7 +1157,10 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
             // while the daemon is down leaves a stale `/32` until that device's
             // next event — pruning it here would need a single bulk route
             // listing rather than one per device.
-            if !zone.member_isolation {
+            // `dhcp_enabled` matters for the same reason: with DHCP off no
+            // device can own a host route, so every one of them would take the
+            // removal path and its route-table dump.
+            if !dhcp_enabled || !zone.member_isolation {
                 continue;
             }
             self.manage_host_route(device, zone, dhcp_enabled).await;
@@ -1236,6 +1239,14 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         // appear but no `/32` is ever installed. Neither transition raises a
         // per-device event, so without this pass both wait for an unrelated
         // device event or a daemon restart (#1198).
+        //
+        // On a *subnet* edit this removes rather than re-points: every member
+        // still holds an address in the old subnet (the lease release has only
+        // just gone out), so the in-subnet guard yields no gateway and the
+        // stale `/32` is dropped. That is the safe direction — the alternative
+        // is a route naming a gateway the kernel is about to delete — and each
+        // device gets its route back through `handle_ip_change` as it re-DHCPs
+        // into the new subnet.
         // Propagate rather than defaulting to `false` — see `reconcile`: the
         // default is the destructive direction, not the safe one.
         let dhcp_enabled = self.dhcp_enabled().await?;

@@ -1121,11 +1121,38 @@ async fn handle_ip_change_rekeys_the_host_route_onto_the_new_ip() {
     );
 }
 
-/// A zone move re-applies the device's host route for its new zone, so the
-/// preferred source follows the device rather than naming the gateway of a zone
-/// it has left (#1198).
+/// A zone move leaves the device on its *old* address — `handle_zone_change`
+/// has only just released the lease — so the in-subnet guard yields no gateway
+/// and the stale `/32` is dropped rather than re-pointed at the new zone's
+/// gateway. That is the safe direction: a route naming a gateway the device is
+/// not behind is the #1198 failure itself. The route comes back via
+/// `handle_ip_change` once the device re-DHCPs into the new subnet.
 #[tokio::test]
-async fn handle_zone_change_installs_the_new_zones_host_route() {
+async fn handle_zone_change_drops_the_host_route_until_the_device_re_ips() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    // Still on its previous address, as a freshly-moved device would be.
+    let member = insert_device(&h.devices, "192.168.100.50", ZONE_A).await;
+
+    as_admin(h.svc.handle_zone_change(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        !pc.iter().any(|c| c.starts_with("add_host_route:")),
+        "a device still on its old address must not get a /32 pointing at the \
+         new zone's gateway (#1198): {pc:?}"
+    );
+    assert!(
+        pc.contains(&"remove_host_route:192.168.100.50:eth0".to_owned()),
+        "the stale route is dropped: {pc:?}"
+    );
+}
+
+/// The other half: once the device *is* inside its zone's subnet, a zone change
+/// re-applies the route with that zone's gateway.
+#[tokio::test]
+async fn handle_zone_change_installs_the_host_route_for_an_in_subnet_member() {
     let h = build().await;
     enable_dhcp(&h).await;
     insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
@@ -1136,7 +1163,7 @@ async fn handle_zone_change_installs_the_new_zones_host_route() {
     let pc = policy_calls(&h).await;
     assert!(
         pc.contains(&"add_host_route:10.44.1.10:eth0:10.44.1.1".to_owned()),
-        "the device's host route is re-applied for its new zone: {pc:?}"
+        "an in-subnet member's route is re-applied for its zone: {pc:?}"
     );
 }
 
