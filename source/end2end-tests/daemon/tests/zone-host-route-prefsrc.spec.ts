@@ -80,7 +80,20 @@ const ZONE_RANGE_END = "10.44.1.254";
 
 const ZONE_NAME = "e2e-guest-isolated";
 
-describe("member-isolation host route preferred source (#1198)", () => {
+// TEMPORARY — DIAGNOSTIC ONLY, MUST BE REVERTED BEFORE MERGE.
+//
+// Three specs that all drive `test_debian` (dns-filter-device-toggle,
+// dns-filter-profile-swap, nordvpn-provider) started failing on this branch.
+// They pass on main, so either the daemon change regressed them or this spec
+// disturbs the shared stack. The daemon logs show test_debian's device row
+// flapping between its DHCP lease and its docker-IPAM address 22 times, with
+// 13 dropped DHCPRELEASEs — but they do not show which side caused it.
+//
+// Skipping *this* spec while keeping every daemon change isolates the
+// variable: if the suite goes green, the daemon is sound and the disturbance
+// is this spec's DHCP churn; if it stays red, we have a real daemon
+// regression to fix before anything ships. Do not merge in this state.
+describe.skip("member-isolation host route preferred source (#1198)", () => {
   let authed: AuthedClient;
   let zones: NetworkZonesService;
   let devices: DeviceService;
