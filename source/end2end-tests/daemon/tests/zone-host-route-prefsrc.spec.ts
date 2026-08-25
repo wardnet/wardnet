@@ -42,6 +42,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   DeviceService,
+  DhcpService,
   NetworkZonesService,
   SystemService,
   WardnetClient,
@@ -150,6 +151,26 @@ describe("member-isolation host route preferred source (#1198)", () => {
     // The last run failed exactly that way while the daemon reported
     // `member_subnets=0 gateways=0`, i.e. it never saw a subnetted
     // member-isolated zone at all.
+    // Wardnet must own DHCP, or the whole feature is inert by design:
+    // "zone subnets, gateway aliases, member isolation ... is inert unless
+    // Wardnet owns DHCP — otherwise it cannot hand devices the subnetted
+    // addresses the enforcement assumes" (ZoneEnforcementServiceImpl).
+    //
+    // This spec used to get DHCP-mode for free from `ensureLeasedAgent`.
+    // Dropping that call (it rewrites the *global* pool, which is not this
+    // spec's business) also dropped the toggle, and with the sequencer this
+    // file no longer runs after the DHCP specs — so the daemon reported
+    // `member_subnets=0 gateways=0`, offered only base-pool addresses, and the
+    // zone-subnet renew timed out with the cause three layers down.
+    const dhcp = new DhcpService(authed);
+    if (!(await dhcp.getConfig()).config.enabled) {
+      await dhcp.toggle({ enabled: true });
+    }
+    expect(
+      (await dhcp.getConfig()).config.enabled,
+      "member isolation is inert unless Wardnet owns DHCP",
+    ).toBe(true);
+
     const stored = (await zones.getById(zoneId)).zone;
     expect(
       stored.subnet?.cidr,
