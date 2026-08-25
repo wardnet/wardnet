@@ -8,11 +8,14 @@ import {
   Text,
   Textarea,
 } from "@wardnet/ui";
-import type { CreateRuleRequestRequest, RuleRequestKind } from "@wardnet/js";
+import type {
+  CreateAccessRequestRequest,
+  AccessRequestKind,
+} from "@wardnet/js";
 
 export interface RequestTarget {
   domain: string;
-  kind: RuleRequestKind;
+  kind: AccessRequestKind;
 }
 
 /**
@@ -33,10 +36,10 @@ export function RequestRuleModal({
 }: {
   target: RequestTarget | null;
   onClose: () => void;
-  onSubmit: (payload: CreateRuleRequestRequest) => void;
+  onSubmit: (payload: CreateAccessRequestRequest) => void;
   isSubmitting: boolean;
 }) {
-  const [kind, setKind] = useState<RuleRequestKind>("block");
+  const [kind, setKind] = useState<AccessRequestKind>("block");
   const [reason, setReason] = useState("");
 
   // Latch the last target so the closing animation can finish after the parent

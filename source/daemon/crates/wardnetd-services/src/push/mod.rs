@@ -35,12 +35,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::OnceCell;
+use wardnet_common::access_request::AccessRequestKind;
 use wardnet_common::anomaly::{Anomaly, AnomalyType};
 use wardnet_common::api::WebPushSubscription;
 use wardnet_common::auth::AuthContext;
 use wardnet_common::event::WardnetEvent;
 use wardnet_common::routing::{RoutingTarget, RuleCreator};
-use wardnet_common::rule_request::RuleRequestKind;
 use wardnetd_data::repository::push::{OWNER_KIND_DEVICE, OWNER_KIND_USER};
 use wardnetd_data::repository::{
     DeviceRepository, NewNotification, NewPushSubscription, NotificationRepository, PushRepository,
@@ -75,9 +75,13 @@ enum NotificationKind {
     RoutingLocked,
     RoutingUnlocked,
     RoutingChanged,
-    TunnelOffline,
+    // NOTE: `TunnelOffline` used to live here. Tunnel failures are now
+    // reported as anomalies (`Anomaly(AnomalyType::TunnelStartFailed |
+    // TunnelUnhealthy)`), so nothing constructs it. Historic feed rows keep
+    // the literal string `tunnel_offline`; the kind is only ever written, never
+    // parsed back, so removing the variant does not invalidate them.
     NewDeviceQuarantined,
-    RuleRequestCreated,
+    AccessRequestCreated,
     PrivateDnsGranted,
 }
 
@@ -88,9 +92,8 @@ impl NotificationKind {
             Self::RoutingLocked => "routing_locked",
             Self::RoutingUnlocked => "routing_unlocked",
             Self::RoutingChanged => "routing_changed",
-            Self::TunnelOffline => "tunnel_offline",
             Self::NewDeviceQuarantined => "new_device_quarantined",
-            Self::RuleRequestCreated => "rule_request_created",
+            Self::AccessRequestCreated => "access_request_created",
             Self::PrivateDnsGranted => "private_dns_granted",
         }
     }
@@ -543,56 +546,18 @@ impl PushService for PushServiceImpl {
                 }
             }
 
-            WardnetEvent::TunnelStartFailed { tunnel_id, .. } => {
-                let label = self.tunnel_label(&tunnel_id.to_string()).await;
-                self.deliver_to_admins(Notification {
-                    title: "Tunnel offline",
-                    body: format!("{label} failed to start."),
-                    data: NotificationData {
-                        kind: NotificationKind::TunnelOffline,
-                        url: Some("/tunnels"),
-                        subject_id: Some(tunnel_id.to_string()),
-                        state: None,
-                    },
-                })
-                .await;
-            }
-
-            // A running tunnel became unreachable. `TunnelReconnecting` is a
-            // stale-handshake signal; `TunnelDown` with the
-            // `TUNNEL_DOWN_INTERFACE_ABSENT` reason is the kernel interface
-            // vanishing. Deliberate tear-downs (every other `TunnelDown`
-            // reason) are intentionally NOT notified.
-            WardnetEvent::TunnelReconnecting { tunnel_id, .. } => {
-                let label = self.tunnel_label(&tunnel_id.to_string()).await;
-                self.deliver_to_admins(Notification {
-                    title: "Tunnel offline",
-                    body: format!("{label} went offline."),
-                    data: NotificationData {
-                        kind: NotificationKind::TunnelOffline,
-                        url: Some("/tunnels"),
-                        subject_id: Some(tunnel_id.to_string()),
-                        state: None,
-                    },
-                })
-                .await;
-            }
-            WardnetEvent::TunnelDown {
-                tunnel_id, reason, ..
-            } if reason == wardnet_common::event::TUNNEL_DOWN_INTERFACE_ABSENT => {
-                let label = self.tunnel_label(&tunnel_id.to_string()).await;
-                self.deliver_to_admins(Notification {
-                    title: "Tunnel offline",
-                    body: format!("{label} went offline."),
-                    data: NotificationData {
-                        kind: NotificationKind::TunnelOffline,
-                        url: Some("/tunnels"),
-                        subject_id: Some(tunnel_id.to_string()),
-                        state: None,
-                    },
-                })
-                .await;
-            }
+            // `TunnelStartFailed`, `TunnelReconnecting` and `TunnelDown` with
+            // the `TUNNEL_DOWN_INTERFACE_ABSENT` reason are deliberately NOT
+            // notified here. Each is converted into an anomaly by
+            // `anomaly::listener::report_from_event`, and the anomaly service
+            // pushes on the open edge — so notifying here too delivered two
+            // web pushes per incident ("Tunnel offline" and "Wardnet found a
+            // problem"). The anomaly path is the better of the two: it is
+            // deduplicated by the partial unique index, so a flapping tunnel
+            // alerts once instead of on every event, and it carries a
+            // per-type deep link and a matching resolved notification.
+            // Deliberate tear-downs (every other `TunnelDown` reason) are
+            // still not notified at all.
 
             // A previously-unseen device landed in the quarantine (default-for-new)
             // zone while new-device quarantine is on (#738). Nudge the admins to
@@ -617,11 +582,11 @@ impl PushService for PushServiceImpl {
                 .await;
             }
 
-            // A device asked the admin to allow/block a domain (the rule-request
-            // inbox). Decisions live on the desktop admin site — the admin PWA
-            // has no rule-request surface yet — so the notification carries no
-            // deep link and a tap opens the app root.
-            WardnetEvent::RuleRequestCreated {
+            // A device asked the admin for something it cannot grant itself
+            // (the access-request inbox). Decisions live on the desktop admin
+            // site — the admin PWA has no access-request surface yet — so the
+            // notification carries no deep link and a tap opens the app root.
+            WardnetEvent::AccessRequestCreated {
                 request_id,
                 device_id,
                 kind,
@@ -629,15 +594,31 @@ impl PushService for PushServiceImpl {
                 ..
             } => {
                 let name = self.device_name(device_id).await;
-                let verb = match kind {
-                    RuleRequestKind::Allow => "allow",
-                    RuleRequestKind::Block => "block",
+                // Enumerated rather than `_ =>` so a new request kind has to
+                // decide how it reads on an admin's lock screen instead of
+                // silently inheriting someone else's wording.
+                let body = match kind {
+                    AccessRequestKind::Allow => {
+                        format!(
+                            "{name} asked to allow {}.",
+                            domain.as_deref().unwrap_or("a site")
+                        )
+                    }
+                    AccessRequestKind::Block => {
+                        format!(
+                            "{name} asked to block {}.",
+                            domain.as_deref().unwrap_or("a site")
+                        )
+                    }
+                    AccessRequestKind::PrivateDns => {
+                        format!("{name} asked for Private DNS.")
+                    }
                 };
                 self.deliver_to_admins(Notification {
-                    title: "Rule request",
-                    body: format!("{name} asked to {verb} {domain}."),
+                    title: "Access request",
+                    body,
                     data: NotificationData {
-                        kind: NotificationKind::RuleRequestCreated,
+                        kind: NotificationKind::AccessRequestCreated,
                         url: None,
                         subject_id: Some(request_id.clone()),
                         state: None,

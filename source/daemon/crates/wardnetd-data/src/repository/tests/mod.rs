@@ -1,3 +1,5 @@
+mod access_request;
+mod access_request_migration;
 mod anomaly;
 mod api_key;
 mod device;
@@ -14,7 +16,6 @@ mod notification;
 mod private_dns;
 mod push;
 mod routing_profile;
-mod rule_request;
 mod session;
 mod stats;
 mod system_config;

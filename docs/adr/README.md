@@ -47,3 +47,4 @@ edge-release-channel one.
 | [0030](0030-published-apps.md) | A published app is a name, a reach ladder, and a policy — not a port forward | 2026-08-10 | Accepted — supersedes §2 of [ADR-0022](0022-inbound-wireguard-and-published-access.md) |
 | [0031](0031-household-identity.md) | Household identity is box-local; the cloud never vouches, and device affinity never authenticates | 2026-08-10 | Accepted |
 | [0032](0032-managed-devices-and-retention.md) | `managed` is an explicit latching column; only unmanaged devices are pruned | 2026-08-10 | Accepted |
+| [0033](0033-household-access-requests.md) | One access-request inbox, with per-kind approvers | 2026-08-14 | Accepted — supersedes §5 of [ADR-0029](0029-private-dns-dot.md) in part |

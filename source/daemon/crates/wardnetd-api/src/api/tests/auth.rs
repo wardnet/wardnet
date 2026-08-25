@@ -271,7 +271,7 @@ fn make_state_from_arc(auth: Arc<dyn AuthService>) -> AppState {
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
-        Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubAccessRequestService),
         Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }

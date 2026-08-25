@@ -230,12 +230,28 @@ async fn a_user_routing_rule_does_not_promote() {
 }
 
 #[tokio::test]
-async fn a_device_rule_request_does_not_promote() {
+async fn a_device_access_request_does_not_promote() {
     assert!(
         !promotes_after(
-            "INSERT INTO device_rule_requests (id, device_id, kind, domain, created_at) \
+            "INSERT INTO device_access_requests (id, device_id, kind, domain, created_at) \
              VALUES ('rr1', '00000000-0000-0000-0000-000000000001', 'block', 'ads.example', \
                      '2026-03-07T00:00:00Z')"
+        )
+        .await
+    );
+}
+
+/// The device *asking* for Private DNS must not promote it — only the admin's
+/// approval does, by way of `grant_device`. CONTEXT.md's managed-device rule:
+/// "a device's own self-service acts never promote it — that is the device
+/// asking, not the admin deciding."
+#[tokio::test]
+async fn a_private_dns_access_request_does_not_promote() {
+    assert!(
+        !promotes_after(
+            "INSERT INTO device_access_requests (id, device_id, kind, created_at) \
+             VALUES ('rr2', '00000000-0000-0000-0000-000000000001', 'private_dns', \
+                     '2026-08-14T00:00:00Z')"
         )
         .await
     );

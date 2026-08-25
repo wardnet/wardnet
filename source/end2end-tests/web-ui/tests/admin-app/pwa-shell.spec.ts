@@ -38,6 +38,7 @@ test.describe("manifest + installability", () => {
     // the built output) and fetch it through the browser context so the
     // self-signed TLS proxy and any session cookie are honoured.
     const href = await page
+      // biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
       .locator('link[rel="manifest"]')
       .getAttribute("href");
     expect(href, "a <link rel=manifest> is present").toBeTruthy();

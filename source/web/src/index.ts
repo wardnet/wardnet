@@ -86,7 +86,7 @@ export { AppHeader } from "./components/AppHeader";
 export { ConnectionGate } from "./components/ConnectionGate";
 export { InstallPrompt } from "./components/InstallPrompt";
 export type { ConnState } from "./components/AppHeader";
-export { RuleRequestStatusPill } from "./components/RuleRequestStatusPill";
+export { AccessRequestStatusPill } from "./components/AccessRequestStatusPill";
 export { DeviceIcon } from "./components/DeviceIcon";
 export { JobProgressDescription } from "./components/JobProgressDescription";
 export { LoginForm } from "./components/LoginForm";
@@ -139,11 +139,11 @@ export {
 
 // Hooks — rule requests
 export {
-  useMyRuleRequests,
-  useCreateRuleRequest,
-  useRuleRequests,
-  useDecideRuleRequest,
-} from "./hooks/useRuleRequests";
+  useMyAccessRequests,
+  useCreateAccessRequest,
+  useAccessRequests,
+  useDecideAccessRequest,
+} from "./hooks/useAccessRequests";
 
 // Hooks — tunnels
 export {

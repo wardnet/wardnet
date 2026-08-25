@@ -174,6 +174,7 @@ vi.mock("@/components/features/DeviceZoneCard", () => ({
     <div data-testid="zone-card" data-zones={zones.length} />
   ),
 }));
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 vi.mock("@/components/features/DeviceRoutingProfilesCard", () => ({
   DeviceRoutingProfilesCard: ({
     allProfiles,

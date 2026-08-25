@@ -165,6 +165,7 @@ async fn handle_event(event: WardnetEvent, enforcer: &dyn ZoneEnforcementService
         | WardnetEvent::DnsFilterRebuilt { .. }
         | WardnetEvent::DnsLocalChanged { .. }
         | WardnetEvent::PrivateDnsChanged { .. }
+        | WardnetEvent::PrivateDnsGrantCreated { .. }
         | WardnetEvent::PrivateDnsGrantRevoked { .. }
         | WardnetEvent::UpdateAvailable { .. }
         | WardnetEvent::UpdateProgress { .. }
@@ -175,7 +176,7 @@ async fn handle_event(event: WardnetEvent, enforcer: &dyn ZoneEnforcementService
         // already landed in the default-for-new zone via `DeviceDiscovered`.
         // Rule requests (#482) likewise only drive an admin push.
         | WardnetEvent::NewDeviceQuarantined { .. }
-        | WardnetEvent::RuleRequestCreated { .. }
+        | WardnetEvent::AccessRequestCreated { .. }
         // Entitlement changes are handled by the dedicated `entitlement_listener`.
         | WardnetEvent::EntitlementChanged { .. }
         | WardnetEvent::DnsEventInserted { .. } => {}

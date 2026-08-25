@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -128,6 +128,58 @@ describe("System page", () => {
     expect(screen.getByText("Reachable")).toBeInTheDocument();
   });
 
+  it("labels anomaly-backed feed entries by subsystem", () => {
+    // Anomaly notifications carry the anomaly type's own slug as their kind.
+    // Before these were mapped, every one fell to the "System" default and a
+    // tunnel going down read as routine noise.
+    const kinds = [
+      ["tunnel_start_failed", "Tunnel"],
+      ["tunnel_unhealthy", "Tunnel"],
+      ["route_table_lost", "Routing"],
+      ["blocklist_refresh_failing", "DNS"],
+      ["dhcp_conflict", "DHCP"],
+      ["update_failed", "Update"],
+    ] as const;
+
+    h.useRecentNotifications.mockReturnValue({
+      data: kinds.map(([kind], i) => ({
+        id: `n-${i}`,
+        kind,
+        title: "Wardnet found a problem",
+        body: `something went wrong: ${kind}`,
+        created_at: "2026-08-22T10:00:00Z",
+      })),
+    });
+    renderWithProviders(<System />);
+
+    const feed = screen.getByTestId("system-notifications-feed");
+    for (const [, label] of kinds) {
+      expect(within(feed).getAllByText(label).length).toBeGreaterThan(0);
+    }
+    // None of them should have fallen through to the default.
+    expect(within(feed).queryByText("System")).not.toBeInTheDocument();
+  });
+
+  it("keeps the retired tunnel_offline kind rendering as a tunnel failure", () => {
+    // Historic feed rows still carry it, and unlike the anomaly kinds it is
+    // unambiguously a failure — nothing ever published a recovery under it.
+    h.useRecentNotifications.mockReturnValue({
+      data: [
+        {
+          id: "n-old",
+          kind: "tunnel_offline",
+          title: "Tunnel offline",
+          body: "USA #8 went offline.",
+          created_at: "2026-08-01T10:00:00Z",
+        },
+      ],
+    });
+    renderWithProviders(<System />);
+
+    const feed = screen.getByTestId("system-notifications-feed");
+    expect(within(feed).getByText("Tunnel")).toBeInTheDocument();
+  });
+
   it("subscribes to push notifications from the toggle", async () => {
     const subscribe = vi.fn();
     h.usePushNotifications.mockReturnValue({
@@ -226,7 +278,7 @@ describe("System page", () => {
       data: [
         {
           id: "n1",
-          kind: "rule_request_created",
+          kind: "access_request_created",
           title: "Rule request",
           body: "Phone asked to allow blocked.example.",
           created_at: "2026-07-03T00:00:00Z",
@@ -239,7 +291,30 @@ describe("System page", () => {
     });
     renderWithProviders(<System />);
     expect(screen.getByTestId("system-notifications-clear")).toBeDisabled();
-    // The rule-request kind renders its own pill label.
+    // The access-request kind renders its own pill label.
+    expect(screen.getByText("Request")).toBeInTheDocument();
+  });
+
+  // Feed rows persist, so entries written before the #919 rename still carry
+  // the old wire string and must keep their label rather than silently
+  // degrading to the generic "System" pill.
+  it("still labels pre-rename rule_request_created rows", () => {
+    h.useRecentNotifications.mockReturnValue({
+      data: [
+        {
+          id: "n0",
+          kind: "rule_request_created",
+          title: "Rule request",
+          body: "Phone asked to allow blocked.example.",
+          created_at: "2026-06-18T00:00:00Z",
+        },
+      ],
+    });
+    h.useClearNotifications.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+    });
+    renderWithProviders(<System />);
     expect(screen.getByText("Request")).toBeInTheDocument();
   });
 

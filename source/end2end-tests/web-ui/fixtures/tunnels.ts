@@ -47,11 +47,13 @@ export const TUNNEL_PROVIDER_LABEL = "e2e-tunnel-nordvpn";
  */
 export const TUNNEL_CONFIG = [
   "[Interface]",
+  // biome-ignore lint/security/noSecrets: throwaway WireGuard keypair generated for this fixture, never a live credential
   "PrivateKey = SHFlsItPbjj4u4nNZbR8Ej2cTSDDTNeWiR+ej8a4tEM=",
   "Address = 10.99.0.2/32",
   "DNS = 1.1.1.1",
   "",
   "[Peer]",
+  // biome-ignore lint/security/noSecrets: throwaway WireGuard keypair generated for this fixture, never a live credential
   "PublicKey = HIgo9xNzJMWLKASShiTqIybxZ0U3wGLiUeJ1PKf8ykw=",
   "Endpoint = 198.51.100.1:51820",
   "AllowedIPs = 0.0.0.0/0",

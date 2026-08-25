@@ -390,7 +390,7 @@ fn build_state_with_publisher(
         Arc::new(publisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
-        Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubAccessRequestService),
         Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }

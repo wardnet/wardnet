@@ -43,6 +43,9 @@ use wardnetd_mock::backends::noop_tunnel::NoopTunnelInterface;
 use wardnetd_mock::backends::noop_watchdog::NoopWatchdog;
 use wardnetd_mock::events::FakeEventEmitter;
 use wardnetd_mock::seed;
+use wardnetd_services::access_request::{
+    AccessRequestServiceImpl, ApproverRegistry, PrivateDnsApprover,
+};
 use wardnetd_services::anomaly::{AnomaliesDetectionEngine, AnomalyListener};
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::device::DeviceRetentionRunner;
@@ -370,6 +373,27 @@ async fn run(
     let health_monitor = Arc::new(health_monitor);
     health_monitor.refresh().await;
 
+    // Private DNS reaches the live DDNS/TLS/secret store, which the mock stands
+    // in for offline, so it swaps in a stateful in-memory fake. That swap has to
+    // reach **every** holder of the service, not just `AppState`: since #919 the
+    // access-request service holds it too, to gate requests on the feature being
+    // enabled and to mint the grant on approval. Leaving `services.access_request`
+    // on the real implementation made the mock contradict itself —
+    // `/api/private-dns/me` reported enabled (the fake) while requesting was
+    // refused as disabled (the real one, reading a `system_config` flag the mock
+    // never sets). One instance, shared by both.
+    let mock_private_dns = Arc::new(MockPrivateDnsService::default());
+    let mock_access_request: Arc<dyn wardnetd_services::AccessRequestService> =
+        Arc::new(AccessRequestServiceImpl::new(
+            factory.access_request(),
+            services.device.clone(),
+            mock_private_dns.clone(),
+            ApproverRegistry::new(vec![Arc::new(PrivateDnsApprover::new(
+                mock_private_dns.clone(),
+            ))]),
+            services.event_publisher.clone(),
+        ));
+
     let state = AppState::new(
         services.auth.clone(),
         services.backup.clone(),
@@ -393,7 +417,7 @@ async fn run(
         services.event_publisher.clone(),
         services.jobs.clone(),
         services.stats.clone(),
-        services.rule_request.clone(),
+        mock_access_request.clone(),
         services.zone_exception.clone(),
     )
     .with_push_service(services.push.clone())
@@ -403,7 +427,7 @@ async fn run(
     .with_inbound_wg_service(services.inbound_wg.clone())
     // Private DNS reaches the live DDNS/TLS/secret store, which the mock stands
     // in for offline; swap in the stateful in-memory fake, mirroring DDNS/TLS.
-    .with_private_dns_service(Arc::new(MockPrivateDnsService::default()))
+    .with_private_dns_service(mock_private_dns.clone())
     .with_entitlement(services.entitlement.clone())
     .with_health_monitor(health_monitor);
 
@@ -493,7 +517,7 @@ async fn run(
     );
     let _anomalies_engine = AnomaliesDetectionEngine::start_with_intervals(
         services.anomaly.clone(),
-        Duration::from_secs(config.anomalies.reevaluate_interval_secs),
+        config.anomalies.reevaluate_interval(),
         &tracing::Span::current(),
     );
 

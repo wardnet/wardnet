@@ -290,7 +290,7 @@ fn make_state(auth: impl AuthService + 'static, system: Arc<MockSystemService>) 
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(crate::tests::stubs::StubStatsService),
-        Arc::new(crate::tests::stubs::StubRuleRequestService),
+        Arc::new(crate::tests::stubs::StubAccessRequestService),
         Arc::new(crate::tests::stubs::StubZoneExceptionService),
     )
 }

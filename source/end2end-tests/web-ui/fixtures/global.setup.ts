@@ -1,4 +1,6 @@
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { mkdirSync, writeFileSync } from "node:fs";
+// biome-ignore lint/correctness/noNodejsModules: test harness, run by Node — never shipped to a browser
 import { dirname } from "node:path";
 
 import { test as setup } from "@playwright/test";

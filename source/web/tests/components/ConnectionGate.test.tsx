@@ -134,6 +134,7 @@ describe("ConnectionGate", () => {
     expect(screen.getByTestId("app")).toBeInTheDocument();
   });
 
+  // biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
   it("premiumGated={false} stays unblocked even when not entitled (admin-site)", () => {
     useDaemonStatus.mockReturnValue({
       data: { reachable: true, entitled: false },

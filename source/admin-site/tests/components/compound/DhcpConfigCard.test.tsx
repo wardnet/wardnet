@@ -63,6 +63,7 @@ beforeEach(() => {
   updateReset.mockReset();
 });
 
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 describe("DhcpConfigCard", () => {
   it("renders the read view with pool range and upstream DNS", () => {
     renderWithProviders(<DhcpConfigCard {...cardProps()} />);
@@ -238,6 +239,7 @@ describe("DhcpConfigCard", () => {
       .getByTestId("dhcp-pool-start")
       .querySelectorAll("input")[0];
     await user.click(input);
+    // biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
     await user.keyboard("{Control>}a{/Control}{Backspace}");
     expect(
       await screen.findByText("Enter a complete pool start address."),
@@ -254,6 +256,7 @@ describe("DhcpConfigCard", () => {
     await user.click(screen.getByTestId("dhcp-config-edit"));
     const octets = screen.getByTestId("dhcp-router").querySelectorAll("input");
     await user.click(octets[3]);
+    // biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
     await user.keyboard("{Control>}a{/Control}{Backspace}");
     expect(
       await screen.findByText("Enter a complete fallback router address."),

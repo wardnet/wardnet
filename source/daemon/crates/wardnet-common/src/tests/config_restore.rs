@@ -36,6 +36,12 @@ const RESTORABLE_KEYS: &[&str] = &[
     "logging.ui_suppressed_targets",
     "logging.journal_suppressed_targets",
     "logging.journal_info_targets",
+    // Accepted and ignored: the recent-errors buffer it sized was replaced by
+    // the anomaly subsystem. Listed as restorable rather than deploy-time-only
+    // because a bundle carrying it must not be *rejected* — old bundles
+    // legitimately contain the key — and setting it grants nothing, since
+    // nothing reads it.
+    "logging.max_recent_errors",
     "network.default_policy",
     "auth.session_expiry_hours",
     "auth.remember_me_expiry_hours",

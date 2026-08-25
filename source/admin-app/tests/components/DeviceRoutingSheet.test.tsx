@@ -187,6 +187,7 @@ describe("DeviceRoutingSheet", () => {
       name: "Laptop",
       public_key: "pub",
       allowed_ip: "10.100.64.2/32",
+      // biome-ignore lint/security/noSecrets: throwaway WireGuard keypair generated for this fixture, never a live credential
       client_config: "[Interface]\nPrivateKey = k\n",
     });
     renderSheet({ device: makeDevice({ id: "dev-7", name: "Laptop" }) });

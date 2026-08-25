@@ -93,6 +93,7 @@ vi.mock("@/components/compound/DhcpConfigCard", () => ({
     />
   ),
 }));
+// biome-ignore lint/security/noSecrets: identifier-shaped string, not a credential — the entropy heuristic misfires on long CamelCase names
 vi.mock("@/components/compound/DhcpEntryTable", () => ({
   DhcpEntryTable: ({
     leases,

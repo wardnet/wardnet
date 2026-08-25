@@ -124,7 +124,7 @@ export interface NeighbourMatch {
  * Devices whose MAC sits within ±4 of the searched address.
  *
  * Answers the reported failure: vendor apps frequently print a device's
- * *Bluetooth* MAC while it associates over Wi-Fi under a different address.
+ * `Bluetooth` MAC while it associates over Wi-Fi under a different address.
  * Espressif — the chipset behind most of the affected smart-home gear —
  * derives all of its addresses from one base MAC, assigning Wi-Fi STA, Wi-Fi
  * AP, Bluetooth and Ethernet as base+0/+1/+2/+3. So the address in the admin's

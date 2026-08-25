@@ -1,4 +1,5 @@
 /// <reference types="vitest/config" />
+// biome-ignore lint/correctness/noNodejsModules: build config, executed by Node at build time and never bundled
 import path from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
@@ -12,6 +13,7 @@ export default defineConfig({
     // The PWA/service-worker plugin has no role in unit tests and its
     // injectManifest build hook only gets in the way there — skip it
     // when Vitest is driving the config.
+    // biome-ignore lint/correctness/noProcessGlobal: build config, executed by Node at build time and never bundled
     ...(process.env.VITEST
       ? []
       : [
@@ -32,6 +34,7 @@ export default defineConfig({
   base: "/admin-app/",
   resolve: {
     alias: {
+      // biome-ignore lint/correctness/noGlobalDirnameFilename: build config, executed by Node at build time and never bundled
       "@": path.resolve(__dirname, "src"),
     },
     preserveSymlinks: true,

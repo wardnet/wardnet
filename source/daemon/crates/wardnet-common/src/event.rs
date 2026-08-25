@@ -193,6 +193,26 @@ pub enum WardnetEvent {
         enabled: bool,
         timestamp: DateTime<Utc>,
     },
+    /// A device's Private DNS grant was created (issue #919). Emitted by
+    /// `PrivateDnsService::grant_device` after the grant is persisted, and
+    /// consumed by `AccessRequestListener` to resolve any pending `private_dns`
+    /// access request for that device.
+    ///
+    /// This exists to keep the service graph acyclic. Approving an access
+    /// request calls into `PrivateDnsService`, so `PrivateDnsService` must not
+    /// call back into `AccessRequestService` — an admin granting straight from
+    /// the Remote Access card reconciles the inbox over the bus instead of
+    /// through a direct dependency.
+    ///
+    /// `granted_by` is the acting admin's user id, read from the ambient auth
+    /// context, so the resolved request keeps a truthful `decided_by` rather
+    /// than being attributed to the daemon. Carries the device id (never the
+    /// secret token).
+    PrivateDnsGrantCreated {
+        device_id: Uuid,
+        granted_by: Option<String>,
+        timestamp: DateTime<Utc>,
+    },
     /// A device's Private DNS grant was revoked (issue #912). The `DoT`
     /// listener reacts by terminating that device's live `:853` connections,
     /// so revocation is enforced on established sessions rather than only at
@@ -304,16 +324,19 @@ pub enum WardnetEvent {
         zone_name: String,
         timestamp: DateTime<Utc>,
     },
-    /// A device filed a rule request (the "ask the admin" inbox — e.g. asking
-    /// to unblock a blocked site). Emitted by `RuleRequestService::create_for_ip`
-    /// after the request is persisted. The push subsystem consumes it to notify
-    /// admins; the decision itself stays a manual admin action.
-    /// Ids are the repository's string UUIDs, matching `DeviceRuleRequest`.
-    RuleRequestCreated {
+    /// A device filed an access request (the "ask the admin" inbox — asking to
+    /// unblock a blocked site, or for Private DNS). Emitted by
+    /// `AccessRequestService::create_for_ip` after the request is persisted.
+    /// The push subsystem consumes it to notify admins; the decision itself
+    /// stays a manual admin action.
+    ///
+    /// `domain` is `None` for kinds that name no domain (`private_dns`).
+    /// Ids are the repository's string UUIDs, matching `DeviceAccessRequest`.
+    AccessRequestCreated {
         request_id: String,
         device_id: String,
-        kind: crate::rule_request::RuleRequestKind,
-        domain: String,
+        kind: crate::access_request::AccessRequestKind,
+        domain: Option<String>,
         timestamp: DateTime<Utc>,
     },
 }

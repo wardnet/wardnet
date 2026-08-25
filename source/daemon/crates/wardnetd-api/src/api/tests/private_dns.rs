@@ -22,11 +22,11 @@ use wardnet_common::device::{Device, DeviceConnectionMode, DeviceType};
 
 use crate::state::AppState;
 use crate::tests::stubs::{
-    AlwaysSessionAuth, StubBackupService, StubDdnsService, StubDhcpServer, StubDhcpService,
-    StubDiscoveryService, StubDnsFilterService, StubDnsLocalService, StubDnsServer, StubDnsService,
-    StubEventPublisher, StubLogService, StubNetworkZoneService, StubProviderService,
-    StubRoutingService, StubRuleRequestService, StubStatsService, StubSystemService,
-    StubTunnelService, StubUpdateService, StubZoneExceptionService,
+    AlwaysSessionAuth, StubAccessRequestService, StubBackupService, StubDdnsService,
+    StubDhcpServer, StubDhcpService, StubDiscoveryService, StubDnsFilterService,
+    StubDnsLocalService, StubDnsServer, StubDnsService, StubEventPublisher, StubLogService,
+    StubNetworkZoneService, StubProviderService, StubRoutingService, StubStatsService,
+    StubSystemService, StubTunnelService, StubUpdateService, StubZoneExceptionService,
 };
 use wardnetd_services::entitlement::Entitlement;
 use wardnetd_services::error::AppError;
@@ -327,7 +327,7 @@ fn make_state(private_dns: MockPrivateDns, device: MeDeviceService) -> AppState 
         Arc::new(StubEventPublisher),
         crate::tests::stubs::StubJobService::new_arc(),
         Arc::new(StubStatsService),
-        Arc::new(StubRuleRequestService),
+        Arc::new(StubAccessRequestService),
         Arc::new(StubZoneExceptionService),
     )
     .with_private_dns_service(Arc::new(private_dns))
