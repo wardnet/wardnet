@@ -27,9 +27,16 @@
  * added a third container for isolation, but that is the one change that
  * correlates with the rest of the suite failing to lease (a run without it was
  * green, three with it were not) — a third client perturbs the shared stack
- * more than borrowing an existing one does. This file sorts last, so the zone
- * move and re-lease happen after every other spec has finished with the
- * client, and `afterAll` puts it back on the base LAN in its original zone.
+ * more than borrowing an existing one does.
+ *
+ * This file must leave NO residue, and cannot lean on running late to get away
+ * with any. Vitest orders files by size descending, not alphabetically, so this
+ * one runs 4th of 34 — an earlier version of this comment claimed it sorted
+ * last and was simply wrong. A member-isolated zone left behind installs
+ * cross-subnet deny rules that every later spec then runs against, which is
+ * what took `dns-filter-*` and `nordvpn-provider` down with it. Hence: the zone
+ * is torn down first in `afterAll`, before any client-side call that might
+ * stall, and every step is individually bounded.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -140,12 +147,16 @@ describe("member-isolation host route preferred source (#1198)", () => {
 
     // Re-lease: the daemon serves a subnetted zone's members from that zone's
     // own scope, so the renew is what moves the guest into 10.44.1.0/24.
+    // Three attempts, not five: each is bounded by the DHCP timeout plus a
+    // status read, and this hook's whole budget has to cover the re-key poll
+    // afterwards. A budget that is only reachable by arithmetic is how this
+    // hook burned 300 s and leaked its zone into every later spec.
     zoneIp = await acquireLeaseInRange(
       TEST_UBUNTU_AGENT,
       "eth0",
       ZONE_RANGE_START,
       ZONE_RANGE_END,
-      5,
+      3,
     );
 
     // The host route keys on the device row's `last_ip`, and that only moves
@@ -196,23 +207,26 @@ describe("member-isolation host route preferred source (#1198)", () => {
   }, 300_000);
 
   afterAll(async () => {
-    // Member isolation installs cross-subnet drops and moves the client off the
-    // base LAN; both would follow every later spec in the shared stack.
-    try {
+    // Order matters. The zone is the only thing that harms other specs — it
+    // installs cross-subnet deny rules — so drop it before anything that could
+    // stall, and never let one failing step skip the next.
+    if (zoneId) {
+      // Move the device out first: a zone with members may refuse deletion.
       if (guest && originalZoneId) {
-        await zones.assignDevice(guest.id, originalZoneId);
+        await zones
+          .assignDevice(guest.id, originalZoneId)
+          .catch(() => undefined);
       }
-      if (zoneId) await zones.delete(zoneId);
-      // Put the client back on the base LAN so it stops holding a zone
-      // address. Best-effort and range-agnostic: the point is to renew off the
-      // zone subnet, not to land anywhere specific.
-      await agentPost(TEST_UBUNTU_AGENT, "/dhcp/renew", {
-        interface: "eth0",
-      }).catch(() => undefined);
-    } catch {
-      // Best-effort: cleanup failure must not mask a real assertion failure.
+      await zones.delete(zoneId).catch(() => undefined);
+      zoneId = undefined;
     }
-  }, 120_000);
+    // Only now the client-side restore, which is best-effort: it renews the
+    // client off the zone subnet. If this stalls the damage is confined to
+    // this client's address, not the whole suite's rule set.
+    await agentPost(TEST_UBUNTU_AGENT, "/dhcp/renew", {
+      interface: "eth0",
+    }).catch(() => undefined);
+  }, 180_000);
 
   it("gives a leased member the zone gateway as preferred source", async (ctx) => {
     if (!guest || !zoneIp) return ctx.skip();

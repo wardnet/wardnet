@@ -221,26 +221,35 @@ export interface AgentDhcpRenewResponse {
  * of which call hung. Bounding the request turns that into a normal rejection
  * the caller can retry or report.
  *
- * Generous on purpose: `/dhcp/renew` shells out to a full dhclient
- * release+renew cycle, which legitimately takes tens of seconds under DHCP
- * retransmit backoff. This exists to break an infinite wedge, not to police
- * latency — too tight and it aborts work that was about to succeed.
- *
- * Because it is longer than any `pollUntil` deadline that wraps it, and
- * `pollUntil` does not catch probe rejections, a stalled agent still overruns
- * its poll and surfaces as a bare `TimeoutError` rather than that poll's
- * `describe()` message. A probe that wants the friendlier message must catch
- * its own errors — see the #1198 spec's re-key loop.
+ * Deliberately shorter than any `pollUntil` deadline that wraps it, so a
+ * stalled agent fails its probe and lets the poll report its own
+ * `describe()` message rather than overrunning the caller's hook budget.
+ * `/dhcp/renew` opts into a longer bound of its own.
  */
-const AGENT_REQUEST_TIMEOUT_MS = 120_000;
+const AGENT_REQUEST_TIMEOUT_MS = 20_000;
+
+/**
+ * Bound for `/dhcp/renew` only. It shells out to a full dhclient release+renew,
+ * which legitimately runs for tens of seconds under DHCP retransmit backoff
+ * (dhclient's own default timeout is 60 s, so anything beyond that is stuck,
+ * not slow).
+ *
+ * Kept separate rather than raising the default: a single bound generous enough
+ * for a renew is far too generous for a status read, and two slow reads then
+ * consume a caller's whole hook budget before its own poll deadline can fire —
+ * which is exactly how the #1198 spec's `beforeAll` burned 300 s without ever
+ * reporting why.
+ */
+const AGENT_DHCP_TIMEOUT_MS = 60_000;
 
 /** GET against a test-agent serve URL. Throws on non-2xx. */
 export async function agentGet<T>(
   baseUrl: string,
   path: string,
+  timeoutMs = AGENT_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
-    signal: AbortSignal.timeout(AGENT_REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
     throw new Error(
@@ -255,12 +264,13 @@ export async function agentPost<T>(
   baseUrl: string,
   path: string,
   body: unknown,
+  timeoutMs = AGENT_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(AGENT_REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
     throw new Error(
@@ -333,6 +343,7 @@ export async function acquireLeaseInRange(
         agent,
         "/dhcp/renew",
         { interface: iface },
+        AGENT_DHCP_TIMEOUT_MS,
       );
       if (renew.renew_success) {
         const ifaces = await agentGet<AgentInterfacesResponse>(
