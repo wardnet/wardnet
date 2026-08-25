@@ -22,8 +22,10 @@ source/marketing-site/dist/
 source/**/coverage/
 source/**/test-results/
 # Repo-root coverage artefacts. `make coverage-daemon` writes the daemon's
-# LCOV/JSON here (CI reads them from this path), and cargo-llvm-cov runs
-# land alongside — all generated, none of it belongs in the tree.
+# LCOV/JSON here (CI reads them from this path), and local cargo-llvm-cov
+# runs land alongside — all generated. Note `coverage/daemon-lcov.info` is
+# already tracked (committed in 01434e9a), so this rule only keeps *new*
+# artefacts out; untracking that one is a separate cleanup.
 /coverage/
 # `go test -coverprofile` output. Written inside the module it measures —
 # that is where bulwark's per-module lookup expects it — so it lands in the

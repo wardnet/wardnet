@@ -231,35 +231,6 @@ services:
       retries: 20
       start_period: 10s
 
-  # A third LAN client, dedicated to the member-isolation host-route spec
-  # (#1198). Kept separate from test_debian/test_ubuntu because that spec moves
-  # its device into a subnetted, member-isolated zone and drives it through a
-  # re-lease into that zone's pool — doing that to a client other specs depend
-  # on would change their device's address mid-suite. Same image build as
-  # test_debian, so it costs a container rather than a rebuild.
-  test_guest:
-    build:
-      context: ../../..
-      dockerfile: source/end2end-tests/daemon/Dockerfile.client
-      args:
-        BASE_IMAGE: debian:bookworm-slim
-        WARDNETD_TEST_IMAGE: ${WARDNETD_TEST_IMAGE:-wardnetd:dev-test}
-    image: wardnet-test-client-guest:dev
-    depends_on:
-      wardnetd:
-        condition: service_healthy
-    cap_add:
-      - NET_ADMIN
-      - NET_RAW
-    networks:
-      wardnet_lan: {}
-    healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3001/health || exit 1"]
-      interval: 3s
-      timeout: 2s
-      retries: 20
-      start_period: 10s
-
   test_ubuntu:
     build:
       context: ../../..
@@ -515,8 +486,6 @@ services:
       test_debian:
         condition: service_healthy
       test_ubuntu:
-        condition: service_healthy
-      test_guest:
         condition: service_healthy
       blocklist_server:
         condition: service_healthy

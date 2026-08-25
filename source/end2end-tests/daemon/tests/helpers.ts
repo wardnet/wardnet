@@ -26,9 +26,6 @@ export const API_BASE_URL =
   process.env.WARDNET_API_BASE_URL ?? "http://wardnetd:7411/api";
 export const TEST_DEBIAN_AGENT =
   process.env.WARDNET_TEST_DEBIAN_AGENT ?? "http://test_debian:3001";
-export const TEST_GUEST_AGENT =
-  process.env.WARDNET_TEST_GUEST_AGENT ?? "http://test_guest:3001";
-
 export const TEST_UBUNTU_AGENT =
   process.env.WARDNET_TEST_UBUNTU_AGENT ?? "http://test_ubuntu:3001";
 // The wardnetd container also hosts the test-agent in *server* mode on
@@ -217,8 +214,13 @@ export interface AgentDhcpRenewResponse {
  * whole hook wedges until vitest's hook timeout kills it — with no indication
  * of which call hung. Bounding the request turns that into a normal rejection
  * the caller can retry or report.
+ *
+ * Generous on purpose: `/dhcp/renew` shells out to a full dhclient
+ * release+renew cycle, which legitimately takes tens of seconds under DHCP
+ * retransmit backoff. This exists to break an infinite wedge, not to police
+ * latency — too tight and it aborts work that was about to succeed.
  */
-const AGENT_REQUEST_TIMEOUT_MS = 30_000;
+const AGENT_REQUEST_TIMEOUT_MS = 120_000;
 
 /** GET against a test-agent serve URL. Throws on non-2xx. */
 export async function agentGet<T>(

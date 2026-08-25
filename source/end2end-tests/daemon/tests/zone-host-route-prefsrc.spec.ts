@@ -22,8 +22,14 @@
  *
  * The device's address comes from the zone's own DHCP pool rather than being
  * hand-picked, so the in-subnet guard on the host route is exercised for real.
- * `test_guest` is dedicated to this spec: it gets moved between zones and
- * re-leased, which would shift another spec's device address mid-suite.
+ *
+ * It drives `test_ubuntu` rather than a dedicated client. An earlier version
+ * added a third container for isolation, but that is the one change that
+ * correlates with the rest of the suite failing to lease (a run without it was
+ * green, three with it were not) — a third client perturbs the shared stack
+ * more than borrowing an existing one does. This file sorts last, so the zone
+ * move and re-lease happen after every other spec has finished with the
+ * client, and `afterAll` puts it back on the base LAN in its original zone.
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -41,7 +47,7 @@ import {
   AuthedClient,
   agentGet,
   DAEMON_AGENT,
-  TEST_GUEST_AGENT,
+  TEST_UBUNTU_AGENT,
   acquireLeaseInRange,
   clearHostRoutePrefsrc,
   daemonPid,
@@ -104,14 +110,14 @@ describe("member-isolation host route preferred source (#1198)", () => {
     // DHCP config, and this spec has no business changing the pool the rest of
     // the suite leases from. `acquireLeaseInRange` only drives this one client.
     await acquireLeaseInRange(
-      TEST_GUEST_AGENT,
+      TEST_UBUNTU_AGENT,
       "eth0",
       LAN_POOL_START,
       LAN_POOL_END,
       5,
     );
     // The daemon only materialises a device row once it observes LAN traffic.
-    await resolveViaAgent(TEST_GUEST_AGENT, "example.com").catch(
+    await resolveViaAgent(TEST_UBUNTU_AGENT, "example.com").catch(
       () => undefined,
     );
     // Where packet capture can't reach `wardnet_lan` no row ever appears — an
@@ -140,7 +146,7 @@ describe("member-isolation host route preferred source (#1198)", () => {
     // Re-lease: the daemon serves a subnetted zone's members from that zone's
     // own scope, so the renew is what moves the guest into 10.44.1.0/24.
     zoneIp = await acquireLeaseInRange(
-      TEST_GUEST_AGENT,
+      TEST_UBUNTU_AGENT,
       "eth0",
       ZONE_RANGE_START,
       ZONE_RANGE_END,
@@ -162,14 +168,14 @@ describe("member-isolation host route preferred source (#1198)", () => {
     let addrs = "(not read)";
     const rekeyed = await pollUntil(
       async () => {
-        await resolveViaAgent(TEST_GUEST_AGENT, "example.com", {
+        await resolveViaAgent(TEST_UBUNTU_AGENT, "example.com", {
           server: ZONE_GATEWAY,
         }).catch(() => undefined);
         // Record what the client actually holds, so a failure says whether the
         // lease landed on the interface at all rather than leaving it to be
         // inferred from the daemon's side.
         addrs = await agentGet<AgentInterfacesResponse>(
-          TEST_GUEST_AGENT,
+          TEST_UBUNTU_AGENT,
           "/interfaces",
         )
           .then((i) =>
@@ -204,7 +210,7 @@ describe("member-isolation host route preferred source (#1198)", () => {
       if (zoneId) await zones.delete(zoneId);
       // Put the client back on the base LAN so it stops holding a zone address.
       await acquireLeaseInRange(
-        TEST_GUEST_AGENT,
+        TEST_UBUNTU_AGENT,
         "eth0",
         LAN_POOL_START,
         LAN_POOL_END,
