@@ -1,5 +1,7 @@
 import { defineConfig } from "vitest/config";
 
+import DeferDisruptiveSequencer from "./sequencer.js";
+
 export default defineConfig({
   test: {
     environment: "node",
@@ -23,6 +25,10 @@ export default defineConfig({
     // time, breaking login on every spec after the first.
     pool: "forks",
     fileParallelism: false,
+    // Specs that reshuffle client DHCP leases run last — see sequencer.ts.
+    // File order is otherwise size-descending, which gives a disruptive spec no
+    // stable position in the run.
+    sequence: { sequencer: DeferDisruptiveSequencer },
     isolate: false,
     reporters: [
       "default",

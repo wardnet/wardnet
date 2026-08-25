@@ -143,7 +143,34 @@ describe("member-isolation host route preferred source (#1198)", () => {
     });
     zoneId = created.zone.id;
 
+    // Assert the daemon actually stored what we asked for, before depending on
+    // it. Everything downstream — the zone DHCP scope, the gateway alias, the
+    // host route — keys off `subnet` + `member_isolation`, and if either was
+    // dropped the failure surfaces 180 s later as an unexplained DHCP timeout.
+    // The last run failed exactly that way while the daemon reported
+    // `member_subnets=0 gateways=0`, i.e. it never saw a subnetted
+    // member-isolated zone at all.
+    const stored = (await zones.getById(zoneId)).zone;
+    expect(
+      stored.subnet?.cidr,
+      `zone was created but the daemon did not store its subnet — ` +
+        `nothing downstream can work: ${JSON.stringify(stored)}`,
+    ).toBe(ZONE_CIDR);
+    expect(
+      stored.member_isolation,
+      `zone was created but member_isolation did not stick: ${JSON.stringify(stored)}`,
+    ).toBe(true);
+
     await zones.assignDevice(guest.id, zoneId);
+
+    // And that the device really landed in it — `scope_for_mac` resolves the
+    // DHCP scope from the device's zone, so a failed assignment means the
+    // renew below can only ever return a base-pool address.
+    const assigned = (await devices.getById(guest.id)).device;
+    expect(
+      assigned.zone_id,
+      `device was not moved into the zone, so it will lease from the base pool`,
+    ).toBe(zoneId);
 
     // Re-lease: the daemon serves a subnetted zone's members from that zone's
     // own scope, so the renew is what moves the guest into 10.44.1.0/24.
