@@ -4,6 +4,10 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.spec.ts"],
+    // Dumps daemon state (devices, zones, recent DNS query log, kernel
+    // routes/rules) whenever a test fails. The stack only exists on CI, so the
+    // failing run is the one chance to capture why — see tests/diagnostics.ts.
+    setupFiles: ["tests/diagnostics.ts"],
     // Compose health waits + first-boot setup-wizard pushes a single spec
     // past the 5 s default. Generous ceilings keep flake from a slow
     // GitHub runner from masking real failures.
