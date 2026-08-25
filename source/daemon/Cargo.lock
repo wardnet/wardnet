@@ -1458,7 +1458,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3148,7 +3148,7 @@ dependencies = [
  "futures",
  "log",
  "netlink-packet-core 0.8.1",
- "netlink-sys",
+ "netlink-sys 0.8.8",
  "thiserror 2.0.19",
 ]
 
@@ -3162,7 +3162,7 @@ dependencies = [
  "netlink-packet-generic",
  "netlink-packet-route 0.21.0",
  "netlink-packet-utils",
- "netlink-sys",
+ "netlink-sys 0.8.8",
  "nix 0.25.1",
  "once_cell",
 ]
@@ -3178,6 +3178,17 @@ dependencies = [
  "libc",
  "log",
  "tokio",
+]
+
+[[package]]
+name = "netlink-sys"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c99d38e00b420df49e940fe0826e667c3dad82ac68eb4c2bbf754c1c14a83a10"
+dependencies = [
+ "bytes",
+ "libc",
+ "log",
 ]
 
 [[package]]
@@ -3269,7 +3280,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4388,7 +4399,7 @@ dependencies = [
  "netlink-packet-core 0.8.1",
  "netlink-packet-route 0.30.0",
  "netlink-proto",
- "netlink-sys",
+ "netlink-sys 0.8.8",
  "nix 0.30.1",
  "thiserror 1.0.69",
  "tokio",
@@ -4510,7 +4521,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4569,7 +4580,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5358,7 +5369,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6194,7 +6205,7 @@ dependencies = [
  "libc",
  "mdns-sd",
  "netlink-packet-route 0.31.0",
- "netlink-sys",
+ "netlink-sys 0.9.0",
  "opentelemetry",
  "opentelemetry-appender-tracing",
  "opentelemetry-otlp",
@@ -6594,7 +6605,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6912,7 +6923,7 @@ dependencies = [
  "netlink-packet-utils",
  "netlink-packet-wireguard",
  "netlink-request",
- "netlink-sys",
+ "netlink-sys 0.8.8",
  "nix 0.30.1",
  "rand_core 0.6.4",
  "x25519-dalek 2.0.1",
