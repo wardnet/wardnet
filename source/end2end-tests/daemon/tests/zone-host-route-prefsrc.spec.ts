@@ -70,6 +70,7 @@ import {
   waitForHostRouteSrc,
   waitForReady,
 } from "./helpers.js";
+import { daemonSnapshot } from "./diagnostics.js";
 
 // The isolated zone's own subnet. Deliberately outside the e2e LAN
 // (10.91.0.0/24) so a lease from this range proves the device really moved
@@ -96,6 +97,19 @@ describe("member-isolation host route preferred source (#1198)", () => {
   let lanIface: string | undefined;
 
   beforeAll(async () => {
+    // vitest's `afterEach` does not run when a `beforeAll` throws, so the
+    // global on-failure snapshot never fires for a setup failure — which is
+    // the failure this spec actually keeps hitting. Capture it here instead.
+    try {
+      await setUp();
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(await daemonSnapshot("beforeAll (setup failed)"));
+      throw e;
+    }
+  }, 300_000);
+
+  async function setUp() {
     const client = new WardnetClient({ baseUrl: API_BASE_URL });
     await waitForReady(client);
     authed = await ensureAdminAndLogin(client);
@@ -252,7 +266,7 @@ describe("member-isolation host route preferred source (#1198)", () => {
     );
     // Assert against the address the daemon actually keyed on.
     zoneIp = rekeyed.last_ip;
-  }, 300_000);
+  }
 
   afterAll(async () => {
     // Order matters. The zone is the only thing that harms other specs — it
