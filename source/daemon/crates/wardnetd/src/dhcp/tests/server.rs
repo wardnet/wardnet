@@ -2192,3 +2192,278 @@ async fn a_failing_signal_write_is_swallowed() {
     let handle = server::record_dhcp_signals(Some(&svc), &msg, "aa:bb:cc:dd:ee:ff").unwrap();
     handle.await.expect("the recorder must not panic on error");
 }
+
+// ---------------------------------------------------------------------------
+// Dispatch concurrency
+// ---------------------------------------------------------------------------
+
+/// A `DhcpService` that can be held mid-call, so a test can observe what the
+/// server does with other packets while one client's lease work is stuck.
+///
+/// `gate_mac` names the MAC whose calls block until released. Every call also
+/// updates a per-MAC concurrency tally so a test can prove that two packets
+/// from one MAC were never in the service at the same time.
+struct GatedDhcpService {
+    lease: DhcpLease,
+    gate_mac: String,
+    gate: Arc<tokio::sync::Notify>,
+    /// Once set, gated calls stop parking. A one-shot wake is not enough: the
+    /// retransmits a test queues behind the first packet would each park again
+    /// and the test could never drain.
+    gate_open: Arc<AtomicBool>,
+    /// Set once a gated call has parked. Polled rather than signalled: a
+    /// `Notify` only wakes waiters already registered, so a test that has not
+    /// reached its await yet would miss the wakeup and hang.
+    gate_reached: Arc<AtomicBool>,
+    /// Number of calls currently executing, per MAC.
+    active: Arc<Mutex<std::collections::HashMap<String, u32>>>,
+    /// Highest concurrent call count ever observed for a single MAC.
+    peak_per_mac: Arc<Mutex<u32>>,
+    /// MACs seen, in the order their calls completed.
+    completed: Arc<Mutex<Vec<String>>>,
+}
+
+impl GatedDhcpService {
+    fn new(lease: DhcpLease, gate_mac: &str) -> Self {
+        Self {
+            lease,
+            gate_mac: gate_mac.to_owned(),
+            gate: Arc::new(tokio::sync::Notify::new()),
+            gate_open: Arc::new(AtomicBool::new(false)),
+            gate_reached: Arc::new(AtomicBool::new(false)),
+            active: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            peak_per_mac: Arc::new(Mutex::new(0)),
+            completed: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Enter the call, blocking if this MAC is the gated one.
+    async fn enter(&self, mac: &str) {
+        {
+            let mut active = self.active.lock().await;
+            let n = active.entry(mac.to_owned()).or_insert(0);
+            *n += 1;
+            let observed = *n;
+            let mut peak = self.peak_per_mac.lock().await;
+            *peak = (*peak).max(observed);
+        }
+        if mac == self.gate_mac && !self.gate_open.load(Ordering::SeqCst) {
+            self.gate_reached.store(true, Ordering::SeqCst);
+            self.gate.notified().await;
+        }
+        let mut active = self.active.lock().await;
+        if let Some(n) = active.get_mut(mac) {
+            *n -= 1;
+        }
+        self.completed.lock().await.push(mac.to_owned());
+    }
+}
+
+#[async_trait]
+impl DhcpService for GatedDhcpService {
+    async fn assign_lease(
+        &self,
+        mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<DhcpLease, AppError> {
+        self.enter(mac).await;
+        Ok(self.lease.clone())
+    }
+
+    async fn renew_lease(&self, mac: &str, _hostname: Option<&str>) -> Result<DhcpLease, AppError> {
+        self.enter(mac).await;
+        Ok(self.lease.clone())
+    }
+
+    async fn scope_for_mac(&self, _mac: &str) -> Result<DhcpScope, AppError> {
+        Ok(test_scope())
+    }
+
+    async fn active_lease(&self, _mac: &str) -> Result<Option<DhcpLease>, AppError> {
+        Ok(Some(self.lease.clone()))
+    }
+
+    async fn release_lease(&self, mac: &str) -> Result<(), AppError> {
+        self.enter(mac).await;
+        Ok(())
+    }
+
+    async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn update_config(
+        &self,
+        _r: UpdateDhcpConfigRequest,
+    ) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn preview_config(
+        &self,
+        _r: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn list_leases(&self) -> Result<ListDhcpLeasesResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn revoke_lease(&self, _id: Uuid) -> Result<RevokeDhcpLeaseResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn list_reservations(&self) -> Result<ListDhcpReservationsResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn create_reservation(
+        &self,
+        _r: CreateDhcpReservationRequest,
+    ) -> Result<CreateDhcpReservationResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn delete_reservation(
+        &self,
+        _id: Uuid,
+    ) -> Result<DeleteDhcpReservationResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn status(&self) -> Result<DhcpStatusResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn cleanup_expired(&self) -> Result<u64, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+}
+
+/// Poll until a gated handler has parked inside the service.
+async fn wait_for_gate(flag: &AtomicBool) {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !flag.load(Ordering::SeqCst) {
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .expect("the gated client's handler never reached the service");
+}
+
+/// One client's slow lease write must not hold up every other client. The
+/// server reads from a single socket, so handling each packet to completion
+/// before the next `recv_from` makes one stalled database call a network-wide
+/// DHCP outage.
+#[tokio::test]
+async fn a_stalled_client_does_not_block_responses_to_other_clients() {
+    let stuck_mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x01];
+    let other_mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x02];
+    let service = Arc::new(GatedDhcpService::new(test_lease(), "aa:bb:cc:00:00:01"));
+    let gate = Arc::clone(&service.gate);
+    let gate_open = Arc::clone(&service.gate_open);
+    let gate_reached = Arc::clone(&service.gate_reached);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    socket
+        .push_message(&build_discover(stuck_mac), client_addr())
+        .await;
+    wait_for_gate(&gate_reached).await;
+
+    // The first client is now parked inside the service. The second must still
+    // get an answer.
+    socket
+        .push_message(&build_discover(other_mac), client_addr())
+        .await;
+    wait_for_sent(&socket, 1).await;
+
+    let sent = socket.sent_messages().await;
+    assert_eq!(
+        sent.len(),
+        1,
+        "expected exactly the unblocked client's OFFER: {sent:?}"
+    );
+    assert_eq!(
+        sent[0].0.chaddr(),
+        other_mac,
+        "the OFFER must belong to the client that was not stalled"
+    );
+
+    gate_open.store(true, Ordering::SeqCst);
+    gate.notify_waiters();
+    cancel.cancel();
+    let _ = handle.await;
+}
+
+/// Two packets from one MAC must never be inside the lease service at once.
+/// `assign_lease` and `renew_lease` read the current lease and write a new one;
+/// overlapping them for a single client races two writers over one row, which
+/// is exactly what a retransmitting client produces.
+#[tokio::test]
+async fn packets_from_one_mac_are_never_handled_concurrently() {
+    let mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x01];
+    let service = Arc::new(GatedDhcpService::new(test_lease(), "aa:bb:cc:00:00:01"));
+    let gate = Arc::clone(&service.gate);
+    let gate_open = Arc::clone(&service.gate_open);
+    let gate_reached = Arc::clone(&service.gate_reached);
+    let peak = Arc::clone(&service.peak_per_mac);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    socket
+        .push_message(&build_discover(mac), client_addr())
+        .await;
+    wait_for_gate(&gate_reached).await;
+
+    // The client retransmits while the first packet is still being served.
+    for _ in 0..3 {
+        socket
+            .push_message(&build_request(mac), client_addr())
+            .await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    assert_eq!(
+        *peak.lock().await,
+        1,
+        "two packets from one MAC were in the lease service at the same time"
+    );
+
+    gate_open.store(true, Ordering::SeqCst);
+    gate.notify_waiters();
+    cancel.cancel();
+    let _ = handle.await;
+}
