@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use dhcproto::v4::{DhcpOption, Message, MessageType, Opcode, OptionCode};
+use dhcproto::v4::{DhcpOption, Flags, Message, MessageType, Opcode, OptionCode};
 use dhcproto::{Decodable, Decoder, Encodable, Encoder};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -2466,4 +2466,96 @@ async fn packets_from_one_mac_are_never_handled_concurrently() {
     gate.notify_waiters();
     cancel.cancel();
     let _ = handle.await;
+}
+
+/// A client that sets the BROADCAST flag is stating it cannot take delivery of
+/// a unicast reply, and RFC 2131 §4.1 says a server sending directly to a
+/// client SHOULD honour it. Answering such a renewal by unicast strands the
+/// client: it never sees the ACK, retransmits at the RENEWING floor of 60
+/// seconds for the whole lease, and only recovers by releasing and starting
+/// over from DHCPDISCOVER — which is broadcast, and therefore works.
+#[tokio::test]
+async fn request_with_the_broadcast_flag_is_answered_by_broadcast() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let mut request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    request.set_flags(Flags::default().set_broadcast());
+    // A RENEWING client holds its address, so it asks from that address.
+    request.set_ciaddr(Ipv4Addr::new(192, 168, 1, 100));
+    socket
+        .push_message(&request, "192.168.1.100:68".parse().unwrap())
+        .await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(messages.len(), 1, "expected exactly one response");
+    assert_eq!(messages[0].0.opts().msg_type(), Some(MessageType::Ack));
+    assert_eq!(
+        messages[0].1,
+        "255.255.255.255:68".parse::<SocketAddr>().unwrap(),
+        "a client asking for a broadcast reply must not be answered by unicast"
+    );
+}
+
+/// Without the flag, a renewal is answered at the address the client holds.
+/// Broadcasting every ACK would put every renewal on the wire for every host.
+#[tokio::test]
+async fn request_without_the_broadcast_flag_is_answered_by_unicast() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let mut request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    request.set_ciaddr(Ipv4Addr::new(192, 168, 1, 100));
+    socket
+        .push_message(&request, "192.168.1.100:68".parse().unwrap())
+        .await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(messages.len(), 1, "expected exactly one response");
+    assert_eq!(
+        messages[0].1,
+        "192.168.1.100:68".parse::<SocketAddr>().unwrap(),
+        "a renewal with no broadcast flag is answered at the client's address"
+    );
+}
+
+/// A DHCPNAK exists to tell a client the address it is holding is wrong, so
+/// sending it to that address is self-defeating. RFC 2131 §4.3.2 has the server
+/// broadcast a NAK whenever the request came without a relay, regardless of what
+/// the client can otherwise receive.
+#[tokio::test]
+async fn nak_is_broadcast_even_when_the_client_could_take_unicast() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    // Ask to keep an address the service does not hand back, which is what
+    // drives the NAK.
+    let mut request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    request.set_ciaddr(Ipv4Addr::new(192, 168, 1, 55));
+    request
+        .opts_mut()
+        .insert(DhcpOption::RequestedIpAddress(Ipv4Addr::new(
+            192, 168, 1, 55,
+        )));
+    socket
+        .push_message(&request, "192.168.1.55:68".parse().unwrap())
+        .await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(messages.len(), 1, "expected exactly one response");
+    assert_eq!(messages[0].0.opts().msg_type(), Some(MessageType::Nak));
+    assert_eq!(
+        messages[0].1,
+        "255.255.255.255:68".parse::<SocketAddr>().unwrap(),
+        "a NAK must not be unicast to the address it is rejecting"
+    );
 }

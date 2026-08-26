@@ -501,14 +501,7 @@ async fn handle_packet(
             let _ = record_dhcp_signals(identification, msg, mac);
             match handle_request(service, msg, mac).await {
                 Ok(response) => {
-                    // If the client is requesting from 0.0.0.0 (new lease), send
-                    // via broadcast. Renewals come from the client's existing IP
-                    // and can be unicast.
-                    let dest = if src_addr.ip().is_unspecified() {
-                        SocketAddr::from(([255, 255, 255, 255], 68))
-                    } else {
-                        src_addr
-                    };
+                    let dest = reply_destination(msg, &response, src_addr);
                     send_response(socket.as_ref(), &response, dest).await;
                 }
                 Err(e) => {
@@ -523,6 +516,36 @@ async fn handle_packet(
             tracing::debug!(%mac, ?other, "ignoring unsupported DHCP message type: mac={mac}, type={other:?}");
         }
     }
+}
+
+/// Where a reply to `request` should be sent.
+///
+/// RFC 2131 §4.1: a client that cannot take delivery of a unicast IP datagram
+/// sets the BROADCAST flag, and a server replying directly to a client SHOULD
+/// honour it. Deciding purely on whether the request arrived from 0.0.0.0
+/// misses that entirely, and the client it strands is one that renews
+/// perfectly well: it holds an address, so it asks from that address, and the
+/// unicast ACK it cannot accept never registers. It retransmits at the
+/// RENEWING floor of 60 seconds until the lease is nearly gone, then releases
+/// and starts again from DHCPDISCOVER — which is broadcast, so it succeeds,
+/// and the whole cycle repeats. An access point doing that drops its clients
+/// every time round.
+fn reply_destination(request: &Message, reply: &Message, src_addr: SocketAddr) -> SocketAddr {
+    let broadcast = SocketAddr::from(([255, 255, 255, 255], 68));
+    // §4.3.2: a DHCPNAK for a request that arrived without a relay is
+    // broadcast. It says the address the client is holding is wrong, so that
+    // address is the one place it cannot usefully be sent.
+    if reply.opts().msg_type() == Some(MessageType::Nak) {
+        return broadcast;
+    }
+    if request.flags().broadcast() {
+        return broadcast;
+    }
+    // A client still in SELECTING/INIT-REBOOT has no address to be reached at.
+    if src_addr.ip().is_unspecified() {
+        return broadcast;
+    }
+    src_addr
 }
 
 /// Handle a DHCPDISCOVER message: assign a lease and build an OFFER response.
