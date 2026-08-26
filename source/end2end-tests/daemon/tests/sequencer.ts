@@ -1,3 +1,10 @@
+//! Lives under `tests/` rather than beside `vitest.config.ts` on purpose:
+//! `Dockerfile.runner` copies `tests/` wholesale but only named files from the
+//! package root, so a sequencer at the root resolves locally and then fails the
+//! CI run at config-load time with `Could not resolve './sequencer.js'`.
+//! `include` only matches `*.spec.ts`, so a helper module here is never
+//! collected as a test.
+
 import { BaseSequencer, type TestSpecification } from "vitest/node";
 
 /**

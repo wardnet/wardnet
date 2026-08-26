@@ -1,6 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-import DeferDisruptiveSequencer from "./sequencer.js";
+import DeferDisruptiveSequencer from "./tests/sequencer.js";
 
 export default defineConfig({
   test: {
