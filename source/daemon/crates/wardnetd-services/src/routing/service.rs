@@ -325,7 +325,14 @@ struct RoutingState {
     /// Carve-out CIDRs currently installed in the kernel per device, so the diff
     /// on the next reconcile knows what to add/remove. Present only for
     /// tunnel-bound devices with a non-empty desired set.
-    applied_switchback: HashMap<Uuid, Vec<String>>,
+    /// Carve-outs believed to be in the kernel, as `(device_ip, dst_cidrs)`.
+    ///
+    /// Only CIDRs whose `add_switchback_rule` returned `Ok` are recorded, and
+    /// the IP they were installed under travels with them. Both matter for the
+    /// diff to be a truthful picture of the kernel: an add that failed must
+    /// stay absent so the next reconcile retries it, and an entry installed
+    /// under a stale IP must be rebuilt rather than counted as present.
+    applied_switchback: HashMap<Uuid, (String, Vec<String>)>,
     /// Per-destination domain-route leases, keyed by `(device_ip, dst_ip)`.
     /// Installed by [`RoutingService::route_resolved_domain`] as the DNS server
     /// resolves matched domains, and expired by
@@ -802,11 +809,20 @@ impl RoutingServiceImpl {
             Vec::new()
         };
 
-        let applied = state
-            .applied_switchback
-            .get(&device_id)
-            .cloned()
-            .unwrap_or_default();
+        // A carve-out is only "already present" if it was installed under the
+        // IP in play. When the device's IP has moved, tear the old rules down
+        // at their own IP first — `remove_switchback_rule` matches on source,
+        // so removing them at the new IP would miss, leaking a rule that
+        // outlives the address it was written for.
+        let applied = match state.applied_switchback.get(&device_id) {
+            Some((ip, cidrs)) if *ip == device_ip => cidrs.clone(),
+            Some(_) => {
+                self.remove_switchback_for_device(state, device_id, "")
+                    .await;
+                Vec::new()
+            }
+            None => Vec::new(),
+        };
 
         // Remove stale carve-outs.
         for cidr in &applied {
@@ -826,49 +842,69 @@ impl RoutingServiceImpl {
             }
         }
 
-        // Add newly-desired carve-outs.
+        // Add newly-desired carve-outs, tracking which ones the kernel actually
+        // accepted. A device whose DHCP lease has not landed yet reaches here
+        // with an empty `device_ip` that netlink rejects; recording that CIDR
+        // anyway would make every later reconcile diff it away as already
+        // present, and the carve-out would never be installed.
+        let mut installed: Vec<String> = Vec::new();
         for cidr in &desired_set {
-            if !applied.contains(cidr)
-                && let Err(e) = self
-                    .netlink
-                    .add_switchback_rule(&device_ip, cidr, SWITCHBACK_RULE_PRIORITY)
-                    .await
+            if applied.contains(cidr) {
+                installed.push(cidr.clone());
+                continue;
+            }
+            match self
+                .netlink
+                .add_switchback_rule(&device_ip, cidr, SWITCHBACK_RULE_PRIORITY)
+                .await
             {
-                tracing::warn!(
+                Ok(()) => installed.push(cidr.clone()),
+                Err(e) => tracing::warn!(
                     error = %e,
                     device_id = %device_id,
                     device_ip = %device_ip,
                     dst_cidr = %cidr,
                     "failed to add switchback carve-out"
-                );
+                ),
             }
         }
 
-        if desired_set.is_empty() {
+        if installed.is_empty() {
             state.applied_switchback.remove(&device_id);
         } else {
             tracing::debug!(
                 device_id = %device_id,
                 device_ip = %device_ip,
-                carve_outs = desired_set.len(),
+                carve_outs = installed.len(),
                 "materialized switchback carve-outs for tunnel-bound device"
             );
-            state.applied_switchback.insert(device_id, desired_set);
+            state
+                .applied_switchback
+                .insert(device_id, (device_ip, installed));
         }
     }
 
-    /// Remove ALL installed switchback carve-outs for a device (using the given
-    /// `device_ip`) and drop the applied-tracking entry. Leaves the stored
-    /// desired target set untouched. Caller holds the state lock.
+    /// Remove ALL installed switchback carve-outs for a device and drop the
+    /// applied-tracking entry. Leaves the stored desired target set untouched.
+    /// Caller holds the state lock.
+    ///
+    /// Each rule is removed at the IP it was installed under, which is the only
+    /// IP that can match it. `fallback_ip` is used when nothing was recorded —
+    /// pass `""` when the caller has no better IP than the record itself.
     #[allow(clippy::similar_names)]
     async fn remove_switchback_for_device(
         &self,
         state: &mut RoutingState,
         device_id: Uuid,
-        device_ip: &str,
+        fallback_ip: &str,
     ) {
-        let Some(applied) = state.applied_switchback.remove(&device_id) else {
+        let Some((installed_ip, applied)) = state.applied_switchback.remove(&device_id) else {
             return;
+        };
+        let device_ip = if installed_ip.is_empty() {
+            fallback_ip
+        } else {
+            installed_ip.as_str()
         };
         for cidr in &applied {
             if let Err(e) = self

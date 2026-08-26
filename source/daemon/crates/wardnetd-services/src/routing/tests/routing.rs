@@ -601,6 +601,12 @@ impl PolicyRouter for MockNetlink {
         self.calls.lock().await.push(format!(
             "add_switchback_rule:{src_ip}:{dst_cidr}:{priority}"
         ));
+        // Mirror the netlink implementation, which parses before it builds the
+        // message: an unset `last_ip` reaches here as an empty string and must
+        // fail rather than silently install nothing.
+        src_ip
+            .parse::<std::net::Ipv4Addr>()
+            .map_err(|e| anyhow::anyhow!("invalid switchback src IP {src_ip}: {e}"))?;
         let mut sw = self.switchback.lock().await;
         let entry = (src_ip.to_owned(), dst_cidr.to_owned(), priority);
         if !sw.contains(&entry) {
@@ -3608,5 +3614,55 @@ async fn domain_route_unavailable_tunnel_is_skipped() {
             .iter()
             .any(|c| c.starts_with("add_domain_route_rule")),
         "no rule may be installed for an unresolvable tunnel"
+    );
+}
+
+/// A device whose `last_ip` is not yet known reaches the carve-out installer as
+/// an empty string, which netlink rejects. The failed CIDRs must not be recorded
+/// as installed: the device gets its address moments later, and the re-push that
+/// follows is the only chance to install them. Recording a failed add makes the
+/// diff in `reconcile_switchback_for_device` a no-op forever after.
+#[tokio::test]
+async fn carveouts_that_failed_to_install_are_retried_once_the_device_has_an_ip() {
+    let ts = setup();
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+
+    // The zone enforcer pushes the snapshot it has, which carries no IP yet.
+    as_admin(
+        ts.routing
+            .set_switchback_targets(device_id_1(), String::new(), vec![ent_subnet()]),
+    )
+    .await
+    .unwrap();
+    assert!(
+        ts.netlink_switchback.lock().await.is_empty(),
+        "an empty src IP cannot install a carve-out"
+    );
+
+    // DHCP completes, the device row gains an IP, and the enforcer re-pushes.
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(
+        *ts.netlink_switchback.lock().await,
+        vec![(
+            "192.168.200.10".to_owned(),
+            ent_subnet(),
+            SWITCHBACK_RULE_PRIORITY
+        )],
+        "the carve-out must be installed once a real IP is known"
     );
 }
