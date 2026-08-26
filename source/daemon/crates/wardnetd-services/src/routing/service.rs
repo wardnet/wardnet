@@ -260,21 +260,36 @@ pub trait RoutingService: Send + Sync {
 
 /// Priority of the cross-zone switchback carve-out `ip rule`s.
 ///
-/// Must be numerically LOWER (evaluated earlier) than the kernel's per-tunnel
-/// source rules — which the `rule().add()` builder lets the kernel auto-assign
-/// around 32764/32765 — so a carve-out to a cross-zone LAN destination wins over
-/// the `from <device_ip> lookup <tunnelTable>` rule. It is higher than the
-/// `local` table rule (priority 0), so on-box delivery is unaffected.
+/// Must be numerically LOWER (evaluated earlier) than
+/// [`DEVICE_RULE_PRIORITY`], so a carve-out to a cross-zone LAN destination
+/// wins over the device's own `from <device_ip> lookup <tunnelTable>` rule. It
+/// is higher than the `local` table rule (priority 0), so on-box delivery is
+/// unaffected.
 pub const SWITCHBACK_RULE_PRIORITY: u32 = 1000;
 
 /// Priority of the per-domain routing carve-out `ip rule`s.
 ///
 /// Sits in its own band, numerically higher than [`SWITCHBACK_RULE_PRIORITY`]
-/// (so a switchback carve-out still wins for its narrow cross-zone pair) yet far
-/// below the kernel's per-tunnel source rules (~32764), so a `from <device_ip>
-/// to <resolved_ip> lookup <table>` decision wins over the device's own
-/// `from <device_ip> lookup <deviceTable>` rule for that one destination.
+/// (so a switchback carve-out still wins for its narrow cross-zone pair) yet
+/// lower than [`DEVICE_RULE_PRIORITY`], so a `from <device_ip> to <resolved_ip>
+/// lookup <table>` decision wins over the device's own `from <device_ip> lookup
+/// <deviceTable>` rule for that one destination.
 pub const DOMAIN_ROUTE_RULE_PRIORITY: u32 = 2000;
+
+/// Priority of the per-device source `ip rule`s that bind a device to its
+/// tunnel table.
+///
+/// Every narrower carve-out — switchback at [`SWITCHBACK_RULE_PRIORITY`],
+/// per-domain at [`DOMAIN_ROUTE_RULE_PRIORITY`] — exists to beat this rule for
+/// one destination, so it must be evaluated last of the three.
+///
+/// Setting it explicitly is what makes that ordering hold. Left unset, the
+/// kernel's `fib_default_rule_pref` assigns one less than the lowest-priority
+/// rule already installed, so the first switchback carve-out at 1000 drags
+/// every device rule added after it to 999 — ahead of every carve-out, and
+/// ahead of the domain-route band too. Cross-zone traffic then stays captured
+/// by the tunnel, which is the failure the carve-outs exist to prevent.
+pub const DEVICE_RULE_PRIORITY: u32 = 3000;
 
 /// The kernel `main` routing table id (254), used as the target table for a
 /// `direct` domain rule — carving a domain out of the device's tunnel back to
@@ -730,7 +745,11 @@ impl RoutingServiceImpl {
                 // duplicates that accumulated from restarts or races (issue #78).
                 let mut removed = 0u32;
                 loop {
-                    match self.netlink.remove_ip_rule(&rule.device_ip, table).await {
+                    match self
+                        .netlink
+                        .remove_ip_rule(&rule.device_ip, table, DEVICE_RULE_PRIORITY)
+                        .await
+                    {
                         Ok(()) => removed += 1,
                         Err(e) => {
                             if removed == 0 {
@@ -1344,7 +1363,11 @@ impl RoutingService for RoutingServiceImpl {
 
             // Add source-based ip rule.
             tracing::debug!(device_ip, table, "adding ip rule");
-            if let Err(e) = self.netlink.add_ip_rule(device_ip, table).await {
+            if let Err(e) = self
+                .netlink
+                .add_ip_rule(device_ip, table, DEVICE_RULE_PRIORITY)
+                .await
+            {
                 tracing::warn!(
                     error = %e,
                     device_ip,
@@ -1796,16 +1819,74 @@ impl RoutingService for RoutingServiceImpl {
                     .filter_map(|r| r.table.map(|_| r.device_ip.as_str()))
                     .collect();
 
-                // Group by (ip, table) to detect both orphans and duplicates.
-                let mut ip_rule_counts: HashMap<(String, u32), u32> = HashMap::new();
-                for (src_ip, table) in &kernel_rules {
-                    *ip_rule_counts.entry((src_ip.clone(), *table)).or_insert(0) += 1;
+                // Group by (ip, table, priority) to detect orphans, duplicates
+                // and rules stranded at a priority this version no longer
+                // writes. The carve-out bands are listed too — they share a
+                // source with the device rule and `main` is itself a table
+                // >= 100 — but they have their own reconcilers below, so skip
+                // them here rather than let this loop prune them.
+                let mut ip_rule_counts: HashMap<(String, u32, u32), u32> = HashMap::new();
+                for (src_ip, table, priority) in &kernel_rules {
+                    if *priority == SWITCHBACK_RULE_PRIORITY
+                        || *priority == DOMAIN_ROUTE_RULE_PRIORITY
+                    {
+                        continue;
+                    }
+                    *ip_rule_counts
+                        .entry((src_ip.clone(), *table, *priority))
+                        .or_insert(0) += 1;
                 }
 
                 let mut orphan_count = 0u32;
                 let mut duplicate_count = 0u32;
-                for ((src_ip, table), count) in &ip_rule_counts {
-                    if !known_ips.contains(src_ip.as_str()) {
+                let mut repriority_count = 0u32;
+                for ((src_ip, table, priority), count) in &ip_rule_counts {
+                    if known_ips.contains(src_ip.as_str()) && *priority != DEVICE_RULE_PRIORITY {
+                        // A live device bound at the wrong priority: the rule
+                        // works, but every carve-out meant to override it is
+                        // dead while it sits ahead of them. Rewrite it in place
+                        // — remove at the priority it actually has, re-add at
+                        // the band it belongs in.
+                        tracing::warn!(
+                            src_ip = %src_ip,
+                            table,
+                            priority,
+                            "rewriting ip rule stranded at the wrong priority: src_ip={src_ip}, table={table}, priority={priority}"
+                        );
+                        for _ in 0..*count {
+                            if let Err(e) =
+                                self.netlink.remove_ip_rule(src_ip, *table, *priority).await
+                            {
+                                tracing::warn!(
+                                    error = %e,
+                                    src_ip = %src_ip,
+                                    table,
+                                    priority,
+                                    "failed to remove ip rule at wrong priority for {src_ip}, table={table}, priority={priority}: {e}",
+                                    src_ip = src_ip,
+                                    table = table,
+                                    priority = priority
+                                );
+                                break;
+                            }
+                        }
+                        if let Err(e) = self
+                            .netlink
+                            .add_ip_rule(src_ip, *table, DEVICE_RULE_PRIORITY)
+                            .await
+                        {
+                            tracing::warn!(
+                                error = %e,
+                                src_ip = %src_ip,
+                                table,
+                                "failed to re-add ip rule at {DEVICE_RULE_PRIORITY} for {src_ip}, table={table}: {e}",
+                                src_ip = src_ip,
+                                table = table
+                            );
+                        } else {
+                            repriority_count += 1;
+                        }
+                    } else if !known_ips.contains(src_ip.as_str()) {
                         // Orphan: remove all occurrences of this rule.
                         for _ in 0..*count {
                             tracing::warn!(
@@ -1815,7 +1896,9 @@ impl RoutingService for RoutingServiceImpl {
                                 src_ip = src_ip,
                                 table = table
                             );
-                            if let Err(e) = self.netlink.remove_ip_rule(src_ip, *table).await {
+                            if let Err(e) =
+                                self.netlink.remove_ip_rule(src_ip, *table, *priority).await
+                            {
                                 tracing::warn!(
                                     error = %e,
                                     src_ip = %src_ip,
@@ -1843,7 +1926,9 @@ impl RoutingService for RoutingServiceImpl {
                             extras = extras
                         );
                         for _ in 0..extras {
-                            if let Err(e) = self.netlink.remove_ip_rule(src_ip, *table).await {
+                            if let Err(e) =
+                                self.netlink.remove_ip_rule(src_ip, *table, *priority).await
+                            {
                                 tracing::warn!(
                                     error = %e,
                                     src_ip = %src_ip,
@@ -1872,6 +1957,13 @@ impl RoutingService for RoutingServiceImpl {
                         duplicate_count,
                         "pruned duplicate ip rules: duplicate_count={duplicate_count}",
                         duplicate_count = duplicate_count
+                    );
+                }
+                if repriority_count > 0 {
+                    tracing::info!(
+                        repriority_count,
+                        "rewrote ip rules into the device priority band: repriority_count={repriority_count}",
+                        repriority_count = repriority_count
                     );
                 }
             }

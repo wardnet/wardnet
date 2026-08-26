@@ -230,7 +230,7 @@ impl PolicyRouter for NetlinkPolicyRouter {
         Ok(false)
     }
 
-    async fn add_ip_rule(&self, src_ip: &str, table: u32) -> anyhow::Result<()> {
+    async fn add_ip_rule(&self, src_ip: &str, table: u32, priority: u32) -> anyhow::Result<()> {
         let ip: Ipv4Addr = src_ip
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid IP {src_ip}: {e}"))?;
@@ -241,26 +241,33 @@ impl PolicyRouter for NetlinkPolicyRouter {
             .v4()
             .source_prefix(ip, 32)
             .table_id(table)
+            .priority(priority)
             .action(RuleAction::ToTable)
             .execute()
             .await
             .map_err(|e| {
-                anyhow::anyhow!("failed to add ip rule from {src_ip} lookup {table}: {e}")
+                anyhow::anyhow!(
+                    "failed to add ip rule from {src_ip} lookup {table} priority {priority}: {e}"
+                )
             })?;
 
         Ok(())
     }
 
-    async fn remove_ip_rule(&self, src_ip: &str, table: u32) -> anyhow::Result<()> {
+    async fn remove_ip_rule(&self, src_ip: &str, table: u32, priority: u32) -> anyhow::Result<()> {
         let ip: Ipv4Addr = src_ip
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid IP {src_ip}: {e}"))?;
 
-        // Build a RuleMessage matching the rule to delete.
+        // Build a RuleMessage matching the rule to delete. The priority is part
+        // of the match: a switchback or domain-route carve-out shares this
+        // source and can share the table, and only the priority tells them
+        // apart.
         let mut rule_msg = RuleMessage::default();
         rule_msg.header.family = AddressFamily::Inet;
         rule_msg.header.src_len = 32;
         rule_msg.attributes.push(RuleAttribute::Source(ip.into()));
+        rule_msg.attributes.push(RuleAttribute::Priority(priority));
         if table > 255 {
             rule_msg.attributes.push(RuleAttribute::Table(table));
         } else {
@@ -279,7 +286,7 @@ impl PolicyRouter for NetlinkPolicyRouter {
         Ok(())
     }
 
-    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
+    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32, u32)>> {
         let mut rules_stream = self.handle.rule().get(rtnetlink::IpVersion::V4).execute();
         let mut result = Vec::new();
 
@@ -310,8 +317,20 @@ impl PolicyRouter for NetlinkPolicyRouter {
                 }
             });
 
+            let priority = rule
+                .attributes
+                .iter()
+                .find_map(|a| {
+                    if let RuleAttribute::Priority(p) = a {
+                        Some(*p)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(0);
+
             if let Some(ip) = src_ip {
-                result.push((ip, table));
+                result.push((ip, table, priority));
             }
         }
 
