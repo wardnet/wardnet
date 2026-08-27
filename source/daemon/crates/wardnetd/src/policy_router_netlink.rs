@@ -903,7 +903,7 @@ impl PolicyRouter for NetlinkPolicyRouter {
             .neighbours()
             .get()
             .proxies()
-            .set_family(rtnetlink::IpVersion::V4)
+            .set_address_family(AddressFamily::Inet)
             .execute();
         let mut out = Vec::new();
         while let Some(msg) = entries.try_next().await? {
