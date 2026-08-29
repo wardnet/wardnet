@@ -16,7 +16,7 @@ import { BaseSequencer, type TestSpecification } from "vitest/node";
  * it leases from, so the client comes back on a different base-pool address.
  *
  * That matters because the device-oriented specs identify their subject by IP
- * *range* (`findDeviceByIpRangeOrNull` over 10.91.0.100-150), not by MAC. The
+ * _range_ (`findDeviceByIpRangeOrNull` over 10.91.0.100-150), not by MAC. The
  * lookup is only sound while each client keeps a stable base-pool lease. Once a
  * lease is reshuffled, the range can resolve to a *different* device than the
  * one the spec is actually driving — the filter is applied to one device while
