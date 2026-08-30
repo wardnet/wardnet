@@ -529,10 +529,54 @@ impl ZoneEnforcementServiceImpl {
         {
             return;
         }
-        let want = dhcp_enabled && zone.member_isolation && zone.subnet.is_some();
-        let res = if want {
+        // The route's preferred source must be the device's own zone gateway
+        // (#1198), so a zone whose CIDR won't parse yields no gateway and we
+        // remove rather than install — far better than installing a `/32` that
+        // silently breaks source selection for the whole zone. Warn on the way
+        // past, matching `parse_zone_subnets`: without it a corrupt CIDR row
+        // would stop member isolation forwarding for every device in the zone
+        // with nothing in the logs to say why.
+        let gateway = if dhcp_enabled && zone.member_isolation {
+            zone.subnet.as_ref().and_then(|s| {
+                let net = match s.cidr.parse::<Ipv4Network>() {
+                    Ok(net) => net,
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            zone_id = %zone.id,
+                            cidr = %s.cidr,
+                            device_ip = %device.last_ip,
+                            "zone enforcer: unparseable zone subnet, skipping host route"
+                        );
+                        return None;
+                    }
+                };
+                // The device must actually be inside the zone's subnet, the
+                // same guard `reconcile_isolation` applies to proxy-neighbour
+                // entries. A device freshly moved into the zone keeps its old
+                // base-subnet address until it re-DHCPs, and pointing its `/32`
+                // at this zone's gateway would source replies from an address
+                // outside the device's own subnet — reintroducing the very
+                // wrong-source-IP failure this route exists to fix (#1198).
+                let parsed = device.last_ip.parse::<Ipv4Addr>().ok()?;
+                if !net.contains(parsed) {
+                    tracing::debug!(
+                        zone_id = %zone.id,
+                        cidr = %s.cidr,
+                        device_ip = %device.last_ip,
+                        "zone enforcer: device address outside its zone subnet, no host route"
+                    );
+                    return None;
+                }
+                Some(crate::subnet::gateway_for(net))
+            })
+        } else {
+            None
+        };
+        let want = gateway.is_some();
+        let res = if let Some(pref_src) = gateway {
             self.policy_router
-                .add_host_route(&device.last_ip, &self.lan_interface)
+                .add_host_route(&device.last_ip, &self.lan_interface, pref_src)
                 .await
         } else {
             self.policy_router
@@ -1078,6 +1122,50 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         // entries) from scratch.
         self.reconcile_isolation().await?;
 
+        // Host routes last, once `reconcile_isolation` has installed the zone
+        // gateway aliases each route names as its preferred source (the kernel
+        // rejects a non-local `RTA_PREFSRC`).
+        //
+        // This pass is what heals a box upgrading into the #1198 fix. Older
+        // builds installed these `/32`s with no preferred source, and every
+        // other host-route call site is device-event-driven — so without a
+        // reconcile pass an already-broken device would keep its bad route (and
+        // stay without DNS) until it happened to re-DHCP or an admin touched
+        // it. `add_host_route` replaces rather than skips, so this repairs a
+        // stale route in place.
+        // Propagate rather than defaulting: `false` would take
+        // `manage_host_route` down its *removal* path, so a transient
+        // `system_config` read failure would silently strip every member's host
+        // route. Aborting leaves the existing routes in place for the next
+        // reconcile, and matches how every other repository read here behaves.
+        let dhcp_enabled = self.dhcp_enabled().await?;
+        for device in &devices {
+            if device.last_ip.parse::<Ipv4Addr>().is_err() {
+                continue;
+            }
+            let Some(zone) = zone_by_id.get(&device.zone_id) else {
+                continue;
+            };
+            // Only a member-isolated zone can own a host route. Running the
+            // rest through `manage_host_route` would take its removal path, and
+            // `remove_host_route` streams the whole IPv4 route table per call —
+            // a few hundred serial dumps on a box with a few hundred device
+            // rows, on every startup. Removal on transition is handled by the
+            // event paths (`apply_device` / `handle_ip_change` /
+            // `handle_zone_change` / `apply_zone`), which fire on exactly the
+            // changes that strand a route. Known gap: a transition that happens
+            // while the daemon is down leaves a stale `/32` until that device's
+            // next event — pruning it here would need a single bulk route
+            // listing rather than one per device.
+            // `dhcp_enabled` matters for the same reason: with DHCP off no
+            // device can own a host route, so every one of them would take the
+            // removal path and its route-table dump.
+            if !dhcp_enabled || !zone.member_isolation {
+                continue;
+            }
+            self.manage_host_route(device, zone, dhcp_enabled).await;
+        }
+
         tracing::info!(
             applied,
             total_devices = devices.len(),
@@ -1089,12 +1177,22 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
     async fn apply_device(&self, device_id: Uuid) -> Result<(), AppError> {
         auth_context::require_admin()?;
         tracing::debug!(device_id = %device_id, "zone enforcer: apply_device");
-        if let Some((device, zone)) = self.load_device_and_zone(device_id).await? {
+        let pending = if let Some((device, zone)) = self.load_device_and_zone(device_id).await? {
             self.apply_one(&device.last_ip, &zone, true).await?;
+            Some((device, zone))
+        } else {
+            None
+        };
+        // Isolation first, host route second: `reconcile_isolation` is what
+        // installs the zone's `.1` gateway alias, and the kernel rejects a
+        // route whose `RTA_PREFSRC` is not a local address (`EINVAL` from
+        // `fib_create_info`). Managing the route before the alias exists would
+        // fail the add outright on a zone's first application (#1198).
+        self.reconcile_isolation().await?;
+        if let Some((device, zone)) = pending {
             let dhcp_enabled = self.dhcp_enabled().await?;
             self.manage_host_route(&device, &zone, dhcp_enabled).await;
         }
-        self.reconcile_isolation().await?;
         Ok(())
     }
 
@@ -1130,6 +1228,34 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
         }
         tracing::debug!(zone_id = %zone_id, applied, "zone enforcer: apply_zone complete");
         self.reconcile_isolation().await?;
+
+        // Re-manage every member's host route after the aliases are settled.
+        // A zone edit is exactly what invalidates these: changing the subnet
+        // moves the gateway alias, so each member's `/32` is left naming an
+        // address that is no longer local — and the kernel drops those routes
+        // when the old alias is deleted (`fib_sync_down_addr`), silently
+        // removing the on-link path member isolation depends on. Toggling
+        // `member_isolation` on has the mirror problem: proxy-neighbour entries
+        // appear but no `/32` is ever installed. Neither transition raises a
+        // per-device event, so without this pass both wait for an unrelated
+        // device event or a daemon restart (#1198).
+        //
+        // On a *subnet* edit this removes rather than re-points: every member
+        // still holds an address in the old subnet (the lease release has only
+        // just gone out), so the in-subnet guard yields no gateway and the
+        // stale `/32` is dropped. That is the safe direction — the alternative
+        // is a route naming a gateway the kernel is about to delete — and each
+        // device gets its route back through `handle_ip_change` as it re-DHCPs
+        // into the new subnet.
+        // Propagate rather than defaulting to `false` — see `reconcile`: the
+        // default is the destructive direction, not the safe one.
+        let dhcp_enabled = self.dhcp_enabled().await?;
+        for device in &devices {
+            if device.zone_id != zone_id || device.last_ip.parse::<Ipv4Addr>().is_err() {
+                continue;
+            }
+            self.manage_host_route(device, &zone, dhcp_enabled).await;
+        }
         Ok(())
     }
 
@@ -1161,20 +1287,27 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
                 tracing::warn!(error = %e, old_ip, "zone enforcer: failed to remove old-IP host route");
             }
         }
-        if let Some((device, zone)) = self.load_device_and_zone(device_id).await? {
+        let pending = if let Some((device, zone)) = self.load_device_and_zone(device_id).await? {
             // Key on the event's new IP rather than the row's `last_ip`, which
             // may not have been observed yet.
             self.apply_one(new_ip, &zone, true).await?;
-            let dhcp_enabled = self.dhcp_enabled().await?;
             // Install the new-IP host route from the event's IP (the row's
             // `last_ip` may lag), so build a device view keyed on `new_ip`.
             let device = Device {
                 last_ip: new_ip.to_owned(),
                 ..device
             };
+            Some((device, zone))
+        } else {
+            None
+        };
+        // Isolation before the host route so the zone gateway alias the route
+        // prefers as source already exists — see `apply_device` (#1198).
+        self.reconcile_isolation().await?;
+        if let Some((device, zone)) = pending {
+            let dhcp_enabled = self.dhcp_enabled().await?;
             self.manage_host_route(&device, &zone, dhcp_enabled).await;
         }
-        self.reconcile_isolation().await?;
         Ok(())
     }
 
@@ -1213,6 +1346,7 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
     async fn handle_zone_change(&self, device_id: Uuid) -> Result<(), AppError> {
         auth_context::require_admin()?;
         tracing::debug!(device_id = %device_id, "zone enforcer: handle_zone_change");
+        let mut pending = None;
         // A row claiming one of the Pi's own addresses is filtered inside
         // `load_device_and_zone` (#886) — the conntrack flush below would
         // otherwise tear down our own live admin sessions.
@@ -1228,12 +1362,17 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
             if let Err(e) = self.policy_router.flush_conntrack(&device.last_ip).await {
                 tracing::warn!(error = %e, device_id = %device_id, "zone enforcer: failed to flush conntrack on zone change");
             }
-            // Re-apply the device's #736 packet rules + host route for the new zone.
+            // Re-apply the device's #736 packet rules for the new zone.
             self.apply_one(&device.last_ip, &zone, true).await?;
+            pending = Some((device, zone));
+        }
+        // Isolation before the host route so the new zone's gateway alias the
+        // route prefers as source already exists — see `apply_device` (#1198).
+        self.reconcile_isolation().await?;
+        if let Some((device, zone)) = pending {
             let dhcp_enabled = self.dhcp_enabled().await?;
             self.manage_host_route(&device, &zone, dhcp_enabled).await;
         }
-        self.reconcile_isolation().await?;
         Ok(())
     }
 

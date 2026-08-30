@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 use async_trait::async_trait;
 
 /// Abstraction over policy routing operations (routing tables, source-based rules, forwarding).
@@ -189,8 +191,22 @@ pub trait PolicyRouter: Send + Sync {
     async fn list_neigh_proxies(&self, interface: &str) -> anyhow::Result<Vec<String>>;
 
     /// Add a `/32` host route for `ip` via `interface` so the Pi has an on-link
-    /// path to an isolate-members device. Idempotent.
-    async fn add_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()>;
+    /// path to an isolate-members device.
+    ///
+    /// `pref_src` must be the gateway address of the device's own zone. The
+    /// `/32` shadows that zone's `/24`, so without an explicit preferred source
+    /// the kernel falls back to the output interface's primary address — which
+    /// on a multi-zone LAN interface belongs to another zone — and replies to
+    /// the device leave with the wrong source address (#1198).
+    ///
+    /// Idempotent, and repairs an existing route whose preferred source is
+    /// missing or wrong rather than leaving it in place.
+    async fn add_host_route(
+        &self,
+        ip: &str,
+        interface: &str,
+        pref_src: Ipv4Addr,
+    ) -> anyhow::Result<()>;
 
     /// Remove the `/32` host route for `ip` via `interface`. Idempotent.
     async fn remove_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()>;

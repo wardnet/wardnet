@@ -221,7 +221,12 @@ impl PolicyRouter for StubPolicyRouter {
     async fn list_neigh_proxies(&self, _i: &str) -> anyhow::Result<Vec<String>> {
         unimplemented!()
     }
-    async fn add_host_route(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {
+    async fn add_host_route(
+        &self,
+        _ip: &str,
+        _i: &str,
+        _pref_src: std::net::Ipv4Addr,
+    ) -> anyhow::Result<()> {
         unimplemented!()
     }
     async fn remove_host_route(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {

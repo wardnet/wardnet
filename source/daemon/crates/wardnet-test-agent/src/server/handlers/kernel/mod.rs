@@ -10,8 +10,8 @@ use tokio::process::Command;
 use tracing::warn;
 
 use crate::server::models::{
-    ErrorResponse, IpRule, IpRulesResponse, LinkShowResponse, NftRulesResponse, WgPeer,
-    WgShowResponse,
+    ClearPrefsrcRequest, ClearPrefsrcResponse, ErrorResponse, IpRule, IpRulesResponse,
+    LinkShowResponse, NftRulesResponse, WgPeer, WgShowResponse,
 };
 
 /// Regex for parsing a single line of `ip rule list` output.
@@ -86,6 +86,68 @@ pub async fn get_ip_rules() -> impl IntoResponse {
         .collect();
 
     Json(IpRulesResponse { rules, raw }).into_response()
+}
+
+/// `GET /routes` -- the kernel routing table, via the same `ip -j route` probe
+/// the client agent serves.
+///
+/// Server mode needs it so specs can assert on a route's preferred source: the
+/// member-isolation `/32` must carry its zone gateway as `src`, and that is
+/// only observable against a real kernel (#1198). Delegates to the client
+/// probe rather than re-parsing `ip route` output a second time.
+pub async fn get_routes() -> impl IntoResponse {
+    match crate::client::routes::run(crate::client::routes::RoutesArgs { table: None }).await {
+        Ok(response) => Json(response).into_response(),
+        Err(e) => {
+            warn!(error = ?e, "failed to read routes");
+            internal_error(format!("failed to read routes: {e:?}")).into_response()
+        }
+    }
+}
+
+/// `POST /routes/clear-prefsrc` -- rewrites a `/32` host route without its
+/// preferred source.
+///
+/// Fabricates the state an older daemon left behind: a member-isolation `/32`
+/// that shadows its zone's `/24` while carrying no `RTA_PREFSRC`, so source
+/// selection falls back to the interface's primary address (#1198). A spec can
+/// then restart the daemon and assert reconcile repairs the route, which is the
+/// only way to exercise the `NLM_F_REPLACE` healing path against a real kernel.
+pub async fn post_clear_prefsrc(Json(req): Json<ClearPrefsrcRequest>) -> impl IntoResponse {
+    // Both values reach a command line, so validate rather than trust: the
+    // destination must be a bare IPv4 host address and the interface must match
+    // the same charset every other handler here enforces.
+    if req.dest.parse::<std::net::Ipv4Addr>().is_err() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("dest must be a bare IPv4 address: {}", req.dest),
+            }),
+        )
+            .into_response();
+    }
+    if !is_valid_interface_name(&req.dev) {
+        return bad_interface(&req.dev).into_response();
+    }
+
+    let args = [
+        "route", "change", &req.dest, "dev", &req.dev, "scope", "link", "proto", "static",
+    ];
+    let command = format!("ip {}", args.join(" "));
+    let output = match Command::new("ip").args(args).output().await {
+        Ok(o) => o,
+        Err(e) => {
+            warn!(error = %e, command, "failed to run `ip route change`");
+            return internal_error(format!("failed to run {command}: {e}")).into_response();
+        }
+    };
+
+    Json(ClearPrefsrcResponse {
+        command,
+        success: output.status.success(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
+    .into_response()
 }
 
 /// `GET /nft-rules` -- runs `nft list ruleset` and returns parsed tables, masquerade info, and raw output.

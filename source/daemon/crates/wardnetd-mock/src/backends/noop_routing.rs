@@ -330,11 +330,17 @@ impl PolicyRouter for NoopPolicyRouter {
         Ok(Vec::new())
     }
 
-    async fn add_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+    async fn add_host_route(
+        &self,
+        ip: &str,
+        interface: &str,
+        pref_src: std::net::Ipv4Addr,
+    ) -> anyhow::Result<()> {
         tracing::debug!(
             ip,
             interface,
-            "mock policy add_host_route: {ip}/32 dev {interface}",
+            %pref_src,
+            "mock policy add_host_route: {ip}/32 dev {interface} src {pref_src}",
         );
         Ok(())
     }

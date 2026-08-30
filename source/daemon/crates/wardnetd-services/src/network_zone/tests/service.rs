@@ -601,3 +601,53 @@ async fn assign_device_unknown_zone_is_404() {
         Err(AppError::NotFound(_))
     ));
 }
+
+/// A subnetted, member-isolated zone must survive the round-trip through the
+/// repository unchanged.
+///
+/// Everything per-zone hangs off these two fields once the zone is stored:
+/// `DhcpServiceImpl::resolve_scope` only serves the zone's own pool when it
+/// reads back a `subnet`, and the zone enforcer only installs a gateway alias
+/// and member host routes when it reads back `member_isolation`. If either is
+/// dropped in transit the zone still *looks* created — the API returns the
+/// object it was handed — while every downstream behaviour silently degrades to
+/// base-pool defaults.
+///
+/// This is not hypothetical. An e2e run created exactly such a zone, the create
+/// succeeded, and the daemon then offered only base-pool addresses while
+/// reporting `member_subnets=0 gateways=0` — as though no subnetted
+/// member-isolated zone existed. This test pins the persistence half of that
+/// question so the answer does not depend on reading CI artefacts.
+#[tokio::test]
+async fn subnetted_member_isolated_zone_round_trips_through_the_repository() {
+    let h = build().await;
+    let created = as_admin(h.svc.create_zone(CreateNetworkZoneRequest {
+        name: "Isolated".to_owned(),
+        isolation_stance: ZoneStance::IsolateMembers,
+        allowed_targets: vec![AllowedTargetKind::Direct, AllowedTargetKind::Tunnel],
+        member_isolation: true,
+        admin_ui_reachable: true,
+        subnet: Some(ZoneSubnet {
+            cidr: "10.44.1.0/24".to_owned(),
+        }),
+    }))
+    .await
+    .unwrap();
+
+    // What create_zone returned is the object it built, not what was stored —
+    // read it back through the repository to test persistence itself.
+    let stored = as_admin(h.svc.get_zone(created.id)).await.unwrap().zone;
+
+    assert_eq!(
+        stored.subnet.as_ref().map(|s| s.cidr.as_str()),
+        Some("10.44.1.0/24"),
+        "the zone subnet must persist: DHCP scope resolution reads it back, and \
+         without it every member silently leases from the base pool"
+    );
+    assert!(
+        stored.member_isolation,
+        "member_isolation must persist: the enforcer reads it back to install \
+         the gateway alias and per-member host routes"
+    );
+    assert_eq!(stored.isolation_stance, ZoneStance::IsolateMembers);
+}

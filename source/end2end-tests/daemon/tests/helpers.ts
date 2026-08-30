@@ -211,12 +211,46 @@ export interface AgentDhcpRenewResponse {
   stderr: string;
 }
 
+/**
+ * How long any single test-agent request may take before it is aborted.
+ *
+ * Node's `fetch` has no default timeout: a container that accepts the
+ * connection and then stops responding leaves the promise pending forever. A
+ * poll loop awaiting such a request never re-checks its own deadline, so the
+ * whole hook wedges until vitest's hook timeout kills it — with no indication
+ * of which call hung. Bounding the request turns that into a normal rejection
+ * the caller can retry or report.
+ *
+ * Deliberately shorter than any `pollUntil` deadline that wraps it, so a
+ * stalled agent fails its probe and lets the poll report its own
+ * `describe()` message rather than overrunning the caller's hook budget.
+ * `/dhcp/renew` opts into a longer bound of its own.
+ */
+const AGENT_REQUEST_TIMEOUT_MS = 20_000;
+
+/**
+ * Bound for `/dhcp/renew` only. It shells out to a full dhclient release+renew,
+ * which legitimately runs for tens of seconds under DHCP retransmit backoff
+ * (dhclient's own default timeout is 60 s, so anything beyond that is stuck,
+ * not slow).
+ *
+ * Kept separate rather than raising the default: a single bound generous enough
+ * for a renew is far too generous for a status read, and two slow reads then
+ * consume a caller's whole hook budget before its own poll deadline can fire —
+ * which is exactly how the #1198 spec's `beforeAll` burned 300 s without ever
+ * reporting why.
+ */
+const AGENT_DHCP_TIMEOUT_MS = 60_000;
+
 /** GET against a test-agent serve URL. Throws on non-2xx. */
 export async function agentGet<T>(
   baseUrl: string,
   path: string,
+  timeoutMs = AGENT_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
-  const res = await fetch(`${baseUrl}${path}`);
+  const res = await fetch(`${baseUrl}${path}`, {
+    signal: AbortSignal.timeout(timeoutMs),
+  });
   if (!res.ok) {
     throw new Error(
       `agent GET ${baseUrl}${path} failed: ${res.status} ${await res.text()}`,
@@ -230,11 +264,13 @@ export async function agentPost<T>(
   baseUrl: string,
   path: string,
   body: unknown,
+  timeoutMs = AGENT_REQUEST_TIMEOUT_MS,
 ): Promise<T> {
   const res = await fetch(`${baseUrl}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   if (!res.ok) {
     throw new Error(
@@ -307,6 +343,7 @@ export async function acquireLeaseInRange(
         agent,
         "/dhcp/renew",
         { interface: iface },
+        AGENT_DHCP_TIMEOUT_MS,
       );
       if (renew.renew_success) {
         const ifaces = await agentGet<AgentInterfacesResponse>(
@@ -671,6 +708,103 @@ export async function daemonIpRules(
   daemonAgent: string,
 ): Promise<DaemonIpRulesResponse> {
   return agentGet<DaemonIpRulesResponse>(daemonAgent, "/ip-rules");
+}
+
+/**
+ * A single entry from the daemon agent's `GET /routes` (the same `ip -j route`
+ * probe the client agents serve).
+ */
+export interface DaemonRoute {
+  /** Destination as rendered (`"default"`, `"10.44.1.0/24"`, `"10.44.1.10"`). */
+  dst: string;
+  gateway?: string;
+  dev?: string;
+  table?: string;
+  protocol?: string;
+  scope?: string;
+  /** Preferred source (`RTA_PREFSRC`), if set. */
+  src?: string;
+  metric?: number;
+}
+
+export interface DaemonRoutesResponse {
+  routes: DaemonRoute[];
+}
+
+/**
+ * Read the daemon's live routing table via the test-agent inside the wardnetd
+ * container. The member-isolation `/32` must carry its zone gateway as `src`;
+ * without it the `/32` shadows the zone's `/24` and drops that route's source
+ * hint, so daemon-originated replies leave with the wrong address (#1198).
+ */
+export async function daemonRoutes(
+  daemonAgent: string,
+): Promise<DaemonRoutesResponse> {
+  return agentGet<DaemonRoutesResponse>(daemonAgent, "/routes");
+}
+
+/** The `/32` host route for `ip`, if the daemon currently has one installed. */
+export function hostRouteFor(
+  routes: DaemonRoute[],
+  ip: string,
+): DaemonRoute | undefined {
+  return routes.find((r) => r.dst === ip || r.dst === `${ip}/32`);
+}
+
+/**
+ * Poll [`daemonRoutes`] until `ip`'s `/32` has the given preferred source
+ * (`undefined` waits for it to have none). Returns the matching route.
+ *
+ * Host routes are installed asynchronously off zone/device events, so a
+ * mutation is never visible on the first read.
+ */
+export async function waitForHostRouteSrc(
+  daemonAgent: string,
+  ip: string,
+  wantSrc: string | undefined,
+  timeoutMs = 45_000,
+): Promise<DaemonRoute> {
+  const res = await pollUntil(
+    () => daemonRoutes(daemonAgent),
+    (value) => {
+      const route = hostRouteFor(value.routes, ip);
+      // A missing route is never a match — even when waiting for "no src",
+      // the /32 itself must exist or the assertion means nothing.
+      return route !== undefined && route.src === wantSrc;
+    },
+    {
+      timeoutMs,
+      describe: (last) =>
+        `host route for ${ip} never reached src=${wantSrc ?? "(none)"}; ` +
+        `last routes:\n${JSON.stringify(last?.routes ?? [], null, 2)}`,
+    },
+  );
+  const route = hostRouteFor(res.routes, ip);
+  if (!route) throw new Error(`no /32 host route for ${ip}`);
+  return route;
+}
+
+/** Response from the daemon agent's `POST /routes/clear-prefsrc`. */
+export interface ClearPrefsrcResponse {
+  command: string;
+  success: boolean;
+  stderr: string;
+}
+
+/**
+ * Rewrite `ip`'s `/32` host route without a preferred source, reproducing what
+ * an older daemon left behind (#1198). Used to fabricate a pre-fix box so a
+ * spec can assert that reconcile repairs it on restart.
+ */
+export async function clearHostRoutePrefsrc(
+  daemonAgent: string,
+  ip: string,
+  dev: string,
+): Promise<ClearPrefsrcResponse> {
+  return agentPost<ClearPrefsrcResponse>(daemonAgent, "/routes/clear-prefsrc", {
+    dest: ip,
+    dev,
+  });
 }
 
 /**

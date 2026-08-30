@@ -748,11 +748,16 @@ impl PolicyRouter for MockNetlink {
         Ok(Vec::new())
     }
 
-    async fn add_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
+    async fn add_host_route(
+        &self,
+        ip: &str,
+        i: &str,
+        pref_src: std::net::Ipv4Addr,
+    ) -> anyhow::Result<()> {
         self.calls
             .lock()
             .await
-            .push(format!("add_host_route:{ip}:{i}"));
+            .push(format!("add_host_route:{ip}:{i}:{pref_src}"));
         Ok(())
     }
 
