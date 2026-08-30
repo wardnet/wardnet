@@ -64,9 +64,9 @@ async fn noop_policy_router_all_methods_ok() {
     p.enable_ip_forwarding().await.unwrap();
     p.add_route_table("wg_mock0", 100).await.unwrap();
     assert!(p.has_route_table(100).await.unwrap());
-    p.add_ip_rule("10.0.0.2", 100).await.unwrap();
+    p.add_ip_rule("10.0.0.2", 100, 3000).await.unwrap();
     assert!(p.list_wardnet_rules().await.unwrap().is_empty());
-    p.remove_ip_rule("10.0.0.2", 100).await.unwrap();
+    p.remove_ip_rule("10.0.0.2", 100, 3000).await.unwrap();
     p.remove_route_table(100).await.unwrap();
     p.flush_conntrack("10.0.0.2").await.unwrap();
     p.flush_route_cache().await.unwrap();

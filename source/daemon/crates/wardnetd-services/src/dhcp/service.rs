@@ -153,6 +153,16 @@ pub struct DhcpServiceImpl {
     zones: Arc<dyn NetworkZoneRepository>,
     /// Wardnet's own LAN IP, auto-detected at startup.
     gateway_ip: Ipv4Addr,
+    /// Serializes pool allocation.
+    ///
+    /// Picking a free address and inserting the lease that claims it are
+    /// separate awaits over a table with no uniqueness constraint on
+    /// `ip_address`, so two allocations that overlap can both see the same
+    /// address free and both take it. Packets from different MACs are handled
+    /// concurrently, and a power-up or access-point reboot delivers exactly
+    /// that burst, so the window is reached in normal use rather than under
+    /// contrived load.
+    alloc_lock: tokio::sync::Mutex<()>,
 }
 
 impl DhcpServiceImpl {
@@ -172,6 +182,7 @@ impl DhcpServiceImpl {
             devices,
             zones,
             gateway_ip,
+            alloc_lock: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -1134,6 +1145,10 @@ impl DhcpService for DhcpServiceImpl {
                 compatible
             });
 
+        // Held until the lease row exists, so no other allocation can observe
+        // this address as free in between.
+        let _alloc = self.alloc_lock.lock().await;
+
         let ip = if let Some(reservation) = reservation {
             tracing::info!(mac, ip = %reservation.ip_address, "using static reservation");
             reservation.ip_address
@@ -1162,6 +1177,8 @@ impl DhcpService for DhcpServiceImpl {
             .insert_lease(&row)
             .await
             .map_err(AppError::Internal)?;
+
+        drop(_alloc);
 
         self.dhcp
             .insert_lease_log(&DhcpLeaseLogRow {

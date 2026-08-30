@@ -1,13 +1,14 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
 use dhcproto::v4::{DhcpOption, Flags, HType, Message, MessageType, Opcode, OptionCode};
 use dhcproto::{Decodable, Decoder, Encodable, Encoder};
 use tokio::net::UdpSocket;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use wardnet_common::auth::AuthContext;
@@ -242,6 +243,190 @@ impl DhcpServer for UdpDhcpServer {
 }
 
 // ---------------------------------------------------------------------------
+// Dispatcher
+// ---------------------------------------------------------------------------
+
+/// Upper bound on DHCP handlers running at once.
+///
+/// Sized for a home LAN's client count with room to spare, not for the traffic
+/// an attacker can generate: port 67 takes unauthenticated broadcast, so a
+/// spawn per packet with no ceiling is a memory-exhaustion path. Packets that
+/// arrive with every permit taken are dropped, and DHCP clients retransmit.
+const MAX_CONCURRENT_HANDLERS: usize = 64;
+
+/// A packet parked behind the handler currently serving its MAC.
+type PendingPacket = (MessageType, Message, SocketAddr);
+
+/// Runs packet handlers concurrently across MACs while keeping each MAC's own
+/// packets strictly in order.
+///
+/// The receive loop must never wait on lease work: it owns the only socket, so
+/// a slow database call made inline stalls every client at once, and the
+/// clients respond by retransmitting into a server that is already behind.
+///
+/// Serializing per MAC is not just tidiness. `assign_lease` and `renew_lease`
+/// read a MAC's current lease and write it back, so two packets from one client
+/// in flight together are two writers racing over one row — and a retransmitting
+/// client produces exactly that. Each MAC therefore gets at most one running
+/// handler plus one pending packet; a further packet replaces the pending one,
+/// which collapses a retransmit burst into a single answer built from the
+/// client's newest message.
+struct Dispatcher {
+    socket: Arc<dyn DhcpSocket>,
+    service: Arc<dyn DhcpService>,
+    identification: Option<Arc<dyn DeviceIdentificationService>>,
+    /// MACs with a handler running. The value is that MAC's pending packet, if
+    /// one arrived while the handler was busy. Held under a `std::sync::Mutex`
+    /// because every critical section is a map lookup with no `.await` in it,
+    /// and because [`InflightGuard`] has to release the slot from `Drop`.
+    inflight: Arc<StdMutex<HashMap<String, Option<PendingPacket>>>>,
+    permits: Arc<Semaphore>,
+}
+
+/// Releases a MAC's handler slot even if the handler panics.
+///
+/// Without this a panicking handler would leave the MAC marked as busy forever,
+/// and that client would never be served again for the lifetime of the process.
+struct InflightGuard {
+    inflight: Arc<StdMutex<HashMap<String, Option<PendingPacket>>>>,
+    mac: String,
+    /// Cleared once the handler has released the slot itself.
+    ///
+    /// The handler's own exit removes the entry under the lock and then
+    /// returns, dropping that lock before this guard runs. Removing a second
+    /// time would delete an entry belonging to a handler dispatch had already
+    /// started for the same MAC in between — and with no entry left, the next
+    /// packet starts a third. Two handlers for one MAC is precisely what the
+    /// dispatcher exists to prevent.
+    armed: bool,
+}
+
+impl Drop for InflightGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        if let Ok(mut map) = self.inflight.lock() {
+            map.remove(&self.mac);
+        }
+    }
+}
+
+impl Dispatcher {
+    fn new(
+        socket: Arc<dyn DhcpSocket>,
+        service: Arc<dyn DhcpService>,
+        identification: Option<Arc<dyn DeviceIdentificationService>>,
+    ) -> Self {
+        Self {
+            socket,
+            service,
+            identification,
+            inflight: Arc::new(StdMutex::new(HashMap::new())),
+            permits: Arc::new(Semaphore::new(MAX_CONCURRENT_HANDLERS)),
+        }
+    }
+
+    /// Wait until every in-flight handler has finished.
+    ///
+    /// Acquiring every permit is only possible once none are held, and
+    /// `forget` keeps them out of circulation so nothing starts afterwards.
+    async fn drain(&self) {
+        let all = u32::try_from(MAX_CONCURRENT_HANDLERS).unwrap_or(u32::MAX);
+        if let Ok(permits) = self.permits.acquire_many(all).await {
+            permits.forget();
+        }
+    }
+
+    /// Hand one packet off for handling. Returns immediately — never awaits the
+    /// handler, so the caller can get straight back to `recv_from`.
+    fn dispatch(&self, msg_type: MessageType, msg: Message, mac: String, src_addr: SocketAddr) {
+        {
+            let Ok(mut map) = self.inflight.lock() else {
+                tracing::error!(%mac, "DHCP dispatch state poisoned, dropping packet");
+                return;
+            };
+            if let Some(slot) = map.get_mut(&mac) {
+                // A handler for this MAC is mid-flight. Keep only the newest
+                // packet: an older queued one is a retransmit of a question this
+                // client has already restated.
+                //
+                // A queued DHCPRELEASE is the exception — it is not a restated
+                // question but a distinct instruction, and the DISCOVER a
+                // rebooting client sends straight after would otherwise drop
+                // it and leave the lease held.
+                if let Some((queued_type, _, _)) = slot.as_ref() {
+                    if *queued_type == MessageType::Release {
+                        tracing::debug!(
+                            %mac,
+                            ?msg_type,
+                            "keeping queued DHCPRELEASE, dropping the packet behind it"
+                        );
+                        return;
+                    }
+                    tracing::debug!(%mac, "superseding queued DHCP packet with a newer one");
+                }
+                *slot = Some((msg_type, msg, src_addr));
+                return;
+            }
+
+            let Ok(permit) = Arc::clone(&self.permits).try_acquire_owned() else {
+                tracing::warn!(
+                    %mac,
+                    ?msg_type,
+                    max = MAX_CONCURRENT_HANDLERS,
+                    "DHCP handler limit reached, dropping packet"
+                );
+                return;
+            };
+
+            map.insert(mac.clone(), None);
+
+            let socket = Arc::clone(&self.socket);
+            let service = Arc::clone(&self.service);
+            let identification = self.identification.clone();
+            let inflight = Arc::clone(&self.inflight);
+            tokio::spawn(async move {
+                let _permit = permit;
+                let mut guard = InflightGuard {
+                    inflight: Arc::clone(&inflight),
+                    mac: mac.clone(),
+                    armed: true,
+                };
+                let mut current = (msg_type, msg, src_addr);
+                loop {
+                    let (msg_type, msg, src_addr) = current;
+                    handle_packet(
+                        &socket,
+                        &service,
+                        identification.as_ref(),
+                        msg_type,
+                        &msg,
+                        &mac,
+                        src_addr,
+                    )
+                    .await;
+
+                    // Take whatever arrived for this MAC while we worked. The
+                    // slot is cleared and the MAC released in the same locked
+                    // section, so a packet can never land between the two and
+                    // be stranded with no handler to pick it up.
+                    let Ok(mut map) = inflight.lock() else {
+                        return;
+                    };
+                    let Some(next) = map.get_mut(&mac).and_then(Option::take) else {
+                        map.remove(&mac);
+                        guard.armed = false;
+                        return;
+                    };
+                    current = next;
+                }
+            });
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Server loop and helpers
 // ---------------------------------------------------------------------------
 
@@ -254,12 +439,13 @@ pub(crate) async fn server_loop(
     cancel: CancellationToken,
     own_macs: Arc<HashSet<String>>,
 ) {
+    let dispatcher = Dispatcher::new(socket, service, identification);
     let mut buf = vec![0u8; 1500];
 
     loop {
         let (len, src_addr) = tokio::select! {
             () = cancel.cancelled() => break,
-            result = socket.recv_from(&mut buf) => {
+            result = dispatcher.socket.recv_from(&mut buf) => {
                 match result {
                     Ok(r) => r,
                     Err(e) => {
@@ -318,50 +504,98 @@ pub(crate) async fn server_loop(
             continue;
         }
 
-        match msg_type {
-            MessageType::Discover => {
-                let _ = record_dhcp_signals(identification.as_ref(), &msg, &mac);
-                match handle_discover(&service, &msg, &mac).await {
-                    Ok(response) => {
-                        // DHCP OFFERs must be broadcast — the client has no IP yet
-                        // and can only receive broadcast packets.
-                        let broadcast = SocketAddr::from(([255, 255, 255, 255], 68));
-                        send_response(socket.as_ref(), &response, broadcast).await;
-                    }
-                    Err(e) => {
-                        tracing::error!(%mac, error = %e, "failed to handle DHCPDISCOVER for {mac}: {e}");
-                    }
-                }
-            }
-            MessageType::Request => {
-                let _ = record_dhcp_signals(identification.as_ref(), &msg, &mac);
-                match handle_request(&service, &msg, &mac).await {
-                    Ok(response) => {
-                        // If the client is requesting from 0.0.0.0 (new lease), send
-                        // via broadcast. Renewals come from the client's existing IP
-                        // and can be unicast.
-                        let dest = if src_addr.ip().is_unspecified() {
-                            SocketAddr::from(([255, 255, 255, 255], 68))
-                        } else {
-                            src_addr
-                        };
-                        send_response(socket.as_ref(), &response, dest).await;
-                    }
-                    Err(e) => {
-                        tracing::error!(%mac, error = %e, "failed to handle DHCPREQUEST for {mac}: {e}");
-                    }
-                }
-            }
-            MessageType::Release => {
-                handle_release(&service, &msg, &mac, src_addr).await;
-            }
-            other => {
-                tracing::debug!(%mac, ?other, "ignoring unsupported DHCP message type: mac={mac}, type={other:?}");
-            }
-        }
+        dispatcher.dispatch(msg_type, msg, mac, src_addr);
     }
 
+    // Handlers run on their own tasks and keep using the socket and the lease
+    // service after the loop breaks. Clearing `running` first would tell a
+    // shutdown it is safe to tear those down mid-write, so wait until every
+    // permit is back before saying the server has stopped.
+    dispatcher.drain().await;
     running.store(false, Ordering::SeqCst);
+}
+
+/// Serve one DHCP message and send whatever it produces.
+async fn handle_packet(
+    socket: &Arc<dyn DhcpSocket>,
+    service: &Arc<dyn DhcpService>,
+    identification: Option<&Arc<dyn DeviceIdentificationService>>,
+    msg_type: MessageType,
+    msg: &Message,
+    mac: &str,
+    src_addr: SocketAddr,
+) {
+    match msg_type {
+        MessageType::Discover => {
+            let _ = record_dhcp_signals(identification, msg, mac);
+            match handle_discover(service, msg, mac).await {
+                Ok(response) => {
+                    // DHCP OFFERs must be broadcast — the client has no IP yet
+                    // and can only receive broadcast packets.
+                    let broadcast = SocketAddr::from(([255, 255, 255, 255], 68));
+                    send_response(socket.as_ref(), &response, broadcast).await;
+                }
+                Err(e) => {
+                    tracing::error!(%mac, error = %e, "failed to handle DHCPDISCOVER for {mac}: {e}");
+                }
+            }
+        }
+        MessageType::Request => {
+            let _ = record_dhcp_signals(identification, msg, mac);
+            match handle_request(service, msg, mac).await {
+                Ok(response) => {
+                    let dest = reply_destination(msg, &response, src_addr);
+                    send_response(socket.as_ref(), &response, dest).await;
+                }
+                Err(e) => {
+                    tracing::error!(%mac, error = %e, "failed to handle DHCPREQUEST for {mac}: {e}");
+                }
+            }
+        }
+        MessageType::Release => {
+            handle_release(service, msg, mac, src_addr).await;
+        }
+        other => {
+            tracing::debug!(%mac, ?other, "ignoring unsupported DHCP message type: mac={mac}, type={other:?}");
+        }
+    }
+}
+
+/// Where a reply to `request` should be sent.
+///
+/// RFC 2131 §4.1: a client that cannot take delivery of a unicast IP datagram
+/// sets the BROADCAST flag, and a server replying directly to a client SHOULD
+/// honour it. Deciding purely on whether the request arrived from 0.0.0.0
+/// misses that entirely, and the client it strands is one that renews
+/// perfectly well: it holds an address, so it asks from that address, and the
+/// unicast ACK it cannot accept never registers. It retransmits at the
+/// RENEWING floor of 60 seconds until the lease is nearly gone, then releases
+/// and starts again from DHCPDISCOVER — which is broadcast, so it succeeds,
+/// and the whole cycle repeats. An access point doing that drops its clients
+/// every time round.
+fn reply_destination(request: &Message, reply: &Message, src_addr: SocketAddr) -> SocketAddr {
+    let broadcast = SocketAddr::from(([255, 255, 255, 255], 68));
+    // §4.1: a non-zero `giaddr` is the first test, ahead of everything else.
+    // The reply goes back to the relay that forwarded it and the relay decides
+    // how to deliver it — broadcasting instead would put the reply on this
+    // server's own segment, which is not the one the client is on.
+    if !request.giaddr().is_unspecified() {
+        return SocketAddr::from((request.giaddr(), 67));
+    }
+    // §4.3.2: a DHCPNAK for a request that arrived without a relay is
+    // broadcast. It says the address the client is holding is wrong, so that
+    // address is the one place it cannot usefully be sent.
+    if reply.opts().msg_type() == Some(MessageType::Nak) {
+        return broadcast;
+    }
+    if request.flags().broadcast() {
+        return broadcast;
+    }
+    // A client still in SELECTING/INIT-REBOOT has no address to be reached at.
+    if src_addr.ip().is_unspecified() {
+        return broadcast;
+    }
+    src_addr
 }
 
 /// Handle a DHCPDISCOVER message: assign a lease and build an OFFER response.

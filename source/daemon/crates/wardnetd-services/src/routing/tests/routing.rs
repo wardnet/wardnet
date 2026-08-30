@@ -15,7 +15,7 @@ use crate::error::AppError;
 use crate::routing::firewall::FirewallManager;
 use crate::routing::policy_router::PolicyRouter;
 use crate::routing::service::{
-    DOMAIN_ROUTE_RULE_PRIORITY, RoutingServiceImpl, SWITCHBACK_RULE_PRIORITY,
+    DEVICE_RULE_PRIORITY, DOMAIN_ROUTE_RULE_PRIORITY, RoutingServiceImpl, SWITCHBACK_RULE_PRIORITY,
 };
 use crate::{RoutingService, TunnelService};
 use wardnet_common::auth::AuthContext;
@@ -489,7 +489,7 @@ impl TunnelService for MockTunnelService {
 /// Records all netlink calls for assertion.
 struct MockNetlink {
     calls: Arc<Mutex<Vec<String>>>,
-    wardnet_rules: Vec<(String, u32)>,
+    wardnet_rules: Vec<(String, u32, u32)>,
     /// Number of times `add_route_table` should fail with "not up" before
     /// succeeding. Used to test the retry logic in `ensure_tunnel_table`.
     route_add_failures_remaining: Arc<Mutex<u32>>,
@@ -512,6 +512,41 @@ struct MockNetlink {
     /// removes, `list_domain_route_rules` returns the current set. Pre-seeded to
     /// simulate stale kernel rules for reconcile-prune tests.
     domain_routes: Arc<Mutex<Vec<(String, String, u32)>>>,
+    /// Installed per-device source rules as `(src_ip, table, priority)`.
+    ///
+    /// The priority is what the kernel actually ends up with, so a test can
+    /// assert the evaluation order between a device rule and the carve-outs
+    /// that must win over it. When `add_ip_rule` supplies no priority the mock
+    /// reproduces the kernel's `fib_default_rule_pref`: one less than the
+    /// lowest non-zero priority already present.
+    device_rules: Arc<Mutex<Vec<(String, u32, u32)>>>,
+}
+
+impl MockNetlink {
+    /// The priority the kernel assigns a rule added without an explicit one:
+    /// `fib_default_rule_pref` returns the first existing rule's priority minus
+    /// one, scanning past the priority-0 `local` rule.
+    async fn kernel_default_rule_pref(&self) -> u32 {
+        let lowest = self
+            .device_rules
+            .lock()
+            .await
+            .iter()
+            .map(|(_, _, p)| *p)
+            .chain(self.switchback.lock().await.iter().map(|(_, _, p)| *p))
+            .chain(
+                self.domain_routes
+                    .lock()
+                    .await
+                    .iter()
+                    .map(|_| DOMAIN_ROUTE_RULE_PRIORITY),
+            )
+            .filter(|p| *p > 0)
+            .min();
+        // With no other rule present the kernel counts down from the `main`
+        // rule at 32766.
+        lowest.unwrap_or(32766) - 1
+    }
 }
 
 #[async_trait]
@@ -556,11 +591,22 @@ impl PolicyRouter for MockNetlink {
         Ok(*self.has_route_table_result.lock().await)
     }
 
-    async fn add_ip_rule(&self, src_ip: &str, table: u32) -> anyhow::Result<()> {
+    async fn add_ip_rule(&self, src_ip: &str, table: u32, priority: u32) -> anyhow::Result<()> {
         self.calls
             .lock()
             .await
-            .push(format!("add_ip_rule:{src_ip}:{table}"));
+            .push(format!("add_ip_rule:{src_ip}:{table}:{priority}"));
+        // A priority of 0 is never written deliberately; treat it the way the
+        // kernel treats an unset one so a caller that forgets is caught.
+        let priority = if priority == 0 {
+            self.kernel_default_rule_pref().await
+        } else {
+            priority
+        };
+        self.device_rules
+            .lock()
+            .await
+            .push((src_ip.to_owned(), table, priority));
         *self
             .rule_counts
             .lock()
@@ -570,21 +616,28 @@ impl PolicyRouter for MockNetlink {
         Ok(())
     }
 
-    async fn remove_ip_rule(&self, src_ip: &str, table: u32) -> anyhow::Result<()> {
+    async fn remove_ip_rule(&self, src_ip: &str, table: u32, priority: u32) -> anyhow::Result<()> {
         self.calls
             .lock()
             .await
-            .push(format!("remove_ip_rule:{src_ip}:{table}"));
+            .push(format!("remove_ip_rule:{src_ip}:{table}:{priority}"));
         let mut counts = self.rule_counts.lock().await;
         let count = counts.entry((src_ip.to_owned(), table)).or_insert(0);
         if *count == 0 {
             anyhow::bail!("RTNETLINK answers: No such process");
         }
         *count -= 1;
+        let mut installed = self.device_rules.lock().await;
+        if let Some(pos) = installed
+            .iter()
+            .position(|(s, t, _)| s == src_ip && *t == table)
+        {
+            installed.remove(pos);
+        }
         Ok(())
     }
 
-    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
+    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32, u32)>> {
         self.calls
             .lock()
             .await
@@ -601,6 +654,12 @@ impl PolicyRouter for MockNetlink {
         self.calls.lock().await.push(format!(
             "add_switchback_rule:{src_ip}:{dst_cidr}:{priority}"
         ));
+        // Mirror the netlink implementation, which parses before it builds the
+        // message: an unset `last_ip` reaches here as an empty string and must
+        // fail rather than silently install nothing.
+        src_ip
+            .parse::<std::net::Ipv4Addr>()
+            .map_err(|e| anyhow::anyhow!("invalid switchback src IP {src_ip}: {e}"))?;
         let mut sw = self.switchback.lock().await;
         let entry = (src_ip.to_owned(), dst_cidr.to_owned(), priority);
         if !sw.contains(&entry) {
@@ -943,6 +1002,9 @@ struct TestSetup {
     netlink_rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>>,
     /// Exposed so tests can assert / pre-seed installed switchback carve-outs.
     netlink_switchback: Arc<Mutex<Vec<(String, String, u32)>>>,
+    /// Exposed so tests can assert the priority the per-device source rules
+    /// landed at, relative to the carve-outs that must be evaluated first.
+    netlink_device_rules: Arc<Mutex<Vec<(String, u32, u32)>>>,
     /// Flip to make the tunnel repo's `find_by_id` / `find_config_by_id`
     /// fail, for the device-snapshot degradation tests.
     tunnel_find_error: Arc<Mutex<bool>>,
@@ -1131,6 +1193,7 @@ fn setup_with_zones(
         Arc::new(MockZoneRepo { zones });
     let rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>> = Arc::new(Mutex::new(HashMap::new()));
     let switchback: Arc<Mutex<Vec<(String, String, u32)>>> = Arc::new(Mutex::new(Vec::new()));
+    let device_rules: Arc<Mutex<Vec<(String, u32, u32)>>> = Arc::new(Mutex::new(Vec::new()));
     let netlink: Arc<dyn PolicyRouter> = Arc::new(MockNetlink {
         calls: netlink_calls.clone(),
         wardnet_rules: vec![],
@@ -1140,6 +1203,7 @@ fn setup_with_zones(
         rule_counts: rule_counts.clone(),
         switchback: switchback.clone(),
         domain_routes: Arc::new(Mutex::new(Vec::new())),
+        device_rules: device_rules.clone(),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -1176,6 +1240,7 @@ fn setup_with_zones(
         add_tcp_reset_reject_fail,
         netlink_rule_counts: rule_counts,
         netlink_switchback: switchback,
+        netlink_device_rules: device_rules,
         tunnel_find_error,
     }
 }
@@ -1186,7 +1251,7 @@ fn setup_with_orphaned_rules(
     rules: HashMap<String, RoutingRule>,
     tunnel: Option<Tunnel>,
     tunnel_config: Option<TunnelConfig>,
-    kernel_rules: Vec<(String, u32)>,
+    kernel_rules: Vec<(String, u32, u32)>,
 ) -> TestSetup {
     let netlink_calls = Arc::new(Mutex::new(Vec::new()));
     let nftables_calls = Arc::new(Mutex::new(Vec::new()));
@@ -1211,12 +1276,13 @@ fn setup_with_orphaned_rules(
     let initial_counts: HashMap<(String, u32), u32> =
         kernel_rules
             .iter()
-            .fold(HashMap::new(), |mut m, (ip, table)| {
+            .fold(HashMap::new(), |mut m, (ip, table, _priority)| {
                 *m.entry((ip.clone(), *table)).or_insert(0) += 1;
                 m
             });
     let rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>> = Arc::new(Mutex::new(initial_counts));
     let switchback: Arc<Mutex<Vec<(String, String, u32)>>> = Arc::new(Mutex::new(Vec::new()));
+    let device_rules: Arc<Mutex<Vec<(String, u32, u32)>>> = Arc::new(Mutex::new(Vec::new()));
     let netlink: Arc<dyn PolicyRouter> = Arc::new(MockNetlink {
         calls: netlink_calls.clone(),
         wardnet_rules: kernel_rules,
@@ -1226,6 +1292,7 @@ fn setup_with_orphaned_rules(
         rule_counts: rule_counts.clone(),
         switchback: switchback.clone(),
         domain_routes: Arc::new(Mutex::new(Vec::new())),
+        device_rules: device_rules.clone(),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -1267,6 +1334,7 @@ fn setup_with_orphaned_rules(
         add_tcp_reset_reject_fail,
         netlink_rule_counts: rule_counts,
         netlink_switchback: switchback,
+        netlink_device_rules: device_rules,
         tunnel_find_error,
     }
 }
@@ -1299,6 +1367,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
     });
     let rule_counts: Arc<Mutex<HashMap<(String, u32), u32>>> = Arc::new(Mutex::new(HashMap::new()));
     let switchback: Arc<Mutex<Vec<(String, String, u32)>>> = Arc::new(Mutex::new(Vec::new()));
+    let device_rules: Arc<Mutex<Vec<(String, u32, u32)>>> = Arc::new(Mutex::new(Vec::new()));
     let netlink: Arc<dyn PolicyRouter> = Arc::new(MockNetlink {
         calls: netlink_calls.clone(),
         wardnet_rules: vec![],
@@ -1308,6 +1377,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         rule_counts: rule_counts.clone(),
         switchback: switchback.clone(),
         domain_routes: Arc::new(Mutex::new(Vec::new())),
+        device_rules: device_rules.clone(),
     });
     let nftables: Arc<dyn FirewallManager> = Arc::new(MockNftables {
         calls: nftables_calls.clone(),
@@ -1349,6 +1419,7 @@ fn setup_with_route_add_failures(failures: u32) -> TestSetup {
         add_tcp_reset_reject_fail,
         netlink_rule_counts: rule_counts,
         netlink_switchback: switchback,
+        netlink_device_rules: device_rules,
         tunnel_find_error,
     }
 }
@@ -1557,7 +1628,9 @@ async fn apply_rule_tunnel_adds_ip_rule_and_masquerade() {
         "expected add_route_table call: {nl:?}"
     );
     assert!(
-        nl.contains(&"add_ip_rule:192.168.1.10:100".to_owned()),
+        nl.contains(&format!(
+            "add_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected add_ip_rule call: {nl:?}"
     );
     assert!(
@@ -2097,7 +2170,9 @@ async fn remove_device_routes_cleans_up_kernel_state() {
     let nf = ts.nftables_calls.lock().await;
 
     assert!(
-        nl.contains(&"remove_ip_rule:192.168.1.10:100".to_owned()),
+        nl.contains(&format!(
+            "remove_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected remove_ip_rule call: {nl:?}"
     );
     assert!(
@@ -2139,12 +2214,16 @@ async fn handle_ip_change_re_applies_rule() {
 
     // Old rule should be removed.
     assert!(
-        nl.contains(&"remove_ip_rule:192.168.1.10:100".to_owned()),
+        nl.contains(&format!(
+            "remove_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected old ip rule removal: {nl:?}"
     );
     // New rule should be added.
     assert!(
-        nl.contains(&"add_ip_rule:192.168.1.20:100".to_owned()),
+        nl.contains(&format!(
+            "add_ip_rule:192.168.1.20:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected new ip rule addition: {nl:?}"
     );
 }
@@ -2186,11 +2265,15 @@ async fn handle_tunnel_down_removes_affected_device_rules() {
 
     // Both devices' ip rules should be removed.
     assert!(
-        nl.contains(&"remove_ip_rule:192.168.1.10:100".to_owned()),
+        nl.contains(&format!(
+            "remove_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected device 1 ip rule removal: {nl:?}"
     );
     assert!(
-        nl.contains(&"remove_ip_rule:192.168.1.11:100".to_owned()),
+        nl.contains(&format!(
+            "remove_ip_rule:192.168.1.11:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected device 2 ip rule removal: {nl:?}"
     );
 
@@ -2243,11 +2326,15 @@ async fn handle_tunnel_up_re_applies_rules() {
 
     // Both devices should get ip rules.
     assert!(
-        nl.contains(&"add_ip_rule:192.168.1.10:100".to_owned()),
+        nl.contains(&format!(
+            "add_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected device 1 ip rule: {nl:?}"
     );
     assert!(
-        nl.contains(&"add_ip_rule:192.168.1.11:100".to_owned()),
+        nl.contains(&format!(
+            "add_ip_rule:192.168.1.11:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected device 2 ip rule: {nl:?}"
     );
 }
@@ -2325,7 +2412,9 @@ async fn reconcile_applies_stored_rules() {
 
     // The device's tunnel rule should be applied during reconcile.
     assert!(
-        nl.contains(&"add_ip_rule:192.168.1.10:100".to_owned()),
+        nl.contains(&format!(
+            "add_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected reconciled ip rule: {nl:?}"
     );
 }
@@ -2333,7 +2422,7 @@ async fn reconcile_applies_stored_rules() {
 #[tokio::test]
 async fn reconcile_cleans_up_orphaned_rules() {
     // Kernel has a rule for 192.168.1.99:100 but no device in the DB has that.
-    let orphaned_rules = vec![("192.168.1.99".to_owned(), 100)];
+    let orphaned_rules = vec![("192.168.1.99".to_owned(), 100, DEVICE_RULE_PRIORITY)];
 
     let ts = setup_with_orphaned_rules(
         vec![],
@@ -2349,7 +2438,9 @@ async fn reconcile_cleans_up_orphaned_rules() {
 
     // Orphaned rule should be removed.
     assert!(
-        nl.contains(&"remove_ip_rule:192.168.1.99:100".to_owned()),
+        nl.contains(&format!(
+            "remove_ip_rule:192.168.1.99:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected orphaned rule removal: {nl:?}"
     );
 }
@@ -2422,7 +2513,9 @@ async fn ensure_tunnel_table_retries_on_interface_not_up() {
 
     // The ip rule should still be added after the retry succeeds.
     assert!(
-        nl.contains(&"add_ip_rule:192.168.1.10:100".to_owned()),
+        nl.contains(&format!(
+            "add_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected add_ip_rule after successful retry: {nl:?}"
     );
 }
@@ -2629,7 +2722,9 @@ async fn handle_route_table_lost_re_applies_rules() {
     );
     // The device's ip rule should be re-applied.
     assert!(
-        nl.contains(&"add_ip_rule:192.168.1.10:100".to_owned()),
+        nl.contains(&format!(
+            "add_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"
+        )),
         "expected ip rule to be re-applied: {nl:?}"
     );
 }
@@ -2670,7 +2765,7 @@ async fn remove_device_kernel_state_drains_duplicate_ip_rules() {
     // Count=2 → 2 successes + 1 failing attempt = 3 calls total.
     let remove_count = nl
         .iter()
-        .filter(|c| c.as_str() == "remove_ip_rule:192.168.1.10:100")
+        .filter(|c| **c == format!("remove_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"))
         .count();
     assert_eq!(
         remove_count, 3,
@@ -2694,9 +2789,9 @@ async fn reconcile_prunes_duplicate_rules_for_active_device() {
 
     // Kernel has 3 entries for the same (ip, table) — 2 are duplicates.
     let kernel_rules = vec![
-        ("192.168.1.10".to_owned(), 100u32),
-        ("192.168.1.10".to_owned(), 100u32),
-        ("192.168.1.10".to_owned(), 100u32),
+        ("192.168.1.10".to_owned(), 100u32, DEVICE_RULE_PRIORITY),
+        ("192.168.1.10".to_owned(), 100u32, DEVICE_RULE_PRIORITY),
+        ("192.168.1.10".to_owned(), 100u32, DEVICE_RULE_PRIORITY),
     ];
     let ts = setup_with_orphaned_rules(
         vec![d1],
@@ -2713,7 +2808,7 @@ async fn reconcile_prunes_duplicate_rules_for_active_device() {
     // extras=2 → exactly 2 remove_ip_rule calls for the duplicate pruning.
     let remove_count = nl
         .iter()
-        .filter(|c| c.as_str() == "remove_ip_rule:192.168.1.10:100")
+        .filter(|c| **c == format!("remove_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"))
         .count();
     assert_eq!(
         remove_count, 2,
@@ -3608,5 +3703,290 @@ async fn domain_route_unavailable_tunnel_is_skipped() {
             .iter()
             .any(|c| c.starts_with("add_domain_route_rule")),
         "no rule may be installed for an unresolvable tunnel"
+    );
+}
+
+/// A device whose `last_ip` is not yet known reaches the carve-out installer as
+/// an empty string, which netlink rejects. The failed CIDRs must not be recorded
+/// as installed: the device gets its address moments later, and the re-push that
+/// follows is the only chance to install them. Recording a failed add makes the
+/// diff in `reconcile_switchback_for_device` a no-op forever after.
+#[tokio::test]
+async fn carveouts_that_failed_to_install_are_retried_once_the_device_has_an_ip() {
+    let ts = setup();
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+
+    // The zone enforcer pushes the snapshot it has, which carries no IP yet.
+    as_admin(
+        ts.routing
+            .set_switchback_targets(device_id_1(), String::new(), vec![ent_subnet()]),
+    )
+    .await
+    .unwrap();
+    assert!(
+        ts.netlink_switchback.lock().await.is_empty(),
+        "an empty src IP cannot install a carve-out"
+    );
+
+    // DHCP completes, the device row gains an IP, and the enforcer re-pushes.
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(
+        *ts.netlink_switchback.lock().await,
+        vec![(
+            "192.168.200.10".to_owned(),
+            ent_subnet(),
+            SWITCHBACK_RULE_PRIORITY
+        )],
+        "the carve-out must be installed once a real IP is known"
+    );
+}
+
+/// A carve-out only wins over the device's own tunnel rule if the kernel
+/// evaluates it first. Leaving the device rule's priority for the kernel to pick
+/// inverts that: `fib_default_rule_pref` counts down from the lowest rule already
+/// present, so the first carve-out at 1000 makes every later device rule 999 and
+/// the carve-out is dead on arrival.
+#[tokio::test]
+async fn device_source_rule_is_evaluated_after_its_switchback_carveouts() {
+    let ts = setup();
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    // A second device binding after the carve-out exists is the case that breaks.
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_2(), "192.168.200.11", &target),
+    )
+    .await
+    .unwrap();
+
+    let installed = ts.netlink_device_rules.lock().await.clone();
+    assert!(!installed.is_empty(), "expected per-device source rules");
+    for (src_ip, table, priority) in installed {
+        assert!(
+            priority > SWITCHBACK_RULE_PRIORITY,
+            "device rule from {src_ip} lookup {table} landed at priority {priority}, \
+             which preempts switchback carve-outs at {SWITCHBACK_RULE_PRIORITY}"
+        );
+        assert!(
+            priority > DOMAIN_ROUTE_RULE_PRIORITY,
+            "device rule from {src_ip} lookup {table} landed at priority {priority}, \
+             which preempts domain-route rules at {DOMAIN_ROUTE_RULE_PRIORITY}"
+        );
+    }
+}
+
+/// A device rule written by an older daemon sits at whatever priority the kernel
+/// chose for it, which is ahead of the carve-out bands. Reconcile must rewrite it
+/// into the device band rather than accept it as correct — matching on source and
+/// table alone cannot tell a working rule from one that silently disables every
+/// carve-out aimed at it.
+#[tokio::test]
+async fn reconcile_rewrites_device_rules_stranded_at_a_kernel_chosen_priority() {
+    let d1 = sample_device(device_id_1(), "192.168.1.10");
+    let mut rules = HashMap::new();
+    rules.insert(
+        DEVICE_1_ID.to_owned(),
+        RoutingRule {
+            device_id: device_id_1(),
+            target: RoutingTarget::Tunnel {
+                tunnel_id: tunnel_id_1(),
+            },
+            created_by: RuleCreator::User,
+        },
+    );
+    // `fib_default_rule_pref` put this one just ahead of the switchback band.
+    let kernel_rules = vec![(
+        "192.168.1.10".to_owned(),
+        100u32,
+        SWITCHBACK_RULE_PRIORITY - 1,
+    )];
+
+    let ts = setup_with_orphaned_rules(
+        vec![d1],
+        rules,
+        Some(sample_tunnel(tunnel_id_1(), "wg_ward0", TunnelStatus::Up)),
+        Some(sample_tunnel_config(vec!["1.1.1.1".to_owned()])),
+        kernel_rules,
+    );
+
+    as_admin(ts.routing.reconcile()).await.unwrap();
+
+    let nl = ts.netlink_calls.lock().await;
+    assert!(
+        nl.contains(&format!(
+            "remove_ip_rule:192.168.1.10:100:{}",
+            SWITCHBACK_RULE_PRIORITY - 1
+        )),
+        "the stranded rule must be removed at the priority it actually has: {nl:?}"
+    );
+    assert!(
+        nl.contains(&format!(
+            "add_ip_rule:192.168.1.10:100:{DEVICE_RULE_PRIORITY}"
+        )),
+        "it must be re-added in the device band: {nl:?}"
+    );
+}
+
+/// Carve-outs are matched on their source address, so ones installed under a
+/// previous IP can only ever be removed at that IP. A push carrying a new
+/// address must tear the old rules down where they actually are and rebuild at
+/// the new one — treating them as already present would strand rules under an
+/// address the device no longer has.
+#[tokio::test]
+async fn carveouts_are_rebuilt_at_the_new_ip_when_the_device_moves() {
+    let ts = setup();
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.99".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    let nl = ts.netlink_calls.lock().await;
+    assert!(
+        nl.contains(&format!(
+            "remove_switchback_rule:192.168.200.10:{}:{SWITCHBACK_RULE_PRIORITY}",
+            ent_subnet()
+        )),
+        "the old carve-out must be removed at the IP it was installed under: {nl:?}"
+    );
+    assert_eq!(
+        *ts.netlink_switchback.lock().await,
+        vec![(
+            "192.168.200.99".to_owned(),
+            ent_subnet(),
+            SWITCHBACK_RULE_PRIORITY
+        )],
+        "only the carve-out at the current IP may remain"
+    );
+}
+
+/// Re-pushing an unchanged target set must not touch the kernel. The reconcile
+/// runs on every zone or device event, so churning rules it already installed
+/// would tear down and reinstate working carve-outs continuously.
+#[tokio::test]
+async fn re_pushing_unchanged_targets_installs_nothing_further() {
+    let ts = setup();
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+    for _ in 0..3 {
+        as_admin(ts.routing.set_switchback_targets(
+            device_id_1(),
+            "192.168.200.10".to_owned(),
+            vec![ent_subnet()],
+        ))
+        .await
+        .unwrap();
+    }
+
+    let nl = ts.netlink_calls.lock().await;
+    let adds = nl
+        .iter()
+        .filter(|c| c.starts_with("add_switchback_rule:"))
+        .count();
+    let removes = nl
+        .iter()
+        .filter(|c| c.starts_with("remove_switchback_rule:"))
+        .count();
+    assert_eq!(adds, 1, "the carve-out must be installed once: {nl:?}");
+    assert_eq!(removes, 0, "an unchanged set must remove nothing: {nl:?}");
+}
+
+/// Dropping a target removes the carve-out it installed. Withdrawing a casting
+/// exception has to close the hole it opened, or the device keeps reaching a
+/// zone it is no longer allowed into.
+#[tokio::test]
+async fn dropping_a_target_removes_only_that_carveout() {
+    let ts = setup();
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    let other_subnet = "192.168.202.0/24".to_owned();
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet(), other_subnet.clone()],
+    ))
+    .await
+    .unwrap();
+    assert_eq!(ts.netlink_switchback.lock().await.len(), 2);
+
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(
+        *ts.netlink_switchback.lock().await,
+        vec![(
+            "192.168.200.10".to_owned(),
+            ent_subnet(),
+            SWITCHBACK_RULE_PRIORITY
+        )],
+        "only the dropped target's carve-out may be removed"
     );
 }

@@ -169,13 +169,18 @@ impl PolicyRouter for RecordingPolicy {
     async fn has_route_table(&self, _table: u32) -> anyhow::Result<bool> {
         Ok(true)
     }
-    async fn add_ip_rule(&self, _src_ip: &str, _table: u32) -> anyhow::Result<()> {
+    async fn add_ip_rule(&self, _src_ip: &str, _table: u32, _priority: u32) -> anyhow::Result<()> {
         Ok(())
     }
-    async fn remove_ip_rule(&self, _src_ip: &str, _table: u32) -> anyhow::Result<()> {
+    async fn remove_ip_rule(
+        &self,
+        _src_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
-    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
+    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32, u32)>> {
         Ok(Vec::new())
     }
     async fn add_switchback_rule(

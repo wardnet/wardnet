@@ -22,6 +22,19 @@ use wardnetd_services::routing::policy_router::PolicyRouter;
 /// LAN traffic locally instead of over its per-tunnel table.
 const RT_TABLE_MAIN: u8 = 254;
 
+/// Whether a netlink error is the kernel refusing something that already exists.
+///
+/// Every `rule().add()` carries `NLM_F_EXCL`, so re-asserting a rule the kernel
+/// already holds comes back as `EEXIST` rather than succeeding quietly. Rule
+/// adders must treat that as success: reconcile re-asserts the whole desired
+/// set on a restart that deliberately leaves kernel state in place (ADR 0028),
+/// and treating "already correct" as a failure is worse than the failure it
+/// reports — a device whose source rule cannot be added is demoted to direct
+/// and then loses the surviving kernel rule to the orphan sweep.
+pub(crate) fn is_already_exists(e: &rtnetlink::Error) -> bool {
+    matches!(e, rtnetlink::Error::NetlinkError(msg) if msg.to_string().contains("File exists"))
+}
+
 /// Parse an IPv4 `a.b.c.d/p` CIDR into `(address, prefix_length)`. A bare
 /// address (no `/p`) is treated as a `/32` host route.
 fn parse_ipv4_cidr(cidr: &str) -> anyhow::Result<(Ipv4Addr, u8)> {
@@ -181,7 +194,7 @@ impl PolicyRouter for NetlinkPolicyRouter {
 
         match result {
             Ok(()) => Ok(()),
-            Err(rtnetlink::Error::NetlinkError(msg)) if msg.to_string().contains("File exists") => {
+            Err(ref e) if is_already_exists(e) => {
                 tracing::debug!(interface, table, "route already exists, skipping");
                 Ok(())
             }
@@ -230,37 +243,55 @@ impl PolicyRouter for NetlinkPolicyRouter {
         Ok(false)
     }
 
-    async fn add_ip_rule(&self, src_ip: &str, table: u32) -> anyhow::Result<()> {
+    async fn add_ip_rule(&self, src_ip: &str, table: u32, priority: u32) -> anyhow::Result<()> {
         let ip: Ipv4Addr = src_ip
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid IP {src_ip}: {e}"))?;
 
-        self.handle
+        let result = self
+            .handle
             .rule()
             .add()
             .v4()
             .source_prefix(ip, 32)
             .table_id(table)
+            .priority(priority)
             .action(RuleAction::ToTable)
             .execute()
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!("failed to add ip rule from {src_ip} lookup {table}: {e}")
-            })?;
+            .await;
 
-        Ok(())
+        match result {
+            Ok(()) => Ok(()),
+            // Idempotent, like every other rule adder here. Now that the
+            // priority is fixed rather than kernel-assigned, re-asserting a
+            // rule reproduces it exactly and the kernel answers EEXIST — which
+            // means the rule is already right, not that routing failed.
+            Err(ref e) if is_already_exists(e) => {
+                tracing::debug!(src_ip, table, priority, "ip rule already exists, skipping");
+                Ok(())
+            }
+            Err(e) => {
+                anyhow::bail!(
+                    "failed to add ip rule from {src_ip} lookup {table} priority {priority}: {e}"
+                )
+            }
+        }
     }
 
-    async fn remove_ip_rule(&self, src_ip: &str, table: u32) -> anyhow::Result<()> {
+    async fn remove_ip_rule(&self, src_ip: &str, table: u32, priority: u32) -> anyhow::Result<()> {
         let ip: Ipv4Addr = src_ip
             .parse()
             .map_err(|e| anyhow::anyhow!("invalid IP {src_ip}: {e}"))?;
 
-        // Build a RuleMessage matching the rule to delete.
+        // Build a RuleMessage matching the rule to delete. The priority is part
+        // of the match: a switchback or domain-route carve-out shares this
+        // source and can share the table, and only the priority tells them
+        // apart.
         let mut rule_msg = RuleMessage::default();
         rule_msg.header.family = AddressFamily::Inet;
         rule_msg.header.src_len = 32;
         rule_msg.attributes.push(RuleAttribute::Source(ip.into()));
+        rule_msg.attributes.push(RuleAttribute::Priority(priority));
         if table > 255 {
             rule_msg.attributes.push(RuleAttribute::Table(table));
         } else {
@@ -279,7 +310,7 @@ impl PolicyRouter for NetlinkPolicyRouter {
         Ok(())
     }
 
-    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
+    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32, u32)>> {
         let mut rules_stream = self.handle.rule().get(rtnetlink::IpVersion::V4).execute();
         let mut result = Vec::new();
 
@@ -310,8 +341,20 @@ impl PolicyRouter for NetlinkPolicyRouter {
                 }
             });
 
+            let priority = rule
+                .attributes
+                .iter()
+                .find_map(|a| {
+                    if let RuleAttribute::Priority(p) = a {
+                        Some(*p)
+                    } else {
+                        None
+                    }
+                })
+                .unwrap_or(0);
+
             if let Some(ip) = src_ip {
-                result.push((ip, table));
+                result.push((ip, table, priority));
             }
         }
 
@@ -347,7 +390,7 @@ impl PolicyRouter for NetlinkPolicyRouter {
 
         match result {
             Ok(()) => Ok(()),
-            Err(rtnetlink::Error::NetlinkError(msg)) if msg.to_string().contains("File exists") => {
+            Err(ref e) if is_already_exists(e) => {
                 tracing::debug!(
                     src_ip,
                     dst_cidr,
@@ -487,7 +530,7 @@ impl PolicyRouter for NetlinkPolicyRouter {
 
         match result {
             Ok(()) => Ok(()),
-            Err(rtnetlink::Error::NetlinkError(msg)) if msg.to_string().contains("File exists") => {
+            Err(ref e) if is_already_exists(e) => {
                 tracing::debug!(
                     src_ip,
                     dst_ip,
@@ -710,7 +753,7 @@ impl PolicyRouter for NetlinkPolicyRouter {
             .await
         {
             Ok(()) => Ok(()),
-            Err(rtnetlink::Error::NetlinkError(msg)) if msg.to_string().contains("File exists") => {
+            Err(ref e) if is_already_exists(e) => {
                 tracing::debug!(
                     interface,
                     ip,

@@ -260,21 +260,36 @@ pub trait RoutingService: Send + Sync {
 
 /// Priority of the cross-zone switchback carve-out `ip rule`s.
 ///
-/// Must be numerically LOWER (evaluated earlier) than the kernel's per-tunnel
-/// source rules — which the `rule().add()` builder lets the kernel auto-assign
-/// around 32764/32765 — so a carve-out to a cross-zone LAN destination wins over
-/// the `from <device_ip> lookup <tunnelTable>` rule. It is higher than the
-/// `local` table rule (priority 0), so on-box delivery is unaffected.
+/// Must be numerically LOWER (evaluated earlier) than
+/// [`DEVICE_RULE_PRIORITY`], so a carve-out to a cross-zone LAN destination
+/// wins over the device's own `from <device_ip> lookup <tunnelTable>` rule. It
+/// is higher than the `local` table rule (priority 0), so on-box delivery is
+/// unaffected.
 pub const SWITCHBACK_RULE_PRIORITY: u32 = 1000;
 
 /// Priority of the per-domain routing carve-out `ip rule`s.
 ///
 /// Sits in its own band, numerically higher than [`SWITCHBACK_RULE_PRIORITY`]
-/// (so a switchback carve-out still wins for its narrow cross-zone pair) yet far
-/// below the kernel's per-tunnel source rules (~32764), so a `from <device_ip>
-/// to <resolved_ip> lookup <table>` decision wins over the device's own
-/// `from <device_ip> lookup <deviceTable>` rule for that one destination.
+/// (so a switchback carve-out still wins for its narrow cross-zone pair) yet
+/// lower than [`DEVICE_RULE_PRIORITY`], so a `from <device_ip> to <resolved_ip>
+/// lookup <table>` decision wins over the device's own `from <device_ip> lookup
+/// <deviceTable>` rule for that one destination.
 pub const DOMAIN_ROUTE_RULE_PRIORITY: u32 = 2000;
+
+/// Priority of the per-device source `ip rule`s that bind a device to its
+/// tunnel table.
+///
+/// Every narrower carve-out — switchback at [`SWITCHBACK_RULE_PRIORITY`],
+/// per-domain at [`DOMAIN_ROUTE_RULE_PRIORITY`] — exists to beat this rule for
+/// one destination, so it must be evaluated last of the three.
+///
+/// Setting it explicitly is what makes that ordering hold. Left unset, the
+/// kernel's `fib_default_rule_pref` assigns one less than the lowest-priority
+/// rule already installed, so the first switchback carve-out at 1000 drags
+/// every device rule added after it to 999 — ahead of every carve-out, and
+/// ahead of the domain-route band too. Cross-zone traffic then stays captured
+/// by the tunnel, which is the failure the carve-outs exist to prevent.
+pub const DEVICE_RULE_PRIORITY: u32 = 3000;
 
 /// The kernel `main` routing table id (254), used as the target table for a
 /// `direct` domain rule — carving a domain out of the device's tunnel back to
@@ -325,7 +340,14 @@ struct RoutingState {
     /// Carve-out CIDRs currently installed in the kernel per device, so the diff
     /// on the next reconcile knows what to add/remove. Present only for
     /// tunnel-bound devices with a non-empty desired set.
-    applied_switchback: HashMap<Uuid, Vec<String>>,
+    /// Carve-outs believed to be in the kernel, as `(device_ip, dst_cidrs)`.
+    ///
+    /// Only CIDRs whose `add_switchback_rule` returned `Ok` are recorded, and
+    /// the IP they were installed under travels with them. Both matter for the
+    /// diff to be a truthful picture of the kernel: an add that failed must
+    /// stay absent so the next reconcile retries it, and an entry installed
+    /// under a stale IP must be rebuilt rather than counted as present.
+    applied_switchback: HashMap<Uuid, (String, Vec<String>)>,
     /// Per-destination domain-route leases, keyed by `(device_ip, dst_ip)`.
     /// Installed by [`RoutingService::route_resolved_domain`] as the DNS server
     /// resolves matched domains, and expired by
@@ -708,9 +730,7 @@ impl RoutingServiceImpl {
             // down, IP change, or removal), so the tunnel-capture problem the
             // carve-outs work around no longer applies. The desired target set
             // is left intact so a later re-bind re-materializes them.
-            let device_ip = rule.device_ip.clone();
-            self.remove_switchback_for_device(state, device_id, &device_ip)
-                .await;
+            self.remove_switchback_for_device(state, device_id).await;
             if let Some(table) = rule.table {
                 tracing::debug!(
                     device_ip = %rule.device_ip,
@@ -723,7 +743,20 @@ impl RoutingServiceImpl {
                 // duplicates that accumulated from restarts or races (issue #78).
                 let mut removed = 0u32;
                 loop {
-                    match self.netlink.remove_ip_rule(&rule.device_ip, table).await {
+                    // Only the device band is matched here, which is safe
+                    // because startup reconcile rewrites any rule left at a
+                    // kernel-chosen priority by an older build *before* the
+                    // event listeners or the API can serve a teardown. Widening
+                    // the match to "any priority" would be worse than the gap
+                    // it closes: the kernel treats an omitted attribute as
+                    // don't-care, so a delete carrying neither priority nor
+                    // destination can match a domain-route rule that shares
+                    // this source and tunnel table.
+                    match self
+                        .netlink
+                        .remove_ip_rule(&rule.device_ip, table, DEVICE_RULE_PRIORITY)
+                        .await
+                    {
                         Ok(()) => removed += 1,
                         Err(e) => {
                             if removed == 0 {
@@ -778,13 +811,7 @@ impl RoutingServiceImpl {
     async fn reconcile_switchback_for_device(&self, state: &mut RoutingState, device_id: Uuid) {
         let Some((device_ip, desired)) = state.switchback_targets.get(&device_id).cloned() else {
             // No desired targets — ensure nothing is installed.
-            let ip = state
-                .applied
-                .get(&device_id)
-                .map(|r| r.device_ip.clone())
-                .unwrap_or_default();
-            self.remove_switchback_for_device(state, device_id, &ip)
-                .await;
+            self.remove_switchback_for_device(state, device_id).await;
             return;
         };
 
@@ -802,11 +829,19 @@ impl RoutingServiceImpl {
             Vec::new()
         };
 
-        let applied = state
-            .applied_switchback
-            .get(&device_id)
-            .cloned()
-            .unwrap_or_default();
+        // A carve-out is only "already present" if it was installed under the
+        // IP in play. When the device's IP has moved, tear the old rules down
+        // at their own IP first — `remove_switchback_rule` matches on source,
+        // so removing them at the new IP would miss, leaking a rule that
+        // outlives the address it was written for.
+        let applied = match state.applied_switchback.get(&device_id) {
+            Some((ip, cidrs)) if *ip == device_ip => cidrs.clone(),
+            Some(_) => {
+                self.remove_switchback_for_device(state, device_id).await;
+                Vec::new()
+            }
+            None => Vec::new(),
+        };
 
         // Remove stale carve-outs.
         for cidr in &applied {
@@ -826,50 +861,61 @@ impl RoutingServiceImpl {
             }
         }
 
-        // Add newly-desired carve-outs.
+        // Add newly-desired carve-outs, tracking which ones the kernel actually
+        // accepted. A device whose DHCP lease has not landed yet reaches here
+        // with an empty `device_ip` that netlink rejects; recording that CIDR
+        // anyway would make every later reconcile diff it away as already
+        // present, and the carve-out would never be installed.
+        let mut installed: Vec<String> = Vec::new();
         for cidr in &desired_set {
-            if !applied.contains(cidr)
-                && let Err(e) = self
-                    .netlink
-                    .add_switchback_rule(&device_ip, cidr, SWITCHBACK_RULE_PRIORITY)
-                    .await
+            if applied.contains(cidr) {
+                installed.push(cidr.clone());
+                continue;
+            }
+            match self
+                .netlink
+                .add_switchback_rule(&device_ip, cidr, SWITCHBACK_RULE_PRIORITY)
+                .await
             {
-                tracing::warn!(
+                Ok(()) => installed.push(cidr.clone()),
+                Err(e) => tracing::warn!(
                     error = %e,
                     device_id = %device_id,
                     device_ip = %device_ip,
                     dst_cidr = %cidr,
                     "failed to add switchback carve-out"
-                );
+                ),
             }
         }
 
-        if desired_set.is_empty() {
+        if installed.is_empty() {
             state.applied_switchback.remove(&device_id);
         } else {
             tracing::debug!(
                 device_id = %device_id,
                 device_ip = %device_ip,
-                carve_outs = desired_set.len(),
+                carve_outs = installed.len(),
                 "materialized switchback carve-outs for tunnel-bound device"
             );
-            state.applied_switchback.insert(device_id, desired_set);
+            state
+                .applied_switchback
+                .insert(device_id, (device_ip, installed));
         }
     }
 
-    /// Remove ALL installed switchback carve-outs for a device (using the given
-    /// `device_ip`) and drop the applied-tracking entry. Leaves the stored
-    /// desired target set untouched. Caller holds the state lock.
+    /// Remove ALL installed switchback carve-outs for a device and drop the
+    /// applied-tracking entry. Leaves the stored desired target set untouched.
+    /// Caller holds the state lock.
+    ///
+    /// Each rule is removed at the IP it was installed under, which is the only
+    /// IP that can match it — and the only IP ever recorded, since a carve-out
+    /// is tracked exactly when the kernel accepted it under that source.
     #[allow(clippy::similar_names)]
-    async fn remove_switchback_for_device(
-        &self,
-        state: &mut RoutingState,
-        device_id: Uuid,
-        device_ip: &str,
-    ) {
-        let Some(applied) = state.applied_switchback.remove(&device_id) else {
+    async fn remove_switchback_for_device(&self, state: &mut RoutingState, device_id: Uuid) {
+        let Some((device_ip, applied)) = state.applied_switchback.remove(&device_id) else {
             return;
         };
+        let device_ip = device_ip.as_str();
         for cidr in &applied {
             if let Err(e) = self
                 .netlink
@@ -1308,7 +1354,11 @@ impl RoutingService for RoutingServiceImpl {
 
             // Add source-based ip rule.
             tracing::debug!(device_ip, table, "adding ip rule");
-            if let Err(e) = self.netlink.add_ip_rule(device_ip, table).await {
+            if let Err(e) = self
+                .netlink
+                .add_ip_rule(device_ip, table, DEVICE_RULE_PRIORITY)
+                .await
+            {
                 tracing::warn!(
                     error = %e,
                     device_ip,
@@ -1754,22 +1804,109 @@ impl RoutingService for RoutingServiceImpl {
                     "found kernel ip rules"
                 );
                 let state = self.state.lock().await;
-                let known_ips: HashSet<&str> = state
+                // Every binding that is actually applied, as `(ip, table)`.
+                //
+                // Keyed on the pair rather than the IP for two reasons: a rule
+                // whose table is not one this device is bound to is stale
+                // however current its source looks, and two applied entries
+                // can legitimately share an IP (a device row replaced, or a
+                // stale entry for an offline device whose address was
+                // re-leased). Keying `ip -> table` would keep only whichever
+                // the iteration happened to reach last and delete the other
+                // device's live rule every reconcile.
+                let wanted: HashSet<(&str, u32)> = state
                     .applied
                     .values()
-                    .filter_map(|r| r.table.map(|_| r.device_ip.as_str()))
+                    .filter_map(|r| r.table.map(|t| (r.device_ip.as_str(), t)))
                     .collect();
 
-                // Group by (ip, table) to detect both orphans and duplicates.
-                let mut ip_rule_counts: HashMap<(String, u32), u32> = HashMap::new();
-                for (src_ip, table) in &kernel_rules {
-                    *ip_rule_counts.entry((src_ip.clone(), *table)).or_insert(0) += 1;
+                // Group by (ip, table, priority) to detect orphans, duplicates
+                // and rules stranded at a priority this version no longer
+                // writes. The carve-out bands are listed too — they share a
+                // source with the device rule and `main` is itself a table
+                // >= 100 — but they have their own reconcilers below, so skip
+                // them here rather than let this loop prune them.
+                let mut ip_rule_counts: HashMap<(String, u32, u32), u32> = HashMap::new();
+                for (src_ip, table, priority) in &kernel_rules {
+                    if *priority == SWITCHBACK_RULE_PRIORITY
+                        || *priority == DOMAIN_ROUTE_RULE_PRIORITY
+                    {
+                        continue;
+                    }
+                    *ip_rule_counts
+                        .entry((src_ip.clone(), *table, *priority))
+                        .or_insert(0) += 1;
                 }
 
                 let mut orphan_count = 0u32;
                 let mut duplicate_count = 0u32;
-                for ((src_ip, table), count) in &ip_rule_counts {
-                    if !known_ips.contains(src_ip.as_str()) {
+                let mut repriority_count = 0u32;
+                for ((src_ip, table, priority), count) in &ip_rule_counts {
+                    let is_current_binding = wanted.contains(&(src_ip.as_str(), *table));
+                    if is_current_binding && *priority != DEVICE_RULE_PRIORITY {
+                        // This device's current binding, stranded at a priority
+                        // this version no longer writes. The rule works, but
+                        // every carve-out meant to override it is dead while it
+                        // sits ahead of them. Rewrite it — remove at the
+                        // priority it actually has, and add it back in the
+                        // device band unless it is already there, which it is
+                        // whenever `apply_rule` ran earlier in this reconcile.
+                        let already_correct = ip_rule_counts.contains_key(&(
+                            src_ip.clone(),
+                            *table,
+                            DEVICE_RULE_PRIORITY,
+                        ));
+                        tracing::warn!(
+                            src_ip = %src_ip,
+                            table,
+                            priority,
+                            "rewriting ip rule stranded at the wrong priority: src_ip={src_ip}, table={table}, priority={priority}"
+                        );
+                        let mut removed_all = true;
+                        for _ in 0..*count {
+                            if let Err(e) =
+                                self.netlink.remove_ip_rule(src_ip, *table, *priority).await
+                            {
+                                tracing::warn!(
+                                    error = %e,
+                                    src_ip = %src_ip,
+                                    table,
+                                    priority,
+                                    "failed to remove ip rule at wrong priority for {src_ip}, table={table}, priority={priority}: {e}",
+                                    src_ip = src_ip,
+                                    table = table,
+                                    priority = priority
+                                );
+                                removed_all = false;
+                                break;
+                            }
+                        }
+                        if !removed_all {
+                            // The old rule is still there and still wins. Adding
+                            // the replacement now would leave the device bound
+                            // twice with the carve-outs still dead, and count it
+                            // as repaired. Leave it for the next reconcile.
+                            continue;
+                        }
+                        if already_correct {
+                            repriority_count += 1;
+                        } else if let Err(e) = self
+                            .netlink
+                            .add_ip_rule(src_ip, *table, DEVICE_RULE_PRIORITY)
+                            .await
+                        {
+                            tracing::warn!(
+                                error = %e,
+                                src_ip = %src_ip,
+                                table,
+                                "failed to re-add ip rule at {DEVICE_RULE_PRIORITY} for {src_ip}, table={table}: {e}",
+                                src_ip = src_ip,
+                                table = table
+                            );
+                        } else {
+                            repriority_count += 1;
+                        }
+                    } else if !is_current_binding {
                         // Orphan: remove all occurrences of this rule.
                         for _ in 0..*count {
                             tracing::warn!(
@@ -1779,7 +1916,9 @@ impl RoutingService for RoutingServiceImpl {
                                 src_ip = src_ip,
                                 table = table
                             );
-                            if let Err(e) = self.netlink.remove_ip_rule(src_ip, *table).await {
+                            if let Err(e) =
+                                self.netlink.remove_ip_rule(src_ip, *table, *priority).await
+                            {
                                 tracing::warn!(
                                     error = %e,
                                     src_ip = %src_ip,
@@ -1807,7 +1946,9 @@ impl RoutingService for RoutingServiceImpl {
                             extras = extras
                         );
                         for _ in 0..extras {
-                            if let Err(e) = self.netlink.remove_ip_rule(src_ip, *table).await {
+                            if let Err(e) =
+                                self.netlink.remove_ip_rule(src_ip, *table, *priority).await
+                            {
                                 tracing::warn!(
                                     error = %e,
                                     src_ip = %src_ip,
@@ -1836,6 +1977,13 @@ impl RoutingService for RoutingServiceImpl {
                         duplicate_count,
                         "pruned duplicate ip rules: duplicate_count={duplicate_count}",
                         duplicate_count = duplicate_count
+                    );
+                }
+                if repriority_count > 0 {
+                    tracing::info!(
+                        repriority_count,
+                        "rewrote ip rules into the device priority band: repriority_count={repriority_count}",
+                        repriority_count = repriority_count
                     );
                 }
             }
@@ -2099,7 +2247,7 @@ impl RoutingService for RoutingServiceImpl {
             // No desired targets — forget the device and tear down any carve-outs
             // currently installed under this IP.
             state.switchback_targets.remove(&device_id);
-            self.remove_switchback_for_device(&mut state, device_id, &device_ip)
+            self.remove_switchback_for_device(&mut state, device_id)
                 .await;
         } else {
             state
