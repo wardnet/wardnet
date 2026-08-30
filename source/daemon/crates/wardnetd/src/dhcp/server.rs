@@ -290,10 +290,22 @@ struct Dispatcher {
 struct InflightGuard {
     inflight: Arc<StdMutex<HashMap<String, Option<PendingPacket>>>>,
     mac: String,
+    /// Cleared once the handler has released the slot itself.
+    ///
+    /// The handler's own exit removes the entry under the lock and then
+    /// returns, dropping that lock before this guard runs. Removing a second
+    /// time would delete an entry belonging to a handler dispatch had already
+    /// started for the same MAC in between — and with no entry left, the next
+    /// packet starts a third. Two handlers for one MAC is precisely what the
+    /// dispatcher exists to prevent.
+    armed: bool,
 }
 
 impl Drop for InflightGuard {
     fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
         if let Ok(mut map) = self.inflight.lock() {
             map.remove(&self.mac);
         }
@@ -315,6 +327,17 @@ impl Dispatcher {
         }
     }
 
+    /// Wait until every in-flight handler has finished.
+    ///
+    /// Acquiring every permit is only possible once none are held, and
+    /// `forget` keeps them out of circulation so nothing starts afterwards.
+    async fn drain(&self) {
+        let all = u32::try_from(MAX_CONCURRENT_HANDLERS).unwrap_or(u32::MAX);
+        if let Ok(permits) = self.permits.acquire_many(all).await {
+            permits.forget();
+        }
+    }
+
     /// Hand one packet off for handling. Returns immediately — never awaits the
     /// handler, so the caller can get straight back to `recv_from`.
     fn dispatch(&self, msg_type: MessageType, msg: Message, mac: String, src_addr: SocketAddr) {
@@ -327,7 +350,20 @@ impl Dispatcher {
                 // A handler for this MAC is mid-flight. Keep only the newest
                 // packet: an older queued one is a retransmit of a question this
                 // client has already restated.
-                if slot.is_some() {
+                //
+                // A queued DHCPRELEASE is the exception — it is not a restated
+                // question but a distinct instruction, and the DISCOVER a
+                // rebooting client sends straight after would otherwise drop
+                // it and leave the lease held.
+                if let Some((queued_type, _, _)) = slot.as_ref() {
+                    if *queued_type == MessageType::Release {
+                        tracing::debug!(
+                            %mac,
+                            ?msg_type,
+                            "keeping queued DHCPRELEASE, dropping the packet behind it"
+                        );
+                        return;
+                    }
                     tracing::debug!(%mac, "superseding queued DHCP packet with a newer one");
                 }
                 *slot = Some((msg_type, msg, src_addr));
@@ -352,9 +388,10 @@ impl Dispatcher {
             let inflight = Arc::clone(&self.inflight);
             tokio::spawn(async move {
                 let _permit = permit;
-                let _guard = InflightGuard {
+                let mut guard = InflightGuard {
                     inflight: Arc::clone(&inflight),
                     mac: mac.clone(),
+                    armed: true,
                 };
                 let mut current = (msg_type, msg, src_addr);
                 loop {
@@ -379,6 +416,7 @@ impl Dispatcher {
                     };
                     let Some(next) = map.get_mut(&mac).and_then(Option::take) else {
                         map.remove(&mac);
+                        guard.armed = false;
                         return;
                     };
                     current = next;
@@ -469,6 +507,11 @@ pub(crate) async fn server_loop(
         dispatcher.dispatch(msg_type, msg, mac, src_addr);
     }
 
+    // Handlers run on their own tasks and keep using the socket and the lease
+    // service after the loop breaks. Clearing `running` first would tell a
+    // shutdown it is safe to tear those down mid-write, so wait until every
+    // permit is back before saying the server has stopped.
+    dispatcher.drain().await;
     running.store(false, Ordering::SeqCst);
 }
 
@@ -532,6 +575,13 @@ async fn handle_packet(
 /// every time round.
 fn reply_destination(request: &Message, reply: &Message, src_addr: SocketAddr) -> SocketAddr {
     let broadcast = SocketAddr::from(([255, 255, 255, 255], 68));
+    // §4.1: a non-zero `giaddr` is the first test, ahead of everything else.
+    // The reply goes back to the relay that forwarded it and the relay decides
+    // how to deliver it — broadcasting instead would put the reply on this
+    // server's own segment, which is not the one the client is on.
+    if !request.giaddr().is_unspecified() {
+        return SocketAddr::from((request.giaddr(), 67));
+    }
     // §4.3.2: a DHCPNAK for a request that arrived without a relay is
     // broadcast. It says the address the client is holding is wrong, so that
     // address is the one place it cannot usefully be sent.

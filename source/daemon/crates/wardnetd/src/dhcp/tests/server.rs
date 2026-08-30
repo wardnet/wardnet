@@ -2559,3 +2559,85 @@ async fn nak_is_broadcast_even_when_the_client_could_take_unicast() {
         "a NAK must not be unicast to the address it is rejecting"
     );
 }
+
+/// Sustained traffic from one MAC must never overlap in the lease service.
+///
+/// The handler releases its own slot under the lock and returns; a guard that
+/// then removed the key a second time would delete an entry belonging to a
+/// handler dispatched for the same MAC in between, and the packet after that
+/// would start a third alongside it. Only a stream of packets that keeps
+/// re-entering dispatch as handlers finish exposes it.
+#[tokio::test]
+async fn sustained_traffic_from_one_mac_never_overlaps() {
+    let mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x01];
+    // No gating: handlers complete immediately, so slots are released and
+    // re-taken constantly, which is what opens the window.
+    let service = Arc::new(GatedDhcpService::new(test_lease(), "no:such:mac"));
+    let peak = Arc::clone(&service.peak_per_mac);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    for _ in 0..200 {
+        socket
+            .push_message(&build_request(mac), client_addr())
+            .await;
+        tokio::task::yield_now().await;
+    }
+    wait_for_sent(&socket, 1).await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    assert_eq!(
+        *peak.lock().await,
+        1,
+        "two handlers for one MAC ran at the same time"
+    );
+
+    cancel.cancel();
+    let _ = handle.await;
+}
+
+/// A request that came via a relay is answered to the relay, whatever else
+/// would otherwise apply. RFC 2131 §4.1 makes a non-zero `giaddr` the first
+/// test: broadcasting would put the reply on this server's segment rather than
+/// the client's, and the relay is what knows how to reach the client.
+#[tokio::test]
+async fn relayed_request_is_answered_to_the_relay() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let mut request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    // Both of the rules that would otherwise force a broadcast.
+    request.set_flags(Flags::default().set_broadcast());
+    request.set_giaddr(Ipv4Addr::new(10, 9, 9, 1));
+    socket
+        .push_message(&request, "10.9.9.1:67".parse().unwrap())
+        .await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(messages.len(), 1, "expected exactly one response");
+    assert_eq!(
+        messages[0].1,
+        "10.9.9.1:67".parse::<SocketAddr>().unwrap(),
+        "a relayed request must be answered to the relay's server port"
+    );
+}
