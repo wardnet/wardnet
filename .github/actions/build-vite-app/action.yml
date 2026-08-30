@@ -7,6 +7,12 @@ description: >
   agnostic (Makefile target, yarn script, or anything else).
 
 inputs:
+  untrusted-ref:
+    description: >
+      Caller-supplied git ref this job checked out, if any. Forwarded to
+      setup-node-yarn, which withholds cache writes for it. See setup-rust.
+    required: false
+    default: ""
   cache-dependency-path:
     description: >
       Path(s) to the yarn.lock file(s) used as the Yarn cache key.
@@ -46,6 +52,7 @@ runs:
     - uses: ./.github/actions/setup-node-yarn
       with:
         cache-dependency-path: ${{ inputs.cache-dependency-path }}
+        untrusted-ref: ${{ inputs.untrusted-ref }}
 
     - name: Build
       shell: bash

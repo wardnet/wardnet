@@ -56,6 +56,7 @@ jobs:
       - uses: ./.github/actions/setup-node-yarn
         with:
           cache-dependency-path: source/yarn.lock
+          untrusted-ref: ${{ inputs.ref }}
 
       # Run type-check + format:check only. The site unit tests run in
       # coverage.yml with instrumentation; running them here too would
@@ -93,3 +94,4 @@ jobs:
           artifact-name: site-dist
           artifact-path: source/marketing-site/dist/
           retention-days: "7"
+          untrusted-ref: ${{ inputs.ref }}

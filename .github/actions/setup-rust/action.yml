@@ -38,6 +38,21 @@ inputs:
       they are reused.
     required: false
     default: ""
+  untrusted-ref:
+    description: >
+      The caller-supplied git ref this job checked out, if any. Empty means
+      the job built the ref its own trigger vouched for.
+
+      Load-bearing for cache integrity, not ergonomics. release-edge.yml is
+      dispatched FROM the default branch and builds an arbitrary branch —
+      including unmerged ones — which it passes down as `ref`. The cache scope
+      is chosen by github.ref, so that run writes into the default branch's
+      scope while compiling code nobody reviewed: anything privileged that
+      later restores those caches executes it. Passing the ref through here
+      turns cache saving off for exactly those runs, which is what
+      actions/cache-poisoning/poisonable-step is reporting.
+    required: false
+    default: ""
   save-if:
     description: >
       Whether this run may write a cache. Defaults to the default branch only.
@@ -72,4 +87,6 @@ runs:
         workspaces: ${{ inputs.workspaces }}
         key: ${{ inputs.cache-key }}
         shared-key: ${{ inputs.shared-key }}
-        save-if: ${{ inputs.save-if || (github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}
+        # Restoring stays on everywhere; only the write is withheld, so an
+        # edge build is still warm, it just cannot leave anything behind.
+        save-if: ${{ inputs.untrusted-ref == '' && (inputs.save-if || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)) }}

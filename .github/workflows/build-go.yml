@@ -60,6 +60,13 @@ jobs:
         with:
           go-version-file: ${{ matrix.dir }}/go.mod
           cache-dependency-path: ${{ matrix.dir }}/go.sum
+          # Off when a caller supplied its own ref. The cache scope follows
+          # github.ref, so a run dispatched from the default branch that builds
+          # an arbitrary branch would otherwise write unreviewed code into the
+          # scope privileged workflows restore from. setup-go has no
+          # restore-only mode, so this costs an edge build one cold module
+          # download. See .github/actions/setup-rust for the full reasoning.
+          cache: ${{ inputs.ref == '' }}
 
       - name: Verify go.mod and go.sum are tidy
         working-directory: ${{ matrix.dir }}
@@ -129,6 +136,8 @@ jobs:
         with:
           go-version-file: source/wctl/go.mod
           cache-dependency-path: source/wctl/go.sum
+          # Same reasoning as the check job above.
+          cache: ${{ inputs.ref == '' }}
 
       - name: Build every released target
         working-directory: source/wctl

@@ -89,6 +89,7 @@ jobs:
           # Shared with check-openapi: same workspace, same debug profile, so
           # two lineages held two ~900MB copies of the same dependency build.
           shared-key: daemon-debug
+          untrusted-ref: ${{ inputs.ref }}
 
       - name: Install clippy SARIF tooling
         uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
@@ -140,6 +141,7 @@ jobs:
           # Same workspace and profile as check-daemon, so they share one
           # lineage rather than each holding its own ~900MB copy.
           shared-key: daemon-debug
+          untrusted-ref: ${{ inputs.ref }}
 
       - name: Regenerate docs/openapi.json and verify no drift
         # `make check-openapi` runs `dump_openapi` against the current
@@ -164,6 +166,7 @@ jobs:
       - uses: ./.github/actions/setup-node-yarn
         with:
           cache-dependency-path: source/yarn.lock
+          untrusted-ref: ${{ inputs.ref }}
 
       - name: Build
         run: make build-web
@@ -234,6 +237,7 @@ jobs:
       - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target }}
+          untrusted-ref: ${{ inputs.ref }}
 
       # clang/libclang for rustables' bindgen is installed by setup-rust.
 
