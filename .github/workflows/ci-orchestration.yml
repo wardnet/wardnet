@@ -1,0 +1,224 @@
+# Managed by gt — edit .gt-repo.yaml, then run `gt repo sync`.
+#
+# gt owns the orchestration; the ci-* stages it calls are yours. Because every
+# stage is a job in this one workflow, `ci-gate` aggregates them with
+# `needs:` rather than polling the checks API — no timeout, and no way to
+# confuse "absent" with "not started yet".
+#
+# Branch protection requires exactly one check: "ci-gate".
+#
+# Named "gt CI" rather than "CI" for the same reason the file is not ci.yml:
+# every repository already has a workflow called CI, and the stages move into
+# this one a few at a time, so the two coexist for a long while. Two workflows
+# sharing a display name make the Actions list ambiguous and every check read
+# as "CI / …" from one of two places. The `gt ` prefix matches the reusable
+# workflows this calls — gt attest, gt bulwark, gt sync.
+name: gt CI
+
+on:
+  # No `branches:` filter: a PR stacked onto a feature branch must run CI too.
+  pull_request:
+    # `edited` is load-bearing: without it, correcting a rejected title leaves
+    # the check red until an unrelated push.
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  # On the default branch an already-validated tree skips every stage.
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Superseded pushes to the same PR are cancelled; runs on the default branch and
+# in a merge queue are not. Cancelling a PR run costs nothing — a newer commit
+# is about to be validated anyway — whereas cancelling a default-branch run
+# discards the attestation it was about to record, and cancelling a queued
+# merge would drop it from the queue.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Reports whether this exact tree already passed the gate, so a push that
+  # merely squashed an already-validated PR does not run everything again.
+  attest:
+    uses: pedromvgomes/gt/.github/workflows/reusable-attest.yml@v1
+    # A called workflow may only narrow these. Granting less than
+    # reusable-attest declares fails the run at parse time, before any job
+    # starts — so ci-gate never reports and every PR blocks.
+    #
+    # pull-requests: write is for the note attest leaves when it skips the
+    # pipeline. A skipped job is indistinguishable from a broken one at a
+    # glance, so the reason is said out loud on the pull request and withdrawn
+    # when it stops being true.
+    permissions:
+      contents: read
+      statuses: read
+      pull-requests: write
+
+  preflight:
+    needs: [attest]
+    if: needs.attest.outputs.validated != 'true'
+    uses: ./.github/workflows/ci-preflight.yml
+    # `inherit` rather than an enumerated `secrets:` block, and semgrep's
+    # secrets-inherit rule is answered rather than silenced: gt renders this
+    # orchestrator for every repository and cannot know their secret names, so
+    # there is no list to write. The callee is this same repository's own
+    # workflow, so no secret crosses a trust boundary that `inherit` did not
+    # already sit inside.
+    # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
+    secrets: inherit
+    # packages: read because several repositories resolve private @scope
+    # dependencies from GitHub Packages during install, and a called workflow
+    # can only narrow what the caller grants — a stage cannot ask for it back.
+    # Read-only, so granting it where it is unused costs nothing. A stage
+    # needing more says so in pipeline.ci.stage_permissions.
+    permissions:
+      contents: read
+      packages: read
+
+  build:
+    needs: [attest, preflight]
+    if: needs.attest.outputs.validated != 'true' && needs.preflight.outputs.run-build != 'false'
+    uses: ./.github/workflows/ci-build.yml
+    # `inherit` rather than an enumerated `secrets:` block, and semgrep's
+    # secrets-inherit rule is answered rather than silenced: gt renders this
+    # orchestrator for every repository and cannot know their secret names, so
+    # there is no list to write. The callee is this same repository's own
+    # workflow, so no secret crosses a trust boundary that `inherit` did not
+    # already sit inside.
+    # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
+    secrets: inherit
+    # Widened beyond the stage baseline (contents: read, packages: read) by
+    # pipeline.ci.stage_permissions in .gt-repo.yaml.
+    #
+    # A called workflow can only narrow what its caller grants, so a leaf that
+    # genuinely needs more — uploading SARIF to code scanning, pushing a build
+    # cache to a registry — cannot ask for it back. The calling job grants it
+    # here and the leaf narrows from it. Every scope below was named
+    # explicitly in the spec, so the grant is reviewable in this diff rather
+    # than implied by a template.
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
+
+  test:
+    needs: [attest, build, preflight]
+    if: needs.attest.outputs.validated != 'true' && needs.preflight.outputs.run-test != 'false'
+    uses: ./.github/workflows/ci-test.yml
+    # `inherit` rather than an enumerated `secrets:` block, and semgrep's
+    # secrets-inherit rule is answered rather than silenced: gt renders this
+    # orchestrator for every repository and cannot know their secret names, so
+    # there is no list to write. The callee is this same repository's own
+    # workflow, so no secret crosses a trust boundary that `inherit` did not
+    # already sit inside.
+    # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
+    secrets: inherit
+    # Widened beyond the stage baseline (contents: read, packages: read) by
+    # pipeline.ci.stage_permissions in .gt-repo.yaml.
+    #
+    # A called workflow can only narrow what its caller grants, so a leaf that
+    # genuinely needs more — uploading SARIF to code scanning, pushing a build
+    # cache to a registry — cannot ask for it back. The calling job grants it
+    # here and the leaf narrows from it. Every scope below was named
+    # explicitly in the spec, so the grant is reviewable in this diff rather
+    # than implied by a template.
+    permissions:
+      contents: write
+      packages: read
+      pull-requests: write
+
+  end2end:
+    needs: [attest, preflight]
+    if: needs.attest.outputs.validated != 'true' && needs.preflight.outputs.run-end2end != 'false'
+    uses: ./.github/workflows/ci-end2end.yml
+    # `inherit` rather than an enumerated `secrets:` block, and semgrep's
+    # secrets-inherit rule is answered rather than silenced: gt renders this
+    # orchestrator for every repository and cannot know their secret names, so
+    # there is no list to write. The callee is this same repository's own
+    # workflow, so no secret crosses a trust boundary that `inherit` did not
+    # already sit inside.
+    # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
+    secrets: inherit
+    # Widened beyond the stage baseline (contents: read, packages: read) by
+    # pipeline.ci.stage_permissions in .gt-repo.yaml.
+    #
+    # A called workflow can only narrow what its caller grants, so a leaf that
+    # genuinely needs more — uploading SARIF to code scanning, pushing a build
+    # cache to a registry — cannot ask for it back. The calling job grants it
+    # here and the leaf narrows from it. Every scope below was named
+    # explicitly in the spec, so the grant is reviewable in this diff rather
+    # than implied by a template.
+    permissions:
+      contents: read
+      packages: write
+
+  conventional-commits:
+    needs: [attest]
+    if: needs.attest.outputs.validated != 'true'
+    uses: pedromvgomes/gt/.github/workflows/reusable-conventional-commits.yml@v1
+    permissions:
+      contents: read
+      pull-requests: read
+
+  governance:
+    needs: [attest]
+    if: needs.attest.outputs.validated != 'true'
+    uses: pedromvgomes/gt/.github/workflows/reusable-governance.yml@v1
+
+  # The single required check. `if: always()` so it still reports when a stage
+  # was skipped, and a skipped stage passes — that is the point of preflight.
+  ci-gate:
+    name: ci-gate
+    needs: [attest, preflight, build, test, end2end, conventional-commits, governance]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Verify every stage succeeded or was legitimately skipped
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          set -euo pipefail
+          echo "stage results: ${RESULTS}"
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "::error::a required stage failed"
+            exit 1
+          fi
+          if [[ "${{ contains(needs.*.result, 'cancelled') }}" == "true" ]]; then
+            echo "::error::a required stage was cancelled"
+            exit 1
+          fi
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Records the tree this run validated, so a later push or tag can prove
+      # the same content already passed rather than re-running to find out.
+      - name: Attest the validated tree
+        # Read-only GITHUB_TOKEN (fork PRs, and every Dependabot event) cannot
+        # POST a status. Losing the attestation only costs a re-run on the
+        # default branch; failing the gate would block the PR entirely.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          set -euo pipefail
+          # For a pull_request event HEAD is refs/pull/N/merge, so this is the
+          # tree of the merged result — which is exactly what a squash merge
+          # puts on the default branch.
+          tree=$(git rev-parse "HEAD^{tree}")
+          # target_url so a later run can link back to the one that did the
+          # work, rather than asserting an earlier run exists somewhere.
+          gh api "repos/${REPO}/statuses/${SHA}" \
+            -f state=success \
+            -f context=gt/validated-tree \
+            -f description="$tree" \
+            -f target_url="${{ github.server_url }}/${REPO}/actions/runs/${{ github.run_id }}" >/dev/null
+          echo "attested tree ${tree} on ${SHA}"

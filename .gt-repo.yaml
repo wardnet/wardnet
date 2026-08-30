@@ -1,0 +1,112 @@
+# Repository governance for gt. This file is the source of truth; run
+# 'gt repo sync' to render it, and 'gt repo check' to verify.
+#
+# Shared policy (Dependabot cooldown, commit-message prefixes, the weekly sync
+# schedule) lives in gt's templates, not here, so it stays consistent across
+# every governed repo.
+#
+# The pipeline stages below become jobs in ci-orchestration.yml, each calling a
+# ci-*/cd-* workflow that belongs to this repository: gt creates those once and
+# never touches them again. Branch protection needs exactly one check, ci-gate,
+# which waits on all of them.
+#
+# Only deliberate overrides are written here. Everything absent follows gt's
+# default and keeps following it as that default changes — a value pinned in
+# this file stops tracking gt, which is why sync removes the ones that merely
+# restate it. Run 'gt repo config' to see the resolved spec, defaults included.
+
+gt_version: 1.6.0
+dependabot:
+  - ecosystem: cargo
+    directory: /source/daemon
+    note: |
+      The daemon workspace. Covers every member crate through the single
+      Cargo.lock at this directory.
+  - ecosystem: cargo
+    directory: /source/daemon/fuzz
+    note: |
+      Its own workspace, not a member of the daemon's — source/daemon/Cargo.toml
+      excludes it so libfuzzer-sys and the nightly sanitizer rustflags cannot
+      leak into normal builds. That separation also means its Cargo.lock is
+      invisible to the entry above, so it needs its own.
+  - ecosystem: docker
+    directory: /.clusterfuzzlite
+    note: |
+      ClusterFuzzLite build image. Every FROM is digest-pinned for Scorecard and
+      supply-chain integrity, so Dependabot is the only channel that surfaces
+      upstream image updates.
+  - ecosystem: docker
+    directory: /source/daemon
+    note: |
+      Digest-pinned like the above:
+
+        Dockerfile        production image (FROM wardnet-base)
+        Dockerfile.base   shared OS layer (FROM debian:bookworm-slim)
+        Dockerfile.test   end-to-end test image (FROM rust + wardnet-base)
+  - ecosystem: docker
+    directory: /source/end2end-tests/daemon/mocks/nordvpn
+  - ecosystem: docker
+    directory: /source/end2end-tests/daemon/mocks/wg-gateway
+  - ecosystem: docker
+    directory: /source/end2end-tests/daemon/mocks/wg-tunnel-gateway
+  - ecosystem: docker
+    directory: /source/end2end-tests/web-ui/mocks/wardnet-cloud
+  - ecosystem: github-actions
+    directory: /
+    groups:
+      - name: codeql-action
+        patterns:
+          - github/codeql-action*
+        note: |
+          codeql-action/init and codeql-action/analyze MUST move in lockstep:
+          init writes a config file stamped with its own version and analyze
+          refuses to read one written by a different version, failing with
+          "Loaded a configuration file for version X, but running version Y".
+
+          Dependabot treats each action path as its own dependency, so without
+          this group it opens a separate PR per path. The daily auto-merge batch
+          then lands one of them alone and main goes red — and because the
+          sibling PR now fails that same broken CodeQL job, auto-merge won't
+          merge it either, so main stays red until a human intervenes. That
+          deadlock cost us #991, #1059 and #1069.
+  - ecosystem: gomod
+    directory: /source/sdk/wardnet-go
+  - ecosystem: gomod
+    directory: /source/wctl
+  - ecosystem: npm
+    directory: /source
+    note: |
+      The web codebase is a Yarn-workspaces monorepo with a SINGLE lockfile at
+      /source/yarn.lock. Dependabot must point at the workspace ROOT so every
+      version bump also regenerates the lockfile — per-workspace entries (e.g.
+      /source/admin-site) edit only that package.json, leave yarn.lock stale,
+      and every PR then fails CI's `yarn install --immutable`.
+
+      This one entry covers the root manifest plus all workspaces
+      (sdk/wardnet-js, web, admin-site, admin-app, user-app, marketing-site).
+  - ecosystem: npm
+    directory: /source/end2end-tests/daemon
+    note: |
+      Standalone package with its own yarn.lock — not part of the /source
+      workspace, so it keeps its own entry.
+  - ecosystem: npm
+    directory: /source/end2end-tests/web-ui
+    note: |
+      Standalone package with its own yarn.lock, same as the daemon suite above.
+bulwark:
+  enabled: false
+pipeline:
+  ci:
+    stage_permissions:
+      build:
+        actions: read
+        security-events: write
+      end2end:
+        packages: write
+      test:
+        contents: write
+        pull-requests: write
+    independent_stages:
+      - end2end
+  cd:
+    enabled: false

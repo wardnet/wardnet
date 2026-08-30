@@ -3,7 +3,7 @@ name: Build Go
 # Reusable leaf for the two Go modules: the SDK (source/sdk/wardnet-go)
 # and the wctl CLI (source/wctl).
 #
-# Callers: ci.yml (push to main), pr.yml (PRs), indirectly release.yml.
+# Callers: ci-build.yml (the gt build stage, on PRs and pushes to main).
 #
 # Produces no artifacts. The release binaries are cross-compiled in
 # release-daemon.yml, which owns the asset names `wctl self-update` and

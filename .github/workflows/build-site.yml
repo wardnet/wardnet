@@ -2,7 +2,7 @@ name: Build Site
 
 # Reusable leaf for marketing-site lint + build.
 #
-# Callers: ci.yml (push to main), pr.yml (PRs), indirectly release.yml.
+# Callers: ci-build.yml (the gt build stage), and release.yml directly.
 # Produces a single artifact with a fixed name:
 #
 #   - site-dist — source/marketing-site/dist/ tree (raw, not pages-artifact)
@@ -34,7 +34,7 @@ on:
 permissions:
   contents: read
   # Read @wardnet/{brand,styles} from GitHub Packages during yarn install.
-  # Granted by the caller job (pr.yml/ci.yml/release.yml) and surfaced here so
+  # Granted by the caller job (ci-build.yml/release.yml) and surfaced here so
   # the leaf doesn't restrict it back to none.
   packages: read
 

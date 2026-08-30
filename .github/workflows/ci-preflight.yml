@@ -1,0 +1,94 @@
+# ci-preflight — this file is yours.
+#
+# gt created it once and will never modify or delete it again.
+#
+# This stage decides which later stages run, and it is also where the version
+# check lives. It replaces the `preflight` job that used to sit at the top of
+# both pr.yml and ci.yml.
+#
+# The per-area outputs (daemon, site, go, ...) are deliberately NOT surfaced
+# here. The orchestrator is gt-managed and passes nothing to the stages, so a
+# stage cannot receive them — each stage re-runs `detect-changes` for its own
+# per-leaf gating instead. That action is a paths filter over the diff and
+# costs seconds, so running it per stage is cheaper than the coupling needed to
+# thread its outputs through a file gt owns.
+name: ci-preflight
+
+on:
+  workflow_call:
+    outputs:
+      run-build:
+        description: Set to "false" to skip the build stage.
+        value: ${{ jobs.preflight.outputs.run-build }}
+      run-test:
+        description: Set to "false" to skip the test stage.
+        value: ${{ jobs.preflight.outputs.run-test }}
+      run-end2end:
+        description: Set to "false" to skip the end2end stage.
+        value: ${{ jobs.preflight.outputs.run-end2end }}
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run-build: ${{ steps.decide.outputs.run-build }}
+      run-test: ${{ steps.decide.outputs.run-test }}
+      run-end2end: ${{ steps.decide.outputs.run-end2end }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: ./.github/actions/detect-changes
+        id: detect
+      - uses: ./.github/actions/check-version
+
+      - name: Decide which stages to run
+        id: decide
+        # Stage-level gating only — whether the stage runs at all. The finer
+        # per-leaf gating stays inside each stage, matching what pr.yml's
+        # `needs.preflight.outputs.<area> || ...ci` did per job.
+        #
+        # A change under .github/workflows/** sets `ci`, which runs everything:
+        # CI config changes must be fully validated.
+        env:
+          DAEMON: ${{ steps.detect.outputs.daemon }}
+          SITE: ${{ steps.detect.outputs.site }}
+          ADMIN_WEB: ${{ steps.detect.outputs.admin-web }}
+          ADMIN_APP: ${{ steps.detect.outputs.admin-app }}
+          USER_APP: ${{ steps.detect.outputs.user-app }}
+          GO: ${{ steps.detect.outputs.go }}
+          CI: ${{ steps.detect.outputs.ci }}
+        run: |
+          set -euo pipefail
+
+          any_area=false
+          for v in "${DAEMON}" "${SITE}" "${ADMIN_WEB}" "${ADMIN_APP}" \
+                   "${USER_APP}" "${GO}" "${CI}"; do
+            [[ "${v}" == "true" ]] && any_area=true
+          done
+
+          # build and test between them cover every area, so both follow "did
+          # anything at all change". end2end follows the daemon, exactly as
+          # pr.yml's tests-e2e leaf did.
+          run_build="${any_area}"
+          run_test="${any_area}"
+          run_end2end=false
+          if [[ "${DAEMON}" == "true" || "${CI}" == "true" ]]; then
+            run_end2end=true
+          fi
+
+          {
+            echo "run-build=${run_build}"
+            echo "run-test=${run_test}"
+            echo "run-end2end=${run_end2end}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "run-build=${run_build} run-test=${run_test} run-end2end=${run_end2end}"

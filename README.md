@@ -2,7 +2,7 @@
 <img src="logo.png" alt="Wardnet logo" />
 </div>
 
-[![CI](https://github.com/wardnet/wardnet/actions/workflows/ci.yml/badge.svg)](https://github.com/wardnet/wardnet/actions/workflows/ci.yml)
+[![CI](https://github.com/wardnet/wardnet/actions/workflows/ci-orchestration.yml/badge.svg)](https://github.com/wardnet/wardnet/actions/workflows/ci-orchestration.yml)
 [![codecov](https://codecov.io/gh/wardnet/wardnet/branch/main/graph/badge.svg)](https://codecov.io/gh/wardnet/wardnet)
 [![Rust](https://img.shields.io/badge/rust-1.96-orange.svg)](https://www.rust-lang.org)
 [![Rust Report Card](https://rust-reportcard.xuri.me/badge/github.com/wardnet/wardnet)](https://rust-reportcard.xuri.me/report/github.com/wardnet/wardnet)

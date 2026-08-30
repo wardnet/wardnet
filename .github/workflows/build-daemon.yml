@@ -2,8 +2,8 @@ name: Build Daemon
 
 # Reusable leaf for daemon lint + test + release builds.
 #
-# Callers: ci.yml (push to main), pr.yml (PRs), indirectly release.yml
-# (via pr.yml). Produces three artifacts with fixed names that
+# Callers: ci-build.yml (the gt build stage), and release.yml directly
+# . Produces three artifacts with fixed names that
 # downstream jobs and workflows download by reference:
 #
 #   - wardnetd-x86_64-unsigned   — stripped wardnetd binary, tarball
@@ -54,7 +54,7 @@ permissions:
   contents: read
   # The build-web job installs the web apps, which pull
   # @wardnet/{ui,styles,brand} from GitHub Packages. Granted by the caller job
-  # (pr.yml/ci.yml/release.yml) and surfaced here so the leaf doesn't restrict
+  # (ci-build.yml/release.yml) and surfaced here so the leaf doesn't restrict
   # it back to none. (check-daemon overrides this block with its own scopes.)
   packages: read
 
@@ -106,8 +106,8 @@ jobs:
         # cargo fmt --check fails (runs before clippy), no SARIF exists;
         # hashFiles evaluates to empty and the upload is skipped.
         #
-        # `category` is pinned explicitly so main (caller = ci.yml) and
-        # PRs (caller = pr.yml) publish under the same identifier.
+        # `category` is pinned explicitly so a push to main and
+        # a pull request publish under the same identifier.
         # Without this, upload-sarif derives the category from the
         # caller workflow path, and code-scanning flags PRs with
         # "1 configuration not found" because the PR's category has no

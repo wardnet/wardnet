@@ -21,7 +21,7 @@ name: E2E Tests
 #                          admin-app / user-app smokes) inside the
 #                          ui_runner container.
 #
-# Triggered indirectly via pr.yml + ci.yml as a workflow_call leaf —
+# Triggered via ci-end2end.yml, the gt end2end stage, as a workflow_call leaf —
 # matches the rest of the build-* / coverage / placeholder pattern in
 # the repo.
 
@@ -35,7 +35,7 @@ permissions:
   contents: read
   # Both e2e jobs run `make build-web` on the host before the Docker build;
   # that installs the web apps, which pull @wardnet/{ui,styles,brand} from
-  # GitHub Packages. Granted by the caller job (pr.yml/ci.yml/release.yml) and
+  # GitHub Packages. Granted by the caller job (ci-end2end.yml/release.yml) and
   # surfaced here so the leaf doesn't restrict it back to none.
   packages: write
 

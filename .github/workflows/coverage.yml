@@ -2,7 +2,7 @@ name: Coverage
 
 # Reusable leaf for daemon + marketing-site + TS-frontend coverage.
 #
-# Called from pr.yml and ci.yml. Each coverage job (daemon / site /
+# Called from ci-test.yml, the gt test stage. Each coverage job (daemon / site /
 # frontend) is gated on a boolean input so the caller only spins up the
 # work its change set touches — a frontend-only PR skips the 30-min daemon
 # coverage, and vice versa. The parallel jobs each emit LCOV + JUnit.
@@ -53,13 +53,13 @@ on:
 # permission rules reject leaf > caller. This is the DEFAULT for jobs below
 # that don't declare their own `permissions:` block — the `bulwark` job
 # overrides it with contents:write/pull-requests:write (baseline caching +
-# PR summary comment), which requires the caller (pr.yml/ci.yml
+# PR summary comment), which requires the caller (ci-test.yml
 # `coverage:` job) to grant that same ceiling; every other job here stays
 # read-only.
 permissions:
   contents: read
   # site-coverage installs marketing-site, which pulls @wardnet/{brand,styles}
-  # from GitHub Packages. Granted by the caller job (pr.yml) and surfaced here
+  # from GitHub Packages. Granted by the caller job (ci-test.yml) and surfaced here
   # so the leaf doesn't restrict it back to none.
   packages: read
 
@@ -284,7 +284,7 @@ jobs:
         # Both modules run in one job: they merge into a single "go" pool, and
         # recording half of it as if it were the whole is what poisoned the
         # typescript baseline once (see the run-site/run-frontend note in
-        # pr.yml).
+        # ci-test.yml).
         run: |
           set -euo pipefail
           for dir in source/wctl source/sdk/wardnet-go; do
