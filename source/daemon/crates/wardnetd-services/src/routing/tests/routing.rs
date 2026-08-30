@@ -3856,3 +3856,137 @@ async fn reconcile_rewrites_device_rules_stranded_at_a_kernel_chosen_priority() 
         "it must be re-added in the device band: {nl:?}"
     );
 }
+
+/// Carve-outs are matched on their source address, so ones installed under a
+/// previous IP can only ever be removed at that IP. A push carrying a new
+/// address must tear the old rules down where they actually are and rebuild at
+/// the new one — treating them as already present would strand rules under an
+/// address the device no longer has.
+#[tokio::test]
+async fn carveouts_are_rebuilt_at_the_new_ip_when_the_device_moves() {
+    let ts = setup();
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.99".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    let nl = ts.netlink_calls.lock().await;
+    assert!(
+        nl.contains(&format!(
+            "remove_switchback_rule:192.168.200.10:{}:{SWITCHBACK_RULE_PRIORITY}",
+            ent_subnet()
+        )),
+        "the old carve-out must be removed at the IP it was installed under: {nl:?}"
+    );
+    assert_eq!(
+        *ts.netlink_switchback.lock().await,
+        vec![(
+            "192.168.200.99".to_owned(),
+            ent_subnet(),
+            SWITCHBACK_RULE_PRIORITY
+        )],
+        "only the carve-out at the current IP may remain"
+    );
+}
+
+/// Re-pushing an unchanged target set must not touch the kernel. The reconcile
+/// runs on every zone or device event, so churning rules it already installed
+/// would tear down and reinstate working carve-outs continuously.
+#[tokio::test]
+async fn re_pushing_unchanged_targets_installs_nothing_further() {
+    let ts = setup();
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+    for _ in 0..3 {
+        as_admin(ts.routing.set_switchback_targets(
+            device_id_1(),
+            "192.168.200.10".to_owned(),
+            vec![ent_subnet()],
+        ))
+        .await
+        .unwrap();
+    }
+
+    let nl = ts.netlink_calls.lock().await;
+    let adds = nl
+        .iter()
+        .filter(|c| c.starts_with("add_switchback_rule:"))
+        .count();
+    let removes = nl
+        .iter()
+        .filter(|c| c.starts_with("remove_switchback_rule:"))
+        .count();
+    assert_eq!(adds, 1, "the carve-out must be installed once: {nl:?}");
+    assert_eq!(removes, 0, "an unchanged set must remove nothing: {nl:?}");
+}
+
+/// Dropping a target removes the carve-out it installed. Withdrawing a casting
+/// exception has to close the hole it opened, or the device keeps reaching a
+/// zone it is no longer allowed into.
+#[tokio::test]
+async fn dropping_a_target_removes_only_that_carveout() {
+    let ts = setup();
+    let target = RoutingTarget::Tunnel {
+        tunnel_id: tunnel_id_1(),
+    };
+    let other_subnet = "192.168.202.0/24".to_owned();
+    as_admin(
+        ts.routing
+            .apply_rule(device_id_1(), "192.168.200.10", &target),
+    )
+    .await
+    .unwrap();
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet(), other_subnet.clone()],
+    ))
+    .await
+    .unwrap();
+    assert_eq!(ts.netlink_switchback.lock().await.len(), 2);
+
+    as_admin(ts.routing.set_switchback_targets(
+        device_id_1(),
+        "192.168.200.10".to_owned(),
+        vec![ent_subnet()],
+    ))
+    .await
+    .unwrap();
+
+    assert_eq!(
+        *ts.netlink_switchback.lock().await,
+        vec![(
+            "192.168.200.10".to_owned(),
+            ent_subnet(),
+            SWITCHBACK_RULE_PRIORITY
+        )],
+        "only the dropped target's carve-out may be removed"
+    );
+}

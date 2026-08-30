@@ -730,9 +730,7 @@ impl RoutingServiceImpl {
             // down, IP change, or removal), so the tunnel-capture problem the
             // carve-outs work around no longer applies. The desired target set
             // is left intact so a later re-bind re-materializes them.
-            let device_ip = rule.device_ip.clone();
-            self.remove_switchback_for_device(state, device_id, &device_ip)
-                .await;
+            self.remove_switchback_for_device(state, device_id).await;
             if let Some(table) = rule.table {
                 tracing::debug!(
                     device_ip = %rule.device_ip,
@@ -813,13 +811,7 @@ impl RoutingServiceImpl {
     async fn reconcile_switchback_for_device(&self, state: &mut RoutingState, device_id: Uuid) {
         let Some((device_ip, desired)) = state.switchback_targets.get(&device_id).cloned() else {
             // No desired targets — ensure nothing is installed.
-            let ip = state
-                .applied
-                .get(&device_id)
-                .map(|r| r.device_ip.clone())
-                .unwrap_or_default();
-            self.remove_switchback_for_device(state, device_id, &ip)
-                .await;
+            self.remove_switchback_for_device(state, device_id).await;
             return;
         };
 
@@ -845,8 +837,7 @@ impl RoutingServiceImpl {
         let applied = match state.applied_switchback.get(&device_id) {
             Some((ip, cidrs)) if *ip == device_ip => cidrs.clone(),
             Some(_) => {
-                self.remove_switchback_for_device(state, device_id, "")
-                    .await;
+                self.remove_switchback_for_device(state, device_id).await;
                 Vec::new()
             }
             None => Vec::new(),
@@ -917,23 +908,14 @@ impl RoutingServiceImpl {
     /// Caller holds the state lock.
     ///
     /// Each rule is removed at the IP it was installed under, which is the only
-    /// IP that can match it. `fallback_ip` is used when nothing was recorded —
-    /// pass `""` when the caller has no better IP than the record itself.
+    /// IP that can match it — and the only IP ever recorded, since a carve-out
+    /// is tracked exactly when the kernel accepted it under that source.
     #[allow(clippy::similar_names)]
-    async fn remove_switchback_for_device(
-        &self,
-        state: &mut RoutingState,
-        device_id: Uuid,
-        fallback_ip: &str,
-    ) {
-        let Some((installed_ip, applied)) = state.applied_switchback.remove(&device_id) else {
+    async fn remove_switchback_for_device(&self, state: &mut RoutingState, device_id: Uuid) {
+        let Some((device_ip, applied)) = state.applied_switchback.remove(&device_id) else {
             return;
         };
-        let device_ip = if installed_ip.is_empty() {
-            fallback_ip
-        } else {
-            installed_ip.as_str()
-        };
+        let device_ip = device_ip.as_str();
         for cidr in &applied {
             if let Err(e) = self
                 .netlink
@@ -2265,7 +2247,7 @@ impl RoutingService for RoutingServiceImpl {
             // No desired targets — forget the device and tear down any carve-outs
             // currently installed under this IP.
             state.switchback_targets.remove(&device_id);
-            self.remove_switchback_for_device(&mut state, device_id, &device_ip)
+            self.remove_switchback_for_device(&mut state, device_id)
                 .await;
         } else {
             state

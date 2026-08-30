@@ -2221,6 +2221,8 @@ struct GatedDhcpService {
     peak_per_mac: Arc<Mutex<u32>>,
     /// MACs seen, in the order their calls completed.
     completed: Arc<Mutex<Vec<String>>>,
+    /// When set, the next gated call panics instead of returning.
+    panic_once: Arc<AtomicBool>,
 }
 
 impl GatedDhcpService {
@@ -2234,11 +2236,21 @@ impl GatedDhcpService {
             active: Arc::new(Mutex::new(std::collections::HashMap::new())),
             peak_per_mac: Arc::new(Mutex::new(0)),
             completed: Arc::new(Mutex::new(Vec::new())),
+            panic_once: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    /// Whether this MAC is the gated one. `"*"` gates every MAC.
+    fn is_gated(&self, mac: &str) -> bool {
+        self.gate_mac == "*" || self.gate_mac == mac
     }
 
     /// Enter the call, blocking if this MAC is the gated one.
     async fn enter(&self, mac: &str) {
+        assert!(
+            !(self.is_gated(mac) && self.panic_once.swap(false, Ordering::SeqCst)),
+            "simulated handler failure for {mac}"
+        );
         {
             let mut active = self.active.lock().await;
             let n = active.entry(mac.to_owned()).or_insert(0);
@@ -2247,7 +2259,7 @@ impl GatedDhcpService {
             let mut peak = self.peak_per_mac.lock().await;
             *peak = (*peak).max(observed);
         }
-        if mac == self.gate_mac && !self.gate_open.load(Ordering::SeqCst) {
+        if self.is_gated(mac) && !self.gate_open.load(Ordering::SeqCst) {
             self.gate_reached.store(true, Ordering::SeqCst);
             self.gate.notified().await;
         }
@@ -2640,4 +2652,197 @@ async fn relayed_request_is_answered_to_the_relay() {
         "10.9.9.1:67".parse::<SocketAddr>().unwrap(),
         "a relayed request must be answered to the relay's server port"
     );
+}
+
+/// A client in SELECTING has no address yet, so a reply aimed at the address
+/// being offered cannot reach it.
+#[tokio::test]
+async fn request_from_an_unconfigured_client_is_broadcast() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket
+        .push_message(&request, "0.0.0.0:68".parse().unwrap())
+        .await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(messages.len(), 1, "expected exactly one response");
+    assert_eq!(
+        messages[0].1,
+        "255.255.255.255:68".parse::<SocketAddr>().unwrap(),
+        "a client with no address must be answered by broadcast"
+    );
+}
+
+/// A DHCPRELEASE queued behind a busy handler survives the packets that arrive
+/// after it. The slot keeps the newest packet because a retransmit restates a
+/// question already asked, but a RELEASE is a separate instruction — losing it
+/// to the DISCOVER a rebooting client sends next would leave the lease held.
+#[tokio::test]
+async fn a_queued_release_is_not_displaced_by_later_packets() {
+    let mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x01];
+    let mac_str = "aa:bb:cc:00:00:01";
+    let service = Arc::new(GatedDhcpService::new(test_lease(), mac_str));
+    let gate = Arc::clone(&service.gate);
+    let gate_open = Arc::clone(&service.gate_open);
+    let gate_reached = Arc::clone(&service.gate_reached);
+    let completed = Arc::clone(&service.completed);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    // Park a handler, then queue a RELEASE and let a DISCOVER land behind it.
+    socket
+        .push_message(&build_request(mac), client_addr())
+        .await;
+    wait_for_gate(&gate_reached).await;
+    socket
+        .push_message(&build_release(mac), "192.168.1.100:68".parse().unwrap())
+        .await;
+    socket
+        .push_message(&build_discover(mac), client_addr())
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+    gate_open.store(true, Ordering::SeqCst);
+    gate.notify_waiters();
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+    let seen = completed.lock().await.clone();
+    assert!(
+        seen.len() >= 2,
+        "the queued RELEASE must still have been served: {seen:?}"
+    );
+
+    cancel.cancel();
+    let _ = handle.await;
+}
+
+/// A handler that panics must not take its client's DHCP with it. The MAC's
+/// slot is held for the duration of a handler, so a panic that left it behind
+/// would mark that client permanently busy and it would never be served again
+/// for the life of the process.
+#[tokio::test]
+async fn a_panicking_handler_does_not_wedge_its_mac() {
+    let mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x01];
+    let mac_str = "aa:bb:cc:00:00:01";
+    let service = Arc::new(GatedDhcpService::new(test_lease(), mac_str));
+    // Never park; just fail the first call.
+    service.gate_open.store(true, Ordering::SeqCst);
+    service.panic_once.store(true, Ordering::SeqCst);
+    let completed = Arc::clone(&service.completed);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    socket
+        .push_message(&build_request(mac), client_addr())
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    socket
+        .push_message(&build_request(mac), client_addr())
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+    assert!(
+        completed.lock().await.iter().any(|m| m == mac_str),
+        "the client must still be served after a handler panicked"
+    );
+
+    cancel.cancel();
+    let _ = handle.await;
+}
+
+/// Port 67 accepts unauthenticated broadcast, so handlers are capped. Once the
+/// cap is reached further packets are dropped rather than queued — DHCP clients
+/// retransmit, and an unbounded task per packet is a memory-exhaustion path.
+#[tokio::test]
+async fn packets_beyond_the_handler_cap_are_dropped() {
+    // "*" parks every MAC, so the cap fills and stays full.
+    let service = Arc::new(GatedDhcpService::new(test_lease(), "*"));
+    let gate = Arc::clone(&service.gate);
+    let gate_open = Arc::clone(&service.gate_open);
+    let active = Arc::clone(&service.active);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    // One distinct MAC per packet, well past the cap.
+    for i in 0u16..200 {
+        let mac = [
+            0xAA,
+            0xBB,
+            0xCC,
+            0x01,
+            u8::try_from(i >> 8).expect("high byte"),
+            u8::try_from(i & 0xFF).expect("low byte"),
+        ];
+        socket
+            .push_message(&build_discover(mac), client_addr())
+            .await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
+    let parked = active.lock().await.values().filter(|n| **n > 0).count();
+    assert!(
+        parked <= 64,
+        "handlers must be capped, found {parked} parked at once"
+    );
+
+    gate_open.store(true, Ordering::SeqCst);
+    gate.notify_waiters();
+    cancel.cancel();
+    let _ = handle.await;
 }
