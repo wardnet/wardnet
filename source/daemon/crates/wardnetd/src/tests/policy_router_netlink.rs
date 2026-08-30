@@ -7,13 +7,16 @@
 
 use std::net::Ipv4Addr;
 
+use rtnetlink::packet_core::ErrorMessage;
 use rtnetlink::packet_route::AddressFamily;
 use rtnetlink::packet_route::route::{
     RouteAddress, RouteAttribute, RouteHeader, RouteMessage, RouteScope, RouteType,
 };
 use rtnetlink::packet_route::rule::{RuleAttribute, RuleMessage};
 
-use crate::policy_router_netlink::{build_host_route, is_removable_host_route, rule_table};
+use crate::policy_router_netlink::{
+    build_host_route, is_already_exists, is_removable_host_route, rule_table,
+};
 
 /// `main` (254) is where `add_host_route` files our routes; `local` (255) is
 /// the kernel-owned table holding the `scope host` route that delivers each of
@@ -204,4 +207,32 @@ fn rule_table_prefers_wide_table_attribute_over_header() {
     rule.attributes.push(RuleAttribute::Table(300));
     assert_eq!(rule_table(&rule), 300);
     assert_ne!(rule_table(&rule), u32::from(RT_TABLE_MAIN));
+}
+
+/// `rule().add()` carries `NLM_F_EXCL`, so re-asserting a rule the kernel
+/// already holds is answered with EEXIST. Every adder treats that as success —
+/// reconcile re-asserts the full desired set on a restart that leaves kernel
+/// state in place, and reading "already correct" as a routing failure demotes
+/// the device to direct and then strips its surviving rule as an orphan.
+#[test]
+fn eexist_is_recognised_as_already_present() {
+    // `ErrorMessage` is `#[non_exhaustive]`, so it is built by field rather
+    // than by literal.
+    let mut msg = ErrorMessage::default();
+    msg.code = std::num::NonZeroI32::new(-libc::EEXIST);
+    assert!(
+        is_already_exists(&rtnetlink::Error::NetlinkError(msg)),
+        "EEXIST must be read as the rule already being installed"
+    );
+}
+
+/// Any other kernel refusal is a real failure and must surface.
+#[test]
+fn other_netlink_errors_are_not_treated_as_already_present() {
+    let mut msg = ErrorMessage::default();
+    msg.code = std::num::NonZeroI32::new(-libc::EPERM);
+    assert!(
+        !is_already_exists(&rtnetlink::Error::NetlinkError(msg)),
+        "EPERM is a genuine failure, not an already-installed rule"
+    );
 }

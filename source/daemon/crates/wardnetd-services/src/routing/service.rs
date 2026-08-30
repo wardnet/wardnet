@@ -745,6 +745,15 @@ impl RoutingServiceImpl {
                 // duplicates that accumulated from restarts or races (issue #78).
                 let mut removed = 0u32;
                 loop {
+                    // Only the device band is matched here, which is safe
+                    // because startup reconcile rewrites any rule left at a
+                    // kernel-chosen priority by an older build *before* the
+                    // event listeners or the API can serve a teardown. Widening
+                    // the match to "any priority" would be worse than the gap
+                    // it closes: the kernel treats an omitted attribute as
+                    // don't-care, so a delete carrying neither priority nor
+                    // destination can match a domain-route rule that shares
+                    // this source and tunnel table.
                     match self
                         .netlink
                         .remove_ip_rule(&rule.device_ip, table, DEVICE_RULE_PRIORITY)
@@ -1813,10 +1822,20 @@ impl RoutingService for RoutingServiceImpl {
                     "found kernel ip rules"
                 );
                 let state = self.state.lock().await;
-                let known_ips: HashSet<&str> = state
+                // Every binding that is actually applied, as `(ip, table)`.
+                //
+                // Keyed on the pair rather than the IP for two reasons: a rule
+                // whose table is not one this device is bound to is stale
+                // however current its source looks, and two applied entries
+                // can legitimately share an IP (a device row replaced, or a
+                // stale entry for an offline device whose address was
+                // re-leased). Keying `ip -> table` would keep only whichever
+                // the iteration happened to reach last and delete the other
+                // device's live rule every reconcile.
+                let wanted: HashSet<(&str, u32)> = state
                     .applied
                     .values()
-                    .filter_map(|r| r.table.map(|_| r.device_ip.as_str()))
+                    .filter_map(|r| r.table.map(|t| (r.device_ip.as_str(), t)))
                     .collect();
 
                 // Group by (ip, table, priority) to detect orphans, duplicates
@@ -1841,18 +1860,27 @@ impl RoutingService for RoutingServiceImpl {
                 let mut duplicate_count = 0u32;
                 let mut repriority_count = 0u32;
                 for ((src_ip, table, priority), count) in &ip_rule_counts {
-                    if known_ips.contains(src_ip.as_str()) && *priority != DEVICE_RULE_PRIORITY {
-                        // A live device bound at the wrong priority: the rule
-                        // works, but every carve-out meant to override it is
-                        // dead while it sits ahead of them. Rewrite it in place
-                        // — remove at the priority it actually has, re-add at
-                        // the band it belongs in.
+                    let is_current_binding = wanted.contains(&(src_ip.as_str(), *table));
+                    if is_current_binding && *priority != DEVICE_RULE_PRIORITY {
+                        // This device's current binding, stranded at a priority
+                        // this version no longer writes. The rule works, but
+                        // every carve-out meant to override it is dead while it
+                        // sits ahead of them. Rewrite it — remove at the
+                        // priority it actually has, and add it back in the
+                        // device band unless it is already there, which it is
+                        // whenever `apply_rule` ran earlier in this reconcile.
+                        let already_correct = ip_rule_counts.contains_key(&(
+                            src_ip.clone(),
+                            *table,
+                            DEVICE_RULE_PRIORITY,
+                        ));
                         tracing::warn!(
                             src_ip = %src_ip,
                             table,
                             priority,
                             "rewriting ip rule stranded at the wrong priority: src_ip={src_ip}, table={table}, priority={priority}"
                         );
+                        let mut removed_all = true;
                         for _ in 0..*count {
                             if let Err(e) =
                                 self.netlink.remove_ip_rule(src_ip, *table, *priority).await
@@ -1867,10 +1895,20 @@ impl RoutingService for RoutingServiceImpl {
                                     table = table,
                                     priority = priority
                                 );
+                                removed_all = false;
                                 break;
                             }
                         }
-                        if let Err(e) = self
+                        if !removed_all {
+                            // The old rule is still there and still wins. Adding
+                            // the replacement now would leave the device bound
+                            // twice with the carve-outs still dead, and count it
+                            // as repaired. Leave it for the next reconcile.
+                            continue;
+                        }
+                        if already_correct {
+                            repriority_count += 1;
+                        } else if let Err(e) = self
                             .netlink
                             .add_ip_rule(src_ip, *table, DEVICE_RULE_PRIORITY)
                             .await
@@ -1886,7 +1924,7 @@ impl RoutingService for RoutingServiceImpl {
                         } else {
                             repriority_count += 1;
                         }
-                    } else if !known_ips.contains(src_ip.as_str()) {
+                    } else if !is_current_binding {
                         // Orphan: remove all occurrences of this rule.
                         for _ in 0..*count {
                             tracing::warn!(
