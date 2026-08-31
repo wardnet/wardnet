@@ -140,10 +140,8 @@ pub fn company_for_domain(domain: &str) -> Option<&'static str> {
         if let Some(&company) = TRACKER_MAP.get(candidate) {
             return Some(company);
         }
-        match candidate.find('.') {
-            Some(idx) => candidate = &candidate[idx + 1..],
-            None => return None,
-        }
+        let idx = candidate.find('.')?;
+        candidate = &candidate[idx + 1..];
     }
 }
 

@@ -693,7 +693,10 @@ async fn enable_persists_seeds_wildcard_and_publishes() {
 
     assert!(status.enabled);
     assert_eq!(status.domain.as_deref(), Some(DOMAIN));
-    assert!(h.system_config.get("private_dns_enabled").await.unwrap() == Some("true".to_owned()));
+    assert_eq!(
+        h.system_config.get("private_dns_enabled").await.unwrap(),
+        Some("true".to_owned())
+    );
     assert_eq!(h.dns_local.record_domains(), vec![format!("*.{DOMAIN}")]);
     assert!(matches!(
         rx.try_recv(),

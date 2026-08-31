@@ -67,7 +67,7 @@ FROM rust:1.98-slim-bookworm@sha256:94e9efa4033213dbb70d4f665527e7ece3944ddb7ba1
 #
 # clang + libclang-dev: rustables' build.rs runs bindgen against
 # <linux/netfilter/nf_tables.h> (issue #307). linux-libc-dev supplies
-# those kernel uapi headers — unlike the full rust:1.96 image the
+# those kernel uapi headers — unlike the full rust:1.98 image the
 # Makefile container path uses, the slim image here ships neither the
 # headers nor libclang, so both must be added explicitly.
 RUN apt-get update \
