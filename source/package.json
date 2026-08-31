@@ -11,8 +11,8 @@
     "marketing-site"
   ],
   "devDependencies": {
-    "@changesets/cli": "2.31.1",
-    "turbo": "^2.10.8"
+    "@changesets/cli": "3.0.1",
+    "turbo": "^2.10.11"
   },
   "resolutions": {
     "path-to-regexp": "8.4.0",

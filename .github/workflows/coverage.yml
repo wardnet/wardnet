@@ -84,19 +84,19 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
-          toolchain: "1.96"
+          toolchain: "1.98"
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: source/daemon
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.75.21
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.75.21
         with:
           tool: cargo-llvm-cov
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.75.21
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.75.21
         with:
           tool: cargo-nextest
 
@@ -460,7 +460,7 @@ jobs:
             done
           done
 
-      - uses: wardnet/bulwark@v1
+      - uses: wardnet/bulwark@v2
         with:
           # `dir` is the only input left that concerns coverage: it is the scan
           # root, and bulwark must know the root before it can read the
