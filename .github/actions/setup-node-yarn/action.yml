@@ -13,19 +13,6 @@ inputs:
     description: Node.js major version to install.
     required: false
     default: "25"
-  untrusted-ref:
-    description: >
-      The caller-supplied git ref this job checked out, if any. Empty means the
-      job built the ref its own trigger vouched for. See setup-rust for the
-      full reasoning; in short, a run building an arbitrary branch from the
-      default branch's cache scope must not write to it.
-
-      setup-node has no restore-only mode, so a non-empty value disables the
-      yarn cache entirely rather than only its save half. That costs an edge
-      build one cold yarn install, which is the right trade against writing
-      unreviewed code into a cache privileged workflows restore.
-    required: false
-    default: ""
 
 runs:
   using: composite
@@ -37,7 +24,7 @@ runs:
     - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
       with:
         node-version: ${{ inputs.node-version }}
-        cache: ${{ inputs.untrusted-ref == '' && 'yarn' || '' }}
+        cache: yarn
         cache-dependency-path: ${{ inputs.cache-dependency-path }}
 
     # The design system (@wardnet/{ui,styles,brand}) is consumed from GitHub

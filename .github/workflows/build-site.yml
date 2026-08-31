@@ -19,14 +19,22 @@ name: Build Site
 on:
   workflow_call:
     inputs:
-      ref:
+      from-default-branch:
         description: >
-          Git ref to build the site from. Empty (default) builds the caller's
-          ref. release-edge.yml pins this to the default branch: an edge build
-          can be cut from any branch, and the marketing site that reaches
-          production Pages must never come from unmerged work.
-        type: string
-        default: ""
+          Build the site from the repository's default branch instead of the
+          caller's ref. release-edge.yml sets this: an edge build can be cut
+          from any branch, and the marketing site that reaches production
+          Pages must never come from unmerged work.
+
+          A boolean rather than the free-form `ref` string this replaced. The
+          safety property is identical, but the ref now comes from repository
+          metadata instead of from whatever a caller passes — and a
+          workflow_call input reaching `checkout` is exactly what makes every
+          step after it a cache-poisoning sink, because the job holds the
+          Actions cache token and untrusted code can write the caller's cache
+          scope directly regardless of how our own cache steps are configured.
+        type: boolean
+        default: false
 
 # Explicit scopes (not read-all) so this leaf's workflow-level stays a
 # subset of the caller's workflow-level — GitHub's reusable-workflow
@@ -51,12 +59,11 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.from-default-branch && github.event.repository.default_branch || '' }}
 
       - uses: ./.github/actions/setup-node-yarn
         with:
           cache-dependency-path: source/yarn.lock
-          untrusted-ref: ${{ inputs.ref }}
 
       # Run type-check + format:check only. The site unit tests run in
       # coverage.yml with instrumentation; running them here too would
@@ -82,7 +89,7 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.from-default-branch && github.event.repository.default_branch || '' }}
 
       - uses: ./.github/actions/build-vite-app
         with:
@@ -94,4 +101,3 @@ jobs:
           artifact-name: site-dist
           artifact-path: source/marketing-site/dist/
           retention-days: "7"
-          untrusted-ref: ${{ inputs.ref }}

@@ -11,24 +11,28 @@ name: Release Edge
 # delete. What survives is authenticity: edge tarballs are signed with the
 # production minisign key and carry SLSA provenance, exactly like a release.
 #
-# Run it from the DEFAULT BRANCH and name the branch to build in the `branch`
-# input — including an unmerged one. (Dispatching from the branch itself also
-# works, but the workflow file has to exist on it.) The marketing site that
-# gets redeployed to publish edge.json is always built from the default
-# branch, never from `branch`.
+# Run it FROM THE BRANCH YOU WANT TO BUILD — including an unmerged one. There
+# is no `branch` input any more: it is the ref you dispatch on.
+#
+# That is a security property, not a convenience. Actions cache scopes follow
+# github.ref. Dispatching from the default branch and building some other
+# branch put unreviewed code in the job that holds the DEFAULT branch's cache
+# token, which is a direct path from "can push a branch" to "executes in a
+# privileged workflow" (CodeQL actions/cache-poisoning/poisonable-step).
+# Dispatching from the branch itself scopes the whole run to that branch, so
+# there is nothing privileged to poison. The workflow file has to exist on the
+# branch, which it does for anything cut from main.
+#
+# The marketing site that gets redeployed to publish edge.json is still always
+# built from the default branch, never from the branch being released.
 #
 # Boxes only follow these builds if they are on the edge channel, which
 # requires `[update] allow_edge_channel = true` in their TOML — i.e. root on
 # the box. See the daemon's UpdateService gate.
 
 on:
+  # No inputs: the ref you dispatch this on is the ref it builds. See above.
   workflow_dispatch:
-    inputs:
-      branch:
-        description: Branch (or any ref) to build and publish. Unmerged branches are supported.
-        type: string
-        required: true
-        default: main
 
 permissions:
   contents: read
@@ -61,7 +65,6 @@ jobs:
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
         with:
-          ref: ${{ inputs.branch }}
           fetch-depth: 0
 
       - name: Derive version from CALVER + run number
@@ -155,7 +158,8 @@ jobs:
       packages: read
     uses: ./.github/workflows/build-daemon.yml
     with:
-      ref: ${{ needs.resolve.outputs.sha }}
+      # No ref: the leaf builds the ref this workflow was dispatched on, which
+      # is the branch being released. See the header.
       version: ${{ needs.resolve.outputs.version }}
       # Deliberate. See the header and ADR-0023.
       run-checks: false
@@ -177,7 +181,7 @@ jobs:
       prerelease: true
       attach-openapi: false
       notes-body: >
-        Unvetted edge build from `${{ inputs.branch }}`
+        Unvetted edge build from `${{ github.ref_name }}`
         (${{ needs.resolve.outputs.sha }}). No review, no release notes, no
         test gates — signed, but nothing here promises the code is good. Only
         boxes with `[update] allow_edge_channel = true` can install it.
@@ -223,7 +227,11 @@ jobs:
       packages: read
     uses: ./.github/workflows/build-site.yml
     with:
-      ref: ${{ github.event.repository.default_branch }}
+      # The edge branch is NOT what reaches production Pages. This is now a
+      # boolean the leaf resolves against repository metadata rather than a ref
+      # string we hand it — same guarantee, without a caller-supplied value
+      # flowing into a checkout.
+      from-default-branch: true
     secrets: inherit
 
   refresh-manifest:

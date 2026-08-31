@@ -34,9 +34,20 @@ blessed release.
 Add a third release channel, **edge**, fed by a dispatchable workflow that
 publishes a signed daemon build from **any branch** in one step.
 
-**Trigger.** `workflow_dispatch` with a branch input. Nothing is triggered by a
-tag; the branch is named at dispatch time. Unmerged branches are explicitly in
-scope — testing a candidate before merging it is the primary use case.
+**Trigger.** `workflow_dispatch`, run *from the branch being released*.
+Nothing is triggered by a tag. Unmerged branches are explicitly in scope —
+testing a candidate before merging it is the primary use case.
+
+This originally took a `branch` input and was dispatched from the default
+branch. That was changed: Actions cache scopes follow `github.ref`, so
+dispatching from `main` and building another branch ran unreviewed code in a
+job holding `main`'s cache token — a path from "can push a branch" to "executes
+in a privileged workflow", which CodeQL reports as
+`actions/cache-poisoning/poisonable-step`. Disabling our own cache writes does
+not fix it, because the token itself is the capability. Dispatching from the
+branch scopes the entire run to that branch, so there is nothing privileged in
+reach. The marketing site is still built from the default branch, now via a
+boolean the leaf resolves itself rather than a ref the caller supplies.
 
 **Version.** `<base-calver>-edge.<run-number>`, e.g. `2026.07.00-edge.147`. The
 CalVer's own pre-release suffix is stripped and the workflow's monotonic run
