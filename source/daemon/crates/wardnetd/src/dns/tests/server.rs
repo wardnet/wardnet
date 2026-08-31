@@ -18,7 +18,6 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use chrono::Utc;
 use hickory_proto::rr::RecordType;
-use hickory_resolver::config::ServerOrderingStrategy;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use wardnet_common::dns::{DnsConfig, DnsProtocol, DnsResolutionMode, UpstreamDns, UpstreamId};
@@ -27,18 +26,28 @@ use wardnet_common::tunnel::{Tunnel, TunnelConfig, TunnelStatus};
 use wardnet_common::wireguard_config::WgPeerConfig;
 use wardnetd_data::repository::TunnelRepository;
 use wardnetd_data::repository::tunnel::TunnelRow;
+use wardnetd_services::dns::UpstreamHealth;
 use wardnetd_services::dns::cache::DnsCache;
 use wardnetd_services::dns::server::{DnsServer, DnsSocket};
 use wardnetd_services::event::{BroadcastEventBus, EventPublisher};
 
 use crate::dns::pipeline::{QueryAttribution, TransportProtocol};
 use crate::dns::server::{
-    LATENCY_PROBE_INTERVAL, TunnelForwarderInfo, UdpDnsServer, build_recursor, build_resolver,
-    duration_to_ms, effective_upstreams, fold_probe_outcomes, forwarder_ordering,
-    get_or_build_tunnel_forwarder, handle_recursor_outcome, probe_upstreams, resolve_via_recursor,
-    spawn_cache_invalidator, spawn_upstream_latency_prober, upstream_label,
+    LATENCY_PROBE_INTERVAL, TunnelForwarderInfo, UdpDnsServer, build_recursor, duration_to_ms,
+    fold_probe_outcomes, get_or_build_tunnel_forwarder, handle_recursor_outcome, probe_upstreams,
+    resolve_via_recursor, spawn_cache_invalidator, spawn_upstream_latency_prober,
 };
+use crate::dns::upstream_pool::UpstreamPool;
 use crate::tests::stubs::StubDnsFilterService;
+
+/// The forwarding ladder for `upstreams`, as the pipeline sees it: one
+/// single-server resolver per upstream, all of them serving.
+fn test_pool(upstreams: &[UpstreamDns]) -> Arc<ArcSwap<UpstreamPool>> {
+    Arc::new(ArcSwap::from_pointee(UpstreamPool::build(&DnsConfig {
+        upstream_servers: upstreams.to_vec(),
+        ..DnsConfig::default()
+    })))
+}
 
 fn loopback_ephemeral() -> SocketAddr {
     SocketAddr::from(([127, 0, 0, 1], 0))
@@ -353,6 +362,7 @@ fn build_test_server(config: DnsConfig, bind_addr: SocketAddr) -> UdpDnsServer {
         empty_device_snapshot(),
         stub_tunnel_repo(),
         stub_events(),
+        Arc::new(UpstreamHealth::new()),
     )
 }
 
@@ -581,33 +591,6 @@ fn duration_to_ms_seconds_round_trip() {
     assert!((one_second - 1000.0).abs() < 1e-6);
 }
 
-#[test]
-fn upstream_label_none_when_empty() {
-    assert!(upstream_label(&[]).is_none());
-}
-
-#[test]
-fn upstream_label_uses_first_entry() {
-    let upstreams = vec![
-        UpstreamDns {
-            name: "primary".into(),
-            address: "1.1.1.1".into(),
-            protocol: DnsProtocol::Udp,
-            port: None,
-            tls_server_name: None,
-        },
-        UpstreamDns {
-            name: "secondary".into(),
-            address: "8.8.8.8".into(),
-            protocol: DnsProtocol::Udp,
-            port: None,
-            tls_server_name: None,
-        },
-    ];
-    let label = upstream_label(&upstreams).expect("non-empty list returns a label");
-    assert!(label.contains("1.1.1.1") || label.contains("primary"));
-}
-
 // ---------------------------------------------------------------------------
 // `record_query` doesn't panic on a missing log sink, and the call signs
 // don't drift.
@@ -707,6 +690,7 @@ async fn server_records_query_after_handling_it() {
         empty_device_snapshot(),
         stub_tunnel_repo(),
         stub_events(),
+        Arc::new(UpstreamHealth::new()),
     )
     .with_log_sink(Arc::clone(&sink));
 
@@ -982,6 +966,7 @@ fn build_with_filter(
         empty_device_snapshot(),
         stub_tunnel_repo(),
         stub_events(),
+        Arc::new(UpstreamHealth::new()),
     )
     .with_log_sink(sink)
 }
@@ -1066,9 +1051,248 @@ async fn handle_query_upstream_error_records_upstream_error() {
         .unwrap();
     assert_eq!(row.result, "upstream_error");
     assert_eq!(row.domain, "example.com");
-    assert_eq!(row.upstream.as_deref(), Some("127.0.0.1"));
+    // No upstream served this query, so the column stays empty. It used to
+    // name `upstream_servers[0]` unconditionally (#1199), which meant a whole
+    // outage was attributed to whichever server happened to be listed first
+    // — the log pointed diagnosis at the wrong provider precisely when it
+    // mattered. Which servers failed is in the per-upstream warnings instead.
+    assert!(
+        row.upstream.is_none(),
+        "an exhausted ladder blames no upstream, got {:?}",
+        row.upstream
+    );
 
     server.stop().await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// The forwarding ladder (#1199): bounded deadlines, real failover, and a log
+// row that names the upstream that actually answered.
+//
+// These drive the full UDP path against real sockets, so they need an
+// upstream that accepts datagrams and never replies — a closed port or an
+// unrouteable address would fail fast with an ICMP error and never exercise
+// the timeout. `spawn_black_hole_upstream` is that server.
+//
+// The timings come from config rather than the defaults so the tests finish
+// in fractions of a second while still asserting the bound that is actually
+// configured. The defaults themselves (1.5s / 3.5s) are asserted separately.
+// ---------------------------------------------------------------------------
+
+/// An upstream that answers every query with NXDOMAIN.
+///
+/// `spawn_stub_upstream` answers *any* A query with a record, so it cannot
+/// exercise the negative-answer path; this one can.
+async fn spawn_nxdomain_upstream() -> SocketAddr {
+    use hickory_proto::op::{Message, OpCode, ResponseCode};
+    use hickory_proto::serialize::binary::BinDecodable;
+
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("nxdomain upstream bind");
+    let addr = socket.local_addr().expect("nxdomain upstream local_addr");
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 4096];
+        loop {
+            let Ok((n, src)) = socket.recv_from(&mut buf).await else {
+                break;
+            };
+            let Ok(request) = Message::from_bytes(&buf[..n]) else {
+                continue;
+            };
+            let mut response = Message::response(request.metadata.id, OpCode::Query);
+            response.metadata.recursion_desired = true;
+            response.metadata.recursion_available = true;
+            response.metadata.response_code = ResponseCode::NXDomain;
+            response.add_queries(request.queries.clone());
+            if let Ok(bytes) = response.to_vec() {
+                let _ = socket.send_to(&bytes, src).await;
+            }
+        }
+    });
+    addr
+}
+
+/// An upstream that swallows every query and never answers.
+async fn spawn_black_hole_upstream() -> SocketAddr {
+    let socket = tokio::net::UdpSocket::bind("127.0.0.1:0")
+        .await
+        .expect("black hole bind");
+    let addr = socket.local_addr().expect("black hole local_addr");
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 4096];
+        while socket.recv_from(&mut buf).await.is_ok() {
+            // Deliberately no reply.
+        }
+    });
+    addr
+}
+
+/// A config whose ladder gives each upstream `per_upstream_ms` and the whole
+/// query `deadline_ms`.
+fn ladder_config(upstreams: Vec<UpstreamDns>, per_upstream_ms: u32, deadline_ms: u32) -> DnsConfig {
+    DnsConfig {
+        upstream_servers: upstreams,
+        upstream_timeout_ms: per_upstream_ms,
+        forward_deadline_ms: deadline_ms,
+        ..DnsConfig::default()
+    }
+}
+
+fn passing_filter() -> Arc<dyn wardnetd_services::DnsFilterService> {
+    Arc::new(ConfigurableFilter {
+        action: wardnet_common::dns::FilterAction::Pass,
+    })
+}
+
+#[tokio::test]
+async fn the_ladder_fails_over_and_logs_the_upstream_that_answered() {
+    // A dead first upstream must not fail the query, and the log row must
+    // name the server that actually served it. Before #1199 this row always
+    // said `upstream_servers[0]` — the dead one.
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let dead = spawn_black_hole_upstream().await;
+    let alive = spawn_stub_upstream().await;
+    let cfg = ladder_config(vec![udp_upstream(dead), udp_upstream(alive)], 150, 2_000);
+    let server = build_with_filter(cfg, passing_filter(), Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+    let response = query_foo_com(bound).await;
+
+    assert_eq!(
+        response.metadata.response_code,
+        hickory_proto::op::ResponseCode::NoError,
+        "the second upstream answers, so the client gets a real answer"
+    );
+
+    let row = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .expect("row arrives")
+        .unwrap();
+    assert_eq!(row.result, "forwarded");
+    assert_eq!(
+        row.upstream.as_deref(),
+        Some(alive.ip().to_string().as_str()),
+        "the row names the upstream that answered, not the first in the list"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn every_upstream_dead_servfails_within_the_deadline() {
+    // The acceptance criterion behind #1199: with every upstream silent the
+    // client gets an answer within a bounded time, rather than the 20-31s the
+    // incident recorded — by which point the stub resolver had long given up
+    // and was retransmitting into our rate limiter.
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let first = spawn_black_hole_upstream().await;
+    let second = spawn_black_hole_upstream().await;
+    let third = spawn_black_hole_upstream().await;
+    let deadline_ms = 900;
+    let cfg = ladder_config(
+        vec![
+            udp_upstream(first),
+            udp_upstream(second),
+            udp_upstream(third),
+        ],
+        200,
+        deadline_ms,
+    );
+    let server = build_with_filter(cfg, passing_filter(), Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    let started = std::time::Instant::now();
+    let response = query_foo_com(bound).await;
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        response.metadata.response_code,
+        hickory_proto::op::ResponseCode::ServFail,
+        "no upstream answered, so the client gets SERVFAIL"
+    );
+    // Generous slack over the configured ceiling: this asserts the deadline
+    // exists and is enforced, not that the scheduler is punctual.
+    assert!(
+        elapsed < Duration::from_millis(u64::from(deadline_ms)) + Duration::from_secs(2),
+        "forwarding must be bounded by the deadline, took {elapsed:?}"
+    );
+
+    let row = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .expect("row arrives")
+        .unwrap();
+    assert_eq!(row.result, "upstream_error");
+    assert!(
+        row.upstream.is_none(),
+        "no upstream served the query, so none is named"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_negative_answer_is_terminal_and_does_not_fail_over() {
+    // NXDOMAIN is a resolution, not a failure. Failing over on it would ask a
+    // second provider a question the first already answered — wasting a
+    // round-trip, leaking the name to another provider, and risking a
+    // contradictory answer.
+    let (sink, mut rx) = wardnetd_services::dns::log_sink::DnsLogSink::new();
+    let first = spawn_nxdomain_upstream().await;
+    let never_reached = spawn_black_hole_upstream().await;
+    let cfg = ladder_config(
+        vec![udp_upstream(first), udp_upstream(never_reached)],
+        200,
+        2_000,
+    );
+    let server = build_with_filter(cfg, passing_filter(), Arc::clone(&sink));
+
+    server.start().await.unwrap();
+    let bound = server.local_addr().expect("server bound");
+
+    let started = std::time::Instant::now();
+    let response = query_a_named(bound, "nope.example.", 0xBEEF).await;
+    let elapsed = started.elapsed();
+
+    assert_eq!(
+        response.metadata.response_code,
+        hickory_proto::op::ResponseCode::NXDomain,
+        "the negative answer is relayed to the client, not turned into SERVFAIL"
+    );
+    // Had it fallen through to the black hole, this would have cost at least
+    // the per-upstream timeout before answering.
+    assert!(
+        elapsed < Duration::from_millis(200),
+        "a negative answer must return immediately, took {elapsed:?}"
+    );
+
+    let row = tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        .await
+        .expect("row arrives")
+        .unwrap();
+    assert_eq!(
+        row.upstream.as_deref(),
+        Some(first.ip().to_string().as_str()),
+        "the upstream that gave the negative answer is the one recorded"
+    );
+
+    server.stop().await.unwrap();
+}
+
+#[test]
+fn the_default_timings_leave_room_for_two_upstreams_under_a_stub_resolvers_patience() {
+    let cfg = DnsConfig::default();
+    assert!(
+        cfg.upstream_timeout_ms * 2 <= cfg.forward_deadline_ms,
+        "the deadline must fit at least two full upstream attempts"
+    );
+    assert!(
+        cfg.forward_deadline_ms < 5_000,
+        "the deadline must land inside a glibc stub resolver's ~5s patience"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1106,6 +1330,7 @@ async fn handle_query_tunnel_branch_records_upstream_error_when_forward_fails() 
         empty_device_snapshot(),
         tunnel_repo,
         stub_events(),
+        Arc::new(UpstreamHealth::new()),
     )
     .with_log_sink(Arc::clone(&sink));
 
@@ -1132,125 +1357,6 @@ async fn handle_query_tunnel_branch_records_upstream_error_when_forward_fails() 
     );
 
     server.stop().await.unwrap();
-}
-
-// ---------------------------------------------------------------------------
-// `build_resolver` — pure function; protocol mapping + Cloudflare fallback.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn build_resolver_with_udp_upstream_succeeds() {
-    let upstreams = vec![UpstreamDns {
-        name: "primary".into(),
-        address: "1.1.1.1".into(),
-        protocol: DnsProtocol::Udp,
-        port: None,
-        tls_server_name: None,
-    }];
-    let _ = crate::dns::server::build_resolver(
-        &upstreams,
-        false,
-        ServerOrderingStrategy::QueryStatistics,
-    );
-}
-
-#[test]
-fn build_resolver_with_tcp_upstream_succeeds() {
-    let upstreams = vec![UpstreamDns {
-        name: "primary".into(),
-        address: "1.1.1.1".into(),
-        protocol: DnsProtocol::Tcp,
-        port: Some(53),
-        tls_server_name: None,
-    }];
-    let _ = crate::dns::server::build_resolver(
-        &upstreams,
-        false,
-        ServerOrderingStrategy::QueryStatistics,
-    );
-}
-
-#[test]
-fn build_resolver_builds_dot_and_doh_with_sni() {
-    // Encrypted upstreams with a TLS server name exercise the Tls + Https
-    // branches (ConnectionConfig::tls/https) and the port-default arm.
-    let upstreams = vec![
-        UpstreamDns {
-            name: "tls".into(),
-            address: "1.1.1.1".into(),
-            protocol: DnsProtocol::Tls,
-            port: None,
-            tls_server_name: Some("cloudflare-dns.com".into()),
-        },
-        UpstreamDns {
-            name: "https".into(),
-            address: "1.1.1.1".into(),
-            protocol: DnsProtocol::Https,
-            port: None,
-            tls_server_name: Some("cloudflare-dns.com".into()),
-        },
-    ];
-    let _ = crate::dns::server::build_resolver(
-        &upstreams,
-        false,
-        ServerOrderingStrategy::QueryStatistics,
-    );
-}
-
-#[test]
-fn build_resolver_skips_encrypted_upstream_without_sni() {
-    // An encrypted upstream missing its SNI is skipped (not downgraded to
-    // plaintext); with no other servers the builder falls back to
-    // Cloudflare rather than returning an empty config.
-    let upstreams = vec![UpstreamDns {
-        name: "tls-no-sni".into(),
-        address: "1.1.1.1".into(),
-        protocol: DnsProtocol::Tls,
-        port: None,
-        tls_server_name: None,
-    }];
-    let _ = crate::dns::server::build_resolver(
-        &upstreams,
-        false,
-        ServerOrderingStrategy::QueryStatistics,
-    );
-}
-
-#[test]
-fn build_resolver_enables_dnssec_validation() {
-    // Smoke: the dnssec_enabled flag flows into ResolverOpts.validate
-    // without panicking the builder.
-    let upstreams = vec![UpstreamDns {
-        name: "primary".into(),
-        address: "1.1.1.1".into(),
-        protocol: DnsProtocol::Udp,
-        port: None,
-        tls_server_name: None,
-    }];
-    let _ = crate::dns::server::build_resolver(
-        &upstreams,
-        true,
-        ServerOrderingStrategy::QueryStatistics,
-    );
-}
-
-#[test]
-fn build_resolver_skips_invalid_ip_addresses() {
-    // The macro-driven config can hold malformed entries (user input). The
-    // resolver builder must skip them, and when ALL entries are invalid
-    // it falls back to Cloudflare instead of returning an empty config.
-    let upstreams = vec![UpstreamDns {
-        name: "bad".into(),
-        address: "not-an-ip".into(),
-        protocol: DnsProtocol::Udp,
-        port: None,
-        tls_server_name: None,
-    }];
-    let _ = crate::dns::server::build_resolver(
-        &upstreams,
-        false,
-        ServerOrderingStrategy::QueryStatistics,
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1594,6 +1700,7 @@ async fn dns_filter_rebuilt_event_flushes_response_cache() {
         empty_device_snapshot(),
         stub_tunnel_repo(),
         bus.clone(),
+        Arc::new(UpstreamHealth::new()),
     );
     server.start().await.unwrap();
     let bound = server.local_addr().expect("server bound");
@@ -2437,11 +2544,7 @@ async fn recursor_unavailable_falls_back_to_forwarding_when_upstreams_set() {
     // Recursor absent (None) → the fallback branch runs. With upstreams
     // configured, it must forward via the resolver, not SERVFAIL.
     let recursor = Arc::new(RwLock::new(None));
-    let resolver = Arc::new(RwLock::new(build_resolver(
-        &upstreams,
-        false,
-        ServerOrderingStrategy::QueryStatistics,
-    )));
+    let pool = test_pool(&upstreams);
     let config = Arc::new(RwLock::new(DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         upstream_servers: upstreams,
@@ -2454,7 +2557,7 @@ async fn recursor_unavailable_falls_back_to_forwarding_when_upstreams_set() {
 
     resolve_via_recursor(
         &recursor,
-        &resolver,
+        &pool,
         &socket,
         &config,
         &cache,
@@ -2497,11 +2600,7 @@ async fn recursor_unavailable_servfails_when_no_upstreams() {
     // Recursor absent AND no upstreams configured (pure recursive) → the
     // server must SERVFAIL rather than leak to a default public resolver.
     let recursor = Arc::new(RwLock::new(None));
-    let resolver = Arc::new(RwLock::new(build_resolver(
-        &[],
-        false,
-        ServerOrderingStrategy::QueryStatistics,
-    )));
+    let pool = test_pool(&[]);
     let config = Arc::new(RwLock::new(DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         upstream_servers: vec![],
@@ -2514,7 +2613,7 @@ async fn recursor_unavailable_servfails_when_no_upstreams() {
 
     resolve_via_recursor(
         &recursor,
-        &resolver,
+        &pool,
         &socket,
         &config,
         &cache,
@@ -2601,11 +2700,7 @@ async fn run_recursor_outcome(
 
     let upstream_addr = spawn_stub_upstream().await;
     let upstreams = vec![udp_upstream(upstream_addr)];
-    let resolver = Arc::new(RwLock::new(build_resolver(
-        &upstreams,
-        false,
-        ServerOrderingStrategy::QueryStatistics,
-    )));
+    let pool = test_pool(&upstreams);
     let mut cfg = DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         upstream_servers: upstreams,
@@ -2620,7 +2715,7 @@ async fn run_recursor_outcome(
 
     handle_recursor_outcome(
         outcome,
-        &resolver,
+        &pool,
         &socket,
         &config,
         &cache,
@@ -2855,11 +2950,7 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
     use hickory_proto::serialize::binary::BinDecodable;
 
     let recursor = Arc::new(RwLock::new(None));
-    let resolver = Arc::new(RwLock::new(build_resolver(
-        &[],
-        false,
-        ServerOrderingStrategy::QueryStatistics,
-    )));
+    let pool = test_pool(&[]);
     let config = Arc::new(RwLock::new(DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         ..DnsConfig::default()
@@ -2875,7 +2966,7 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
 
     resolve_via_recursor(
         &recursor,
-        &resolver,
+        &pool,
         &socket,
         &config,
         &cache,
@@ -2903,10 +2994,7 @@ async fn resolve_via_recursor_servfails_on_empty_query() {
     assert_eq!(response.metadata.response_code, ResponseCode::ServFail);
 }
 
-// ---------------------------------------------------------------------------
-// effective_upstreams — failover/fastest keep the full pool; single yields one.
-// ---------------------------------------------------------------------------
-
+// Shared upstream builder for the probe/latency tests below.
 fn named_udp_upstream(address: &str, name: &str) -> UpstreamDns {
     UpstreamDns {
         address: address.to_owned(),
@@ -2915,92 +3003,6 @@ fn named_udp_upstream(address: &str, name: &str) -> UpstreamDns {
         port: None,
         tls_server_name: None,
     }
-}
-
-#[test]
-fn effective_upstreams_non_single_modes_keep_full_pool() {
-    use wardnet_common::dns::ForwarderSelectionMode;
-    for mode in [
-        ForwarderSelectionMode::Failover,
-        ForwarderSelectionMode::Fastest,
-    ] {
-        let cfg = DnsConfig {
-            upstream_servers: vec![
-                named_udp_upstream("1.1.1.1", "CF"),
-                named_udp_upstream("8.8.8.8", "G"),
-            ],
-            forwarder_selection_mode: mode,
-            single_upstream: None,
-            ..DnsConfig::default()
-        };
-        let result = effective_upstreams(&cfg);
-        assert_eq!(result.len(), 2, "{mode:?} keeps every upstream in the pool");
-    }
-}
-
-#[test]
-fn effective_upstreams_single_yields_only_selected() {
-    use wardnet_common::dns::ForwarderSelectionMode;
-    let cfg = DnsConfig {
-        upstream_servers: vec![
-            named_udp_upstream("1.1.1.1", "CF"),
-            named_udp_upstream("8.8.8.8", "G"),
-            named_udp_upstream("9.9.9.9", "Q9"),
-        ],
-        forwarder_selection_mode: ForwarderSelectionMode::Single,
-        single_upstream: Some("8.8.8.8".to_owned()),
-        ..DnsConfig::default()
-    };
-    let result = effective_upstreams(&cfg);
-    assert_eq!(result.len(), 1, "single yields exactly the chosen server");
-    assert_eq!(result[0].address, "8.8.8.8");
-}
-
-#[test]
-fn effective_upstreams_single_missing_address_falls_back_to_full_pool() {
-    // Should be prevented by API validation, but if the chosen address is not
-    // in the list we degrade to the full configured pool (NOT an empty set,
-    // which would make build_resolver route everything to hard-coded
-    // Cloudflare — a privacy regression).
-    use wardnet_common::dns::ForwarderSelectionMode;
-    let cfg = DnsConfig {
-        upstream_servers: vec![
-            named_udp_upstream("1.1.1.1", "CF"),
-            named_udp_upstream("8.8.8.8", "G"),
-        ],
-        forwarder_selection_mode: ForwarderSelectionMode::Single,
-        single_upstream: Some("9.9.9.9".to_owned()),
-        ..DnsConfig::default()
-    };
-    let result = effective_upstreams(&cfg);
-    assert_eq!(
-        result.len(),
-        2,
-        "orphaned selection degrades to the full pool"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// forwarder_ordering — mode → hickory name-server ordering strategy.
-// ---------------------------------------------------------------------------
-
-#[test]
-fn forwarder_ordering_maps_modes_to_strategies() {
-    use hickory_resolver::config::ServerOrderingStrategy;
-    use wardnet_common::dns::ForwarderSelectionMode;
-    // Failover honors the user's list order; the other two don't care.
-    assert_eq!(
-        forwarder_ordering(ForwarderSelectionMode::Failover),
-        ServerOrderingStrategy::UserProvidedOrder
-    );
-    assert_eq!(
-        forwarder_ordering(ForwarderSelectionMode::Fastest),
-        ServerOrderingStrategy::QueryStatistics
-    );
-    assert_eq!(
-        forwarder_ordering(ForwarderSelectionMode::Single),
-        ServerOrderingStrategy::QueryStatistics
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -3182,15 +3184,22 @@ async fn prober_inactive_clears_snapshot_and_sends_no_probe() {
         upstream_servers: vec![named_udp_upstream("127.0.0.1", "loopback")],
         ..DnsConfig::default()
     }));
-    let snapshot = Arc::new(ArcSwap::from_pointee(vec![
-        wardnet_common::dns::UpstreamLatency {
-            address: "stale".to_owned(),
-            avg_latency_ms: Some(9.0),
-            reachable: true,
-        },
-    ]));
+    let health = Arc::new(UpstreamHealth::new());
+    health.publish(vec![wardnet_common::dns::UpstreamLatency {
+        address: "stale".to_owned(),
+        avg_latency_ms: Some(9.0),
+        reachable: true,
+    }]);
+    let pool = Arc::new(ArcSwap::from_pointee(UpstreamPool::build(
+        &config.read().await.clone(),
+    )));
     let cancel = tokio_util::sync::CancellationToken::new();
-    spawn_upstream_latency_prober(Arc::clone(&config), Arc::clone(&snapshot), cancel.clone());
+    spawn_upstream_latency_prober(
+        Arc::clone(&config),
+        Arc::clone(&health),
+        Arc::clone(&pool),
+        cancel.clone(),
+    );
 
     // Let the spawned task register its interval timer before advancing, then
     // step time forward until the (deferred) first tick fires and the gating
@@ -3200,7 +3209,7 @@ async fn prober_inactive_clears_snapshot_and_sends_no_probe() {
     for _ in 0..60 {
         tokio::time::advance(LATENCY_PROBE_INTERVAL).await;
         tokio::task::yield_now().await;
-        if snapshot.load().is_empty() {
+        if health.snapshot().is_empty() {
             cleared = true;
             break;
         }
@@ -3220,10 +3229,17 @@ async fn prober_active_publishes_snapshot_for_each_upstream() {
         upstream_servers: vec![named_udp_upstream("127.0.0.1", "loopback")],
         ..DnsConfig::default()
     }));
-    let snapshot: Arc<ArcSwap<Vec<wardnet_common::dns::UpstreamLatency>>> =
-        Arc::new(ArcSwap::from_pointee(Vec::new()));
+    let health = Arc::new(UpstreamHealth::new());
+    let pool = Arc::new(ArcSwap::from_pointee(UpstreamPool::build(
+        &config.read().await.clone(),
+    )));
     let cancel = tokio_util::sync::CancellationToken::new();
-    spawn_upstream_latency_prober(Arc::clone(&config), Arc::clone(&snapshot), cancel.clone());
+    spawn_upstream_latency_prober(
+        Arc::clone(&config),
+        Arc::clone(&health),
+        Arc::clone(&pool),
+        cancel.clone(),
+    );
 
     tokio::time::advance(LATENCY_PROBE_INTERVAL).await;
     // Let the probe round run; advance past the per-probe timeout so any
@@ -3231,7 +3247,7 @@ async fn prober_active_publishes_snapshot_for_each_upstream() {
     let mut populated = false;
     for _ in 0..40 {
         tokio::task::yield_now().await;
-        if !snapshot.load().is_empty() {
+        if !health.snapshot().is_empty() {
             populated = true;
             break;
         }
@@ -3241,7 +3257,7 @@ async fn prober_active_publishes_snapshot_for_each_upstream() {
         populated,
         "active prober publishes a snapshot after the first tick"
     );
-    let snap = snapshot.load();
+    let snap = health.snapshot();
     assert_eq!(snap.len(), 1);
     assert_eq!(snap[0].address, "127.0.0.1");
     cancel.cancel();
@@ -3383,11 +3399,7 @@ async fn resolved_answer_notifies_routing_profile_for_attributed_device() {
 
     let upstream_addr = spawn_stub_upstream().await;
     let upstreams = vec![udp_upstream(upstream_addr)];
-    let resolver = Arc::new(RwLock::new(build_resolver(
-        &upstreams,
-        false,
-        ServerOrderingStrategy::QueryStatistics,
-    )));
+    let pool = test_pool(&upstreams);
     let config = Arc::new(RwLock::new(DnsConfig {
         resolution_mode: DnsResolutionMode::Recursive,
         upstream_servers: upstreams,
@@ -3403,7 +3415,7 @@ async fn resolved_answer_notifies_routing_profile_for_attributed_device() {
 
     handle_recursor_outcome(
         Some(Ok(answer)),
-        &resolver,
+        &pool,
         &socket,
         &config,
         &cache,

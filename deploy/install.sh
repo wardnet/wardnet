@@ -714,6 +714,7 @@ if [[ -z "$CONTAINER_MODE" ]]; then
         /etc/sysctl.d/99-wardnet.conf
         /etc/dhcpcd.conf.d/wardnet.conf
         /etc/modules-load.d/wardnet-watchdog.conf
+        /etc/systemd/journald.conf.d/wardnet.conf
     )
 fi
 
@@ -907,6 +908,37 @@ if [[ -z "$CONTAINER_MODE" ]]; then
         || echo 1 > /proc/sys/net/ipv4/ip_forward 2>/dev/null \
         || true
     echo "Enabled IP forwarding (net.ipv4.ip_forward=1); persisted in /etc/sysctl.d/99-wardnet.conf"
+fi
+
+# 6b. Journal retention. Raspberry Pi OS ships journald volatile and small —
+#     8MB in tmpfs, gone on reboot — which meant the logs for the DNS upstream
+#     outage in #1199 had already rotated away before anyone went looking, and
+#     the whole diagnosis had to be reconstructed from `dns_query_log`. A
+#     gateway whose logs do not outlive the incident cannot be debugged.
+#
+#     Written only when absent, like wardnet.toml, so an operator who has
+#     retuned these keeps their values across upgrades. The cap is deliberate:
+#     persistent journals write to the SD card, so this trades a bounded amount
+#     of card wear for being able to answer "when did this start".
+if [[ -z "$CONTAINER_MODE" && ! -f /etc/systemd/journald.conf.d/wardnet.conf ]]; then
+    install -d -m 0755 /etc/systemd/journald.conf.d
+    cat > /etc/systemd/journald.conf.d/wardnet.conf <<'EOF'
+# Managed by Wardnet install.sh — written once, never rewritten on upgrade.
+# Tune freely; delete the file to fall back to the system defaults.
+[Journal]
+# Survive reboots: the default volatile journal lives in tmpfs, so a crash or
+# a watchdog reboot destroys exactly the logs that would explain it.
+Storage=persistent
+# Bounded so a log flood cannot fill the card the database lives on.
+SystemMaxUse=200M
+SystemMaxFileSize=20M
+RuntimeMaxUse=32M
+# Long enough to cover an incident noticed days later.
+MaxRetentionSec=1month
+EOF
+    chmod 0644 /etc/systemd/journald.conf.d/wardnet.conf
+    systemctl restart systemd-journald 2>/dev/null || true
+    echo "Wrote /etc/systemd/journald.conf.d/wardnet.conf (persistent journal, 200M cap)"
 fi
 
 if [[ -z "$CONTAINER_MODE" ]]; then

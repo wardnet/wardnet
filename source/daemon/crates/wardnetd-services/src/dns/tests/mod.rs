@@ -6,6 +6,7 @@ mod filter_parser;
 mod log_sink;
 mod query_log_runner;
 mod service;
+mod upstream_health;
 
 use wardnet_common::auth::AuthContext;
 

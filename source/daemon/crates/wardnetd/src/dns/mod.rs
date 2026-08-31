@@ -4,6 +4,7 @@ pub mod reply_capture;
 pub mod server;
 
 mod rate_limit;
+pub mod upstream_pool;
 
 // The bench seam (issue: DNS pipeline criterion benches). Compiled only under
 // the `bench-internals` feature — never in a production build, and NOT under a

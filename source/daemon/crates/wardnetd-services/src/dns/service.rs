@@ -19,8 +19,8 @@ use wardnet_common::api::{
     ListQueryLogResponse, QueryLogEvent, ToggleDnsRequest, UpdateDnsConfigRequest,
 };
 use wardnet_common::dns::{
-    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode,
-    ForwarderSelectionMode, UpstreamDns,
+    DEFAULT_FORWARD_DEADLINE_MS, DEFAULT_UPSTREAM_TIMEOUT_MS, DnsConfig, DnsProtocol,
+    DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode, ForwarderSelectionMode, UpstreamDns,
 };
 use wardnet_common::event::WardnetEvent;
 
@@ -34,6 +34,18 @@ use wardnetd_data::repository::{
 
 pub const QUERY_LOG_MAX_LIMIT: u32 = 500;
 pub const QUERY_LOG_DEFAULT_LIMIT: u32 = 50;
+/// Bounds for [`DnsConfig::upstream_timeout_ms`]. The floor keeps an admin
+/// from setting a deadline no real upstream can meet (which would SERVFAIL
+/// every query); the ceiling keeps one rung of the ladder from outlasting a
+/// client stub's patience on its own.
+pub const UPSTREAM_TIMEOUT_MIN_MS: u32 = 100;
+pub const UPSTREAM_TIMEOUT_MAX_MS: u32 = 10_000;
+/// Bounds for [`DnsConfig::forward_deadline_ms`]. The ceiling is deliberately
+/// above a stub resolver's ~5s patience: an admin debugging a slow link may
+/// want to see the answer arrive even though no client is still waiting for
+/// it, and the query log records it either way.
+pub const FORWARD_DEADLINE_MIN_MS: u32 = 200;
+pub const FORWARD_DEADLINE_MAX_MS: u32 = 15_000;
 pub const QUERY_LOG_RETENTION_MIN_DAYS: u32 = 1;
 pub const QUERY_LOG_RETENTION_MAX_DAYS: u32 = 30;
 
@@ -136,6 +148,14 @@ impl DnsServiceImpl {
             .unwrap_or_else(|| "true".to_owned())
             == "true";
         let rate_limit_per_second = Self::parse_u32(get("dns_rate_limit_per_second").await?, 0)?;
+        let upstream_timeout_ms = Self::parse_u32(
+            get("dns_upstream_timeout_ms").await?,
+            DEFAULT_UPSTREAM_TIMEOUT_MS,
+        )?;
+        let forward_deadline_ms = Self::parse_u32(
+            get("dns_forward_deadline_ms").await?,
+            DEFAULT_FORWARD_DEADLINE_MS,
+        )?;
         let dns_filtering_enabled = get("dns_filtering_enabled")
             .await?
             .unwrap_or_else(|| "true".to_owned())
@@ -171,6 +191,8 @@ impl DnsServiceImpl {
             dnssec_enabled,
             rebinding_protection,
             rate_limit_per_second,
+            upstream_timeout_ms,
+            forward_deadline_ms,
             dns_filtering_enabled,
             query_log_enabled,
             query_log_retention_days,
@@ -188,6 +210,35 @@ impl DnsServiceImpl {
             timestamp: chrono::Utc::now(),
         });
     }
+}
+
+/// Validate the forwarding timings an update results in.
+///
+/// Pure so the rules can be unit-tested without a repository. Beyond the
+/// independent ranges, the pair has to be ordered: a per-upstream timeout
+/// larger than the whole-query deadline means the first upstream can consume
+/// the entire budget, so the ladder would never reach a second one and
+/// failover would exist only on paper.
+pub(crate) fn validate_forward_timings(
+    upstream_timeout_ms: u32,
+    forward_deadline_ms: u32,
+) -> Result<(), String> {
+    if !(UPSTREAM_TIMEOUT_MIN_MS..=UPSTREAM_TIMEOUT_MAX_MS).contains(&upstream_timeout_ms) {
+        return Err(format!(
+            "upstream_timeout_ms must be between {UPSTREAM_TIMEOUT_MIN_MS} and {UPSTREAM_TIMEOUT_MAX_MS}"
+        ));
+    }
+    if !(FORWARD_DEADLINE_MIN_MS..=FORWARD_DEADLINE_MAX_MS).contains(&forward_deadline_ms) {
+        return Err(format!(
+            "forward_deadline_ms must be between {FORWARD_DEADLINE_MIN_MS} and {FORWARD_DEADLINE_MAX_MS}"
+        ));
+    }
+    if upstream_timeout_ms > forward_deadline_ms {
+        return Err(format!(
+            "upstream_timeout_ms ({upstream_timeout_ms}) must not exceed forward_deadline_ms ({forward_deadline_ms})"
+        ));
+    }
+    Ok(())
 }
 
 /// Resolve the forwarder selection (mode + single-server address) an update
@@ -244,6 +295,21 @@ impl DnsService for DnsServiceImpl {
             return Err(AppError::BadRequest(format!(
                 "query_log_retention_days must be between {QUERY_LOG_RETENTION_MIN_DAYS} and {QUERY_LOG_RETENTION_MAX_DAYS}"
             )));
+        }
+
+        // Forwarding timings. Both fields are independently optional, so the
+        // pair has to be validated as it will end up — a request that raises
+        // only the per-upstream timeout must still be checked against the
+        // persisted whole-query deadline.
+        if req.upstream_timeout_ms.is_some() || req.forward_deadline_ms.is_some() {
+            let current = self.load_config().await?;
+            validate_forward_timings(
+                req.upstream_timeout_ms
+                    .unwrap_or(current.upstream_timeout_ms),
+                req.forward_deadline_ms
+                    .unwrap_or(current.forward_deadline_ms),
+            )
+            .map_err(AppError::BadRequest)?;
         }
 
         // ---- Validation phase ----
@@ -383,6 +449,18 @@ impl DnsService for DnsServiceImpl {
         if let Some(v) = req.rate_limit_per_second {
             self.system_config
                 .set("dns_rate_limit_per_second", &v.to_string())
+                .await
+                .map_err(AppError::Internal)?;
+        }
+        if let Some(v) = req.upstream_timeout_ms {
+            self.system_config
+                .set("dns_upstream_timeout_ms", &v.to_string())
+                .await
+                .map_err(AppError::Internal)?;
+        }
+        if let Some(v) = req.forward_deadline_ms {
+            self.system_config
+                .set("dns_forward_deadline_ms", &v.to_string())
                 .await
                 .map_err(AppError::Internal)?;
         }
