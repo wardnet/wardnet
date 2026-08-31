@@ -42,6 +42,18 @@ you're about to make, rather than the whole set.
   event-driven rebuild on `DnsLocalChanged`, and why background runners
   (including `DnsRunner`) call `DnsLocalService` rather than holding
   `dns_local_repo` directly.
+- **[DNS forwarding ladder](.agents/architecture.md#dns-forwarding-ladder-issue-1199)** —
+  why the default forwarder walks its own ladder of single-server resolvers
+  instead of one multi-server hickory resolver (which races
+  `num_concurrent_reqs = 2` servers regardless of `ServerOrderingStrategy`, so
+  "Failover (in order)" queried two providers at once and no honest
+  `dns_query_log.upstream` was possible); `UpstreamPool`'s `all` vs `serving`
+  split and how the latency prober's `reachable` flag became load-bearing;
+  the explicit bounds (`upstream_timeout_ms` per rung, `forward_deadline_ms`
+  overall, `attempts = 0`) that replaced hickory's inherited 20-30s worst case.
+  Invariants: **a negative answer is terminal** (never fail over on
+  NXDOMAIN/NODATA), an **unmeasured** upstream is not a down one, and an
+  exhausted ladder blames **no** upstream.
 - **[DDNS subsystem](.agents/architecture.md#ddns-subsystem-issue-527--521-umbrella)** —
   `DnsProvider` trait (bridge + Cloudflare impls), `DdnsService` (auth-gated, stores config in
   `system_config` and secrets in `SecretStore`), `DdnsUpdateRunner` (idle-until-configured 5-min

@@ -73,6 +73,9 @@ pub enum AnomalyType {
     RouteTableLost,
     /// A blocklist has failed to refresh often enough to be considered stale.
     BlocklistRefreshFailing,
+    /// An upstream DNS server has stopped answering the reachability prober,
+    /// so the forwarder has taken it out of rotation.
+    DnsUpstreamUnreachable,
 }
 
 impl AnomalyType {
@@ -84,6 +87,7 @@ impl AnomalyType {
         Self::DhcpConflict,
         Self::RouteTableLost,
         Self::BlocklistRefreshFailing,
+        Self::DnsUpstreamUnreachable,
     ];
 
     /// Stable `snake_case` identifier. This is the wire form: it is the
@@ -98,6 +102,7 @@ impl AnomalyType {
             Self::DhcpConflict => "dhcp_conflict",
             Self::RouteTableLost => "route_table_lost",
             Self::BlocklistRefreshFailing => "blocklist_refresh_failing",
+            Self::DnsUpstreamUnreachable => "dns_upstream_unreachable",
         }
     }
 
@@ -122,7 +127,9 @@ impl AnomalyType {
             | Self::UpdateFailed
             | Self::RouteTableLost
             | Self::BlocklistRefreshFailing => AnomalySeverity::Error,
-            Self::TunnelUnhealthy | Self::DhcpConflict => AnomalySeverity::Warning,
+            Self::TunnelUnhealthy | Self::DhcpConflict | Self::DnsUpstreamUnreachable => {
+                AnomalySeverity::Warning
+            }
         }
     }
 
@@ -134,7 +141,7 @@ impl AnomalyType {
             Self::UpdateFailed => "update",
             Self::DhcpConflict => "dhcp",
             Self::RouteTableLost => "routing",
-            Self::BlocklistRefreshFailing => "dns",
+            Self::BlocklistRefreshFailing | Self::DnsUpstreamUnreachable => "dns",
         }
     }
 
@@ -153,6 +160,7 @@ impl AnomalyType {
             Self::DhcpConflict => "/dhcp",
             Self::RouteTableLost => "/routing",
             Self::BlocklistRefreshFailing => "/dns/filter",
+            Self::DnsUpstreamUnreachable => "/dns",
         }
     }
 
@@ -188,6 +196,12 @@ impl AnomalyType {
                 "The list is still enforcing its last good download, but it is going \
                  stale. Check the URL is still valid and reachable from the gateway, \
                  then refresh it from Ad Blocking."
+            }
+            Self::DnsUpstreamUnreachable => {
+                "This server has stopped answering, so queries are going to the other \
+                 upstreams instead. If the rest of your internet is fine, the provider \
+                 is likely having an outage - Wardnet will start using it again on its \
+                 own once it responds."
             }
         }
     }

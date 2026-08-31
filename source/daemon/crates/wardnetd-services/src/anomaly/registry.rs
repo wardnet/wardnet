@@ -6,9 +6,10 @@ use wardnet_common::anomaly::AnomalyType;
 
 use crate::anomaly::detector::AnomalyDetector;
 use crate::anomaly::detectors::{
-    BlocklistRefreshFailingDetector, TransientDetector, TunnelStartFailedDetector,
-    TunnelUnhealthyDetector, UpdateFailedDetector,
+    BlocklistRefreshFailingDetector, DnsUpstreamUnreachableDetector, TransientDetector,
+    TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
 };
+use crate::dns::UpstreamHealth;
 use crate::dns_filter::DnsFilterService;
 use crate::tunnel::TunnelService;
 
@@ -21,6 +22,11 @@ pub type EnabledDetectors = HashMap<String, bool>;
 /// rule background runners follow.
 pub struct DetectorDeps {
     pub dns_filter: Arc<dyn DnsFilterService>,
+    /// Per-upstream reachability, published by the DNS server's latency
+    /// prober. A handle rather than the server itself: the registry is built
+    /// during service wiring, before the daemon binary constructs the DNS
+    /// server (see [`UpstreamHealth`]).
+    pub upstream_health: Arc<UpstreamHealth>,
     pub tunnel: Arc<dyn TunnelService>,
     /// The running release, for `UpdateFailed`'s target comparison.
     pub running_version: String,
@@ -51,6 +57,11 @@ impl AnomalyDetectorRegistry {
         if Self::is_enabled(enabled, AnomalyType::BlocklistRefreshFailing) {
             registry.register(Arc::new(BlocklistRefreshFailingDetector::new(
                 deps.dns_filter.clone(),
+            )));
+        }
+        if Self::is_enabled(enabled, AnomalyType::DnsUpstreamUnreachable) {
+            registry.register(Arc::new(DnsUpstreamUnreachableDetector::new(
+                deps.upstream_health.clone(),
             )));
         }
         if Self::is_enabled(enabled, AnomalyType::TunnelStartFailed) {

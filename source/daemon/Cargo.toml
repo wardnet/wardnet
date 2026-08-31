@@ -19,7 +19,7 @@ resolver = "3"
 [workspace.package]
 version = "0.8.0"
 edition = "2024"
-rust-version = "1.96"
+rust-version = "1.98"
 # GPL-3.0-or-later, not MIT: the daemon links `rustables` (GPL-3.0-or-later,
 # never published under any other license), and Rust links statically — so the
 # compiled binary is a combined work GPL-3.0's terms extend to. The SDK and web
@@ -195,7 +195,7 @@ futures = "0.3"
 # https://crates.io/crates/tokio-stream — ReceiverStream adapter used by SSE handlers
 tokio-stream = { version = "0.1", features = ["sync"] }
 # https://crates.io/crates/cron
-cron = "0.16"
+cron = "0.17"
 
 # https://crates.io/crates/criterion — benchmark harness (dev-only). We disable
 # default features (plotters/gnuplot/rayon) and keep only cargo_bench_support:
@@ -285,7 +285,7 @@ cms = { version = "0.2.3", default-features = false, features = ["std", "alloc"]
 x509-cert = { version = "0.2", features = ["pem"] }
 # https://crates.io/crates/p256 — sign the CMS SignerInfo with the leaf's
 # ECDSA P-256 key (rcgen generates a P-256 leaf), matching the cert's algorithm.
-p256 = { version = "0.13", features = ["ecdsa", "pem", "pkcs8"] }
+p256 = { version = "0.14", features = ["ecdsa", "pem", "pkcs8"] }
 # https://crates.io/crates/der — encode the `.mobileconfig` bytes as the CMS
 # encapsulated content (OctetString → Any).
 der = { version = "0.7", features = ["oid"] }

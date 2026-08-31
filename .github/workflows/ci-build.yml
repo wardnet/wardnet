@@ -1,0 +1,121 @@
+# ci-build — this file is yours.
+#
+# gt created it once and will never modify or delete it again.
+#
+# The six build leaves that used to hang off pr.yml (and ci.yml) live here
+# now, unchanged: each still calls the same reusable workflow with the same
+# permissions and the same per-area gate. Only the caller moved.
+#
+# `detect` re-runs the paths filter because the orchestrator passes nothing to
+# a stage — see the note in ci-preflight.yml. ci-preflight has already decided
+# whether this stage runs at all; this decides which leaves inside it do.
+name: ci-build
+
+on:
+  workflow_call:
+
+# Workflow-level stays read-only. Each leaf elevates to the writes it actually
+# needs in its own block, which is what Scorecard's Token-Permissions check
+# rewards — and a called workflow can only narrow, so the elevation has to be
+# granted above by ci-orchestration's stage permissions.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  detect:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      daemon: ${{ steps.detect.outputs.daemon }}
+      site: ${{ steps.detect.outputs.site }}
+      admin-web: ${{ steps.detect.outputs.admin-web }}
+      admin-app: ${{ steps.detect.outputs.admin-app }}
+      user-app: ${{ steps.detect.outputs.user-app }}
+      go: ${{ steps.detect.outputs.go }}
+      ci: ${{ steps.detect.outputs.ci }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: ./.github/actions/detect-changes
+        id: detect
+
+  build-daemon:
+    name: Build Daemon
+    needs: detect
+    if: needs.detect.outputs.daemon == 'true' || needs.detect.outputs.ci == 'true'
+    # build-daemon.yml's `check-daemon` job uploads clippy SARIF to Code
+    # Scanning — it needs `security-events: write` granted by the caller. That
+    # reaches here from pipeline.ci.stage_permissions.build in .gt-repo.yaml,
+    # because a called workflow can only narrow what it is given. Without it
+    # the upload does not fail the job; it silently stops publishing, which is
+    # why it is granted rather than dropped.
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+      # build-web reads @wardnet/* from GitHub Packages.
+      packages: read
+    uses: ./.github/workflows/build-daemon.yml
+    secrets: inherit
+
+  build-go:
+    name: Build Go
+    needs: detect
+    if: needs.detect.outputs.go == 'true' || needs.detect.outputs.ci == 'true'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/build-go.yml
+    secrets: inherit
+
+  build-site:
+    name: Build Site
+    needs: detect
+    if: needs.detect.outputs.site == 'true' || needs.detect.outputs.ci == 'true'
+    # Read @wardnet/{brand,styles} from GitHub Packages during yarn install.
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/build-site.yml
+    secrets: inherit
+
+  build-admin-web:
+    name: Build Admin Web
+    needs: detect
+    if: needs.detect.outputs['admin-web'] == 'true' || needs.detect.outputs.ci == 'true'
+    # Read @wardnet/{ui,styles,brand} from GitHub Packages during yarn install.
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/build-admin-web.yml
+    secrets: inherit
+
+  build-admin-app:
+    name: Build Admin App
+    needs: detect
+    if: needs.detect.outputs['admin-app'] == 'true' || needs.detect.outputs.ci == 'true'
+    # Read @wardnet/{ui,styles,brand} from GitHub Packages during yarn install.
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/build-admin-app.yml
+    secrets: inherit
+
+  build-user-app:
+    name: Build User App
+    needs: detect
+    if: needs.detect.outputs['user-app'] == 'true' || needs.detect.outputs.ci == 'true'
+    # Read @wardnet/{ui,styles,brand} from GitHub Packages during yarn install.
+    permissions:
+      contents: read
+      packages: read
+    uses: ./.github/workflows/build-user-app.yml
+    secrets: inherit

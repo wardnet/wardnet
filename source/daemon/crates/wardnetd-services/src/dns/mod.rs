@@ -10,6 +10,7 @@ pub mod response;
 pub mod runner;
 pub mod server;
 pub mod service;
+pub mod upstream_health;
 
 pub use authoritative::AuthoritativeView;
 pub use cache::DnsCache;
@@ -21,6 +22,7 @@ pub use response::classify_response;
 pub use runner::DnsRunner;
 pub use server::{DnsServer, DnsSocket};
 pub use service::{DnsService, DnsServiceImpl};
+pub use upstream_health::UpstreamHealth;
 
 #[cfg(test)]
 mod tests;

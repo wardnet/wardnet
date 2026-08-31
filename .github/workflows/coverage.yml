@@ -2,7 +2,7 @@ name: Coverage
 
 # Reusable leaf for daemon + marketing-site + TS-frontend coverage.
 #
-# Called from pr.yml and ci.yml. Each coverage job (daemon / site /
+# Called from ci-test.yml, the gt test stage. Each coverage job (daemon / site /
 # frontend) is gated on a boolean input so the caller only spins up the
 # work its change set touches — a frontend-only PR skips the 30-min daemon
 # coverage, and vice versa. The parallel jobs each emit LCOV + JUnit.
@@ -53,13 +53,13 @@ on:
 # permission rules reject leaf > caller. This is the DEFAULT for jobs below
 # that don't declare their own `permissions:` block — the `bulwark` job
 # overrides it with contents:write/pull-requests:write (baseline caching +
-# PR summary comment), which requires the caller (pr.yml/ci.yml
+# PR summary comment), which requires the caller (ci-test.yml
 # `coverage:` job) to grant that same ceiling; every other job here stays
 # read-only.
 permissions:
   contents: read
   # site-coverage installs marketing-site, which pulls @wardnet/{brand,styles}
-  # from GitHub Packages. Granted by the caller job (pr.yml) and surfaced here
+  # from GitHub Packages. Granted by the caller job (ci-test.yml) and surfaced here
   # so the leaf doesn't restrict it back to none.
   packages: read
 
@@ -84,19 +84,19 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
-          toolchain: "1.96"
+          toolchain: "1.98"
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           workspaces: source/daemon
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.75.21
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.75.21
         with:
           tool: cargo-llvm-cov
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2.75.21
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2.75.21
         with:
           tool: cargo-nextest
 
@@ -284,7 +284,7 @@ jobs:
         # Both modules run in one job: they merge into a single "go" pool, and
         # recording half of it as if it were the whole is what poisoned the
         # typescript baseline once (see the run-site/run-frontend note in
-        # pr.yml).
+        # ci-test.yml).
         run: |
           set -euo pipefail
           for dir in source/wctl source/sdk/wardnet-go; do
@@ -460,7 +460,7 @@ jobs:
             done
           done
 
-      - uses: wardnet/bulwark@v1
+      - uses: wardnet/bulwark@v2
         with:
           # `dir` is the only input left that concerns coverage: it is the scan
           # root, and bulwark must know the root before it can read the

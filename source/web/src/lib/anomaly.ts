@@ -84,6 +84,10 @@ export function anomalySubjectLink(
 
 /** Human name for the area an anomaly's component maps to. */
 function areaLabel(anomaly: Anomaly): string {
+  // Upstream health is configured on the DNS page, not the ad-blocking one
+  // the rest of the `dns` component points at.
+  if (anomaly.type === "dns_upstream_unreachable") return "Open DNS";
+
   switch (anomaly.component) {
     case "tunnel":
       return "Open Tunnels";

@@ -1256,6 +1256,13 @@ pub struct UpdateDnsConfigRequest {
     pub rebinding_protection: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limit_per_second: Option<u32>,
+    /// Per-upstream answer deadline on the forwarding ladder, in
+    /// milliseconds. Must not exceed `forward_deadline_ms`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream_timeout_ms: Option<u32>,
+    /// Wall-clock ceiling on a whole forwarded query, in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forward_deadline_ms: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dns_filtering_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

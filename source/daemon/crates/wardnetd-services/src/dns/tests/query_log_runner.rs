@@ -98,6 +98,8 @@ impl DnsService for MockService {
             dnssec_enabled: false,
             rebinding_protection: false,
             rate_limit_per_second: 0,
+            upstream_timeout_ms: wardnet_common::dns::DEFAULT_UPSTREAM_TIMEOUT_MS,
+            forward_deadline_ms: wardnet_common::dns::DEFAULT_FORWARD_DEADLINE_MS,
             dns_filtering_enabled: false,
             query_log_enabled: self.query_log_enabled,
             query_log_retention_days: 7,

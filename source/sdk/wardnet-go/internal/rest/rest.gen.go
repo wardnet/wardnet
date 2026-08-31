@@ -124,6 +124,7 @@ func (e AnomalySeverity) Valid() bool {
 const (
 	BlocklistRefreshFailing AnomalyType = "blocklist_refresh_failing"
 	DhcpConflict            AnomalyType = "dhcp_conflict"
+	DnsUpstreamUnreachable  AnomalyType = "dns_upstream_unreachable"
 	RouteTableLost          AnomalyType = "route_table_lost"
 	TunnelStartFailed       AnomalyType = "tunnel_start_failed"
 	TunnelUnhealthy         AnomalyType = "tunnel_unhealthy"
@@ -136,6 +137,8 @@ func (e AnomalyType) Valid() bool {
 	case BlocklistRefreshFailing:
 		return true
 	case DhcpConflict:
+		return true
+	case DnsUpstreamUnreachable:
 		return true
 	case RouteTableLost:
 		return true
@@ -2670,6 +2673,15 @@ type DnsConfig struct {
 	DnssecEnabled       bool `json:"dnssec_enabled"`
 	Enabled             bool `json:"enabled"`
 
+	// ForwardDeadlineMs Wall-clock ceiling on a forwarded query, across every upstream tried.
+	//
+	// Once it expires the client gets SERVFAIL immediately rather than an
+	// answer it stopped waiting for. Keep it below the client stub
+	// resolver's own patience (~5s on glibc): an answer that arrives after
+	// the stub gave up is work done for nobody, and the stub's retry lands
+	// on our rate limiter.
+	ForwardDeadlineMs int32 `json:"forward_deadline_ms"`
+
 	// ForwarderSelectionMode How the configured upstreams are used on the forwarding path.
 	ForwarderSelectionMode ForwarderSelectionMode `json:"forwarder_selection_mode"`
 	QueryLogEnabled        bool                   `json:"query_log_enabled"`
@@ -2685,6 +2697,15 @@ type DnsConfig struct {
 	// always one of the `upstream_servers` addresses.
 	SingleUpstream  *string       `json:"single_upstream,omitempty"`
 	UpstreamServers []UpstreamDns `json:"upstream_servers"`
+
+	// UpstreamTimeoutMs How long a single upstream gets to answer before the forwarder moves
+	// on to the next one in the ladder.
+	//
+	// Bounds one rung, not the whole query — that is
+	// [`DnsConfig::forward_deadline_ms`]. Raise it on a link where a
+	// legitimate upstream round-trip is slow; every millisecond of it is
+	// time the client spends waiting on a server that may never answer.
+	UpstreamTimeoutMs int32 `json:"upstream_timeout_ms"`
 }
 
 // DnsConfigResponse Response for GET /api/dns/config.
@@ -4429,11 +4450,14 @@ type UpdateDhcpConfigRequest struct {
 
 // UpdateDnsConfigRequest Request body for PUT /api/dns/config.
 type UpdateDnsConfigRequest struct {
-	CacheSize              *int32                  `json:"cache_size,omitempty"`
-	CacheTtlMaxSecs        *int32                  `json:"cache_ttl_max_secs,omitempty"`
-	CacheTtlMinSecs        *int32                  `json:"cache_ttl_min_secs,omitempty"`
-	DnsFilteringEnabled    *bool                   `json:"dns_filtering_enabled,omitempty"`
-	DnssecEnabled          *bool                   `json:"dnssec_enabled,omitempty"`
+	CacheSize           *int32 `json:"cache_size,omitempty"`
+	CacheTtlMaxSecs     *int32 `json:"cache_ttl_max_secs,omitempty"`
+	CacheTtlMinSecs     *int32 `json:"cache_ttl_min_secs,omitempty"`
+	DnsFilteringEnabled *bool  `json:"dns_filtering_enabled,omitempty"`
+	DnssecEnabled       *bool  `json:"dnssec_enabled,omitempty"`
+
+	// ForwardDeadlineMs Wall-clock ceiling on a whole forwarded query, in milliseconds.
+	ForwardDeadlineMs      *int32                  `json:"forward_deadline_ms,omitempty"`
 	ForwarderSelectionMode *ForwarderSelectionMode `json:"forwarder_selection_mode,omitempty"`
 	QueryLogEnabled        *bool                   `json:"query_log_enabled,omitempty"`
 	QueryLogRetentionDays  *int32                  `json:"query_log_retention_days,omitempty"`
@@ -4446,6 +4470,10 @@ type UpdateDnsConfigRequest struct {
 	// modes. Omit to leave the current selection unchanged.
 	SingleUpstream  *string               `json:"single_upstream,omitempty"`
 	UpstreamServers *[]UpstreamDnsRequest `json:"upstream_servers,omitempty"`
+
+	// UpstreamTimeoutMs Per-upstream answer deadline on the forwarding ladder, in
+	// milliseconds. Must not exceed `forward_deadline_ms`.
+	UpstreamTimeoutMs *int32 `json:"upstream_timeout_ms,omitempty"`
 }
 
 // UpdateDnsFilterConfigRequest Request body for PUT /api/dns/filter/config.

@@ -2,8 +2,8 @@ name: Build Daemon
 
 # Reusable leaf for daemon lint + test + release builds.
 #
-# Callers: ci.yml (push to main), pr.yml (PRs), indirectly release.yml
-# (via pr.yml). Produces three artifacts with fixed names that
+# Callers: ci-build.yml (the gt build stage), and release.yml directly
+# . Produces three artifacts with fixed names that
 # downstream jobs and workflows download by reference:
 #
 #   - wardnetd-x86_64-unsigned   — stripped wardnetd binary, tarball
@@ -20,14 +20,15 @@ name: Build Daemon
 # ~3min of cross-compile time with zero consumers.
 
 on:
+  # No `ref` input. It let a caller build an arbitrary ref, and release-edge
+  # used it to build unmerged branches while dispatched FROM the default
+  # branch. Actions cache scopes follow github.ref, so that run executed
+  # unreviewed code holding the default branch's cache token — and the token is
+  # the capability, so no amount of `save-if: false` on our own cache steps
+  # takes it away. Edge builds now dispatch from the branch they build, which
+  # puts them in that branch's cache scope. See ADR-0023.
   workflow_call:
     inputs:
-      ref:
-        description: >
-          Git ref to build. Empty (default) builds the caller's ref. The edge
-          channel passes an arbitrary branch here, including unmerged ones.
-        type: string
-        default: ""
       version:
         description: >
           Pin WARDNET_VERSION to this value instead of deriving it from git.
@@ -54,7 +55,7 @@ permissions:
   contents: read
   # The build-web job installs the web apps, which pull
   # @wardnet/{ui,styles,brand} from GitHub Packages. Granted by the caller job
-  # (pr.yml/ci.yml/release.yml) and surfaced here so the leaf doesn't restrict
+  # (ci-build.yml/release.yml) and surfaced here so the leaf doesn't restrict
   # it back to none. (check-daemon overrides this block with its own scopes.)
   packages: read
 
@@ -80,8 +81,6 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          ref: ${{ inputs.ref }}
 
       - uses: ./.github/actions/setup-rust
         with:
@@ -91,7 +90,7 @@ jobs:
           shared-key: daemon-debug
 
       - name: Install clippy SARIF tooling
-        uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
+        uses: taiki-e/install-action@b6ff580856c41316412a0b9b60540fbc6f8c82cc # v2
         with:
           tool: clippy-sarif,sarif-fmt
 
@@ -106,8 +105,8 @@ jobs:
         # cargo fmt --check fails (runs before clippy), no SARIF exists;
         # hashFiles evaluates to empty and the upload is skipped.
         #
-        # `category` is pinned explicitly so main (caller = ci.yml) and
-        # PRs (caller = pr.yml) publish under the same identifier.
+        # `category` is pinned explicitly so a push to main and
+        # a pull request publish under the same identifier.
         # Without this, upload-sarif derives the category from the
         # caller workflow path, and code-scanning flags PRs with
         # "1 configuration not found" because the PR's category has no
@@ -132,8 +131,6 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          ref: ${{ inputs.ref }}
 
       - uses: ./.github/actions/setup-rust
         with:
@@ -158,8 +155,6 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          ref: ${{ inputs.ref }}
 
       - uses: ./.github/actions/setup-node-yarn
         with:
@@ -217,8 +212,6 @@ jobs:
           egress-policy: audit
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
-        with:
-          ref: ${{ inputs.ref }}
 
       # rust-embed picks the web UI up from these directories at daemon
       # compile time. Downloading the shared artifact avoids re-running

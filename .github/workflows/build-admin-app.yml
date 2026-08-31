@@ -2,7 +2,7 @@ name: Build Admin App
 
 # Reusable leaf for admin-app (admin PWA) type-check and production build.
 #
-# Callers: ci.yml (push to main), pr.yml (PRs).
+# Callers: ci-build.yml (the gt build stage, on PRs and pushes to main).
 # Triggered by changes to source/admin-app/**, source/web/**, or
 # source/sdk/wardnet-js/** — all are portal dependencies that admin-app
 # resolves at build time.
@@ -18,7 +18,7 @@ on:
 permissions:
   contents: read
   # Read @wardnet/{ui,styles,brand} from GitHub Packages during yarn install.
-  # Granted by the caller job (pr.yml/ci.yml) and surfaced here so the leaf
+  # Granted by the caller job (ci-build.yml) and surfaced here so the leaf
   # doesn't restrict it back to none.
   packages: read
 

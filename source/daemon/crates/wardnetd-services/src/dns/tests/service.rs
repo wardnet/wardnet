@@ -10,7 +10,11 @@ use wardnet_common::dns::DnsProtocol;
 use wardnet_common::dns::ForwarderSelectionMode::{self, Failover, Fastest, Single};
 
 use super::admin;
-use crate::dns::service::{DnsService, DnsServiceImpl, resolve_forwarder_selection};
+use crate::dns::service::{
+    DnsService, DnsServiceImpl, FORWARD_DEADLINE_MAX_MS, FORWARD_DEADLINE_MIN_MS,
+    UPSTREAM_TIMEOUT_MAX_MS, UPSTREAM_TIMEOUT_MIN_MS, resolve_forwarder_selection,
+    validate_forward_timings,
+};
 use crate::error::AppError;
 use wardnet_common::auth::AuthContext;
 use wardnetd_data::repository::{
@@ -263,4 +267,91 @@ async fn get_dns_config_allows_admin_caller() {
     crate::auth_context::with_context(admin(), svc.get_dns_config())
         .await
         .expect("admin caller can read the DNS config");
+}
+
+// ---------------------------------------------------------------------------
+// validate_forward_timings (#1199) — the two knobs bounding a forwarded query.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn the_default_timings_validate() {
+    let cfg = wardnet_common::dns::DnsConfig::default();
+    assert!(validate_forward_timings(cfg.upstream_timeout_ms, cfg.forward_deadline_ms).is_ok());
+}
+
+#[test]
+fn each_knob_is_range_checked() {
+    assert!(validate_forward_timings(UPSTREAM_TIMEOUT_MIN_MS - 1, 3_500).is_err());
+    assert!(validate_forward_timings(UPSTREAM_TIMEOUT_MAX_MS + 1, 14_000).is_err());
+    assert!(validate_forward_timings(1_500, FORWARD_DEADLINE_MIN_MS - 1).is_err());
+    assert!(validate_forward_timings(1_500, FORWARD_DEADLINE_MAX_MS + 1).is_err());
+
+    assert!(validate_forward_timings(UPSTREAM_TIMEOUT_MIN_MS, FORWARD_DEADLINE_MAX_MS).is_ok());
+}
+
+#[test]
+fn a_per_upstream_timeout_may_not_exceed_the_whole_query_deadline() {
+    // Otherwise the first upstream can consume the entire budget and the
+    // ladder never reaches a second one — failover that exists only on paper.
+    let err = validate_forward_timings(3_000, 2_000).expect_err("ordering must be enforced");
+    assert!(err.contains("must not exceed"), "got: {err}");
+
+    // Equal is fine: one full attempt, and no time for a second, which is a
+    // coherent thing for an admin with a single upstream to ask for.
+    assert!(validate_forward_timings(2_000, 2_000).is_ok());
+}
+
+#[tokio::test]
+async fn updating_one_timing_is_validated_against_the_persisted_other() {
+    // A partial update must not be able to produce an incoherent pair by
+    // moving only one side of it.
+    let svc = service();
+
+    let result = crate::auth_context::with_context(
+        admin(),
+        svc.update_config(UpdateDnsConfigRequest {
+            // In range on its own; against the default 3500ms deadline it is not.
+            upstream_timeout_ms: Some(5_000),
+            ..Default::default()
+        }),
+    )
+    .await;
+
+    assert!(
+        matches!(result, Err(AppError::BadRequest(_))),
+        "raising one knob past the other must be rejected"
+    );
+
+    // And the rejection left nothing behind: validation runs before any write.
+    let cfg = crate::auth_context::with_context(admin(), svc.get_config())
+        .await
+        .unwrap()
+        .config;
+    assert_eq!(
+        cfg.upstream_timeout_ms,
+        wardnet_common::dns::DEFAULT_UPSTREAM_TIMEOUT_MS
+    );
+}
+
+#[tokio::test]
+async fn valid_timings_persist_and_reload() {
+    let svc = service();
+
+    crate::auth_context::with_context(
+        admin(),
+        svc.update_config(UpdateDnsConfigRequest {
+            upstream_timeout_ms: Some(800),
+            forward_deadline_ms: Some(2_400),
+            ..Default::default()
+        }),
+    )
+    .await
+    .expect("a coherent pair is accepted");
+
+    let cfg = crate::auth_context::with_context(admin(), svc.get_config())
+        .await
+        .unwrap()
+        .config;
+    assert_eq!(cfg.upstream_timeout_ms, 800);
+    assert_eq!(cfg.forward_deadline_ms, 2_400);
 }
