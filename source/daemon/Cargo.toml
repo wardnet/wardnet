@@ -285,7 +285,7 @@ cms = { version = "0.2.3", default-features = false, features = ["std", "alloc"]
 x509-cert = { version = "0.2", features = ["pem"] }
 # https://crates.io/crates/p256 — sign the CMS SignerInfo with the leaf's
 # ECDSA P-256 key (rcgen generates a P-256 leaf), matching the cert's algorithm.
-p256 = { version = "0.13", features = ["ecdsa", "pem", "pkcs8"] }
+p256 = { version = "0.14", features = ["ecdsa", "pem", "pkcs8"] }
 # https://crates.io/crates/der — encode the `.mobileconfig` bytes as the CMS
 # encapsulated content (OctetString → Any).
 der = { version = "0.7", features = ["oid"] }
