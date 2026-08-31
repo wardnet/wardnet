@@ -195,7 +195,7 @@ futures = "0.3"
 # https://crates.io/crates/tokio-stream — ReceiverStream adapter used by SSE handlers
 tokio-stream = { version = "0.1", features = ["sync"] }
 # https://crates.io/crates/cron
-cron = "0.16"
+cron = "0.17"
 
 # https://crates.io/crates/criterion — benchmark harness (dev-only). We disable
 # default features (plotters/gnuplot/rayon) and keep only cargo_bench_support:
