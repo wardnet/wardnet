@@ -1,0 +1,102 @@
+# ci-test — this file is yours.
+#
+# gt created it once and will never modify or delete it again.
+#
+# The `coverage` leaf that used to hang off pr.yml (and ci.yml) lives here
+# now, unchanged. Only the caller moved.
+#
+# No `gt-coverage` artifact is uploaded, and that is deliberate: gt's own
+# bulwark stage stays off for this repository (bulwark.enabled: false in
+# .gt-repo.yaml). wardnet runs bulwark *inside* coverage.yml, where it can see
+# the several report shapes this repo produces — a Rust llvm-cov.json and
+# lcov.info, a coverage.out per Go module, a coverage/ directory per
+# TypeScript package. gt's reusable-bulwark consumes one artifact and drops
+# coverage.out / lcov.info at the scan root, so enabling it would run bulwark
+# twice per PR and the gt run would find no reports — then write an empty
+# baseline over a real one on the bulwark-state branch.
+#
+# That is why this stage needs contents: write + pull-requests: write, granted
+# by pipeline.ci.stage_permissions.test: they are the ceiling coverage.yml's
+# own `bulwark` job needs for baseline caching and its PR summary comment.
+name: ci-test
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      daemon: ${{ steps.detect.outputs.daemon }}
+      site: ${{ steps.detect.outputs.site }}
+      admin-web: ${{ steps.detect.outputs.admin-web }}
+      admin-app: ${{ steps.detect.outputs.admin-app }}
+      user-app: ${{ steps.detect.outputs.user-app }}
+      go: ${{ steps.detect.outputs.go }}
+      ci: ${{ steps.detect.outputs.ci }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: ./.github/actions/detect-changes
+        id: detect
+
+  coverage:
+    name: Coverage
+    needs: detect
+    # Skip for any bot-authored PR: bots push to same-repo branches, which
+    # GitHub denies access to repo secrets for, and Codecov requires a token
+    # for same-repo branches on public repos. Bots here (Dependabot,
+    # step-security-bot) don't change source code anyway. Fork PRs from
+    # community members keep running — they use Codecov's tokenless upload
+    # (unprotected branch ref with colon prefix).
+    #
+    # Gate on the PR author, not `github.actor`: re-running a workflow flips
+    # `github.actor` to whoever clicked re-run, which would let coverage run
+    # on a Dependabot PR and then fail at the Codecov upload. On a push to
+    # main there is no pull_request context, so `user.type` is empty and
+    # coverage runs as intended.
+    if: |
+      github.event.pull_request.user.type != 'Bot' && (
+        needs.detect.outputs.daemon == 'true' ||
+        needs.detect.outputs.site == 'true' ||
+        needs.detect.outputs['admin-web'] == 'true' ||
+        needs.detect.outputs['admin-app'] == 'true' ||
+        needs.detect.outputs['user-app'] == 'true' ||
+        needs.detect.outputs.ci == 'true'
+      )
+    # site-coverage reads @wardnet/{brand,styles} from GitHub Packages.
+    # contents:write + pull-requests:write grant the ceiling coverage.yml's
+    # `bulwark` job needs (baseline caching on bulwark-state + PR summary
+    # comment) — every other job in that reusable workflow stays read-only.
+    permissions:
+      contents: write
+      pull-requests: write
+      packages: read
+    uses: ./.github/workflows/coverage.yml
+    # Gate each coverage job on the relevant change bucket so a frontend-only
+    # PR doesn't spin up the 30-min daemon coverage (and vice versa).
+    with:
+      run-daemon: ${{ needs.detect.outputs.daemon == 'true' || needs.detect.outputs.ci == 'true' }}
+      # site + frontend LCOVs merge into ONE "typescript" pool in bulwark's
+      # coverage gate, and the baseline is recorded on a push to main. If only
+      # one of the two jobs runs, the partial pool is compared against a
+      # full-pool baseline (or recorded as one) and fails as a phantom
+      # regression — so any TypeScript-area change must run BOTH coverage
+      # jobs. These conditions must stay identical to each other.
+      #
+      # This used to be a hazard split across pr.yml and ci.yml, kept in
+      # lockstep by hand. One orchestrator now serves both events, so there is
+      # only one copy left to get wrong.
+      run-site: ${{ needs.detect.outputs.site == 'true' || needs.detect.outputs['admin-web'] == 'true' || needs.detect.outputs['admin-app'] == 'true' || needs.detect.outputs['user-app'] == 'true' || needs.detect.outputs.ci == 'true' }}
+      run-frontend: ${{ needs.detect.outputs.site == 'true' || needs.detect.outputs['admin-web'] == 'true' || needs.detect.outputs['admin-app'] == 'true' || needs.detect.outputs['user-app'] == 'true' || needs.detect.outputs.ci == 'true' }}
+      run-go: ${{ needs.detect.outputs.go == 'true' || needs.detect.outputs.ci == 'true' }}
+    secrets: inherit

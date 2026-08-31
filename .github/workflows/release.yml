@@ -2,8 +2,8 @@ name: Release
 
 # Tag-driven release orchestrator.
 #
-# Composes the same leaves as ci.yml + pr.yml plus release-specific
-# ones. Release does NOT nest pr.yml — pr.yml's preflight gating
+# Composes the same leaves as the gt ci-* stages plus release-specific
+# ones. Release does NOT nest the CI orchestrator — its preflight gating
 # (paths-filter) is meaningless on a tag push, and coverage shouldn't
 # run on release (Codecov's patch-coverage is PR-keyed).
 #

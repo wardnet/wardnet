@@ -1,13 +1,17 @@
 name: Cubit
 
-# Reusable leaf for performance-regression tracking via cubit
-# (github.com/wardnet/cubit). Called from pr.yml (compare + sticky PR comment)
-# and ci.yml (record the baseline on main). Mirrors how the `bulwark` coverage
-# leaf is wired.
+# Performance-regression tracking via cubit (github.com/wardnet/cubit).
 #
-# Advisory ONLY: cubit never fails the build, and this leaf is deliberately left
-# out of pr.yml's `all-checks-passed` aggregator so it can't gate a merge. The
-# PR comment and trend dashboard inform a human go/no-go.
+# Standalone: this workflow triggers itself on a push to main to record the
+# baseline. It used to be a leaf called from ci.yml, but when the pipeline
+# moved under gt's ci-orchestration.yml it was deliberately NOT folded into a
+# stage — cubit is advisory and must never gate a merge, whereas every stage in
+# that orchestrator is waited on by ci-gate, the single required check.
+# Keeping it outside is what preserves "advisory".
+#
+# Advisory ONLY: cubit never fails the build, and it is deliberately outside
+# ci-gate so it cannot block a merge. The trend dashboard informs a human
+# go/no-go.
 #
 # PAIRED same-runner comparison: cubit runs the daemon micro-benchmarks on BOTH
 # the PR head and the base commit on this same runner and compares the two
@@ -20,6 +24,10 @@ name: Cubit
 # benched.
 
 on:
+  # Record the baseline on main. This is the trigger ci.yml's cubit job used to
+  # provide; it lives here now that ci.yml is gone.
+  push:
+    branches: [main]
   # Dispatchable directly: cubit no longer runs on every pull request, so an
   # on-demand run is how a perf question gets answered without pushing a commit
   # to provoke one.
@@ -30,18 +38,46 @@ on:
         description: >-
           Fine-grained token with contents write on wardnet/perf-reports, the
           central Pages hub PR dashboards are published to. Optional: the
-          record path (ci.yml) never publishes, and a compare run without it
+          record path on main never publishes, and a compare run without it
           falls back to linking the report artifact from the PR comment.
         required: false
 
 # Workflow-level stays read-only; the job below elevates to the writes it needs,
-# which the caller (pr.yml / ci.yml cubit job) must grant to the same ceiling.
+# and on a push trigger there is no caller to grant them.
 permissions:
   contents: read
 
 jobs:
+  # The same paths filter ci.yml's cubit job was gated on, run here because the
+  # gating moved with the trigger. Using the shared composite action rather
+  # than a hand-copied `paths:` list keeps this identical to what the rest of
+  # CI considers a daemon change.
+  detect:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      daemon: ${{ steps.detect.outputs.daemon }}
+      ci: ${{ steps.detect.outputs.ci }}
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v6
+      - uses: ./.github/actions/detect-changes
+        id: detect
+
   cubit:
     name: cubit
+    needs: detect
+    # A manual run answers a perf question on demand, so it is never gated on
+    # what changed — that is the whole point of dispatching one.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      needs.detect.outputs.daemon == 'true' ||
+      needs.detect.outputs.ci == 'true'
     runs-on: ubuntu-latest
     # Paired benches two commits (head + base) on one runner, so allow for two
     # cold-cache compiles.

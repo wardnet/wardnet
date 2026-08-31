@@ -1,0 +1,42 @@
+# ci-end2end — this file is yours.
+#
+# gt created it once and will never modify or delete it again.
+#
+# The `tests-e2e` leaf that used to hang off pr.yml (and ci.yml) lives here
+# now, unchanged. Only the caller moved.
+#
+# No per-leaf `detect` job: ci-preflight already gates this whole stage on
+# `daemon || ci`, which is exactly the filter the leaf carried, so re-running
+# the paths filter here would only restate the decision that got us here.
+name: ci-end2end
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  tests-e2e:
+    name: E2E Tests
+    # The e2e leaf rebuilds wardnetd from source inside Docker
+    # (Dockerfile.test), so it doesn't consume build-daemon/build-site
+    # artefacts. It ran in parallel with the build leaves under pr.yml; under
+    # the orchestrator the end2end stage still runs alongside test, both
+    # gated only on build, so nothing serialises that did not before.
+    #
+    # build-web (run on the host before the Docker build) reads @wardnet/*
+    # from GitHub Packages, and the image build exports its layer cache to a
+    # GHCR image. A called workflow can only narrow what the caller grants, so
+    # `packages: write` has to reach here from
+    # pipeline.ci.stage_permissions.end2end in .gt-repo.yaml. Without it the
+    # cache export is refused and the build silently stops warming it.
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/tests-e2e.yml
+    secrets: inherit

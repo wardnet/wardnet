@@ -287,13 +287,30 @@ For signing-key setup and rotation, see [`deploy/keys/README.md`](../deploy/keys
 
 ## Continuous integration
 
-CI is split into thin orchestrators (one per event type) that compose
-reusable `workflow_call` leaves. Every orchestrator starts with a
-`preflight` job that runs the [detect-changes](../.github/actions/detect-changes/action.yml)
-and [check-version](../.github/actions/check-version/action.yml)
-composite actions; its outputs gate the heavy leaves.
+CI is governed by [gt](https://github.com/pedromvgomes/gt). A single
+orchestrator, [`.github/workflows/ci-orchestration.yml`](../.github/workflows/ci-orchestration.yml),
+serves both pull requests and pushes to `main`; it is rendered by
+`gt repo sync` from [`.gt-repo.yaml`](../.gt-repo.yaml) and should not be
+hand-edited. It replaced the former `pr.yml` and `ci.yml`, which duplicated
+the same leaf list and had to be kept in lockstep by hand.
 
-[`.github/workflows/pr.yml`](../.github/workflows/pr.yml) runs on every PR to `main`:
+The orchestrator calls four stage workflows. Those stage files are *ours* —
+gt creates them once and never touches them again — and each composes the
+reusable `workflow_call` leaves described below:
+
+| stage | file | contains |
+|---|---|---|
+| preflight | [`ci-preflight.yml`](../.github/workflows/ci-preflight.yml) | detect-changes + check-version; decides which later stages run |
+| build | [`ci-build.yml`](../.github/workflows/ci-build.yml) | the six build leaves |
+| test | [`ci-test.yml`](../.github/workflows/ci-test.yml) | coverage (which hosts bulwark) |
+| end2end | [`ci-end2end.yml`](../.github/workflows/ci-end2end.yml) | tests-e2e |
+
+`ci-gate` aggregates every stage and is the single required check. Note that
+`end2end` is declared `independent_stages` in the spec: its suite rebuilds the
+daemon from source inside Docker and consumes nothing the build stage
+produces, so it runs alongside `build` rather than after it.
+
+The leaves, unchanged by the migration:
 
 1. `preflight` — detect-changes + check-version.
 2. `build-daemon` — [reusable leaf](../.github/workflows/build-daemon.yml). Lints, runs `cargo test --workspace`, verifies OpenAPI drift, builds the embedded web UI, cross-compiles `wardnetd` (x86_64 + aarch64) and `wardnetd-mock` (x86_64), uploads tarballs as artifacts.
@@ -302,7 +319,7 @@ composite actions; its outputs gate the heavy leaves.
 5. `coverage` — [reusable leaf](../.github/workflows/coverage.yml). Generates daemon + site coverage in parallel and performs a single coordinated Codecov upload with the `daemon` / `site` flags.
 6. `tests-e2e` — [reusable leaf](../.github/workflows/tests-e2e.yml). Stub today; consumes daemon + site artifacts.
 
-[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on pushes to `main` and reuses the same `build-daemon` + `build-go` + `build-site` leaves but skips `coverage` and `tests-e2e` (Codecov patch-coverage is PR-keyed; e2e is a PR gate).
+[`.github/workflows/cubit.yml`](../.github/workflows/cubit.yml) records the performance baseline on pushes to `main`, and can be dispatched on demand. It is deliberately *outside* the gt pipeline: cubit is advisory and must never gate a merge, whereas every stage in the orchestrator is waited on by `ci-gate`.
 
 [`.github/workflows/release.yml`](../.github/workflows/release.yml) runs on `v*.*.*` tag pushes: `resolve` → the same build leaves → `tests-e2e` → [`deploy-site.yml`](../.github/workflows/deploy-site.yml) (publishes the `site-dist` bundle to GitHub Pages) → [`release-daemon.yml`](../.github/workflows/release-daemon.yml) (renames tarballs with the version, signs each with minisign, cross-compiles the `wctl` binaries, publishes the GitHub Release) → [`release-go-sdk.yml`](../.github/workflows/release-go-sdk.yml) (mirrors the Go SDK to `wardnet/wardnet-go` and tags it, stable releases only).
 
