@@ -61,6 +61,11 @@ type DNSConfig struct {
 	RebindingProtection bool `json:"rebinding_protection"`
 	// RateLimitPerSecond bounds queries accepted from one client.
 	RateLimitPerSecond int32 `json:"rate_limit_per_second"`
+	// UpstreamTimeoutMs is how long one upstream gets to answer before the
+	// forwarder moves on to the next; ForwardDeadlineMs caps the whole
+	// query across every upstream tried.
+	UpstreamTimeoutMs int32 `json:"upstream_timeout_ms"`
+	ForwardDeadlineMs int32 `json:"forward_deadline_ms"`
 	// FilteringEnabled is the global filter kill switch: when false every
 	// query passes regardless of per-device or per-profile state.
 	FilteringEnabled bool `json:"dns_filtering_enabled"`
@@ -572,6 +577,8 @@ func dnsConfigFromREST(c *rest.DnsConfig) DNSConfig {
 		DNSSECEnabled:          c.DnssecEnabled,
 		RebindingProtection:    c.RebindingProtection,
 		RateLimitPerSecond:     c.RateLimitPerSecond,
+		UpstreamTimeoutMs:      c.UpstreamTimeoutMs,
+		ForwardDeadlineMs:      c.ForwardDeadlineMs,
 		FilteringEnabled:       c.DnsFilteringEnabled,
 		QueryLogEnabled:        c.QueryLogEnabled,
 		QueryLogRetentionDays:  c.QueryLogRetentionDays,
