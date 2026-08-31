@@ -21,16 +21,20 @@ pub struct ClientIp(pub IpAddr);
 impl FromRequestParts<AppState> for ClientIp {
     type Rejection = AppError;
 
-    async fn from_request_parts(
+    fn from_request_parts(
         parts: &mut Parts,
         _state: &AppState,
-    ) -> Result<Self, Self::Rejection> {
-        let connect_info = parts
-            .extensions
-            .get::<ConnectInfo<SocketAddr>>()
-            .ok_or_else(|| AppError::Internal(anyhow::anyhow!("missing ConnectInfo extension")))?;
-
-        Ok(Self(connect_info.0.ip()))
+    ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
+        // Reading an extension awaits nothing, so resolve it here and hand back
+        // an already-complete future rather than building a state machine that
+        // finishes on its first poll.
+        std::future::ready(
+            parts
+                .extensions
+                .get::<ConnectInfo<SocketAddr>>()
+                .ok_or_else(|| AppError::Internal(anyhow::anyhow!("missing ConnectInfo extension")))
+                .map(|connect_info| Self(connect_info.0.ip())),
+        )
     }
 }
 
@@ -46,14 +50,14 @@ impl FromRequestParts<AppState> for ClientIp {
 impl axum::extract::OptionalFromRequestParts<AppState> for ClientIp {
     type Rejection = std::convert::Infallible;
 
-    async fn from_request_parts(
+    fn from_request_parts(
         parts: &mut Parts,
         _state: &AppState,
-    ) -> Result<Option<Self>, Self::Rejection> {
-        Ok(parts
+    ) -> impl std::future::Future<Output = Result<Option<Self>, Self::Rejection>> + Send {
+        std::future::ready(Ok(parts
             .extensions
             .get::<ConnectInfo<SocketAddr>>()
-            .map(|ci| Self(ci.0.ip())))
+            .map(|ci| Self(ci.0.ip()))))
     }
 }
 

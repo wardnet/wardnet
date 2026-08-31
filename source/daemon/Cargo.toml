@@ -19,7 +19,7 @@ resolver = "3"
 [workspace.package]
 version = "0.7.0"
 edition = "2024"
-rust-version = "1.96"
+rust-version = "1.98"
 # GPL-3.0-or-later, not MIT: the daemon links `rustables` (GPL-3.0-or-later,
 # never published under any other license), and Rust links statically — so the
 # compiled binary is a combined work GPL-3.0's terms extend to. The SDK and web
