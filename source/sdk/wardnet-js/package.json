@@ -43,7 +43,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "4.1.10",
+    "@vitest/coverage-v8": "4.1.11",
     "consola": "^3.4.2",
     "openapi-typescript": "7.9.1",
     "prettier": "3.9.6",
