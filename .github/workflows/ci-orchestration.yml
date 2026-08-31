@@ -142,18 +142,14 @@ jobs:
     # already sit inside.
     # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
     secrets: inherit
-    # Widened beyond the stage baseline (contents: read, packages: read) by
-    # pipeline.ci.stage_permissions in .gt-repo.yaml.
-    #
-    # A called workflow can only narrow what its caller grants, so a leaf that
-    # genuinely needs more — uploading SARIF to code scanning, pushing a build
-    # cache to a registry — cannot ask for it back. The calling job grants it
-    # here and the leaf narrows from it. Every scope below was named
-    # explicitly in the spec, so the grant is reviewable in this diff rather
-    # than implied by a template.
+    # packages: read because several repositories resolve private @scope
+    # dependencies from GitHub Packages during install, and a called workflow
+    # can only narrow what the caller grants — a stage cannot ask for it back.
+    # Read-only, so granting it where it is unused costs nothing. A stage
+    # needing more says so in pipeline.ci.stage_permissions.
     permissions:
       contents: read
-      packages: write
+      packages: read
 
   conventional-commits:
     needs: [attest]

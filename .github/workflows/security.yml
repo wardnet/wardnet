@@ -43,7 +43,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
-          toolchain: "1.96"
+          toolchain: "1.98"
 
       - name: Install cargo-audit
         run: cargo install cargo-audit
