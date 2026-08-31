@@ -101,8 +101,6 @@ pipeline:
       build:
         actions: read
         security-events: write
-      end2end:
-        packages: write
       test:
         contents: write
         pull-requests: write

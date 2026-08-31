@@ -305,7 +305,9 @@ reusable `workflow_call` leaves described below:
 | test | [`ci-test.yml`](../.github/workflows/ci-test.yml) | coverage (which hosts bulwark) |
 | end2end | [`ci-end2end.yml`](../.github/workflows/ci-end2end.yml) | tests-e2e |
 
-`ci-gate` aggregates every stage and is the single required check. Note that
+`ci-gate` aggregates every stage and is the single required check. Every
+`write` scope the pipeline grants is indexed and justified in
+[ci-token-permissions.md](ci-token-permissions.md). Note that
 `end2end` is declared `independent_stages` in the spec: its suite rebuilds the
 daemon from source inside Docker and consumes nothing the build stage
 produces, so it runs alongside `build` rather than after it.

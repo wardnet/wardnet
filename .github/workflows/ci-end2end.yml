@@ -30,13 +30,12 @@ jobs:
     # gated only on build, so nothing serialises that did not before.
     #
     # build-web (run on the host before the Docker build) reads @wardnet/*
-    # from GitHub Packages, and the image build exports its layer cache to a
-    # GHCR image. A called workflow can only narrow what the caller grants, so
-    # `packages: write` has to reach here from
-    # pipeline.ci.stage_permissions.end2end in .gt-repo.yaml. Without it the
-    # cache export is refused and the build silently stops warming it.
+    # from GitHub Packages — read only. This job used to hold `packages: write`
+    # for a GHCR layer-cache export; that cache never demonstrated a win and
+    # was removed, which took the write with it. `read` is the stage baseline,
+    # so no stage_permissions grant is needed either.
     permissions:
       contents: read
-      packages: write
+      packages: read
     uses: ./.github/workflows/tests-e2e.yml
     secrets: inherit
