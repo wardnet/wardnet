@@ -243,6 +243,40 @@ describe("DnsLogs", () => {
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
 
+  it("reports no entries on a later page instead of a range starting at zero", async () => {
+    // Paging forward drops `data` until the next fetch lands. An offset-derived
+    // range is non-zero on any page past the first, so emptiness has to be read
+    // from the rows themselves or the footer reads "Showing 0–50".
+    useDnsQueryLog.mockImplementation((params: { offset: number }) =>
+      params.offset > 0
+        ? { data: { entries: [], has_more: false }, isLoading: false }
+        : {
+            data: {
+              entries: [
+                {
+                  timestamp: "2026-07-01T09:00:00",
+                  client_ip: "10.232.1.10",
+                  domain: "first.example.com",
+                  query_type: "A",
+                  result: "allowed",
+                  latency_ms: 0.5,
+                },
+              ],
+              has_more: true,
+            },
+            isLoading: false,
+          },
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<DnsLogs />);
+    await user.click(screen.getByTestId("live-tail"));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+
+    expect(screen.getByText("No entries · page 2")).toBeInTheDocument();
+    expect(screen.queryByText(/Showing 0/)).not.toBeInTheDocument();
+    useDnsQueryLog.mockReset();
+  });
+
   it("reports no entries rather than an empty range", async () => {
     useDnsQueryLog.mockReturnValue({
       data: { entries: [], has_more: false },
@@ -252,7 +286,7 @@ describe("DnsLogs", () => {
     renderWithProviders(<DnsLogs />);
     await user.click(screen.getByTestId("live-tail"));
 
-    expect(screen.getByText("No entries")).toBeInTheDocument();
+    expect(screen.getByText("No entries · page 1")).toBeInTheDocument();
   });
 
   it("shows the loading empty message for persisted history", async () => {
