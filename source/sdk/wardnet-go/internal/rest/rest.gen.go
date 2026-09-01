@@ -3344,7 +3344,17 @@ type ListProvidersResponse struct {
 // ListQueryLogResponse Response for `GET /api/dns/log`.
 type ListQueryLogResponse struct {
 	Entries []DnsQueryLogEntry `json:"entries"`
-	Total   int64              `json:"total"`
+
+	// HasMore Whether a further page exists, derived by over-fetching one row beyond
+	// the requested limit.
+	//
+	// There is deliberately no total count. `dns_query_log` is the largest
+	// table on the box and both text filters use a leading-wildcard `LIKE`,
+	// which SQLite cannot seek on, so `COUNT(*)` degrades to a full scan —
+	// measured at ~300 ms per page load against ~1 ms for the rows it
+	// accompanied. Reinstating a count, even a capped one, restores that
+	// scan and makes the narrow single-column indexes load-bearing again.
+	HasMore bool `json:"has_more"`
 }
 
 // ListRecordsResponse Response for GET /api/dns/local/records and

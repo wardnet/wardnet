@@ -26,9 +26,6 @@ pub trait DnsRepository: Send + Sync {
         filter: &QueryLogFilter,
     ) -> anyhow::Result<Vec<QueryLogRow>>;
 
-    /// Count matching query log entries.
-    async fn query_log_count(&self, filter: &QueryLogFilter) -> anyhow::Result<u64>;
-
     /// Delete query log entries older than `retention_days`.
     async fn cleanup_query_log(&self, retention_days: u32) -> anyhow::Result<u64>;
 }

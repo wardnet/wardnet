@@ -108,17 +108,6 @@ impl DnsRepository for SqliteDnsRepository {
         Ok(rows.into_iter().map(DbQueryLogRow::into_row).collect())
     }
 
-    async fn query_log_count(&self, filter: &QueryLogFilter) -> anyhow::Result<u64> {
-        let (where_clause, binds) = build_where(filter);
-        let sql = format!("SELECT COUNT(*) FROM dns_query_log {where_clause}");
-        let mut q = sqlx::query_scalar::<_, i64>(sqlx::AssertSqlSafe(sql));
-        for b in &binds {
-            q = q.bind(b);
-        }
-        let count = q.fetch_one(&self.pools.read).await?;
-        Ok(u64::try_from(count).unwrap_or(0))
-    }
-
     async fn cleanup_query_log(&self, retention_days: u32) -> anyhow::Result<u64> {
         let cutoff = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::days(i64::from(retention_days)))

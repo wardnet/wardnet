@@ -195,5 +195,13 @@ export interface ListQueryLogParams {
 
 export interface ListQueryLogResponse {
   entries: DnsQueryLogEntry[];
-  total: number;
+  /**
+   * Whether a further page exists, derived by over-fetching one row beyond
+   * the requested limit.
+   *
+   * There is deliberately no total count: a `COUNT(*)` over the query log is
+   * a full table scan, measured at ~300 ms per page load. Render a row range
+   * from the offset and `entries.length` instead.
+   */
+  has_more: boolean;
 }

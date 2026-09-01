@@ -5,15 +5,15 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use wardnet_common::api::{UpdateDnsConfigRequest, UpstreamDnsRequest};
+use wardnet_common::api::{ListQueryLogParams, UpdateDnsConfigRequest, UpstreamDnsRequest};
 use wardnet_common::dns::DnsProtocol;
 use wardnet_common::dns::ForwarderSelectionMode::{self, Failover, Fastest, Single};
 
 use super::admin;
 use crate::dns::service::{
     DnsService, DnsServiceImpl, FORWARD_DEADLINE_MAX_MS, FORWARD_DEADLINE_MIN_MS,
-    UPSTREAM_TIMEOUT_MAX_MS, UPSTREAM_TIMEOUT_MIN_MS, resolve_forwarder_selection,
-    validate_forward_timings,
+    QUERY_LOG_MAX_LIMIT, UPSTREAM_TIMEOUT_MAX_MS, UPSTREAM_TIMEOUT_MIN_MS,
+    resolve_forwarder_selection, validate_forward_timings,
 };
 use crate::error::AppError;
 use wardnet_common::auth::AuthContext;
@@ -136,9 +136,6 @@ impl DnsRepository for StubDnsRepo {
         _o: u32,
         _f: &QueryLogFilter,
     ) -> anyhow::Result<Vec<QueryLogRow>> {
-        unimplemented!()
-    }
-    async fn query_log_count(&self, _f: &QueryLogFilter) -> anyhow::Result<u64> {
         unimplemented!()
     }
     async fn cleanup_query_log(&self, _d: u32) -> anyhow::Result<u64> {
@@ -354,4 +351,113 @@ async fn valid_timings_persist_and_reload() {
         .config;
     assert_eq!(cfg.upstream_timeout_ms, 800);
     assert_eq!(cfg.forward_deadline_ms, 2_400);
+}
+
+/// Serves `available` synthetic rows and records the limit it was asked for,
+/// so a test can assert on the over-fetch the service performs.
+struct PagingDnsRepo {
+    available: usize,
+    seen_limit: Mutex<Option<u32>>,
+}
+
+impl PagingDnsRepo {
+    fn new(available: usize) -> Arc<Self> {
+        Arc::new(Self {
+            available,
+            seen_limit: Mutex::new(None),
+        })
+    }
+}
+
+#[async_trait]
+impl DnsRepository for PagingDnsRepo {
+    async fn insert_query_log_batch(&self, _e: &[QueryLogRow]) -> anyhow::Result<()> {
+        unimplemented!()
+    }
+    async fn query_log_paginated(
+        &self,
+        limit: u32,
+        _o: u32,
+        _f: &QueryLogFilter,
+    ) -> anyhow::Result<Vec<QueryLogRow>> {
+        *self.seen_limit.lock().unwrap() = Some(limit);
+        let n = self.available.min(limit as usize);
+        Ok((0..n)
+            .map(|i| QueryLogRow {
+                timestamp: "2026-09-01T00:00:00Z".to_owned(),
+                client_ip: "10.0.0.1".to_owned(),
+                domain: format!("d{i}.com"),
+                query_type: "A".to_owned(),
+                result: "allowed".to_owned(),
+                upstream: None,
+                latency_ms: 1.0,
+                device_id: None,
+                protocol: "udp".to_owned(),
+            })
+            .collect())
+    }
+    async fn cleanup_query_log(&self, _d: u32) -> anyhow::Result<u64> {
+        unimplemented!()
+    }
+}
+
+fn paging_service(repo: Arc<PagingDnsRepo>) -> DnsServiceImpl {
+    DnsServiceImpl::new(
+        Arc::new(MemConfig::default()),
+        repo,
+        Arc::new(crate::event::BroadcastEventBus::new(16)),
+        None,
+    )
+}
+
+async fn page(repo: Arc<PagingDnsRepo>, limit: u32) -> wardnet_common::api::ListQueryLogResponse {
+    let svc = paging_service(repo);
+    crate::auth_context::with_context(
+        admin(),
+        svc.list_query_log(ListQueryLogParams {
+            limit: Some(limit),
+            ..Default::default()
+        }),
+    )
+    .await
+    .unwrap()
+}
+
+#[tokio::test]
+async fn a_full_page_with_nothing_beyond_it_reports_no_more() {
+    // The boundary that a naive `entries.len() == limit` check gets wrong.
+    let repo = PagingDnsRepo::new(50);
+    let res = page(repo, 50).await;
+    assert_eq!(res.entries.len(), 50);
+    assert!(!res.has_more);
+}
+
+#[tokio::test]
+async fn one_row_beyond_the_page_reports_more_and_is_not_returned() {
+    let repo = PagingDnsRepo::new(51);
+    let res = page(repo, 50).await;
+    assert_eq!(res.entries.len(), 50, "the over-fetched row is trimmed");
+    assert!(res.has_more);
+}
+
+#[tokio::test]
+async fn a_partial_page_reports_no_more() {
+    let repo = PagingDnsRepo::new(7);
+    let res = page(repo, 50).await;
+    assert_eq!(res.entries.len(), 7);
+    assert!(!res.has_more);
+}
+
+#[tokio::test]
+async fn the_over_fetch_is_applied_after_the_limit_clamp() {
+    // Over-fetching before the clamp would let a caller asking for 1000 walk
+    // away with 501 rows, quietly raising the cap.
+    let repo = PagingDnsRepo::new(10_000);
+    let res = page(Arc::clone(&repo), 10_000).await;
+    assert_eq!(res.entries.len(), QUERY_LOG_MAX_LIMIT as usize);
+    assert!(res.has_more);
+    assert_eq!(
+        *repo.seen_limit.lock().unwrap(),
+        Some(QUERY_LOG_MAX_LIMIT + 1)
+    );
 }

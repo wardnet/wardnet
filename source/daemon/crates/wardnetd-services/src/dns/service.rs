@@ -567,16 +567,18 @@ impl DnsService for DnsServiceImpl {
             result: params.result, // already Option<DnsQueryResult>
         };
 
-        let rows = self
+        // Over-fetch a single row past the page to learn whether another page
+        // exists. This runs after the clamp above, so the cap still governs
+        // what is returned. `has_more` is taken from the raw row count rather
+        // than from `entries`, because the mapping below drops rows whose
+        // timestamp will not parse.
+        let mut rows = self
             .dns_repo
-            .query_log_paginated(limit, offset, &filter)
+            .query_log_paginated(limit + 1, offset, &filter)
             .await
             .map_err(AppError::Internal)?;
-        let total = self
-            .dns_repo
-            .query_log_count(&filter)
-            .await
-            .map_err(AppError::Internal)?;
+        let has_more = rows.len() > limit as usize;
+        rows.truncate(limit as usize);
 
         let entries: Vec<DnsQueryLogEntry> = rows
             .into_iter()
@@ -600,7 +602,7 @@ impl DnsService for DnsServiceImpl {
             })
             .collect();
 
-        Ok(ListQueryLogResponse { entries, total })
+        Ok(ListQueryLogResponse { entries, has_more })
     }
 
     fn subscribe_query_stream(&self) -> Result<broadcast::Receiver<QueryLogEvent>, AppError> {
