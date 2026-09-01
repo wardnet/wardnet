@@ -44,6 +44,14 @@ use wardnetd_services::auth::{CurrentUser, LoginAttempt};
 pub struct StubAuthService;
 #[async_trait]
 impl AuthService for StubAuthService {
+    async fn issue_verified_session(
+        &self,
+        _user_id: uuid::Uuid,
+        _remember_me: bool,
+        _user_agent: Option<&str>,
+    ) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
     async fn current_user(&self) -> Result<CurrentUser, AppError> {
         Ok(CurrentUser {
             user_id: Uuid::nil(),
@@ -97,6 +105,14 @@ impl AuthService for StubAuthService {
 pub struct AlwaysSessionAuth;
 #[async_trait]
 impl AuthService for AlwaysSessionAuth {
+    async fn issue_verified_session(
+        &self,
+        _user_id: uuid::Uuid,
+        _remember_me: bool,
+        _user_agent: Option<&str>,
+    ) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
     async fn current_user(&self) -> Result<CurrentUser, AppError> {
         Ok(CurrentUser {
             user_id: Uuid::nil(),

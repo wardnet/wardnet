@@ -1122,6 +1122,7 @@ async fn run(
         services.access_request.clone(),
         services.zone_exception.clone(),
     )
+    .with_user_service(services.user.clone())
     .with_push_service(services.push.clone())
     .with_anomaly_service(services.anomaly.clone())
     .with_device_identification_service(services.device_identification.clone())

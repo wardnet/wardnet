@@ -48,6 +48,14 @@ impl wardnetd_services::AuthService for MockAuthService {
     async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
         unimplemented!()
     }
+    async fn issue_verified_session(
+        &self,
+        _user_id: uuid::Uuid,
+        _remember_me: bool,
+        _user_agent: Option<&str>,
+    ) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
     async fn cleanup_expired_sessions(&self) -> Result<u64, AppError> {
         unimplemented!()
     }

@@ -25,6 +25,7 @@ use uuid::Uuid;
 use wardnet_common::auth::{AuthContext, UserRole};
 use wardnet_test_support::principal;
 use wardnetd_data::repository::device::DeviceRepository;
+use wardnetd_data::repository::device::UnknownOwnerError;
 use wardnetd_data::repository::sqlite::SqliteDeviceRepository;
 
 use crate::auth_context;
@@ -150,9 +151,14 @@ async fn set_owner_rejects_an_unknown_user() {
     let result = repo
         .set_owner(&device_id, Some(&Uuid::new_v4().to_string()))
         .await;
+    let err = result.expect_err("assigning a nonexistent user must fail the FK, not be stored");
+
+    // …and it must arrive as a *typed* error, so the service can answer 400.
+    // A bare foreign-key failure would surface as a 500 for what is plainly a
+    // bad request, and the route documents no such response.
     assert!(
-        result.is_err(),
-        "assigning a nonexistent user must fail the FK, not be stored"
+        err.downcast_ref::<UnknownOwnerError>().is_some(),
+        "expected UnknownOwnerError, got: {err}"
     );
 }
 

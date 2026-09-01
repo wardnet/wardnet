@@ -27,12 +27,15 @@ import {
   PushService,
   InboundWgService,
   PrivateDnsService,
+  UserService,
 } from "@wardnet/js";
 
 /** Shared SDK client instance. All services use this single client. */
 export const client = new WardnetClient();
 
 export const anomalyService = new AnomalyService(client);
+/** Household directory, enrolment, and federated sign-in (ADR-0031). */
+export const userService = new UserService(client);
 export const authService = new AuthService(client);
 export const deviceService = new DeviceService(client);
 export const tunnelService = new TunnelService(client);

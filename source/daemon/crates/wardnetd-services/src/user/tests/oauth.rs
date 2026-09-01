@@ -23,8 +23,10 @@ use crate::tests::repo_mocks::{
     MockCredentialRepo, MockEnrolmentRepo, MockSecretStore, MockSessionRepo, MockSystemConfigRepo,
     MockUserRepo, user_row,
 };
-use crate::user::oauth::{OauthConfig, OauthProvider, ProviderEndpoints, ReqwestOauthClient};
-use crate::user::{UserService, UserServiceImpl};
+use crate::user::oauth::{
+    OauthConfig, OauthProvider, ProviderEndpoints, ReqwestOauthClient, ReturnTo,
+};
+use crate::user::{OauthOutcome, UserService, UserServiceImpl};
 
 const ADMIN_ID: &str = "00000000-0000-0000-0000-000000000001";
 const MEMBER_ID: &str = "00000000-0000-0000-0000-000000000002";
@@ -128,6 +130,29 @@ fn state_from(url: &str) -> String {
         .find(|(k, _)| k == "state")
         .map(|(_, v)| v.into_owned())
         .expect("the authorize url must carry a state")
+}
+
+/// Unwrap a callback that must have resolved to a **sign-in**.
+///
+/// Asserting the arm rather than ignoring it is the point: one URL now serves
+/// both ceremonies, so a test that only checked the payload would still pass if
+/// the dispatch silently routed the wrong way (ADR-0031 §11).
+fn signed_in(outcome: OauthOutcome) -> (crate::user::UserProfile, UserRole) {
+    match outcome {
+        OauthOutcome::SignedIn { profile, role, .. } => (profile, role),
+        OauthOutcome::Linked { .. } => panic!("expected a sign-in, got a link"),
+    }
+}
+
+/// Unwrap a callback that must have resolved to a **link**.
+///
+/// By reference, unlike [`signed_in`]: the only thing a link yields is a
+/// `Copy` id, so there is nothing to consume.
+fn linked(outcome: &OauthOutcome) -> Uuid {
+    match outcome {
+        OauthOutcome::Linked { user_id, .. } => *user_id,
+        OauthOutcome::SignedIn { .. } => panic!("expected a link, got a sign-in"),
+    }
 }
 
 // -- configuration --------------------------------------------------------
@@ -238,7 +263,10 @@ async fn federated_login_is_unavailable_without_a_canonical_hostname() {
     assert!(google.redirect_uri.is_none());
 
     // And starting a ceremony refuses rather than building a broken URL.
-    let result = f.svc.start_oauth(OauthProvider::Google).await;
+    let result = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await;
     assert!(matches!(result, Err(AppError::Conflict(_))));
 }
 
@@ -303,7 +331,11 @@ async fn start_oauth_builds_a_pkce_authorize_url() {
     let f = fixture(None);
     configure_google(&f).await;
 
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let redirect = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
     let url = reqwest::Url::parse(&redirect.url).unwrap();
     let params: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
 
@@ -333,8 +365,16 @@ async fn each_ceremony_gets_a_fresh_state_and_challenge() {
     let f = fixture(None);
     configure_google(&f).await;
 
-    let a = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
-    let b = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let a = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
+    let b = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
 
     assert_ne!(
         state_from(&a.url),
@@ -386,14 +426,19 @@ async fn a_linked_provider_account_signs_in() {
         last_used_at: None,
     });
 
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let redirect = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
     let state = state_from(&redirect.url);
 
-    let (profile, role) = f
-        .svc
-        .complete_oauth(&state, "provider-auth-code")
-        .await
-        .expect("a linked account must sign in");
+    let (profile, role) = signed_in(
+        f.svc
+            .complete_oauth_callback(&state, "provider-auth-code")
+            .await
+            .expect("a linked account must sign in"),
+    );
 
     assert_eq!(profile.id, member());
     assert_eq!(role, UserRole::Member, "the role comes from the users row");
@@ -411,10 +456,17 @@ async fn an_unknown_provider_subject_is_refused_and_creates_nothing() {
     let f = fixture(Some(&server.uri()));
     configure_google(&f).await;
 
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let redirect = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
     let state = state_from(&redirect.url);
 
-    let result = f.svc.complete_oauth(&state, "provider-auth-code").await;
+    let result = f
+        .svc
+        .complete_oauth_callback(&state, "provider-auth-code")
+        .await;
     assert!(matches!(result, Err(AppError::Unauthorized(_))));
     assert!(
         f.credentials.rows.lock().unwrap().is_empty(),
@@ -427,11 +479,15 @@ async fn a_mismatched_state_is_refused() {
     let server = google_mock("google-subject-1").await;
     let f = fixture(Some(&server.uri()));
     configure_google(&f).await;
-    let _ = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let _ = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
 
     let result = f
         .svc
-        .complete_oauth("a-state-we-never-issued", "provider-auth-code")
+        .complete_oauth_callback("a-state-we-never-issued", "provider-auth-code")
         .await;
     assert!(matches!(result, Err(AppError::Unauthorized(_))));
 }
@@ -455,11 +511,15 @@ async fn a_state_is_single_use() {
         last_used_at: None,
     });
 
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let redirect = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
     let state = state_from(&redirect.url);
 
-    f.svc.complete_oauth(&state, "code").await.unwrap();
-    let replay = f.svc.complete_oauth(&state, "code").await;
+    f.svc.complete_oauth_callback(&state, "code").await.unwrap();
+    let replay = f.svc.complete_oauth_callback(&state, "code").await;
     assert!(
         matches!(replay, Err(AppError::Unauthorized(_))),
         "a replayed state must be refused"
@@ -480,10 +540,14 @@ async fn a_provider_500_surfaces_as_upstream_unavailable() {
 
     let f = fixture(Some(&server.uri()));
     configure_google(&f).await;
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let redirect = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
     let state = state_from(&redirect.url);
 
-    let result = f.svc.complete_oauth(&state, "code").await;
+    let result = f.svc.complete_oauth_callback(&state, "code").await;
     assert!(matches!(result, Err(AppError::UpstreamUnavailable(_))));
 }
 
@@ -505,11 +569,15 @@ async fn a_hanging_provider_is_given_up_on() {
 
     let f = fixture(Some(&server.uri()));
     configure_google(&f).await;
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let redirect = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
     let state = state_from(&redirect.url);
 
     let started = std::time::Instant::now();
-    let result = f.svc.complete_oauth(&state, "code").await;
+    let result = f.svc.complete_oauth_callback(&state, "code").await;
     let elapsed = started.elapsed();
 
     assert!(matches!(result, Err(AppError::UpstreamUnavailable(_))));
@@ -526,7 +594,11 @@ async fn completing_a_ceremony_for_an_unconfigured_provider_is_refused() {
     let server = google_mock("google-subject-1").await;
     let f = fixture(Some(&server.uri()));
     configure_google(&f).await;
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let redirect = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
     let state = state_from(&redirect.url);
 
     let ctx = principal::admin_context(admin());
@@ -534,7 +606,7 @@ async fn completing_a_ceremony_for_an_unconfigured_provider_is_refused() {
         .await
         .unwrap();
 
-    let result = f.svc.complete_oauth(&state, "code").await;
+    let result = f.svc.complete_oauth_callback(&state, "code").await;
     assert!(matches!(result, Err(AppError::Conflict(_))));
 }
 
@@ -549,15 +621,24 @@ async fn link_oauth_attaches_the_provider_account_to_the_caller() {
     // The ceremony must be started by the same user that links it — see
     // `a_link_ceremony_cannot_be_redeemed_by_a_different_user`.
     let ctx = principal::member_context(member());
-    let redirect =
-        auth_context::with_context(ctx.clone(), f.svc.start_oauth(OauthProvider::Google))
-            .await
-            .unwrap();
+    let redirect = auth_context::with_context(
+        ctx.clone(),
+        f.svc
+            .start_oauth(OauthProvider::Google, ReturnTo::Admin, false),
+    )
+    .await
+    .unwrap();
     let state = state_from(&redirect.url);
 
-    auth_context::with_context(ctx.clone(), f.svc.link_oauth(&state, "code"))
-        .await
-        .unwrap();
+    let outcome =
+        auth_context::with_context(ctx.clone(), f.svc.complete_oauth_callback(&state, "code"))
+            .await
+            .unwrap();
+    assert_eq!(
+        linked(&outcome),
+        member(),
+        "a ceremony started while signed in must dispatch to the link arm"
+    );
 
     let credentials = auth_context::with_context(ctx, f.svc.list_credentials(member()))
         .await
@@ -568,15 +649,39 @@ async fn link_oauth_attaches_the_provider_account_to_the_caller() {
 }
 
 #[tokio::test]
-async fn link_oauth_requires_authentication() {
+async fn a_link_ceremony_completed_with_no_session_is_refused() {
+    // The link arm completes *as the caller*, so it needs one. The ceremony
+    // below is a link (started while signed in), and the callback arrives with
+    // no auth context — a browser that dropped its cookie, or an attacker
+    // replaying a `(state, code)` they observed.
+    //
+    // This is deliberately not the old "link_oauth requires authentication"
+    // test: with one dispatched entry point a caller can no longer *ask* for
+    // the link arm, so the only way to reach it unauthenticated is to own a
+    // link ceremony's state.
     let server = google_mock("google-subject-9").await;
     let f = fixture(Some(&server.uri()));
     configure_google(&f).await;
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+
+    let ctx = principal::member_context(member());
+    let redirect = auth_context::with_context(
+        ctx,
+        f.svc
+            .start_oauth(OauthProvider::Google, ReturnTo::Admin, false),
+    )
+    .await
+    .unwrap();
     let state = state_from(&redirect.url);
 
-    let result = f.svc.link_oauth(&state, "code").await;
-    assert!(matches!(result, Err(AppError::Forbidden(_))));
+    let result = f.svc.complete_oauth_callback(&state, "code").await;
+    assert!(
+        matches!(result, Err(AppError::Forbidden(_))),
+        "a link ceremony must not complete without a session: {result:?}"
+    );
+    assert!(
+        f.credentials.rows.lock().unwrap().is_empty(),
+        "no credential may be attached by an unauthenticated callback"
+    );
 }
 
 #[tokio::test]
@@ -601,13 +706,17 @@ async fn a_provider_account_cannot_be_linked_to_two_users() {
     f.credentials.enforce_subject_uniqueness();
 
     let ctx = principal::admin_context(admin());
-    let redirect =
-        auth_context::with_context(ctx.clone(), f.svc.start_oauth(OauthProvider::Google))
-            .await
-            .unwrap();
+    let redirect = auth_context::with_context(
+        ctx.clone(),
+        f.svc
+            .start_oauth(OauthProvider::Google, ReturnTo::Admin, false),
+    )
+    .await
+    .unwrap();
     let state = state_from(&redirect.url);
 
-    let result = auth_context::with_context(ctx, f.svc.link_oauth(&state, "code")).await;
+    let result =
+        auth_context::with_context(ctx, f.svc.complete_oauth_callback(&state, "code")).await;
     match result {
         Err(AppError::Conflict(message)) => {
             assert!(
@@ -690,14 +799,19 @@ async fn a_link_ceremony_cannot_be_redeemed_by_a_different_user() {
 
     // The member starts a link ceremony.
     let member_ctx = principal::member_context(member());
-    let redirect = auth_context::with_context(member_ctx, f.svc.start_oauth(OauthProvider::Google))
-        .await
-        .unwrap();
+    let redirect = auth_context::with_context(
+        member_ctx,
+        f.svc
+            .start_oauth(OauthProvider::Google, ReturnTo::Admin, false),
+    )
+    .await
+    .unwrap();
     let state = state_from(&redirect.url);
 
     // The admin tries to complete it.
     let admin_ctx = principal::admin_context(admin());
-    let result = auth_context::with_context(admin_ctx, f.svc.link_oauth(&state, "code")).await;
+    let result =
+        auth_context::with_context(admin_ctx, f.svc.complete_oauth_callback(&state, "code")).await;
 
     assert!(
         matches!(result, Err(AppError::Forbidden(_))),
@@ -710,24 +824,39 @@ async fn a_link_ceremony_cannot_be_redeemed_by_a_different_user() {
 }
 
 #[tokio::test]
-async fn a_sign_in_ceremony_cannot_be_redeemed_as_a_link() {
+async fn an_ownerless_ceremony_can_only_sign_in_and_never_links() {
     // A ceremony started unauthenticated has no owner. Adopting it would let an
     // attacker who completed provider consent hand the resulting code to a
-    // signed-in victim's browser.
+    // signed-in victim's browser and have it attach to the victim's account.
+    //
+    // With dispatch on `started_by` that adoption is now unrepresentable rather
+    // than merely refused: an ownerless ceremony routes to the sign-in arm no
+    // matter who presents it. So the attacker's subject — linked to nobody —
+    // gets the "not linked to a household user" refusal, and crucially attaches
+    // nothing to the signed-in member whose browser redeemed it.
     let server = google_mock("attacker-google-subject").await;
     let f = fixture(Some(&server.uri()));
     configure_google(&f).await;
 
     // Started with no auth context at all — the sign-in entry point.
-    let redirect = f.svc.start_oauth(OauthProvider::Google).await.unwrap();
+    let redirect = f
+        .svc
+        .start_oauth(OauthProvider::Google, ReturnTo::Admin, false)
+        .await
+        .unwrap();
     let state = state_from(&redirect.url);
 
     let ctx = principal::member_context(member());
-    let result = auth_context::with_context(ctx, f.svc.link_oauth(&state, "code")).await;
+    let result =
+        auth_context::with_context(ctx, f.svc.complete_oauth_callback(&state, "code")).await;
 
     assert!(
-        matches!(result, Err(AppError::Forbidden(_))),
-        "an ownerless ceremony must not be adoptable: {result:?}"
+        matches!(result, Err(AppError::Unauthorized(_))),
+        "an ownerless ceremony signs in or fails; it never links: {result:?}"
+    );
+    assert!(
+        f.credentials.rows.lock().unwrap().is_empty(),
+        "the signed-in caller must not have acquired the attacker's provider account"
     );
 }
 
@@ -739,16 +868,20 @@ async fn a_link_ceremony_started_by_the_caller_still_works() {
     configure_google(&f).await;
     let ctx = principal::member_context(member());
 
-    let redirect =
-        auth_context::with_context(ctx.clone(), f.svc.start_oauth(OauthProvider::Google))
-            .await
-            .unwrap();
+    let redirect = auth_context::with_context(
+        ctx.clone(),
+        f.svc
+            .start_oauth(OauthProvider::Google, ReturnTo::Admin, false),
+    )
+    .await
+    .unwrap();
     let state = state_from(&redirect.url);
 
-    auth_context::with_context(ctx, f.svc.link_oauth(&state, "code"))
+    let outcome = auth_context::with_context(ctx, f.svc.complete_oauth_callback(&state, "code"))
         .await
         .expect("the caller who started the ceremony may complete it");
 
+    assert_eq!(linked(&outcome), member());
     assert_eq!(f.credentials.rows.lock().unwrap().len(), 1);
 }
 

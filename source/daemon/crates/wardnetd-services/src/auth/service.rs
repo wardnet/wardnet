@@ -94,6 +94,30 @@ pub trait AuthService: Send + Sync {
     /// has tripped, before any credential is verified.
     async fn login(&self, _attempt: LoginAttempt<'_>) -> Result<LoginResult, AppError>;
 
+    /// Issue a session for a user whose credential has **already** been
+    /// verified by another service.
+    ///
+    /// Exists for federated sign-in: `UserService::complete_oauth_callback`
+    /// proves who somebody is, but session policy lives here, and duplicating
+    /// it there would let the two drift (ADR-0031 §11).
+    ///
+    /// **This mints a credential from a bare user id.** Anyone who can call it
+    /// can become any household user, which makes it the same class of
+    /// primitive as [`AuthenticatedUser::from_validated_session`] — and it is
+    /// policed by the same script,
+    /// `build-support/check-auth-constructors.sh`. Before adding a call site,
+    /// answer the question that script asks: *what credential did this code
+    /// just verify?* If there isn't one, the answer is no.
+    ///
+    /// `remember_me` decides both the expiry and whether the session may later
+    /// be slid forward by [`Self::refresh_session`].
+    async fn issue_verified_session(
+        &self,
+        user_id: Uuid,
+        remember_me: bool,
+        user_agent: Option<&str>,
+    ) -> Result<LoginResult, AppError>;
+
     /// Extend the expiry of an existing session (sliding-window refresh).
     ///
     /// Called by `POST /api/auth/refresh` on every app open. Validates that the
@@ -242,6 +266,59 @@ impl AuthServiceImpl {
     }
 }
 
+impl AuthServiceImpl {
+    /// Create a session row and return its raw token.
+    ///
+    /// The **single** place session lifetime policy is applied — the
+    /// normal-vs-`remember_me` expiry, the `MAX_SESSION_DAYS` absolute ceiling,
+    /// and token hashing. Both the password login and the federated sign-in go
+    /// through here rather than each computing their own bounds: a second copy
+    /// would drift silently, and the half that drifted would be the half
+    /// deciding how long somebody stays signed in.
+    ///
+    /// Callers must have just verified a credential. This is private precisely
+    /// so that requirement is enforceable — the public door is
+    /// [`AuthService::issue_verified_session`], which CI polices.
+    async fn mint_session(
+        &self,
+        user_id: &str,
+        remember_me: bool,
+        device_id: Option<&str>,
+        user_agent: Option<&str>,
+    ) -> Result<LoginResult, AppError> {
+        let (token, token_hash) = new_session_token();
+        let session_id = Uuid::new_v4().to_string();
+        let now = chrono::Utc::now();
+        let expiry_hours = if remember_me {
+            self.remember_me_expiry_hours
+        } else {
+            self.session_expiry_hours
+        };
+        let expires_at = now + chrono::Duration::hours(Self::expiry_hours_i64(expiry_hours));
+        let absolute_expires_at = now + chrono::Duration::days(MAX_SESSION_DAYS);
+
+        self.sessions
+            .create(
+                &session_id,
+                user_id,
+                &token_hash,
+                &now.to_rfc3339(),
+                &expires_at.to_rfc3339(),
+                remember_me,
+                device_id,
+                user_agent,
+                &absolute_expires_at.to_rfc3339(),
+            )
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(LoginResult {
+            token,
+            max_age_seconds: expiry_hours * 3600,
+        })
+    }
+}
+
 #[async_trait]
 impl AuthService for AuthServiceImpl {
     async fn login(&self, request: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
@@ -302,37 +379,20 @@ impl AuthService for AuthServiceImpl {
         self.rate_limiter
             .record_success(request.subject, request.client_ip);
 
-        let (token, token_hash) = new_session_token();
-        let session_id = Uuid::new_v4().to_string();
-        let now = chrono::Utc::now();
-        let expiry_hours = if request.remember_me {
-            self.remember_me_expiry_hours
-        } else {
-            self.session_expiry_hours
-        };
-        let expires_at = now + chrono::Duration::hours(Self::expiry_hours_i64(expiry_hours));
-        let absolute_expires_at = now + chrono::Duration::days(MAX_SESSION_DAYS);
-
-        self.sessions
-            .create(
-                &session_id,
+        let result = self
+            .mint_session(
                 &login.credential.user_id,
-                &token_hash,
-                &now.to_rfc3339(),
-                &expires_at.to_rfc3339(),
                 request.remember_me,
                 request.device_id,
                 request.user_agent,
-                &absolute_expires_at.to_rfc3339(),
             )
-            .await
-            .map_err(AppError::Internal)?;
+            .await?;
 
         // Best-effort: a failure to stamp `last_used_at` must not fail a login
         // that has already succeeded.
         if let Err(e) = self
             .credentials
-            .touch_last_used(&login.credential.id, &now.to_rfc3339())
+            .touch_last_used(&login.credential.id, &chrono::Utc::now().to_rfc3339())
             .await
         {
             tracing::warn!(error = %e, "failed to record credential last_used_at");
@@ -346,10 +406,28 @@ impl AuthService for AuthServiceImpl {
             login.role.as_str()
         );
 
-        Ok(LoginResult {
-            token,
-            max_age_seconds: expiry_hours * 3600,
-        })
+        Ok(result)
+    }
+
+    async fn issue_verified_session(
+        &self,
+        user_id: Uuid,
+        remember_me: bool,
+        user_agent: Option<&str>,
+    ) -> Result<LoginResult, AppError> {
+        // Documented exception to the auth-guard rule (`.agents/auth.md`
+        // category (b), auth bootstrap): this issues the very session that a
+        // context would be read from, so requiring one is circular.
+        //
+        // The guard that matters for this method is not an `AuthContext` check
+        // at all — it is *who is allowed to call it*. Minting a session from a
+        // bare user id is the same class of primitive as
+        // `AuthenticatedUser::from_validated_session`: whoever holds it can
+        // become anybody. `build-support/check-auth-constructors.sh` polices the
+        // call sites for exactly that reason, and the answer a new call site has
+        // to give is the same one — *what credential did this code just verify?*
+        self.mint_session(&user_id.to_string(), remember_me, None, user_agent)
+            .await
     }
 
     async fn refresh_session(&self, token: &str) -> Result<LoginResult, AppError> {

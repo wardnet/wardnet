@@ -64,9 +64,22 @@ vi.mock("@/pages/DnsFilter", () => page("dns-filter"));
 vi.mock("@/pages/DnsFilterProfile", () => page("dns-filter-profile"));
 vi.mock("@/pages/DnsFilterProfileNew", () => page("dns-filter-profile-new"));
 vi.mock("@/pages/AccessRequests", () => page("access-requests"));
-vi.mock("@/pages/Login", () => page("login"));
+vi.mock("@/pages/Login", () => {
+  // Named, so the rules-of-hooks lint recognises it as a component — an
+  // anonymous arrow calling `useLocation` is indistinguishable from a hook
+  // called out of place.
+  function LoginStub() {
+    // Renders its own search string so a routing test can assert what
+    // survived the redirect, without reaching into router internals.
+    const { search } = useLocation();
+    return <div data-testid="login-search">{`login-page${search}`}</div>;
+  }
+  return { default: LoginStub };
+});
 vi.mock("@/pages/Setup", () => page("setup"));
 vi.mock("@/pages/NotFound", () => page("not-found"));
+
+import { useLocation } from "react-router";
 
 import App from "@/App";
 
@@ -115,6 +128,33 @@ describe("App routing", () => {
     useAuth.mockReturnValue({ isAdmin: false, isChecking: false, checkAuth });
     renderAt("/devices");
     expect(screen.getByText("login-page")).toBeInTheDocument();
+  });
+
+  // The daemon's OAuth callback redirects to `/admin/` on failure — the
+  // **index** route, which is not wrapped in `AdminRoute`. Forwarding the code
+  // only from the guard left the one path the callback actually targets
+  // silently dropping it, so both bounces are asserted here.
+  it("carries an oauth_error from the index route to login", () => {
+    useAuth.mockReturnValue({ isAdmin: false, isChecking: false, checkAuth });
+    renderAt("/?oauth_error=access_denied");
+    expect(screen.getByTestId("login-search")).toHaveTextContent(
+      "login-page?oauth_error=access_denied",
+    );
+  });
+
+  it("carries an oauth_error from a guarded route to login", () => {
+    useAuth.mockReturnValue({ isAdmin: false, isChecking: false, checkAuth });
+    renderAt("/devices?oauth_error=server_error");
+    expect(screen.getByTestId("login-search")).toHaveTextContent(
+      "login-page?oauth_error=server_error",
+    );
+  });
+
+  it("adds no query when there was no oauth failure", () => {
+    useAuth.mockReturnValue({ isAdmin: false, isChecking: false, checkAuth });
+    renderAt("/");
+    expect(screen.getByTestId("login-search")).toHaveTextContent("login-page");
+    expect(screen.getByTestId("login-search").textContent).not.toContain("?");
   });
 
   it("redirects to setup when the wizard is unfinished", () => {

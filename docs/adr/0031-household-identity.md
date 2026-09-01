@@ -224,3 +224,52 @@ counter trips. State is process-local and lost on restart, deliberately —
 persisting it would turn a lockout into something an attacker can induce and
 leave behind against the household's only admin, which is a denial-of-service
 primitive aimed at the break-glass credential.
+
+### 11. One callback URL, dispatched on the ceremony — never on the request
+
+Decision 6 fixes the redirect URI at
+`https://<fqdn>/api/auth/oauth/<provider>/callback`, and that string is
+registered by hand with Google or GitHub by every household. It is therefore the
+single least reversible thing in this design: changing its shape invalidates
+every existing registration, silently, at the moment somebody tries to sign in.
+
+One URL has to serve both ceremonies the model allows — a **sign-in** and a
+**link** — and the request arriving at it is a bare provider redirect carrying
+only `state` and `code`. Nothing about that request says which ceremony it
+belongs to. The dispatch therefore reads `started_by` from the stored ceremony:
+`None` is a sign-in, `Some(user)` is a link, and a link additionally requires
+that the caller *is* that user.
+
+Deciding in the HTTP handler instead — "treat it as a link if the request has a
+session" — was rejected for a reason worth recording, because it is the obvious
+shortcut. `resolve_callback` consumes the `state` **before** it can discover it
+guessed wrong (a single-use nonce that survived a failed read would be a replay
+primitive, §6). A wrong guess is thus unrecoverable for the user: their
+invitation to sign in is spent and the only remedy is to start again. So the
+service exposes exactly one callback entry point returning a typed
+`OauthOutcome`, and the two former entry points are gone rather than left
+callable. Keeping a second door that skips the `started_by` check would be the
+same mistake §5 rejected when it refused a separate `Admin` variant: two ways to
+say one thing, one of which is wrong.
+
+Two pieces of client intent cannot survive a provider redirect on their own,
+because the callback has no request body: **where to return the browser** and
+**whether the session is long-lived**. Both are parked on the ceremony at
+`/start` — which is what OAuth's `state` is *for*, beyond CSRF — rather than
+being re-asserted afterwards. `remember_me` in particular cannot be re-asserted:
+it gates `refresh_session`, so an endpoint that raised it after the fact would
+be an endpoint that upgrades any short session into a 90-day one.
+
+The return target is an **enum**, not a path. A caller-supplied relative path is
+the classic open-redirect trap (`//evil.com` and `/\evil.com` are read as
+absolute by browsers), and validating it correctly is famously easy to get
+wrong. With an enum, `Location` is always one of two compile-time constants and
+the vulnerability cannot be written.
+
+The alternative of dropping `remember_me` for federated users in favour of
+**silent re-authentication** (`prompt=none`) — the idiomatic answer in most
+federated apps, where the provider holds the durable session — is rejected for
+the same reason the local password is unremovable (§7): it makes staying signed
+in depend on a reachable WAN and a reachable provider. It would make federated
+admins the only people logged out during an outage, on a box whose guarantee is
+that it keeps working when the internet does not.

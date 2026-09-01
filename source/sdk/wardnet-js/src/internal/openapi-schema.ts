@@ -77,6 +77,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/auth/enrolments/redeem": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Redeem a one-time enrolment invitation, setting the member's first password. Unauthenticated by necessity: the person redeeming has no credential yet and therefore cannot have a session. The token *is* the authorization, which is why it is single-use, expiring, and checked in SQL. Deliberately **not** rate-limited — see the note on the handler. */
+        post: operations["post_api_auth_enrolments_redeem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -106,6 +123,92 @@ export interface paths {
         /** @description End the current session. Deletes the session server-side so the token can never authenticate again, and clears the `wardnet_session` cookie in the response. Requires a valid session cookie or a `Authorization: Bearer <session token>` header; only the session that authenticated this request is affected. Callers authenticated with an API key get a 401 — API keys are not sessions and cannot be logged out here. */
         post: operations["post_api_auth_logout"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/methods": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Which sign-in methods this box can actually offer right now. A sign-in surface reads this to decide which buttons to render, rather than showing a federated button that fails at the provider. Reports availability only — never a credential, a client secret, or whether any particular account exists, so it discloses nothing an unauthenticated caller should not see. `password` is always true: the local password is the floor and no path removes it. */
+        get: operations["get_api_auth_methods"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth/{provider}/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description The provider's redirect target, and **the only OAuth callback entry point**. This exact URL is registered by hand with Google or GitHub by every household, so its shape is fixed. One URL serves both ceremonies the model allows, and the request arriving here carries nothing that says which — the stored ceremony does, and the service dispatches on it. Always answers 303 back to the admin surface the ceremony began on: on success with a session cookie set, on failure with a stable `oauth_error` code and no cookie. Never renders, and never reflects an error message. */
+        get: operations["get_api_auth_oauth_provider_callback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/oauth/{provider}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Begin an OAuth ceremony and return the provider URL to send the browser to. Returns JSON rather than a redirect so the caller controls the navigation — a fetch that followed a 302 to an external origin would be opaque to the client. A ceremony started by a signed-in caller is a **link** (attaching a provider account to their own user); one started anonymously is a **sign-in**. Which of the two it is, is recorded on the ceremony here and never re-guessed at the callback. */
+        get: operations["get_api_auth_oauth_provider_start"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Every federated provider's full configuration, for the admin sign-in-methods screen: the client id, whether a secret is stored, the redirect URI to register, and the admin's **stored** on/off flag. Distinct from `GET /api/auth/methods`, which is unauthenticated and therefore reports availability only — the client id names the household's own OAuth application and is admin-only. The `enabled` here is the stored flag, so a settings form can round-trip it; `/api/auth/methods` reports the effective availability instead. Admin only. */
+        get: operations["get_api_auth_providers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/providers/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Configure a federated provider's client id and secret, and whether it is offered. Each household registers its own OAuth app. The secret goes to the `SecretStore` and is never readable back through any endpoint; reads report `configured: true|false`. Omitting `client_secret` leaves an existing one in place, so an admin can toggle `enabled` or fix a typo'd client id without re-pasting it. Admin only. */
+        put: operations["put_api_auth_providers_provider"];
+        post?: never;
+        /** @description Forget a provider's configuration entirely, including its client secret. Existing links to that provider are left alone — this removes the box's ability to run the ceremony, not the record of who linked what. Admin only. */
+        delete: operations["delete_api_auth_providers_provider"];
         options?: never;
         head?: never;
         patch?: never;
@@ -413,6 +516,23 @@ export interface paths {
         put?: never;
         /** @description Probe a device on the vendor catalog's TCP ports and record whichever answered as identification signals, naming the device if one resolves to a vendor (issue #1116). This is the only identification signal that sends unsolicited traffic to a device, so per ADR 0025 §5 it happens only on this explicit per-device admin action — there is no background scan and no global toggle. Synchronous: the probe surface is a handful of ports contacted concurrently, so it completes in about a second. Refused with 409 when the device is not currently on the network, because its last known address may since have been handed to someone else and the resulting vendor would be recorded against the wrong device. Admin only. */
         post: operations["post_api_devices_id_identify"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/devices/{id}/owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Assign or clear the household user a device belongs to (ADR-0031 §4). Pass `null` to clear. This is **attribution, never authentication**: the owner's role has no effect on what the device may do, and a device caller still resolves to the `Device` principal whoever owns it — including an admin. Device identity is derived from the source IP, so treating ownership as a credential would collapse admin access to IP spoofing. Returns the updated device detail. Admin only. */
+        put: operations["put_api_devices_id_owner"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2193,6 +2313,146 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Every household user, for the admin directory. Carries no credential material of any kind. Admin only — the list is the household's roster, and a member has no business enumerating it. */
+        get: operations["get_api_users"];
+        put?: never;
+        /** @description Create a household user with **no credential**. The account cannot be used until it is enrolled: the admin never learns a member's password, so account creation and credential creation are deliberately separate steps. Issue an invitation with `POST /api/users/{id}/enrolments` next. Admin only. */
+        post: operations["post_api_users"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description One household user. Readable by an admin, or by that user about themselves — a member must not be able to enumerate the household by walking ids. */
+        get: operations["get_api_users_id"];
+        put?: never;
+        post?: never;
+        /** @description Delete a household user. Credentials, enrolment tokens and sessions cascade; `devices.owner_user_id` is set to NULL, because deleting a person must not delete the household's hardware. Refuses to delete the last enabled admin — a box with no admin is a box nobody can administer, and there is no recovery path from outside. Admin only. */
+        delete: operations["delete_api_users_id"];
+        options?: never;
+        head?: never;
+        /** @description Update a user's display name and email. A user may edit their own profile; changing anybody else's is an admin action. Both fields are replacements — omitting `email` clears it. */
+        patch: operations["patch_api_users_id"];
+        trace?: never;
+    };
+    "/api/users/{id}/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description List a user's credentials, without secrets. The response type structurally has no secret field, so this cannot leak one by a later widening. Admin only. */
+        get: operations["get_api_users_id_credentials"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{id}/credentials/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Unlink every credential of one federated provider from a user. Never touches the local password: that is the floor, and an account whose only credential depended on a reachable provider would be unreachable during a WAN outage. Idempotent — unlinking a provider that was never linked succeeds. Admin only. */
+        delete: operations["delete_api_users_id_credentials_provider"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{id}/enabled": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Enable or disable a household user. Disabling revokes immediately: every live session is deleted, and the login join filters the account out from the next request onward. Refuses to disable the last enabled admin. Admin only. */
+        put: operations["put_api_users_id_enabled"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{id}/enrolments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Outstanding and spent invitations for a user, so an admin can see whether one is still open before issuing another. Tokens are never included — only their metadata. Admin only. */
+        get: operations["get_api_users_id_enrolments"];
+        put?: never;
+        /** @description Issue a one-time enrolment invitation for a user who has no password yet. The `token` in the response is shown **exactly once** — only its hash is stored, so an admin who loses it must issue another. Hand it over out of band; the member redeems it at `POST /api/auth/enrolments/redeem` and chooses their own password, which the admin never learns. Admin only. */
+        post: operations["post_api_users_id_enrolments"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{id}/enrolments/{enrolment_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** @description Revoke an unredeemed invitation, for an admin who issued one by mistake or to the wrong person. Admin only. */
+        delete: operations["delete_api_users_id_enrolments_enrolment_id"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/{id}/role": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** @description Change a user's role between `admin` and `member`. An `admin` household user is exactly equal to the legacy local admin — there is no second tier. Refuses to demote the last enabled admin. Admin only. */
+        put: operations["put_api_users_id_role"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/users/me": {
         parameters: {
             query?: never;
@@ -2204,6 +2464,23 @@ export interface paths {
         get: operations["get_api_users_me"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/users/me/password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Set your own password, proving the current one first. **Every** live session for the account is invalidated, including the one making this call — a password change is usually a response to 'somebody may know my password', and leaving that person's session alive would make the change cosmetic. The caller must sign in again with the new password. Not an admin route in either direction: an admin cannot set someone else's password (they would then know it), and a member changing their own needs no admin. */
+        post: operations["post_api_users_me_password"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2416,6 +2693,34 @@ export interface components {
             /** Format: uuid */
             zone_id: string;
         };
+        /** @description Response for `GET /api/auth/methods` (unauthenticated).
+         *
+         *     The contract a sign-in surface reads to decide which buttons to render.
+         *     Reports availability only — never a credential, a client secret, or
+         *     whether any particular account exists.
+         *
+         *     Carries neither the client id nor the redirect URI, both of which live on
+         *     the admin-only [`OauthProviderConfigResponse`]. Neither is a secret in the
+         *     cryptographic sense, but both name the household's own registered
+         *     application and its public hostname, and a surface reachable by anyone who
+         *     can address the box should disclose no more than "this button will work". */
+        AuthMethodsResponse: {
+            /** @description Always `true`. The local password is the floor: it needs no WAN, no
+             *     certificate and no provider, and no path removes it (ADR-0031 §7). */
+            password: boolean;
+            providers: components["schemas"]["AuthProviderStatusResponse"][];
+        };
+        /** @description One federated provider's availability, for `GET /api/auth/methods`. */
+        AuthProviderStatusResponse: {
+            /** @description A client secret is present. The secret itself is never returned by any
+             *     endpoint — this flag is the whole of what a reader learns. */
+            configured: boolean;
+            /** @description The admin turned it on **and** it is fully configured. Only an enabled
+             *     provider should be rendered as a sign-in button, and this single flag
+             *     is all a sign-in surface needs to decide. */
+            enabled: boolean;
+            provider: components["schemas"]["OauthProviderDto"];
+        };
         /** @description Coarse subsystem status surfaced by `GET /api/backup/status` and the web UI. */
         BackupStatus: {
             /** @enum {string} */
@@ -2512,6 +2817,20 @@ export interface components {
              *     `0.2.0` or `0.2.1-dev.7+gabc1234`. Informational — not used for compat. */
             wardnet_version: string;
         };
+        /** @description Request body for `POST /api/users/me/password`.
+         *
+         *     The current password is required even though the caller already holds a
+         *     session: a session is not proof that the person at the keyboard is the
+         *     account holder, and a password change that only needed a session would
+         *     turn any unlocked browser into a permanent account takeover.
+         *
+         *     On success **every** session for the account is revoked, the caller's
+         *     included — so the client must expect its next request to be unauthorized
+         *     and route the person back to sign-in. */
+        ChangePasswordRequest: {
+            current_password: string;
+            new_password: string;
+        };
         /** @description A conditional forwarding rule (domain → specific upstream). */
         ConditionalForwardingRule: {
             /** Format: date-time */
@@ -2528,6 +2847,16 @@ export interface components {
             domain: string;
             /** @description A Cloudflare API token scoped to DNS:Edit on the domain's zone. */
             token: string;
+        };
+        /** @description Request body for `PUT /api/auth/providers/{provider}` (admin). */
+        ConfigureOauthProviderRequest: {
+            client_id: string;
+            /** @description The client secret. `None` leaves any existing secret in place, so an
+             *     admin can toggle `enabled` or fix a typo'd client id without re-pasting
+             *     it — and so a UI that cannot read the secret back can still submit the
+             *     form it rendered. */
+            client_secret?: string | null;
+            enabled: boolean;
         };
         /** @description A country available from a VPN provider. */
         CountryInfo: {
@@ -2689,6 +3018,17 @@ export interface components {
             message: string;
             tunnel: components["schemas"]["Tunnel"];
         };
+        /** @description Request body for `POST /api/users` (admin).
+         *
+         *     Creates an account with **no credential**. The admin never learns a
+         *     member's password (ADR-0031 §3), so the new user is unusable until an
+         *     enrolment invitation is issued and redeemed — account creation and
+         *     credential creation are deliberately two steps. */
+        CreateUserRequest: {
+            display_name: string;
+            email?: string | null;
+            role: components["schemas"]["UserRole"];
+        };
         /** @description Request body for POST /api/network/zones/exceptions. */
         CreateZoneExceptionRequest: {
             bidirectional: boolean;
@@ -2710,6 +3050,17 @@ export interface components {
             message: string;
             zone: components["schemas"]["DnsZone"];
         };
+        /**
+         * @description What sort of credential a [`UserCredentialResponse`] describes.
+         *
+         *     A wire-level mirror of `wardnetd-data`'s `CredentialKind`, which this crate
+         *     sits below and cannot depend on. Declared as an enum rather than a bare
+         *     string so the published schema names the closed set — a client that
+         *     switches on `kind` then gets a compile error when a variant is added,
+         *     instead of a silent fallthrough.
+         * @enum {string}
+         */
+        CredentialKindDto: "password" | "google" | "github" | "passkey";
         /** @description A user-defined local DNS record. */
         CustomDnsRecord: {
             /** Format: date-time */
@@ -3448,6 +3799,31 @@ export interface components {
             /** @enum {string} */
             type: "direct";
         };
+        /** @description Response for `POST /api/users/{id}/enrolments` (admin).
+         *
+         *     The `token` appears **exactly once**, here. Only its hash is stored, so an
+         *     admin who loses it must issue another — which is the intended property, not
+         *     a limitation. */
+        EnrolmentInviteResponse: {
+            /** @description RFC 3339 expiry, so the UI can say how long it is good for. */
+            expires_at: string;
+            /** @description Hand this to the member out of band. Never retrievable again. */
+            token: string;
+            /** Format: uuid */
+            user_id: string;
+        };
+        /** @description An outstanding or spent enrolment invitation. */
+        EnrolmentResponse: {
+            created_at: string;
+            expires_at: string;
+            /** Format: uuid */
+            id: string;
+            /** @description `None` while outstanding; set once redeemed. An invitation is
+             *     single-use, so a non-null value means it can never be redeemed again. */
+            used_at?: string | null;
+            /** Format: uuid */
+            user_id: string;
+        };
         /** @description One side of a cross-zone exception: a `kind`-tagged reference to a device or
          *     a zone. */
         ExceptionEndpoint: {
@@ -3756,6 +4132,10 @@ export interface components {
         ListDomainRoutingRulesResponse: {
             rules: components["schemas"]["DomainRoutingRule"][];
         };
+        /** @description Response for `GET /api/users/{id}/enrolments` (admin). */
+        ListEnrolmentsResponse: {
+            enrolments: components["schemas"]["EnrolmentResponse"][];
+        };
         /** @description Response for GET /api/dns/rules. */
         ListFilterRulesResponse: {
             rules: components["schemas"]["CustomFilterRule"][];
@@ -3771,6 +4151,10 @@ export interface components {
         /** @description Response for GET /api/network/zones. */
         ListNetworkZonesResponse: {
             zones: components["schemas"]["NetworkZoneView"][];
+        };
+        /** @description Response for `GET /api/auth/providers` (admin). */
+        ListOauthProvidersResponse: {
+            providers: components["schemas"]["OauthProviderConfigResponse"][];
         };
         /** @description Response for GET /`api/routing/profiles/{id}/devices`. */
         ListProfileDevicesResponse: {
@@ -3820,6 +4204,14 @@ export interface components {
         /** @description Response for GET /api/tunnels. */
         ListTunnelsResponse: {
             tunnels: components["schemas"]["Tunnel"][];
+        };
+        /** @description Response for `GET /api/users/{id}/credentials`. */
+        ListUserCredentialsResponse: {
+            credentials: components["schemas"]["UserCredentialResponse"][];
+        };
+        /** @description Response for `GET /api/users` (admin). */
+        ListUsersResponse: {
+            users: components["schemas"]["UserResponse"][];
         };
         /** @description Response for GET /api/network/zones/exceptions. */
         ListZoneExceptionsResponse: {
@@ -3970,6 +4362,48 @@ export interface components {
             /** @description Newest first. */
             notifications: components["schemas"]["NotificationItem"][];
         };
+        /** @description One provider's full configuration, for the **admin** provider screen.
+         *
+         *     Separate from [`AuthProviderStatusResponse`] on purpose. That one is served
+         *     by the unauthenticated `GET /api/auth/methods`, so it must carry nothing an
+         *     anonymous caller should not learn — not even the client id, which would
+         *     otherwise disclose the household's OAuth app and canonical hostname to
+         *     anyone who can reach the box. */
+        OauthProviderConfigResponse: {
+            /** @description The configured client id, or `null` if none is set. Not a secret — it
+             *     rides in the authorize URL — but still admin-only, because it names the
+             *     household's own registered application. */
+            client_id?: string | null;
+            /** @description A client secret is present. The secret itself is never returned. */
+            configured: boolean;
+            /** @description The admin's **stored** on/off flag, not the effective availability.
+             *
+             *     This is the field a settings form must round-trip. Submitting
+             *     [`AuthProviderStatusResponse::enabled`] instead would write the
+             *     *computed* value back, silently switching a provider off whenever its
+             *     hostname or secret happened to be missing at read time. */
+            enabled: boolean;
+            provider: components["schemas"]["OauthProviderDto"];
+            /** @description The redirect URI to register with the provider by hand. */
+            redirect_uri?: string | null;
+        };
+        /**
+         * @description A federated identity provider, on the wire.
+         *
+         *     Mirrors `wardnetd-services`' `OauthProvider` for the same reason
+         *     [`CredentialKindDto`] mirrors its data-layer counterpart.
+         * @enum {string}
+         */
+        OauthProviderDto: "google" | "github";
+        /** @description Response for `GET /api/auth/oauth/{provider}/start` (unauthenticated).
+         *
+         *     JSON rather than a redirect, so the caller controls the navigation: a
+         *     fetch that followed a 302 to an external origin would be opaque to the
+         *     client and impossible to surface an error from. */
+        OauthStartResponse: {
+            /** @description The provider's authorize URL, fully parameterised. Send the browser here. */
+            url: string;
+        };
         /** @description An inclusive port range for a single protocol. A single port is expressed as
          *     `from == to`. */
         PortSpec: {
@@ -4101,6 +4535,13 @@ export interface components {
         RebuildTunnelResponse: {
             /** @description Always `true` on a 200 response. Errors surface as non-200 status codes. */
             ok: boolean;
+        };
+        /** @description Request body for `POST /api/auth/enrolments/redeem` (unauthenticated). */
+        RedeemEnrolmentRequest: {
+            /** @description The member's chosen first password. */
+            password: string;
+            /** @description The one-time token the admin handed over. */
+            token: string;
         };
         /** @description Outcome of a reevaluation pass over the open anomalies. */
         ReevaluateSummary: {
@@ -4285,6 +4726,18 @@ export interface components {
         SetDefaultPolicyResponse: {
             policy: string;
         };
+        /** @description Request body for `PUT /api/devices/{id}/owner` (admin, ADR-0031 §4).
+         *
+         *     **Attribution, never authentication.** The owner's role has no effect on
+         *     what the device may do: a device caller resolves to `AuthContext::Device`
+         *     whoever owns it, including an admin. */
+        SetDeviceOwnerRequest: {
+            /**
+             * Format: uuid
+             * @description The owning household user, or `null` to clear the assignment.
+             */
+            owner_user_id?: string | null;
+        };
         /** @description Request body for PUT /`api/routing/devices/{device_id}/profiles`. */
         SetDeviceRoutingProfilesRequest: {
             /** @description Profile ids in priority order (first = highest priority). */
@@ -4361,6 +4814,14 @@ export interface components {
             setup_completed: boolean;
             wizard_mode?: null | components["schemas"]["WizardMode"];
             wizard_step: components["schemas"]["WizardStep"];
+        };
+        /** @description Request body for `PUT /api/users/{id}/enabled` (admin). */
+        SetUserEnabledRequest: {
+            enabled: boolean;
+        };
+        /** @description Request body for `PUT /api/users/{id}/role` (admin). */
+        SetUserRoleRequest: {
+            role: components["schemas"]["UserRole"];
         };
         /**
          * @description What a [`LocalSnapshot`] is a snapshot of.
@@ -4904,6 +5365,13 @@ export interface components {
         UpdateTunnelDnsOverrideResponse: {
             tunnel: components["schemas"]["Tunnel"];
         };
+        /** @description Request body for `PATCH /api/users/{id}`.
+         *
+         *     Both fields are replacements, not patches: omitting `email` clears it. */
+        UpdateUserProfileRequest: {
+            display_name: string;
+            email?: string | null;
+        };
         /** @description Request body for PUT /api/network/zones/exceptions/{id} (partial update).
          *     Every field is optional; absent fields are left unchanged. */
         UpdateZoneExceptionRequest: {
@@ -4969,6 +5437,41 @@ export interface components {
             avg_latency_ms?: number | null;
             /** @description Whether the most recent probe reached the upstream. */
             reachable: boolean;
+        };
+        /** @description One of a user's credentials, without any secret. */
+        UserCredentialResponse: {
+            created_at: string;
+            id: string;
+            kind: components["schemas"]["CredentialKindDto"];
+            /** @description Human label shown in the credential list. */
+            label?: string | null;
+            /** @description Last successful authentication, or `None` if never used. */
+            last_used_at?: string | null;
+            /** @description The login identifier. Safe to show: for OAuth it is the provider's own
+             *     subject, and there is no passkey path in the tree yet (#1194). */
+            subject: string;
+        };
+        /** @description A household user as the admin directory shows them (ADR-0031 §1).
+         *
+         *     Structurally carries **no credential material** — not even a derived
+         *     "has a password" flag. Credentials are a separate resource
+         *     (`GET /api/users/{id}/credentials`) returning
+         *     [`UserCredentialResponse`], which likewise has no secret field. Keeping the
+         *     two apart is what makes it impossible to leak a hash by widening a struct
+         *     somebody thought was only a name and an email. */
+        UserResponse: {
+            created_at: string;
+            display_name: string;
+            /** @description Optional. A user created by the setup wizard or the config-file
+             *     bootstrap has none, because neither asks for one. */
+            email?: string | null;
+            /** @description A disabled user keeps their row and their device ownership but cannot
+             *     sign in, and every live session was deleted when they were disabled. */
+            enabled: boolean;
+            /** Format: uuid */
+            id: string;
+            role: components["schemas"]["UserRole"];
+            updated_at: string;
         };
         /**
          * @description A household user's role (ADR-0031 §11).
@@ -5398,6 +5901,57 @@ export interface operations {
             };
         };
     };
+    post_api_auth_enrolments_redeem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RedeemEnrolmentRequest"];
+            };
+        };
+        responses: {
+            /** @description Enrolment redeemed; the user may now sign in */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description The password does not meet the policy */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description The invitation is not valid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
     post_api_auth_login: {
         parameters: {
             query?: never;
@@ -5499,6 +6053,357 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_api_auth_methods: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Available sign-in methods */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuthMethodsResponse"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_api_auth_oauth_provider_callback: {
+        parameters: {
+            query?: {
+                /** @description The authorization code to exchange. */
+                code?: string | null;
+                /** @description Set instead of `code` when the person declined consent, or the provider
+                 *     refused. Its value is a provider-defined code (`access_denied`, …). */
+                error?: string | null;
+                /** @description The single-use ceremony nonce issued at `/start`. */
+                state?: string | null;
+            };
+            header?: never;
+            path: {
+                /** @description `google` or `github` */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Redirect to the admin surface, with a session cookie on success or an `oauth_error` query parameter on failure */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    get_api_auth_oauth_provider_start: {
+        parameters: {
+            query?: {
+                /** @description Whether to issue a long-lived, refreshable session. Defaults to false.
+                 *
+                 *     It must be decided here and nowhere else: it gates `refresh_session`,
+                 *     so an endpoint that raised it after the fact would be an endpoint that
+                 *     upgrades any short session into a 90-day one. */
+                remember_me?: boolean | null;
+                /** @description Which admin surface the ceremony began on: `admin` or `admin_app`.
+                 *     Defaults to `admin`. An unrecognised value is **rejected**, not
+                 *     sanitised into something close enough. */
+                return_to?: string | null;
+            };
+            header?: never;
+            path: {
+                /** @description `google` or `github` */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider authorize URL */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OauthStartResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    get_api_auth_providers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListOauthProvidersResponse"];
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    put_api_auth_providers_provider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `google` or `github` */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigureOauthProviderRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated provider configuration */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OauthProviderConfigResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    delete_api_auth_providers_provider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description `google` or `github` */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider configuration cleared */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
                 };
             };
         };
@@ -6922,6 +7827,103 @@ export interface operations {
             };
             /** @description Conflicting concurrent operation */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    put_api_devices_id_owner: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Device ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDeviceOwnerRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated device detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceDetailResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -17722,6 +18724,1172 @@ export interface operations {
             };
         };
     };
+    get_api_users: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The household directory */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListUsersResponse"];
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    post_api_users: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description The created user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Conflicting concurrent operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    get_api_users_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    delete_api_users_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description User deleted */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Conflicting concurrent operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    patch_api_users_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserProfileRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Conflicting concurrent operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    get_api_users_id_credentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's credentials */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListUserCredentialsResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    delete_api_users_id_credentials_provider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: string;
+                /** @description `google` or `github` */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Provider credentials unlinked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    put_api_users_id_enabled: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetUserEnabledRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Conflicting concurrent operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    get_api_users_id_enrolments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The user's invitations */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListEnrolmentsResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    post_api_users_id_enrolments: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The invitation, with its one-time token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EnrolmentInviteResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Conflicting concurrent operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    delete_api_users_id_enrolments_enrolment_id: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Enrolment ID */
+                enrolment_id: string;
+                /** @description User ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Invitation revoked */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    put_api_users_id_role: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description User ID */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetUserRoleRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated user */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserResponse"];
+                };
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Conflicting concurrent operation */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
     get_api_users_me: {
         parameters: {
             query?: never;
@@ -17775,6 +19943,84 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    post_api_users_me_password: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Password changed; all sessions invalidated, including this one */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Malformed or invalid request body */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
                 };
             };
         };

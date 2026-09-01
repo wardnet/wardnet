@@ -8,10 +8,11 @@ pub mod service;
 pub use ceremony::{CEREMONY_TTL, CeremonyStore};
 pub use oauth::{
     OauthClient, OauthConfig, OauthProvider, PendingOauth, ProviderEndpoints, ProviderIdentity,
-    ProviderStatus, ReqwestOauthClient,
+    ProviderStatus, ReqwestOauthClient, ReturnTo,
 };
 pub use service::{
-    EnrolmentInvite, EnrolmentSummary, NewUser, UserProfile, UserService, UserServiceImpl,
+    AuthMethods, EnrolmentInvite, EnrolmentSummary, NewUser, OauthOutcome, OauthRedirect,
+    UserProfile, UserService, UserServiceImpl,
 };
 
 #[cfg(test)]

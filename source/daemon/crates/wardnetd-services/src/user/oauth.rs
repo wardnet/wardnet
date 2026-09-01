@@ -156,11 +156,62 @@ impl ProviderEndpoints {
     }
 }
 
+/// Which admin surface a ceremony began on, and therefore where the callback
+/// returns the browser.
+///
+/// An **enum, not a path**. The callback's `Location` is the classic
+/// open-redirect sink, and a caller-supplied relative path is famously hard to
+/// validate — browsers read both `//evil.com` and `/\evil.com` as absolute. By
+/// mapping a closed set of variants onto compile-time constants, no
+/// caller-supplied text ever reaches the header and the vulnerability cannot be
+/// written here (ADR-0031 §11).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReturnTo {
+    /// The desktop admin site at `/admin/`. The default: a ceremony that did
+    /// not say where it came from is far likelier to be the desktop site than
+    /// the installed PWA.
+    #[default]
+    Admin,
+    /// The admin mobile PWA at `/admin-app/`.
+    AdminApp,
+}
+
+impl ReturnTo {
+    /// Parse the `return_to` query parameter. `None` for anything
+    /// unrecognised, so an unknown value is *rejected* rather than sanitised
+    /// into something that looked close enough.
+    #[must_use]
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "admin" => Some(Self::Admin),
+            "admin_app" => Some(Self::AdminApp),
+            _ => None,
+        }
+    }
+
+    /// Where the callback sends the browser. Always one of two constants.
+    #[must_use]
+    pub const fn path(self) -> &'static str {
+        match self {
+            Self::Admin => "/admin/",
+            Self::AdminApp => "/admin-app/",
+        }
+    }
+}
+
 /// The state carried across an OAuth round-trip.
 #[derive(Debug, Clone)]
 pub struct PendingOauth {
-    /// Which provider the ceremony was started for. Checked on callback so a
-    /// `state` minted for one provider cannot be redeemed at another.
+    /// Which provider the ceremony was started for.
+    ///
+    /// **This is the authority**, not the `{provider}` segment in the callback
+    /// URL. Since the callback dispatches on the stored ceremony (ADR-0031
+    /// §11) it never receives a provider to compare against, so a `state`
+    /// minted for Google and presented at `/github/callback` still runs the
+    /// *Google* exchange. That is correct — the ceremony knows what it began —
+    /// but it means the path segment is validated for shape only, and anything
+    /// that must name the real provider (an audit log, a credential kind)
+    /// reads this field.
     pub provider: OauthProvider,
     /// The PKCE verifier whose challenge went out with the authorize request.
     pub pkce_verifier: String,
@@ -173,9 +224,22 @@ pub struct PendingOauth {
     /// their own provider account, obtaining `(state, code)`, and then getting a
     /// signed-in admin's browser to redeem it — which would attach the
     /// attacker's Google account to the admin's user and hand them the
-    /// household. `finish_passkey_registration` refuses on the same mismatch;
-    /// this makes the OAuth link path match.
+    /// household.
     pub started_by: Option<uuid::Uuid>,
+    /// Where to send the browser once the callback resolves.
+    ///
+    /// Parked here at `/start` because the callback is a bare provider redirect
+    /// with no request body to carry it — which is what OAuth's `state` is for
+    /// beyond CSRF (ADR-0031 §11).
+    pub return_to: ReturnTo,
+    /// Whether the session this ceremony issues may slide its expiry forward.
+    ///
+    /// Carried across the round trip for the same reason as `return_to`, and it
+    /// specifically cannot be re-asserted afterwards: this flag is what
+    /// `refresh_session` checks, so an endpoint that raised it after the fact
+    /// would be an endpoint that upgrades any short session into a long one.
+    /// Ignored for a link ceremony, which issues no session.
+    pub remember_me: bool,
 }
 
 /// Who the provider says signed in.
@@ -375,8 +439,24 @@ fn map_provider_error(err: &reqwest::Error) -> AppError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderStatus {
     pub provider: OauthProvider,
-    /// The admin turned it on **and** it is fully configured.
+    /// The configured client id, or `None` if none is set.
+    ///
+    /// **Not a secret.** An OAuth client id travels in the authorize URL, so
+    /// every browser that ever ran this ceremony has already seen it. Returning
+    /// it is what lets an admin UI show which app is wired up, and toggle
+    /// `enabled` without having to re-submit — and therefore without having to
+    /// know — a value it cannot read back. The client *secret* is never
+    /// returned by any endpoint; `configured` is the whole of what a reader
+    /// learns about it.
+    pub client_id: Option<String>,
+    /// The admin turned it on **and** it is fully configured. This is the
+    /// *effective* availability a sign-in surface renders from.
     pub enabled: bool,
+    /// The admin's stored on/off flag alone, ignoring whether the provider is
+    /// actually usable. Kept beside [`Self::enabled`] because a settings form
+    /// must round-trip *this* value: writing the effective one back would turn
+    /// a provider off whenever its secret or hostname was momentarily absent.
+    pub enabled_stored: bool,
     /// A client secret is present. The secret itself is never returned.
     pub configured: bool,
     /// The redirect URI to register with the provider, when a canonical FQDN
@@ -462,13 +542,15 @@ impl OauthConfig {
     /// render a button that always fails.
     pub async fn status(&self, provider: OauthProvider) -> Result<ProviderStatus, AppError> {
         let fqdn = self.canonical_fqdn().await?;
-        let has_id = self.client_id(provider).await?.is_some();
+        let client_id = self.client_id(provider).await?;
         let configured = self.client_secret(provider).await?.is_some();
         let flag = self.is_enabled(provider).await?;
 
         Ok(ProviderStatus {
             provider,
-            enabled: flag && has_id && configured && fqdn.is_some(),
+            enabled: flag && client_id.is_some() && configured && fqdn.is_some(),
+            enabled_stored: flag,
+            client_id,
             configured,
             redirect_uri: fqdn.as_deref().map(|f| provider.redirect_uri(f)),
         })

@@ -7,8 +7,8 @@ use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
     ApiError, AssignDeviceZoneRequest, DeviceDetailResponse, DeviceMeResponse, DeviceProbeResponse,
-    DeviceWithStatus, ListDevicesResponse, RoutingProfileSummary, SetMyRuleRequest,
-    SetMyRuleResponse, UpdateDeviceRequest, ZoneSummary,
+    DeviceWithStatus, ListDevicesResponse, RoutingProfileSummary, SetDeviceOwnerRequest,
+    SetMyRuleRequest, SetMyRuleResponse, UpdateDeviceRequest, ZoneSummary,
 };
 use wardnet_common::device::DhcpStatus;
 use wardnet_common::routing::RoutingTarget;
@@ -26,6 +26,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(set_my_rule))
         .routes(routes!(get_device, update_device))
         .routes(routes!(assign_device_zone))
+        .routes(routes!(set_device_owner))
         .routes(routes!(identify_device))
         .routes(routes!(release_device))
 }
@@ -416,6 +417,50 @@ pub async fn assign_device_zone(
 }
 
 #[utoipa::path(
+    put,
+    path = "/api/devices/{id}/owner",
+    tag = TAG,
+    description = "Assign or clear the household user a device belongs to \
+                   (ADR-0031 §4). Pass `null` to clear. This is **attribution, \
+                   never authentication**: the owner's role has no effect on \
+                   what the device may do, and a device caller still resolves \
+                   to the `Device` principal whoever owns it — including an \
+                   admin. Device identity is derived from the source IP, so \
+                   treating ownership as a credential would collapse admin \
+                   access to IP spoofing. Returns the updated device detail. \
+                   Admin only.",
+    params(("id" = Uuid, Path, description = "Device ID")),
+    request_body = SetDeviceOwnerRequest,
+    responses(
+        (status = 200, description = "Updated device detail", body = DeviceDetailResponse),
+        AuthErrors,
+        NotFound,
+        BadRequest,
+    ),
+)]
+pub async fn set_device_owner(
+    State(state): State<AppState>,
+    _auth: SessionAuth,
+    Path(id): Path<String>,
+    Json(body): Json<SetDeviceOwnerRequest>,
+) -> Result<Json<DeviceDetailResponse>, AppError> {
+    let uuid: Uuid = id
+        .parse()
+        .map_err(|_| AppError::BadRequest("invalid device ID".to_owned()))?;
+    state
+        .device_service()
+        // The parsed UUID, not the raw segment: `Uuid::parse_str` accepts
+        // braced and uppercase forms that would not match the stored id, and
+        // the follow-up read below already uses the normalised value.
+        .set_device_owner(&uuid.to_string(), body.owner_user_id)
+        .await?;
+
+    let device = state.discovery_service().get_device_by_id(uuid).await?;
+    // Mutation path — see `device_detail`.
+    Ok(Json(device_detail(&state, device, false).await?))
+}
+
+#[utoipa::path(
     post,
     path = "/api/devices/{id}/identify",
     tag = TAG,
@@ -676,9 +721,23 @@ pub async fn release_device(
         )?;
     }
 
-    // 9. Finally unmanaged. Every step above that promotes on write (the
-    //    routing rule, the filter settings, the zone) has already run, so this
-    //    lands last and stays.
+    // 9. Drop the owner assignment (ADR-0031 §4). It is only a label, but it
+    //    is an *admin-set* one that promotes on write, so leaving it would
+    //    leave an admin artefact on a device about to be marked unmanaged —
+    //    the exact state the retention prune assumes cannot exist. It would
+    //    also keep rendering "Bruno's laptop" for a device the admin has just
+    //    released.
+    releasing(
+        "clear device owner",
+        state
+            .device_service()
+            .set_device_owner(&device_id, None)
+            .await,
+    )?;
+
+    // 10. Finally unmanaged. Every step above that promotes on write (the
+    //    routing rule, the filter settings, the zone, the owner) has already
+    //    run, so this lands last and stays.
     releasing(
         "clear managed flag",
         state.device_service().clear_managed(&device_id).await,

@@ -6,6 +6,7 @@ use wardnet_common::routing::{RoutingRule, RoutingTarget, RuleCreator};
 use super::super::DeviceRepository;
 use super::super::device::{DeviceRow as InsertDeviceRow, PrunedDevice};
 use crate::db::DbPools;
+use crate::repository::device::UnknownOwnerError;
 
 /// `SQLite`-backed implementation of [`DeviceRepository`].
 pub struct SqliteDeviceRepository {
@@ -141,6 +142,17 @@ const DELETE_UNMANAGED_BEFORE_SQL: &str =
     "DELETE FROM devices WHERE managed = 0 AND last_seen < ? RETURNING id, mac, last_seen";
 const FIND_STALE_SQL: &str = "SELECT id, mac, name, hostname, manufacturer, manufacturer_source, is_randomized, device_type, first_seen, last_seen, last_ip, admin_locked, zone_id, owner_user_id, dns_capture_enabled, dns_capture_cap_count, dns_capture_cap_days, connection_mode, managed \
      FROM devices WHERE last_seen < ?";
+
+/// Re-wrap a `SQLite` foreign-key failure on `owner_user_id` as
+/// [`UnknownOwnerError`], passing everything else through unchanged.
+fn map_unknown_owner(err: sqlx::Error) -> anyhow::Error {
+    if let sqlx::Error::Database(ref db_err) = err
+        && db_err.message().contains("FOREIGN KEY constraint failed")
+    {
+        return anyhow::Error::new(UnknownOwnerError);
+    }
+    anyhow::Error::new(err)
+}
 
 #[async_trait]
 impl DeviceRepository for SqliteDeviceRepository {
@@ -481,7 +493,8 @@ impl DeviceRepository for SqliteDeviceRepository {
             .bind(owner_user_id)
             .bind(device_id)
             .execute(&self.pools.write)
-            .await?;
+            .await
+            .map_err(map_unknown_owner)?;
         Ok(result.rows_affected() > 0)
     }
 

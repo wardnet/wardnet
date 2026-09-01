@@ -39,6 +39,14 @@ struct MockAuthService {
 
 #[async_trait]
 impl AuthService for MockAuthService {
+    async fn issue_verified_session(
+        &self,
+        _user_id: uuid::Uuid,
+        _remember_me: bool,
+        _user_agent: Option<&str>,
+    ) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
     async fn current_user(&self) -> Result<CurrentUser, AppError> {
         Ok(CurrentUser {
             user_id: Uuid::nil(),
@@ -103,6 +111,14 @@ struct MockRefreshAuthService {
 
 #[async_trait]
 impl AuthService for MockRefreshAuthService {
+    async fn issue_verified_session(
+        &self,
+        _user_id: uuid::Uuid,
+        _remember_me: bool,
+        _user_agent: Option<&str>,
+    ) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
     async fn current_user(&self) -> Result<CurrentUser, AppError> {
         Ok(CurrentUser {
             user_id: Uuid::nil(),
@@ -177,6 +193,14 @@ impl InMemorySessionAuthService {
 
 #[async_trait]
 impl AuthService for InMemorySessionAuthService {
+    async fn issue_verified_session(
+        &self,
+        _user_id: uuid::Uuid,
+        _remember_me: bool,
+        _user_agent: Option<&str>,
+    ) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
     async fn current_user(&self) -> Result<CurrentUser, AppError> {
         Ok(CurrentUser {
             user_id: Uuid::nil(),
@@ -339,7 +363,11 @@ async fn login_success_returns_200_and_set_cookie() {
 
     assert!(cookie.contains("wardnet_session=test-session-token"));
     assert!(cookie.contains("HttpOnly"));
-    assert!(cookie.contains("SameSite=Strict"));
+    // `Lax`, not `Strict`: the OAuth callback is a cross-site top-level
+    // navigation from the provider, and `Strict` withholds the cookie on
+    // exactly that, which makes the account-linking ceremony impossible.
+    // `Lax` still withholds it on cross-site POSTs and subresources.
+    assert!(cookie.contains("SameSite=Lax"));
     assert!(cookie.contains("Max-Age=86400"));
 
     // Verify JSON body.
@@ -640,7 +668,11 @@ async fn logout_returns_204_and_clears_the_session_cookie() {
     );
     assert!(cookie.contains("Max-Age=0"), "got: {cookie}");
     assert!(cookie.contains("HttpOnly"));
-    assert!(cookie.contains("SameSite=Strict"));
+    // `Lax`, not `Strict`: the OAuth callback is a cross-site top-level
+    // navigation from the provider, and `Strict` withholds the cookie on
+    // exactly that, which makes the account-linking ceremony impossible.
+    // `Lax` still withholds it on cross-site POSTs and subresources.
+    assert!(cookie.contains("SameSite=Lax"));
     assert!(cookie.contains("Path=/"));
     assert!(
         !cookie.contains("Secure"),

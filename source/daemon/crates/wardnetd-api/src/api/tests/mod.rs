@@ -30,5 +30,6 @@ mod routing_profiles;
 mod setup;
 mod system;
 mod tunnels;
+mod user_auth;
 mod users;
 mod zone_exception;
