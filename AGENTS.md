@@ -168,6 +168,22 @@ you're about to make, rather than the whole set.
   profiles combine by **rank, not order**, and assigning any explicit
   `profile_ids` **drops the household defaults**. Invariant: **asking never
   promotes a device to managed** — only the approval's `grant_device` does.
+- **[Query-log normalisation](docs/adr/0034-query-log-normalisation.md)** —
+  why `dns_query_log` moved its seven repeated text columns onto
+  `(id INTEGER PRIMARY KEY, v TEXT UNIQUE)` lookup tables and an epoch
+  `timestamp` (591 MB → 109 MB, measured), and why it is **a space change, not a
+  speed change**. Covers the rejections that a reader would otherwise re-propose:
+  **no id cache** (per-batch resolution already removed the cost, and the cache
+  was the only thing forcing the prune's placement), **no FK into `devices`**
+  (`devices.id` is `TEXT`, so it saves nothing, and device retention deletes rows
+  the log must outlive — plus `VACUUM` may renumber a non-`INTEGER` table's
+  rowid), **no integer enums** for the closed columns (`DnsQueryResult::slot` is
+  a compile-time exhaustiveness device, not a wire format), and **no FTS5**
+  (+232 MB and slower than `LIKE`). Invariants: only **`lk_domain`** is pruned —
+  the others are bounded by physical reality and the `SELECT DISTINCT` scan is
+  paid per table; the prune uses **`NOT IN (SELECT DISTINCT …)`**, never a
+  correlated `NOT EXISTS` (367 ms vs 135 s); and **nothing above `wardnetd-data`
+  knows lookup tables exist**, which is what keeps the API contract unchanged.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

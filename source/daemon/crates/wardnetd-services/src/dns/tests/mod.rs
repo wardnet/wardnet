@@ -14,3 +14,10 @@ use wardnet_common::auth::AuthContext;
 pub(crate) fn admin() -> AuthContext {
     AuthContext::system()
 }
+
+/// Parse a whole-second RFC 3339 literal into the `QueryLogRow` timestamp type.
+pub(crate) fn ts(literal: &str) -> chrono::DateTime<chrono::Utc> {
+    chrono::DateTime::parse_from_rfc3339(literal)
+        .expect("test timestamp literal is valid RFC 3339")
+        .with_timezone(&chrono::Utc)
+}

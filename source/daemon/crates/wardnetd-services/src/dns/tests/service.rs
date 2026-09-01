@@ -9,7 +9,7 @@ use wardnet_common::api::{ListQueryLogParams, UpdateDnsConfigRequest, UpstreamDn
 use wardnet_common::dns::DnsProtocol;
 use wardnet_common::dns::ForwarderSelectionMode::{self, Failover, Fastest, Single};
 
-use super::admin;
+use super::{admin, ts};
 use crate::dns::service::{
     DnsService, DnsServiceImpl, FORWARD_DEADLINE_MAX_MS, FORWARD_DEADLINE_MIN_MS,
     QUERY_LOG_MAX_LIMIT, UPSTREAM_TIMEOUT_MAX_MS, UPSTREAM_TIMEOUT_MIN_MS,
@@ -384,7 +384,7 @@ impl DnsRepository for PagingDnsRepo {
         let n = self.available.min(limit as usize);
         Ok((0..n)
             .map(|i| QueryLogRow {
-                timestamp: "2026-09-01T00:00:00Z".to_owned(),
+                timestamp: ts("2026-09-01T00:00:00Z"),
                 client_ip: "10.0.0.1".to_owned(),
                 domain: format!("d{i}.com"),
                 query_type: "A".to_owned(),

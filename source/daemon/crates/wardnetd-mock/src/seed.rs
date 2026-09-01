@@ -11,7 +11,7 @@
 //! Admin credentials are **not** seeded — the setup wizard runs on every
 //! mock launch so developers can exercise that flow repeatedly.
 
-use chrono::{Datelike, Duration, Utc};
+use chrono::{Datelike, Duration, SubsecRound, Utc};
 use uuid::Uuid;
 use wardnet_common::device::{DeviceSignalKind, ManufacturerSource};
 use wardnet_common::routing_profile::DomainRoutingTarget;
@@ -1034,7 +1034,7 @@ fn generate_dns_query_log(
             };
 
             rows.push(QueryLogRow {
-                timestamp: ts.format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+                timestamp: ts.trunc_subsecs(0),
                 client_ip: client.clone(),
                 domain,
                 query_type: "A".to_owned(),

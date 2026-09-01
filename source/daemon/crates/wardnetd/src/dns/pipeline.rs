@@ -19,7 +19,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use chrono::Utc;
+use chrono::{SubsecRound, Utc};
 use hickory_proto::op::{Message, OpCode, ResponseCode};
 use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
 use hickory_resolver::Resolver;
@@ -1841,7 +1841,9 @@ pub(crate) fn record_query(
     let Some(sink) = sink else { return };
 
     let row = QueryLogRow {
-        timestamp: Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        // Whole seconds: the log's resolution is one second, and anything
+        // finer would stream a precision the stored row cannot return.
+        timestamp: Utc::now().trunc_subsecs(0),
         client_ip: src.ip().to_string(),
         domain: domain.trim_end_matches('.').to_owned(),
         query_type: format!("{rtype:?}"),

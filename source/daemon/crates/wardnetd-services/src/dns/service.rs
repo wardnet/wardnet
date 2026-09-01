@@ -569,9 +569,8 @@ impl DnsService for DnsServiceImpl {
 
         // Over-fetch a single row past the page to learn whether another page
         // exists. This runs after the clamp above, so the cap still governs
-        // what is returned. `has_more` is taken from the raw row count rather
-        // than from `entries`, because the mapping below drops rows whose
-        // timestamp will not parse.
+        // what is returned, and `has_more` is read before the extra row is
+        // truncated away.
         let mut rows = self
             .dns_repo
             .query_log_paginated(limit + 1, offset, &filter)
@@ -582,23 +581,19 @@ impl DnsService for DnsServiceImpl {
 
         let entries: Vec<DnsQueryLogEntry> = rows
             .into_iter()
-            .filter_map(|row| {
-                let timestamp = parse_iso_timestamp(&row.timestamp).ok()?;
-                let device_id = row
+            .map(|row| DnsQueryLogEntry {
+                id: 0,
+                timestamp: row.timestamp,
+                client_ip: row.client_ip,
+                domain: row.domain,
+                query_type: row.query_type,
+                result: DnsQueryResult::parse(&row.result),
+                upstream: row.upstream,
+                latency_ms: row.latency_ms,
+                device_id: row
                     .device_id
                     .as_deref()
-                    .and_then(|s| Uuid::parse_str(s).ok());
-                Some(DnsQueryLogEntry {
-                    id: 0,
-                    timestamp,
-                    client_ip: row.client_ip,
-                    domain: row.domain,
-                    query_type: row.query_type,
-                    result: DnsQueryResult::parse(&row.result),
-                    upstream: row.upstream,
-                    latency_ms: row.latency_ms,
-                    device_id,
-                })
+                    .and_then(|s| Uuid::parse_str(s).ok()),
             })
             .collect();
 
@@ -619,10 +614,4 @@ impl DnsService for DnsServiceImpl {
         auth_context::require_admin()?;
         Ok(0)
     }
-}
-
-fn parse_iso_timestamp(s: &str) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
-    use chrono::NaiveDateTime;
-    let naive = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")?;
-    Ok(chrono::TimeZone::from_utc_datetime(&chrono::Utc, &naive))
 }

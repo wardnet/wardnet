@@ -1,11 +1,11 @@
 use super::test_pool;
 use crate::repository::SqliteDnsRepository;
 use crate::repository::dns::{DnsRepository, QueryLogFilter, QueryLogRow};
-use chrono::Utc;
+use chrono::{DateTime, SubsecRound, Utc};
 use wardnet_common::dns::DnsQueryResult;
 
-fn ts_now() -> String {
-    Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+fn ts_now() -> DateTime<Utc> {
+    Utc::now().trunc_subsecs(0)
 }
 
 fn sample_row(client_ip: &str, domain: &str, result: &str) -> QueryLogRow {
@@ -189,12 +189,14 @@ async fn cleanup_query_log() {
     let pool = test_pool().await;
     let repo = SqliteDnsRepository::new(pool);
 
-    let old_ts = "2020-01-01T00:00:00Z".to_owned();
+    let old_ts = DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+        .unwrap()
+        .with_timezone(&Utc);
     let recent_ts = ts_now();
 
     let entries = vec![
         QueryLogRow {
-            timestamp: old_ts.clone(),
+            timestamp: old_ts,
             client_ip: "10.0.0.1".to_owned(),
             domain: "old.com".to_owned(),
             query_type: "A".to_owned(),
@@ -275,4 +277,128 @@ async fn insert_empty_batch() {
         .await
         .unwrap();
     assert!(rows.is_empty());
+}
+
+#[tokio::test]
+async fn repeated_values_share_one_lookup_row() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool.clone());
+
+    let entries = vec![
+        sample_row("192.168.1.10", "example.com", "allowed"),
+        sample_row("192.168.1.10", "example.com", "allowed"),
+        sample_row("192.168.1.10", "example.com", "blocked"),
+    ];
+    repo.insert_query_log_batch(&entries).await.unwrap();
+    // A second batch re-resolves values the first batch already inserted.
+    repo.insert_query_log_batch(&entries).await.unwrap();
+
+    for (table, expected) in [
+        ("lk_dns_domain", 1),
+        ("lk_dns_client_ip", 1),
+        ("lk_dns_result", 2),
+        ("lk_dns_protocol", 1),
+    ] {
+        let (count,): (i64,) =
+            sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT COUNT(*) FROM {table}")))
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            count, expected,
+            "{table} should hold {expected} distinct values"
+        );
+    }
+
+    let rows = repo
+        .query_log_paginated(10, 0, &QueryLogFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 6);
+    assert!(rows.iter().all(|r| r.domain == "example.com"));
+}
+
+#[tokio::test]
+async fn timestamp_survives_the_epoch_round_trip() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool);
+
+    let when = DateTime::parse_from_rfc3339("2026-05-05T12:34:56Z")
+        .unwrap()
+        .with_timezone(&Utc);
+    let mut entry = sample_row("10.0.0.1", "example.com", "allowed");
+    entry.timestamp = when;
+    repo.insert_query_log_batch(&[entry]).await.unwrap();
+
+    let rows = repo
+        .query_log_paginated(10, 0, &QueryLogFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(rows[0].timestamp, when);
+}
+
+#[tokio::test]
+async fn cleanup_prunes_orphaned_domains_and_keeps_live_ones() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool.clone());
+
+    let old = DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+        .unwrap()
+        .with_timezone(&Utc);
+
+    let mut stale = sample_row("10.0.0.1", "expired.com", "allowed");
+    stale.timestamp = old;
+    let fresh = sample_row("10.0.0.2", "kept.com", "allowed");
+    repo.insert_query_log_batch(&[stale, fresh]).await.unwrap();
+
+    let domains: Vec<String> = sqlx::query_scalar("SELECT v FROM lk_dns_domain ORDER BY v")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(domains, vec!["expired.com", "kept.com"]);
+
+    repo.cleanup_query_log(30).await.unwrap();
+
+    // The retention delete orphaned `expired.com`; the prune in the same call
+    // removes it. `kept.com` is still referenced and must survive.
+    let domains: Vec<String> = sqlx::query_scalar("SELECT v FROM lk_dns_domain ORDER BY v")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(domains, vec!["kept.com"]);
+}
+
+/// The prune must stay a single scan of the log. The correlated `NOT EXISTS`
+/// form rescans `dns_query_log` once per lookup row and measured 135 s against
+/// a real database — a two-minute stall on the single-connection write pool.
+#[tokio::test]
+async fn prune_plan_scans_the_log_once() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool.clone());
+    repo.insert_query_log_batch(&[sample_row("10.0.0.1", "example.com", "allowed")])
+        .await
+        .unwrap();
+
+    let rows = sqlx::query_as::<_, (i64, i64, i64, String)>(
+        "EXPLAIN QUERY PLAN \
+         DELETE FROM lk_dns_domain \
+         WHERE id NOT IN (SELECT DISTINCT domain_id FROM dns_query_log)",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    let plan = rows
+        .into_iter()
+        .map(|(_, _, _, detail)| detail)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    assert!(
+        plan.contains("LIST SUBQUERY"),
+        "prune should resolve the log once into a list, got: {plan}"
+    );
+    assert!(
+        !plan.contains("CORRELATED"),
+        "prune must not become a correlated subquery, got: {plan}"
+    );
 }

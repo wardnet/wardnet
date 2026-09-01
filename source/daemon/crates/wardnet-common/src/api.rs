@@ -1884,8 +1884,8 @@ pub struct ListQueryLogResponse {
 /// `dns_query_log` so clients can render entries before they're persisted.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct QueryLogEvent {
-    /// RFC 3339 timestamp.
-    pub timestamp: String,
+    /// Whole-second UTC instant, serialised as RFC 3339 (`...:56Z`).
+    pub timestamp: DateTime<Utc>,
     pub client_ip: String,
     pub domain: String,
     pub query_type: String,
