@@ -28481,7 +28481,7 @@
         "description": "Response for `GET /api/dns/log`.",
         "required": [
           "entries",
-          "total"
+          "has_more"
         ],
         "properties": {
           "entries": {
@@ -28490,10 +28490,9 @@
               "$ref": "#/components/schemas/DnsQueryLogEntry"
             }
           },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether a further page exists, derived by over-fetching one row beyond\nthe requested limit.\n\nThere is deliberately no total count. `dns_query_log` is the largest\ntable on the box and both text filters use a leading-wildcard `LIKE`,\nwhich SQLite cannot seek on, so `COUNT(*)` degrades to a full scan —\nmeasured at ~300 ms per page load against ~1 ms for the rows it\naccompanied. Reinstating a count, even a capped one, restores that\nscan and makes the narrow single-column indexes load-bearing again."
           }
         }
       },

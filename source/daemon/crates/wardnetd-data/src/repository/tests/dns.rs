@@ -106,7 +106,6 @@ async fn query_log_filter_by_device_id() {
     for row in &rows {
         assert_eq!(row.device_id.as_deref(), Some(device));
     }
-    assert_eq!(repo.query_log_count(&filter).await.unwrap(), 2);
 }
 
 #[tokio::test]
@@ -156,27 +155,7 @@ async fn query_log_filter_by_result() {
 }
 
 #[tokio::test]
-async fn query_log_count() {
-    let pool = test_pool().await;
-    let repo = SqliteDnsRepository::new(pool);
-
-    let entries = vec![
-        sample_row("10.0.0.1", "a.com", "allowed"),
-        sample_row("10.0.0.2", "b.com", "blocked"),
-        sample_row("10.0.0.3", "c.com", "allowed"),
-        sample_row("10.0.0.4", "d.com", "blocked"),
-    ];
-    repo.insert_query_log_batch(&entries).await.unwrap();
-
-    let count = repo
-        .query_log_count(&QueryLogFilter::default())
-        .await
-        .unwrap();
-    assert_eq!(count, 4);
-}
-
-#[tokio::test]
-async fn query_log_count_with_filter() {
+async fn query_log_filter_combines_conditions_with_and() {
     let pool = test_pool().await;
     let repo = SqliteDnsRepository::new(pool);
 
@@ -192,16 +171,17 @@ async fn query_log_count_with_filter() {
         result: Some(DnsQueryResult::Blocked),
         ..Default::default()
     };
-    let count = repo.query_log_count(&filter).await.unwrap();
-    assert_eq!(count, 2);
+    let rows = repo.query_log_paginated(10, 0, &filter).await.unwrap();
+    assert_eq!(rows.len(), 2);
 
     let combined = QueryLogFilter {
         client_ip: Some("10.0.0.2".to_owned()),
         result: Some(DnsQueryResult::Blocked),
         ..Default::default()
     };
-    let count2 = repo.query_log_count(&combined).await.unwrap();
-    assert_eq!(count2, 1);
+    let rows = repo.query_log_paginated(10, 0, &combined).await.unwrap();
+    assert_eq!(rows.len(), 1, "conditions narrow rather than widen");
+    assert_eq!(rows[0].client_ip, "10.0.0.2");
 }
 
 #[tokio::test]
@@ -252,12 +232,6 @@ async fn cleanup_query_log() {
     let deleted = repo.cleanup_query_log(30).await.unwrap();
     assert_eq!(deleted, 2);
 
-    let remaining = repo
-        .query_log_count(&QueryLogFilter::default())
-        .await
-        .unwrap();
-    assert_eq!(remaining, 1);
-
     let rows = repo
         .query_log_paginated(10, 0, &QueryLogFilter::default())
         .await
@@ -296,9 +270,9 @@ async fn insert_empty_batch() {
 
     repo.insert_query_log_batch(&[]).await.unwrap();
 
-    let count = repo
-        .query_log_count(&QueryLogFilter::default())
+    let rows = repo
+        .query_log_paginated(10, 0, &QueryLogFilter::default())
         .await
         .unwrap();
-    assert_eq!(count, 0);
+    assert!(rows.is_empty());
 }

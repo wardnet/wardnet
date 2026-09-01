@@ -98,7 +98,7 @@ beforeEach(() => {
     },
   });
   useDnsQueryLog.mockReturnValue({
-    data: { entries: [], total: 0 },
+    data: { entries: [], has_more: false },
     isLoading: false,
   });
 });
@@ -196,7 +196,7 @@ describe("DnsLogs", () => {
             latency_ms: 0.5,
           },
         ],
-        total: 120,
+        has_more: true,
       },
       isLoading: false,
     });
@@ -205,7 +205,7 @@ describe("DnsLogs", () => {
     await user.click(screen.getByTestId("live-tail"));
 
     expect(screen.getByText("history.example.com")).toBeInTheDocument();
-    expect(screen.getByText(/120 entries · page 1/)).toBeInTheDocument();
+    expect(screen.getByText(/Showing 1–1 · page 1/)).toBeInTheDocument();
 
     const prev = screen.getByRole("button", { name: "Previous" });
     const next = screen.getByRole("button", { name: "Next" });
@@ -214,6 +214,45 @@ describe("DnsLogs", () => {
     expect(screen.getByText(/page 2/)).toBeInTheDocument();
     await user.click(prev);
     expect(screen.getByText(/page 1/)).toBeInTheDocument();
+  });
+
+  it("disables Next on the last page and reports the range, not a total", async () => {
+    // The server sends no count, so the range has to come from the offset and
+    // the rows actually returned — and Next is driven by has_more alone.
+    useDnsQueryLog.mockReturnValue({
+      data: {
+        entries: [
+          {
+            timestamp: "2026-07-01T09:00:00",
+            client_ip: "10.232.1.10",
+            domain: "last.example.com",
+            query_type: "A",
+            result: "allowed",
+            latency_ms: 0.5,
+          },
+        ],
+        has_more: false,
+      },
+      isLoading: false,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<DnsLogs />);
+    await user.click(screen.getByTestId("live-tail"));
+
+    expect(screen.getByText(/Showing 1–1 · page 1/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
+  });
+
+  it("reports no entries rather than an empty range", async () => {
+    useDnsQueryLog.mockReturnValue({
+      data: { entries: [], has_more: false },
+      isLoading: false,
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<DnsLogs />);
+    await user.click(screen.getByTestId("live-tail"));
+
+    expect(screen.getByText("No entries")).toBeInTheDocument();
   });
 
   it("shows the loading empty message for persisted history", async () => {

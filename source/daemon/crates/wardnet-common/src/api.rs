@@ -1868,7 +1868,16 @@ pub struct ListQueryLogParams {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ListQueryLogResponse {
     pub entries: Vec<DnsQueryLogEntry>,
-    pub total: u64,
+    /// Whether a further page exists, derived by over-fetching one row beyond
+    /// the requested limit.
+    ///
+    /// There is deliberately no total count. `dns_query_log` is the largest
+    /// table on the box and both text filters use a leading-wildcard `LIKE`,
+    /// which SQLite cannot seek on, so `COUNT(*)` degrades to a full scan —
+    /// measured at ~300 ms per page load against ~1 ms for the rows it
+    /// accompanied. Reinstating a count, even a capped one, restores that
+    /// scan and makes the narrow single-column indexes load-bearing again.
+    pub has_more: bool,
 }
 
 /// Live event broadcast over `/api/dns/log/stream`. Mirrors a row in

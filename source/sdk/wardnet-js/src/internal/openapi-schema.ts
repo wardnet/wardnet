@@ -3789,8 +3789,16 @@ export interface components {
         /** @description Response for `GET /api/dns/log`. */
         ListQueryLogResponse: {
             entries: components["schemas"]["DnsQueryLogEntry"][];
-            /** Format: int64 */
-            total: number;
+            /** @description Whether a further page exists, derived by over-fetching one row beyond
+             *     the requested limit.
+             *
+             *     There is deliberately no total count. `dns_query_log` is the largest
+             *     table on the box and both text filters use a leading-wildcard `LIKE`,
+             *     which SQLite cannot seek on, so `COUNT(*)` degrades to a full scan —
+             *     measured at ~300 ms per page load against ~1 ms for the rows it
+             *     accompanied. Reinstating a count, even a capped one, restores that
+             *     scan and makes the narrow single-column indexes load-bearing again. */
+            has_more: boolean;
         };
         /** @description Response for GET /api/dns/local/records and
          *     GET /api/dns/local/zones/{id}/records. */

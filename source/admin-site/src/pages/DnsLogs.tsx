@@ -155,7 +155,13 @@ export default function DnsLogs() {
   const persistedRows: RowShape[] = data?.entries.map(persistedToRow) ?? [];
 
   const rows = showLive ? liveRows : persistedRows;
-  const totalRows = data?.total ?? 0;
+  const hasMore = data?.has_more ?? false;
+  // The endpoint returns no total — a count over dns_query_log is a full scan.
+  // The range is derived from the page offset and the rows actually returned,
+  // so a short last page reads "Showing 51–63" and gives back the exact size
+  // of a result set narrow enough to end within the page.
+  const rangeStart = persistedRows.length === 0 ? 0 : page * PAGE_SIZE + 1;
+  const rangeEnd = page * PAGE_SIZE + persistedRows.length;
 
   const columns: ColumnDef<RowShape>[] = useMemo(
     () => [
@@ -360,7 +366,9 @@ export default function DnsLogs() {
           className="flex shrink-0 items-center justify-between text-ink-3"
         >
           <span>
-            {totalRows.toLocaleString()} entries · page {page + 1}
+            {rangeEnd === 0
+              ? "No entries"
+              : `Showing ${rangeStart.toLocaleString()}–${rangeEnd.toLocaleString()} · page ${page + 1}`}
           </span>
           <div className="flex gap-2">
             <Button
@@ -374,7 +382,7 @@ export default function DnsLogs() {
             <Button
               variant="outline"
               size="sm"
-              disabled={(page + 1) * PAGE_SIZE >= totalRows}
+              disabled={!hasMore}
               onClick={() => setPage((p) => p + 1)}
             >
               Next
