@@ -86,6 +86,16 @@ release notes for whichever version ships it.
   with early exit for the admin log's result dropdown, measured 79.6 ms versus
   0.3 ms for a rare result on a warm cache — and `domain_id` is what keeps the
   prune from stalling the writer, below.
+
+  `domain_id` also makes the substring search **faster for narrow patterns and
+  slower for broad ones**, which is worth stating plainly because it is easy to
+  read the headline as a uniform win. Measured over 1.79M rows: a pattern
+  matching one domain goes 141 ms → 0.3 ms; a pattern matching ~3,700 domains
+  goes 1.8 ms → 17.9 ms, because the planner seeks per id and sorts into a temp
+  b-tree for `ORDER BY id DESC` instead of scanning in rowid order and exiting
+  early at `LIMIT`. Suppressing the index for that predicate (`+q.domain_id`)
+  would buy back the 16 ms and give up the 140 ms; it is not worth it, and the
+  losing case reads index pages where the winning case would read the table.
 - **The prune is fast only if two separate things hold.** Use
   `DELETE FROM lk_dns_domain WHERE id NOT IN (SELECT DISTINCT domain_id FROM dns_query_log)`.
   The `NOT EXISTS` form reads more naturally, is a correlated subquery that

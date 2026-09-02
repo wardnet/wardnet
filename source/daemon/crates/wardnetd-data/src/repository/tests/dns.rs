@@ -491,3 +491,46 @@ async fn prune_never_orphans_a_live_log_row() {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].domain, "kept.com");
 }
+
+/// A batch spanning several `RESOLVE_CHUNK` chunks must resolve every value to
+/// its own id — the failure this guards is a later chunk's ids overwriting or
+/// shadowing an earlier one's, which would silently file rows under the wrong
+/// domain.
+///
+/// It does not reach SQLite's bind limit (700 binds is far under it) and is not
+/// meant to: the limit is why the chunking exists, this pins that the chunking
+/// is correct. `insert_query_log_batch` is a public trait method, so the batch
+/// size is the caller's choice, not a convention this repository can assume.
+#[tokio::test]
+async fn resolves_more_distinct_values_than_one_statement_can_bind() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool.clone());
+
+    let entries: Vec<QueryLogRow> = (0..700)
+        .map(|i| {
+            sample_row(
+                &format!("10.0.{}.{}", i / 256, i % 256),
+                &format!("d{i}.example"),
+                "allowed",
+            )
+        })
+        .collect();
+    repo.insert_query_log_batch(&entries).await.unwrap();
+
+    let (domains,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM lk_dns_domain")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(domains, 700);
+
+    let rows = repo
+        .query_log_paginated(1000, 0, &QueryLogFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 700);
+    // Every row must carry its own domain, not a neighbour's id.
+    let mut seen: Vec<String> = rows.into_iter().map(|r| r.domain).collect();
+    seen.sort();
+    seen.dedup();
+    assert_eq!(seen.len(), 700, "some rows resolved to the wrong lookup id");
+}

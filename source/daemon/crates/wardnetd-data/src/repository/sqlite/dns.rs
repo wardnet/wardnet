@@ -89,14 +89,19 @@ impl DbQueryLogRow {
     }
 }
 
+/// Largest number of distinct values bound in one statement.
+///
+/// `insert_query_log_batch` is a public trait method, so the batch size is the
+/// caller's choice; chunking here means a caller that hands over more distinct
+/// values than SQLite will bind gets a few more statements rather than
+/// `too many SQL variables` at runtime.
+const RESOLVE_CHUNK: usize = 256;
+
 /// Resolve every `values` entry in `table` to its lookup id, inserting the ones
 /// that are new.
 ///
-/// Two statements per table per batch, never one per row — that is what keeps
-/// roughly 1.79M lookups a week off the writer without needing a cache in front
-/// of it. A batch carries at most as many distinct values as it has rows, and
-/// both callers flush in chunks of `BATCH_MAX`, so the bind count stays well
-/// inside SQLite's parameter limit.
+/// Two statements per chunk, never one per row — that is what keeps roughly
+/// 1.79M lookups a week off the writer without needing a cache in front of it.
 async fn resolve_ids(
     tx: &mut Transaction<'_, Sqlite>,
     table: &str,
@@ -106,7 +111,19 @@ async fn resolve_ids(
     if values.is_empty() {
         return Ok(ids);
     }
-    let values: Vec<&str> = values.iter().copied().collect();
+    let all: Vec<&str> = values.iter().copied().collect();
+    for chunk in all.chunks(RESOLVE_CHUNK) {
+        resolve_chunk(tx, table, chunk, &mut ids).await?;
+    }
+    Ok(ids)
+}
+
+async fn resolve_chunk(
+    tx: &mut Transaction<'_, Sqlite>,
+    table: &str,
+    values: &[&str],
+    ids: &mut HashMap<String, i64>,
+) -> anyhow::Result<()> {
     let placeholders = vec!["?"; values.len()].join(", ");
 
     // `ON CONFLICT DO NOTHING` rather than `INSERT OR IGNORE`: the latter also
@@ -115,7 +132,7 @@ async fn resolve_ids(
         "INSERT INTO {table} (v) VALUES {} ON CONFLICT(v) DO NOTHING",
         vec!["(?)"; values.len()].join(", ")
     )));
-    for v in &values {
+    for v in values {
         q = q.bind(*v);
     }
     q.execute(&mut **tx).await?;
@@ -123,13 +140,13 @@ async fn resolve_ids(
     let mut q = sqlx::query_as::<_, (i64, String)>(sqlx::AssertSqlSafe(format!(
         "SELECT id, v FROM {table} WHERE v IN ({placeholders})"
     )));
-    for v in &values {
+    for v in values {
         q = q.bind(*v);
     }
     for (id, v) in q.fetch_all(&mut **tx).await? {
         ids.insert(v, id);
     }
-    Ok(ids)
+    Ok(())
 }
 
 /// Look up an id the batch is known to have resolved. A miss means the resolve

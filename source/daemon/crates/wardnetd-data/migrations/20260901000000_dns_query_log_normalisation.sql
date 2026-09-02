@@ -47,8 +47,16 @@ CREATE TABLE IF NOT EXISTS dns_query_log (
 -- (see `db.rs`). SQLite proves a parent DELETE safe by scanning the child table
 -- once per deleted parent row, so pruning `lk_dns_domain` without this index
 -- costs a full scan of this table per orphan: measured 33.5 s against 500k rows
--- and 2,000 orphans, versus 0.016 s with it. It also turns the domain substring
--- filter into a covering-index seek.
+-- and 2,000 orphans, versus 0.016 s with it.
+--
+-- It also changes the domain substring filter, and not uniformly. A pattern
+-- matching few domains becomes a covering-index seek — 141 ms to 0.3 ms for a
+-- rare domain over 1.79M rows. A pattern matching thousands of domains instead
+-- makes the planner seek per id and sort into a temp b-tree for `ORDER BY id
+-- DESC`, where a plain scan would have early-exited at `LIMIT`: worst measured
+-- 17.9 ms against 1.8 ms. The trade is taken deliberately — a ~16 ms worst case
+-- against a ~140 ms best case, and on the Pi's SD card the losing side reads a
+-- few index pages while the winning side would read the whole table.
 --
 -- The old text indexes on `domain` and `client_ip` are gone for good: both
 -- filters are leading-wildcard LIKE, which can never seek, so they only ever
