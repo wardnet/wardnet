@@ -42,7 +42,7 @@ use wardnetd_services::dns_filter::service::CheckOutcome;
 
 use crate::dns::pipeline::QueryPipeline;
 use crate::dns::rate_limit::RateLimiter;
-use crate::dns::server::build_forwarding_resolver;
+use crate::dns::upstream_pool::UpstreamPool;
 
 /// A `DnsFilterService` whose hot-path verdict is settable and read lock-free.
 ///
@@ -469,14 +469,14 @@ impl BenchPipeline {
 #[must_use]
 pub fn build_bench_pipeline(upstream: SocketAddr) -> BenchPipeline {
     let cfg = config_with_upstream(upstream);
-    let resolver = Arc::new(RwLock::new(build_forwarding_resolver(&cfg)));
+    let pool = Arc::new(arc_swap::ArcSwap::from_pointee(UpstreamPool::build(&cfg)));
     let rate_limiter = Arc::new(RateLimiter::new(0));
     let cache = Arc::new(RwLock::new(DnsCache::new(cfg.cache_size as usize)));
     let filter = Arc::new(BenchFilter::passing());
 
     let pipeline = QueryPipeline::new(
         Arc::new(RwLock::new(cfg)),
-        resolver,
+        pool,
         Arc::new(RwLock::new(None)),
         rate_limiter,
         cache,

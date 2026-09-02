@@ -150,6 +150,9 @@ struct RecordingPolicy {
     /// When set, the pneigh add/remove + proxy-arp mutations fail, to exercise
     /// the enforcer's warn-and-continue error paths.
     fail_neigh_mutations: Arc<std::sync::atomic::AtomicBool>,
+    /// When set, host-route add/remove fail, so the enforcer's warn-and-continue
+    /// path around `manage_host_route` is exercised (#1198).
+    fail_host_routes: Arc<std::sync::atomic::AtomicBool>,
 }
 
 #[async_trait]
@@ -166,13 +169,18 @@ impl PolicyRouter for RecordingPolicy {
     async fn has_route_table(&self, _table: u32) -> anyhow::Result<bool> {
         Ok(true)
     }
-    async fn add_ip_rule(&self, _src_ip: &str, _table: u32) -> anyhow::Result<()> {
+    async fn add_ip_rule(&self, _src_ip: &str, _table: u32, _priority: u32) -> anyhow::Result<()> {
         Ok(())
     }
-    async fn remove_ip_rule(&self, _src_ip: &str, _table: u32) -> anyhow::Result<()> {
+    async fn remove_ip_rule(
+        &self,
+        _src_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
-    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
+    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32, u32)>> {
         Ok(Vec::new())
     }
     async fn add_switchback_rule(
@@ -293,11 +301,22 @@ impl PolicyRouter for RecordingPolicy {
         }
         Ok(self.existing_neigh_proxies.lock().await.clone())
     }
-    async fn add_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
+    async fn add_host_route(
+        &self,
+        ip: &str,
+        i: &str,
+        pref_src: std::net::Ipv4Addr,
+    ) -> anyhow::Result<()> {
         self.calls
             .lock()
             .await
-            .push(format!("add_host_route:{ip}:{i}"));
+            .push(format!("add_host_route:{ip}:{i}:{pref_src}"));
+        if self
+            .fail_host_routes
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
+            anyhow::bail!("mock add_host_route failure");
+        }
         Ok(())
     }
     async fn remove_host_route(&self, ip: &str, i: &str) -> anyhow::Result<()> {
@@ -444,6 +463,7 @@ struct Harness {
     existing_neigh_proxies: Arc<Mutex<Vec<String>>>,
     fail_list_neigh: Arc<std::sync::atomic::AtomicBool>,
     fail_neigh_mutations: Arc<std::sync::atomic::AtomicBool>,
+    fail_host_routes: Arc<std::sync::atomic::AtomicBool>,
     clamps: Arc<Mutex<Vec<String>>>,
     switchback: Arc<Mutex<Vec<String>>>,
 }
@@ -483,12 +503,14 @@ async fn build() -> Harness {
     let existing_neigh_proxies = Arc::new(Mutex::new(Vec::new()));
     let fail_list_neigh = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let fail_neigh_mutations = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let fail_host_routes = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let policy_router: Arc<dyn PolicyRouter> = Arc::new(RecordingPolicy {
         calls: policy_calls.clone(),
         existing_aliases: existing_aliases.clone(),
         existing_neigh_proxies: existing_neigh_proxies.clone(),
         fail_list_neigh: fail_list_neigh.clone(),
         fail_neigh_mutations: fail_neigh_mutations.clone(),
+        fail_host_routes: fail_host_routes.clone(),
     });
     let clamps = Arc::new(Mutex::new(Vec::new()));
     let switchback = Arc::new(Mutex::new(Vec::new()));
@@ -537,6 +559,7 @@ async fn build() -> Harness {
         existing_neigh_proxies,
         fail_list_neigh,
         fail_neigh_mutations,
+        fail_host_routes,
         clamps,
         switchback,
     }
@@ -1031,6 +1054,230 @@ async fn casting_exception_yields_bidirectional_allows() {
     );
 }
 
+/// A host-route failure must be warn-logged, never fatal: the device's packet
+/// rules and the zone's isolation state are already applied by the time the
+/// route is managed, so aborting there would leave enforcement half-applied
+/// with no retry (#1198).
+#[tokio::test]
+async fn host_route_failure_is_warned_not_fatal() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+    h.fail_host_routes
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    as_admin(h.svc.apply_device(member))
+        .await
+        .expect("a failing host route must not fail the whole apply");
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.iter()
+            .any(|c| c.starts_with("add_host_route:10.44.1.10")),
+        "the add was still attempted: {pc:?}"
+    );
+}
+
+/// A zone whose CIDR won't parse yields no gateway, so there is no preferred
+/// source to install and the host route must be skipped rather than added
+/// without one — adding it without a source is the #1198 bug itself. Write-time
+/// validation rejects such a CIDR, so this only guards a direct DB edit or
+/// older data, but the fallback has to be the safe direction.
+#[tokio::test]
+async fn unparseable_zone_subnet_installs_no_host_route() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "BadZone", "not-a-cidr", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        !pc.iter().any(|c| c.starts_with("add_host_route:")),
+        "an unparseable zone subnet must not produce a host route: {pc:?}"
+    );
+}
+
+/// `handle_ip_change` must drop the old address's `/32` and install one for the
+/// new address, preferring the zone gateway — the path a device takes when it
+/// re-DHCPs into its zone's subnet, which is exactly how a phone acquires the
+/// route in production (#1198).
+#[tokio::test]
+async fn handle_ip_change_rekeys_the_host_route_onto_the_new_ip() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.handle_ip_change(member, "10.44.1.10", "10.44.1.11"))
+        .await
+        .unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"remove_host_route:10.44.1.10:eth0".to_owned()),
+        "the stale IP's host route is dropped: {pc:?}"
+    );
+    assert!(
+        pc.contains(&"add_host_route:10.44.1.11:eth0:10.44.1.1".to_owned()),
+        "the new IP gets a host route preferring the zone gateway: {pc:?}"
+    );
+}
+
+/// A zone move leaves the device on its *old* address — `handle_zone_change`
+/// has only just released the lease — so the in-subnet guard yields no gateway
+/// and the stale `/32` is dropped rather than re-pointed at the new zone's
+/// gateway. That is the safe direction: a route naming a gateway the device is
+/// not behind is the #1198 failure itself. The route comes back via
+/// `handle_ip_change` once the device re-DHCPs into the new subnet.
+#[tokio::test]
+async fn handle_zone_change_drops_the_host_route_until_the_device_re_ips() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    // Still on its previous address, as a freshly-moved device would be.
+    let member = insert_device(&h.devices, "192.168.100.50", ZONE_A).await;
+
+    as_admin(h.svc.handle_zone_change(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        !pc.iter().any(|c| c.starts_with("add_host_route:")),
+        "a device still on its old address must not get a /32 pointing at the \
+         new zone's gateway (#1198): {pc:?}"
+    );
+    assert!(
+        pc.contains(&"remove_host_route:192.168.100.50:eth0".to_owned()),
+        "the stale route is dropped: {pc:?}"
+    );
+}
+
+/// The other half: once the device *is* inside its zone's subnet, a zone change
+/// re-applies the route with that zone's gateway.
+#[tokio::test]
+async fn handle_zone_change_installs_the_host_route_for_an_in_subnet_member() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.handle_zone_change(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"add_host_route:10.44.1.10:eth0:10.44.1.1".to_owned()),
+        "an in-subnet member's route is re-applied for its zone: {pc:?}"
+    );
+}
+
+/// A device whose address is outside its member-isolated zone's subnet must get
+/// no host route at all.
+///
+/// It keeps its old base-subnet address until it re-DHCPs, so a `/32` naming
+/// this zone's gateway as preferred source would make the daemon's replies
+/// leave with an address outside the device's own subnet — the same
+/// wrong-source-IP failure the preferred source exists to fix (#1198). The
+/// proxy-neighbour path already applies exactly this in-subnet guard.
+#[tokio::test]
+async fn out_of_subnet_member_gets_no_host_route() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    // Still on the base subnet, not yet re-DHCPed into 10.44.1.0/24.
+    let stale = insert_device(&h.devices, "192.168.100.50", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(stale)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        !pc.iter()
+            .any(|c| c.starts_with("add_host_route:192.168.100.50")),
+        "an out-of-subnet device must not get a /32 sourced from a zone \
+         gateway it is not behind (#1198): {pc:?}"
+    );
+}
+
+/// A zone edit moves the gateway alias, leaving every member's `/32` naming an
+/// address that is no longer local — which the kernel then drops, silently
+/// removing the on-link path member isolation needs. `apply_zone` raises no
+/// per-device event, so it must re-manage the routes itself (#1198).
+#[tokio::test]
+async fn apply_zone_reasserts_member_host_routes() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.apply_zone(ZONE_A.parse().unwrap()))
+        .await
+        .unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"add_host_route:10.44.1.10:eth0:10.44.1.1".to_owned()),
+        "a zone edit must re-assert its members' host routes, or they keep a \
+         preferred source the alias reconcile just removed (#1198): {pc:?}"
+    );
+}
+
+/// Regression test for #1198.
+///
+/// Every other host-route call site is device-event-driven (`apply_device`,
+/// `handle_ip_change`, `handle_zone_change`). Older builds installed these
+/// `/32`s with no preferred source, so a box upgrading into the fix would keep
+/// its broken routes — and its member-isolated devices would stay without DNS —
+/// until each device happened to re-DHCP or an admin touched it. Startup
+/// reconcile must re-assert the host route for every member-isolated device so
+/// the upgrade alone repairs the box.
+#[tokio::test]
+async fn reconcile_reasserts_member_host_routes_with_the_zone_gateway() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.reconcile()).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    assert!(
+        pc.contains(&"add_host_route:10.44.1.10:eth0:10.44.1.1".to_owned()),
+        "startup reconcile must re-assert the member host route so an upgrade \
+         heals a box carrying prefsrc-less routes (#1198): {pc:?}"
+    );
+}
+
+/// The host route names the zone gateway as its preferred source, and the
+/// kernel rejects a route whose `RTA_PREFSRC` is not a local address. So the
+/// gateway alias — installed by `reconcile_isolation` — must be in place before
+/// the route is added, on every path that does both.
+#[tokio::test]
+async fn gateway_alias_is_installed_before_the_host_route_that_prefers_it() {
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "IsoZone", "10.44.1.0/24", true).await;
+    let member = insert_device(&h.devices, "10.44.1.10", ZONE_A).await;
+
+    as_admin(h.svc.apply_device(member)).await.unwrap();
+
+    let pc = policy_calls(&h).await;
+    let alias = pc
+        .iter()
+        .position(|c| c.starts_with("add_alias:eth0:10.44.1.1/"));
+    let route = pc
+        .iter()
+        .position(|c| c.starts_with("add_host_route:10.44.1.10"));
+    let (Some(alias), Some(route)) = (alias, route) else {
+        panic!("expected both a gateway alias and a host route: {pc:?}");
+    };
+    assert!(
+        alias < route,
+        "the zone gateway alias must exist before a route prefers it as source, \
+         or the kernel rejects the add with EINVAL (#1198): {pc:?}"
+    );
+}
+
 #[tokio::test]
 async fn member_isolation_adds_proxy_neigh_entry_not_interface_proxy_arp() {
     // Issue #1107: interface-wide `proxy_arp=1` made the Pi answer ARP for ANY
@@ -1063,8 +1310,8 @@ async fn member_isolation_adds_proxy_neigh_entry_not_interface_proxy_arp() {
         "interface-wide proxy-arp must never be enabled (#1107): {pc:?}"
     );
     assert!(
-        pc.contains(&"add_host_route:10.44.1.10:eth0".to_owned()),
-        "member host route added: {pc:?}"
+        pc.contains(&"add_host_route:10.44.1.10:eth0:10.44.1.1".to_owned()),
+        "member host route added, preferring the zone gateway as source (#1198): {pc:?}"
     );
 }
 

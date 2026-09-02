@@ -1,6 +1,6 @@
 {
   "name": "@wardnet/js",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "TypeScript SDK for the Wardnet network privacy gateway",
   "license": "MIT",
   "repository": {
@@ -43,13 +43,13 @@
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "4.1.10",
+    "@vitest/coverage-v8": "4.1.11",
     "consola": "^3.4.2",
     "openapi-typescript": "7.9.1",
     "prettier": "3.9.6",
     "tsup": "8.5.1",
     "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   },
   "peerDependencies": {
     "consola": "^3.4.2"

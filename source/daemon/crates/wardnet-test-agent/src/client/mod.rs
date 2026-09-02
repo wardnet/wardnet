@@ -14,10 +14,10 @@ mod arp;
 mod dhcp;
 mod dns;
 mod interfaces;
-mod models;
+pub(crate) mod models;
 mod ping;
 mod proxy;
-mod routes;
+pub(crate) mod routes;
 mod serve;
 
 #[cfg(test)]

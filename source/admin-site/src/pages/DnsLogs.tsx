@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DataTable } from "@/components/core/ui/data-table";
@@ -155,9 +155,20 @@ export default function DnsLogs() {
   const persistedRows: RowShape[] = data?.entries.map(persistedToRow) ?? [];
 
   const rows = showLive ? liveRows : persistedRows;
-  const totalRows = data?.total ?? 0;
+  const hasMore = data?.has_more ?? false;
+  // The endpoint returns no total — a count over dns_query_log is a full scan.
+  // The range is derived from the page offset and the rows actually returned,
+  // so a short last page reads "Showing 51–63" and gives back the exact size
+  // of a result set narrow enough to end within the page.
+  // Emptiness is a property of the rows, not of the range: on any page past
+  // the first, an offset-derived end is non-zero even with nothing to show,
+  // which is the state every page change passes through while the next fetch
+  // is in flight.
+  const hasRows = persistedRows.length > 0;
+  const rangeStart = page * PAGE_SIZE + 1;
+  const rangeEnd = page * PAGE_SIZE + persistedRows.length;
 
-  const columns: ColumnDef<RowShape>[] = useMemo(
+  const columns: DataTableColumnDef<RowShape>[] = useMemo(
     () => [
       {
         accessorKey: "timestamp",
@@ -360,7 +371,9 @@ export default function DnsLogs() {
           className="flex shrink-0 items-center justify-between text-ink-3"
         >
           <span>
-            {totalRows.toLocaleString()} entries · page {page + 1}
+            {hasRows
+              ? `Showing ${rangeStart.toLocaleString()}–${rangeEnd.toLocaleString()} · page ${page + 1}`
+              : `No entries · page ${page + 1}`}
           </span>
           <div className="flex gap-2">
             <Button
@@ -374,7 +387,7 @@ export default function DnsLogs() {
             <Button
               variant="outline"
               size="sm"
-              disabled={(page + 1) * PAGE_SIZE >= totalRows}
+              disabled={!hasMore}
               onClick={() => setPage((p) => p + 1)}
             >
               Next

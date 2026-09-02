@@ -1,10 +1,11 @@
 import { type ReactNode } from "react";
 import {
+  type CellData,
   type ColumnDef,
   type RowData,
   flexRender,
-  getCoreRowModel,
-  useReactTable,
+  tableFeatures,
+  useTable,
 } from "@tanstack/react-table";
 import { MoreHorizontal, Plus, Search } from "lucide-react";
 
@@ -25,12 +26,31 @@ import {
 import { SegmentedTabs } from "@wardnet/web";
 import { cn } from "@wardnet/web";
 
-declare module "@tanstack/react-table" {
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  interface ColumnMeta<TData extends RowData, TValue> {
-    className?: string;
-  }
-}
+/**
+ * Feature set every Forge data table is built from. Only the core row model
+ * is registered — sorting, filtering and pagination are done by the caller
+ * against `data` before it reaches here — plus the `columnMeta` slot that
+ * carries a column's `className`. Declaring meta here rather than by module
+ * augmentation keeps it scoped to this table instead of every TanStack table
+ * in the process.
+ */
+const dataTableFeatures = tableFeatures({
+  columnMeta: {} as { className?: string },
+});
+
+/** The feature set `DataTable` binds its columns to. */
+export type DataTableFeatures = typeof dataTableFeatures;
+
+/**
+ * A column definition for `DataTable`. TanStack keys a column's available
+ * APIs off the table's feature set, so the definition has to name the same
+ * set the table is built with — this alias is that binding, and consumers
+ * describe columns in terms of their row type alone.
+ */
+export type DataTableColumnDef<
+  TData extends RowData,
+  TValue extends CellData = CellData,
+> = ColumnDef<DataTableFeatures, TData, TValue>;
 
 export interface DataTableGroup {
   id: string;
@@ -81,8 +101,8 @@ export function RowAction({
   );
 }
 
-interface DataTableProps<TData, TValue> {
-  columns: ColumnDef<TData, TValue>[];
+interface DataTableProps<TData extends RowData> {
+  columns: DataTableColumnDef<TData>[];
   data: TData[];
   /**
    * Shown when the table has no rows. Usually a plain string; accepts a node
@@ -157,7 +177,7 @@ interface DataTableProps<TData, TValue> {
  * scroll container for sticky positioning, which would prevent the
  * <th> from pinning to the page-level scroll.
  */
-export function DataTable<TData, TValue>({
+export function DataTable<TData extends RowData>({
   columns,
   data,
   emptyMessage = "No results.",
@@ -177,12 +197,11 @@ export function DataTable<TData, TValue>({
   rowActionsTestId,
   action,
   rowActions,
-}: DataTableProps<TData, TValue>) {
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const table = useReactTable({
+}: DataTableProps<TData>) {
+  const table = useTable({
+    features: dataTableFeatures,
     data,
     columns,
-    getCoreRowModel: getCoreRowModel(),
   });
 
   const rows = table.getRowModel().rows;
@@ -317,7 +336,7 @@ export function DataTable<TData, TValue>({
                       onRowClick ? () => onRowClick(row.original) : undefined
                     }
                   >
-                    {row.getVisibleCells().map((cell) => (
+                    {row.getAllCells().map((cell) => (
                       <td
                         key={cell.id}
                         className={cell.column.columnDef.meta?.className}

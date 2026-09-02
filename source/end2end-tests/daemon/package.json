@@ -15,7 +15,7 @@
   "devDependencies": {
     "@types/node": "26.2.0",
     "typescript": "6.0.3",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   },
   "packageManager": "yarn@4.17.0"
 }

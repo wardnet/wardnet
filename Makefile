@@ -20,7 +20,7 @@ SITE_DIR     := source/marketing-site
 # Container runtime: prefer podman, fall back to docker.
 CONTAINER_RT := $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 CONTAINER_RT_NAME := $(notdir $(CONTAINER_RT))
-RUST_IMAGE   := docker.io/library/rust:1.96
+RUST_IMAGE   := docker.io/library/rust:1.98
 
 # rustables' build.rs runs bindgen against <linux/netfilter/nf_tables.h>, so the
 # in-container daemon build needs clang/libclang (issue #307). The kernel uapi

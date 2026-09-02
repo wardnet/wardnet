@@ -1,11 +1,11 @@
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { Text } from "@wardnet/web";
 import type { CustomFilterRule } from "@wardnet/js";
 
-function createColumns(): ColumnDef<CustomFilterRule>[] {
+function createColumns(): DataTableColumnDef<CustomFilterRule>[] {
   return [
     {
       accessorKey: "rule_text",

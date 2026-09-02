@@ -389,7 +389,9 @@ fn bench_log_sink(c: &mut Criterion) {
     let mut group = c.benchmark_group("dns_log_sink");
 
     let row = QueryLogRow {
-        timestamp: "2026-05-05T00:00:00Z".to_owned(),
+        timestamp: chrono::DateTime::parse_from_rfc3339("2026-05-05T00:00:00Z")
+            .expect("bench timestamp literal is valid RFC 3339")
+            .with_timezone(&chrono::Utc),
         client_ip: "10.0.0.1".to_owned(),
         domain: "metrics.analytics-node.example".to_owned(),
         query_type: "A".to_owned(),

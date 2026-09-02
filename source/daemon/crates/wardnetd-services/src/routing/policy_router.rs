@@ -1,3 +1,5 @@
+use std::net::Ipv4Addr;
+
 use async_trait::async_trait;
 
 /// Abstraction over policy routing operations (routing tables, source-based rules, forwarding).
@@ -19,16 +21,27 @@ pub trait PolicyRouter: Send + Sync {
     /// Check whether a default route exists in the specified routing table.
     async fn has_route_table(&self, table: u32) -> anyhow::Result<bool>;
 
-    /// Add a source-based routing rule that directs traffic from `src_ip` through the given table.
-    async fn add_ip_rule(&self, src_ip: &str, table: u32) -> anyhow::Result<()>;
+    /// Add a source-based routing rule that directs traffic from `src_ip`
+    /// through the given table, at `priority`.
+    ///
+    /// The priority must be passed explicitly rather than left to the kernel:
+    /// `fib_default_rule_pref` derives it from whatever is already installed,
+    /// which lets a narrower carve-out added earlier push this rule ahead of
+    /// itself and defeat its own purpose.
+    async fn add_ip_rule(&self, src_ip: &str, table: u32, priority: u32) -> anyhow::Result<()>;
 
-    /// Remove a source-based routing rule for `src_ip` and the given table.
-    async fn remove_ip_rule(&self, src_ip: &str, table: u32) -> anyhow::Result<()>;
+    /// Remove the source-based routing rule for `src_ip`, `table` and
+    /// `priority`. The priority is part of the match so this can never delete a
+    /// carve-out that happens to share the same source and table.
+    async fn remove_ip_rule(&self, src_ip: &str, table: u32, priority: u32) -> anyhow::Result<()>;
 
     /// List all Wardnet-managed routing rules (tables >= 100).
     ///
-    /// Returns tuples of (`source_ip`, `table_number`).
-    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>>;
+    /// Returns tuples of (`source_ip`, `table_number`, `priority`). The priority
+    /// is reported so reconcile can recognise a rule left at a priority this
+    /// version no longer writes and rebuild it, rather than seeing a rule at the
+    /// right source and table and assuming it is correct.
+    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32, u32)>>;
 
     // --- Cross-zone switchback carve-outs (pass-switchback) ---
     //
@@ -189,8 +202,22 @@ pub trait PolicyRouter: Send + Sync {
     async fn list_neigh_proxies(&self, interface: &str) -> anyhow::Result<Vec<String>>;
 
     /// Add a `/32` host route for `ip` via `interface` so the Pi has an on-link
-    /// path to an isolate-members device. Idempotent.
-    async fn add_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()>;
+    /// path to an isolate-members device.
+    ///
+    /// `pref_src` must be the gateway address of the device's own zone. The
+    /// `/32` shadows that zone's `/24`, so without an explicit preferred source
+    /// the kernel falls back to the output interface's primary address — which
+    /// on a multi-zone LAN interface belongs to another zone — and replies to
+    /// the device leave with the wrong source address (#1198).
+    ///
+    /// Idempotent, and repairs an existing route whose preferred source is
+    /// missing or wrong rather than leaving it in place.
+    async fn add_host_route(
+        &self,
+        ip: &str,
+        interface: &str,
+        pref_src: Ipv4Addr,
+    ) -> anyhow::Result<()>;
 
     /// Remove the `/32` host route for `ip` via `interface`. Idempotent.
     async fn remove_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()>;

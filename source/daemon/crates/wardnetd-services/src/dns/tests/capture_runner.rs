@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{SubsecRound, Utc};
 use std::collections::HashMap;
 use tokio::sync::{Mutex, broadcast, mpsc};
 use uuid::Uuid;
@@ -351,7 +351,7 @@ where
 
 fn sample_row(device_id: Option<&str>, domain: &str) -> QueryLogRow {
     QueryLogRow {
-        timestamp: Utc::now().to_rfc3339(),
+        timestamp: Utc::now().trunc_subsecs(0),
         client_ip: "192.168.1.10".to_owned(),
         domain: domain.to_owned(),
         query_type: "A".to_owned(),

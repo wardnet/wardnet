@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_trait::async_trait;
-use dhcproto::v4::{DhcpOption, Message, MessageType, Opcode, OptionCode};
+use dhcproto::v4::{DhcpOption, Flags, Message, MessageType, Opcode, OptionCode};
 use dhcproto::{Decodable, Decoder, Encodable, Encoder};
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -2191,4 +2191,658 @@ async fn a_failing_signal_write_is_swallowed() {
 
     let handle = server::record_dhcp_signals(Some(&svc), &msg, "aa:bb:cc:dd:ee:ff").unwrap();
     handle.await.expect("the recorder must not panic on error");
+}
+
+// ---------------------------------------------------------------------------
+// Dispatch concurrency
+// ---------------------------------------------------------------------------
+
+/// A `DhcpService` that can be held mid-call, so a test can observe what the
+/// server does with other packets while one client's lease work is stuck.
+///
+/// `gate_mac` names the MAC whose calls block until released. Every call also
+/// updates a per-MAC concurrency tally so a test can prove that two packets
+/// from one MAC were never in the service at the same time.
+struct GatedDhcpService {
+    lease: DhcpLease,
+    gate_mac: String,
+    gate: Arc<tokio::sync::Notify>,
+    /// Once set, gated calls stop parking. A one-shot wake is not enough: the
+    /// retransmits a test queues behind the first packet would each park again
+    /// and the test could never drain.
+    gate_open: Arc<AtomicBool>,
+    /// Set once a gated call has parked. Polled rather than signalled: a
+    /// `Notify` only wakes waiters already registered, so a test that has not
+    /// reached its await yet would miss the wakeup and hang.
+    gate_reached: Arc<AtomicBool>,
+    /// Number of calls currently executing, per MAC.
+    active: Arc<Mutex<std::collections::HashMap<String, u32>>>,
+    /// Highest concurrent call count ever observed for a single MAC.
+    peak_per_mac: Arc<Mutex<u32>>,
+    /// MACs seen, in the order their calls completed.
+    completed: Arc<Mutex<Vec<String>>>,
+    /// When set, the next gated call panics instead of returning.
+    panic_once: Arc<AtomicBool>,
+}
+
+impl GatedDhcpService {
+    fn new(lease: DhcpLease, gate_mac: &str) -> Self {
+        Self {
+            lease,
+            gate_mac: gate_mac.to_owned(),
+            gate: Arc::new(tokio::sync::Notify::new()),
+            gate_open: Arc::new(AtomicBool::new(false)),
+            gate_reached: Arc::new(AtomicBool::new(false)),
+            active: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            peak_per_mac: Arc::new(Mutex::new(0)),
+            completed: Arc::new(Mutex::new(Vec::new())),
+            panic_once: Arc::new(AtomicBool::new(false)),
+        }
+    }
+
+    /// Whether this MAC is the gated one. `"*"` gates every MAC.
+    fn is_gated(&self, mac: &str) -> bool {
+        self.gate_mac == "*" || self.gate_mac == mac
+    }
+
+    /// Enter the call, blocking if this MAC is the gated one.
+    async fn enter(&self, mac: &str) {
+        assert!(
+            !(self.is_gated(mac) && self.panic_once.swap(false, Ordering::SeqCst)),
+            "simulated handler failure for {mac}"
+        );
+        {
+            let mut active = self.active.lock().await;
+            let n = active.entry(mac.to_owned()).or_insert(0);
+            *n += 1;
+            let observed = *n;
+            let mut peak = self.peak_per_mac.lock().await;
+            *peak = (*peak).max(observed);
+        }
+        if self.is_gated(mac) && !self.gate_open.load(Ordering::SeqCst) {
+            self.gate_reached.store(true, Ordering::SeqCst);
+            self.gate.notified().await;
+        }
+        let mut active = self.active.lock().await;
+        if let Some(n) = active.get_mut(mac) {
+            *n -= 1;
+        }
+        self.completed.lock().await.push(mac.to_owned());
+    }
+}
+
+#[async_trait]
+impl DhcpService for GatedDhcpService {
+    async fn assign_lease(
+        &self,
+        mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<DhcpLease, AppError> {
+        self.enter(mac).await;
+        Ok(self.lease.clone())
+    }
+
+    async fn renew_lease(&self, mac: &str, _hostname: Option<&str>) -> Result<DhcpLease, AppError> {
+        self.enter(mac).await;
+        Ok(self.lease.clone())
+    }
+
+    async fn scope_for_mac(&self, _mac: &str) -> Result<DhcpScope, AppError> {
+        Ok(test_scope())
+    }
+
+    async fn active_lease(&self, _mac: &str) -> Result<Option<DhcpLease>, AppError> {
+        Ok(Some(self.lease.clone()))
+    }
+
+    async fn release_lease(&self, mac: &str) -> Result<(), AppError> {
+        self.enter(mac).await;
+        Ok(())
+    }
+
+    async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn update_config(
+        &self,
+        _r: UpdateDhcpConfigRequest,
+    ) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn preview_config(
+        &self,
+        _r: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn list_leases(&self) -> Result<ListDhcpLeasesResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn revoke_lease(&self, _id: Uuid) -> Result<RevokeDhcpLeaseResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn list_reservations(&self) -> Result<ListDhcpReservationsResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn create_reservation(
+        &self,
+        _r: CreateDhcpReservationRequest,
+    ) -> Result<CreateDhcpReservationResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn delete_reservation(
+        &self,
+        _id: Uuid,
+    ) -> Result<DeleteDhcpReservationResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn status(&self) -> Result<DhcpStatusResponse, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn cleanup_expired(&self) -> Result<u64, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+    async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
+        unimplemented!("not used in dispatch tests")
+    }
+}
+
+/// Poll until a gated handler has parked inside the service.
+async fn wait_for_gate(flag: &AtomicBool) {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !flag.load(Ordering::SeqCst) {
+            tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        }
+    })
+    .await
+    .expect("the gated client's handler never reached the service");
+}
+
+/// One client's slow lease write must not hold up every other client. The
+/// server reads from a single socket, so handling each packet to completion
+/// before the next `recv_from` makes one stalled database call a network-wide
+/// DHCP outage.
+#[tokio::test]
+async fn a_stalled_client_does_not_block_responses_to_other_clients() {
+    let stuck_mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x01];
+    let other_mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x02];
+    let service = Arc::new(GatedDhcpService::new(test_lease(), "aa:bb:cc:00:00:01"));
+    let gate = Arc::clone(&service.gate);
+    let gate_open = Arc::clone(&service.gate_open);
+    let gate_reached = Arc::clone(&service.gate_reached);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    socket
+        .push_message(&build_discover(stuck_mac), client_addr())
+        .await;
+    wait_for_gate(&gate_reached).await;
+
+    // The first client is now parked inside the service. The second must still
+    // get an answer.
+    socket
+        .push_message(&build_discover(other_mac), client_addr())
+        .await;
+    wait_for_sent(&socket, 1).await;
+
+    let sent = socket.sent_messages().await;
+    assert_eq!(
+        sent.len(),
+        1,
+        "expected exactly the unblocked client's OFFER: {sent:?}"
+    );
+    assert_eq!(
+        sent[0].0.chaddr(),
+        other_mac,
+        "the OFFER must belong to the client that was not stalled"
+    );
+
+    gate_open.store(true, Ordering::SeqCst);
+    gate.notify_waiters();
+    cancel.cancel();
+    let _ = handle.await;
+}
+
+/// Two packets from one MAC must never be inside the lease service at once.
+/// `assign_lease` and `renew_lease` read the current lease and write a new one;
+/// overlapping them for a single client races two writers over one row, which
+/// is exactly what a retransmitting client produces.
+#[tokio::test]
+async fn packets_from_one_mac_are_never_handled_concurrently() {
+    let mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x01];
+    let service = Arc::new(GatedDhcpService::new(test_lease(), "aa:bb:cc:00:00:01"));
+    let gate = Arc::clone(&service.gate);
+    let gate_open = Arc::clone(&service.gate_open);
+    let gate_reached = Arc::clone(&service.gate_reached);
+    let peak = Arc::clone(&service.peak_per_mac);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    socket
+        .push_message(&build_discover(mac), client_addr())
+        .await;
+    wait_for_gate(&gate_reached).await;
+
+    // The client retransmits while the first packet is still being served.
+    for _ in 0..3 {
+        socket
+            .push_message(&build_request(mac), client_addr())
+            .await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    assert_eq!(
+        *peak.lock().await,
+        1,
+        "two packets from one MAC were in the lease service at the same time"
+    );
+
+    gate_open.store(true, Ordering::SeqCst);
+    gate.notify_waiters();
+    cancel.cancel();
+    let _ = handle.await;
+}
+
+/// A client that sets the BROADCAST flag is stating it cannot take delivery of
+/// a unicast reply, and RFC 2131 §4.1 says a server sending directly to a
+/// client SHOULD honour it. Answering such a renewal by unicast strands the
+/// client: it never sees the ACK, retransmits at the RENEWING floor of 60
+/// seconds for the whole lease, and only recovers by releasing and starting
+/// over from DHCPDISCOVER — which is broadcast, and therefore works.
+#[tokio::test]
+async fn request_with_the_broadcast_flag_is_answered_by_broadcast() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let mut request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    request.set_flags(Flags::default().set_broadcast());
+    // A RENEWING client holds its address, so it asks from that address.
+    request.set_ciaddr(Ipv4Addr::new(192, 168, 1, 100));
+    socket
+        .push_message(&request, "192.168.1.100:68".parse().unwrap())
+        .await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(messages.len(), 1, "expected exactly one response");
+    assert_eq!(messages[0].0.opts().msg_type(), Some(MessageType::Ack));
+    assert_eq!(
+        messages[0].1,
+        "255.255.255.255:68".parse::<SocketAddr>().unwrap(),
+        "a client asking for a broadcast reply must not be answered by unicast"
+    );
+}
+
+/// Without the flag, a renewal is answered at the address the client holds.
+/// Broadcasting every ACK would put every renewal on the wire for every host.
+#[tokio::test]
+async fn request_without_the_broadcast_flag_is_answered_by_unicast() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let mut request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    request.set_ciaddr(Ipv4Addr::new(192, 168, 1, 100));
+    socket
+        .push_message(&request, "192.168.1.100:68".parse().unwrap())
+        .await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(messages.len(), 1, "expected exactly one response");
+    assert_eq!(
+        messages[0].1,
+        "192.168.1.100:68".parse::<SocketAddr>().unwrap(),
+        "a renewal with no broadcast flag is answered at the client's address"
+    );
+}
+
+/// A DHCPNAK exists to tell a client the address it is holding is wrong, so
+/// sending it to that address is self-defeating. RFC 2131 §4.3.2 has the server
+/// broadcast a NAK whenever the request came without a relay, regardless of what
+/// the client can otherwise receive.
+#[tokio::test]
+async fn nak_is_broadcast_even_when_the_client_could_take_unicast() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    // Ask to keep an address the service does not hand back, which is what
+    // drives the NAK.
+    let mut request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    request.set_ciaddr(Ipv4Addr::new(192, 168, 1, 55));
+    request
+        .opts_mut()
+        .insert(DhcpOption::RequestedIpAddress(Ipv4Addr::new(
+            192, 168, 1, 55,
+        )));
+    socket
+        .push_message(&request, "192.168.1.55:68".parse().unwrap())
+        .await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(messages.len(), 1, "expected exactly one response");
+    assert_eq!(messages[0].0.opts().msg_type(), Some(MessageType::Nak));
+    assert_eq!(
+        messages[0].1,
+        "255.255.255.255:68".parse::<SocketAddr>().unwrap(),
+        "a NAK must not be unicast to the address it is rejecting"
+    );
+}
+
+/// Sustained traffic from one MAC must never overlap in the lease service.
+///
+/// The handler releases its own slot under the lock and returns; a guard that
+/// then removed the key a second time would delete an entry belonging to a
+/// handler dispatched for the same MAC in between, and the packet after that
+/// would start a third alongside it. Only a stream of packets that keeps
+/// re-entering dispatch as handlers finish exposes it.
+#[tokio::test]
+async fn sustained_traffic_from_one_mac_never_overlaps() {
+    let mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x01];
+    // No gating: handlers complete immediately, so slots are released and
+    // re-taken constantly, which is what opens the window.
+    let service = Arc::new(GatedDhcpService::new(test_lease(), "no:such:mac"));
+    let peak = Arc::clone(&service.peak_per_mac);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    for _ in 0..200 {
+        socket
+            .push_message(&build_request(mac), client_addr())
+            .await;
+        tokio::task::yield_now().await;
+    }
+    wait_for_sent(&socket, 1).await;
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+    assert_eq!(
+        *peak.lock().await,
+        1,
+        "two handlers for one MAC ran at the same time"
+    );
+
+    cancel.cancel();
+    let _ = handle.await;
+}
+
+/// A request that came via a relay is answered to the relay, whatever else
+/// would otherwise apply. RFC 2131 §4.1 makes a non-zero `giaddr` the first
+/// test: broadcasting would put the reply on this server's segment rather than
+/// the client's, and the relay is what knows how to reach the client.
+#[tokio::test]
+async fn relayed_request_is_answered_to_the_relay() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let mut request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    // Both of the rules that would otherwise force a broadcast.
+    request.set_flags(Flags::default().set_broadcast());
+    request.set_giaddr(Ipv4Addr::new(10, 9, 9, 1));
+    socket
+        .push_message(&request, "10.9.9.1:67".parse().unwrap())
+        .await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(messages.len(), 1, "expected exactly one response");
+    assert_eq!(
+        messages[0].1,
+        "10.9.9.1:67".parse::<SocketAddr>().unwrap(),
+        "a relayed request must be answered to the relay's server port"
+    );
+}
+
+/// A client in SELECTING has no address yet, so a reply aimed at the address
+/// being offered cannot reach it.
+#[tokio::test]
+async fn request_from_an_unconfigured_client_is_broadcast() {
+    let lease = test_lease();
+    let service: Arc<dyn DhcpService> = Arc::new(MockDhcpService::new(lease));
+    let socket = Arc::new(MockDhcpSocket::new());
+
+    let request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    socket
+        .push_message(&request, "0.0.0.0:68".parse().unwrap())
+        .await;
+
+    let socket = run_server_loop_until_idle(socket, service).await;
+
+    let messages = socket.sent_messages().await;
+    assert_eq!(messages.len(), 1, "expected exactly one response");
+    assert_eq!(
+        messages[0].1,
+        "255.255.255.255:68".parse::<SocketAddr>().unwrap(),
+        "a client with no address must be answered by broadcast"
+    );
+}
+
+/// A DHCPRELEASE queued behind a busy handler survives the packets that arrive
+/// after it. The slot keeps the newest packet because a retransmit restates a
+/// question already asked, but a RELEASE is a separate instruction — losing it
+/// to the DISCOVER a rebooting client sends next would leave the lease held.
+#[tokio::test]
+async fn a_queued_release_is_not_displaced_by_later_packets() {
+    let mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x01];
+    let mac_str = "aa:bb:cc:00:00:01";
+    let service = Arc::new(GatedDhcpService::new(test_lease(), mac_str));
+    let gate = Arc::clone(&service.gate);
+    let gate_open = Arc::clone(&service.gate_open);
+    let gate_reached = Arc::clone(&service.gate_reached);
+    let completed = Arc::clone(&service.completed);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    // Park a handler, then queue a RELEASE and let a DISCOVER land behind it.
+    socket
+        .push_message(&build_request(mac), client_addr())
+        .await;
+    wait_for_gate(&gate_reached).await;
+    socket
+        .push_message(&build_release(mac), "192.168.1.100:68".parse().unwrap())
+        .await;
+    socket
+        .push_message(&build_discover(mac), client_addr())
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+    gate_open.store(true, Ordering::SeqCst);
+    gate.notify_waiters();
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+    let seen = completed.lock().await.clone();
+    assert!(
+        seen.len() >= 2,
+        "the queued RELEASE must still have been served: {seen:?}"
+    );
+
+    cancel.cancel();
+    let _ = handle.await;
+}
+
+/// A handler that panics must not take its client's DHCP with it. The MAC's
+/// slot is held for the duration of a handler, so a panic that left it behind
+/// would mark that client permanently busy and it would never be served again
+/// for the life of the process.
+#[tokio::test]
+async fn a_panicking_handler_does_not_wedge_its_mac() {
+    let mac = [0xAA, 0xBB, 0xCC, 0x00, 0x00, 0x01];
+    let mac_str = "aa:bb:cc:00:00:01";
+    let service = Arc::new(GatedDhcpService::new(test_lease(), mac_str));
+    // Never park; just fail the first call.
+    service.gate_open.store(true, Ordering::SeqCst);
+    service.panic_once.store(true, Ordering::SeqCst);
+    let completed = Arc::clone(&service.completed);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    socket
+        .push_message(&build_request(mac), client_addr())
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    socket
+        .push_message(&build_request(mac), client_addr())
+        .await;
+    tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+    assert!(
+        completed.lock().await.iter().any(|m| m == mac_str),
+        "the client must still be served after a handler panicked"
+    );
+
+    cancel.cancel();
+    let _ = handle.await;
+}
+
+/// Port 67 accepts unauthenticated broadcast, so handlers are capped. Once the
+/// cap is reached further packets are dropped rather than queued — DHCP clients
+/// retransmit, and an unbounded task per packet is a memory-exhaustion path.
+#[tokio::test]
+async fn packets_beyond_the_handler_cap_are_dropped() {
+    // "*" parks every MAC, so the cap fills and stays full.
+    let service = Arc::new(GatedDhcpService::new(test_lease(), "*"));
+    let gate = Arc::clone(&service.gate);
+    let gate_open = Arc::clone(&service.gate_open);
+    let active = Arc::clone(&service.active);
+
+    let socket = Arc::new(MockDhcpSocket::new());
+    let running = Arc::new(AtomicBool::new(true));
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let socket_dyn: Arc<dyn DhcpSocket> = Arc::clone(&socket) as Arc<dyn DhcpSocket>;
+    let svc: Arc<dyn DhcpService> = Arc::clone(&service) as Arc<dyn DhcpService>;
+    let cancel_clone = cancel.clone();
+    let running_clone = Arc::clone(&running);
+    let handle = tokio::spawn(async move {
+        server::server_loop(
+            socket_dyn,
+            svc,
+            None,
+            running_clone,
+            cancel_clone,
+            Arc::new(HashSet::new()),
+        )
+        .await;
+    });
+
+    // One distinct MAC per packet, well past the cap.
+    for i in 0u16..200 {
+        let mac = [
+            0xAA,
+            0xBB,
+            0xCC,
+            0x01,
+            u8::try_from(i >> 8).expect("high byte"),
+            u8::try_from(i & 0xFF).expect("low byte"),
+        ];
+        socket
+            .push_message(&build_discover(mac), client_addr())
+            .await;
+    }
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
+    let parked = active.lock().await.values().filter(|n| **n > 0).count();
+    assert!(
+        parked <= 64,
+        "handlers must be capped, found {parked} parked at once"
+    );
+
+    gate_open.store(true, Ordering::SeqCst);
+    gate.notify_waiters();
+    cancel.cancel();
+    let _ = handle.await;
 }

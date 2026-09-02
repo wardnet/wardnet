@@ -139,13 +139,18 @@ impl PolicyRouter for StubPolicyRouter {
     async fn has_route_table(&self, _table: u32) -> anyhow::Result<bool> {
         unimplemented!()
     }
-    async fn add_ip_rule(&self, _src_ip: &str, _table: u32) -> anyhow::Result<()> {
+    async fn add_ip_rule(&self, _src_ip: &str, _table: u32, _priority: u32) -> anyhow::Result<()> {
         unimplemented!()
     }
-    async fn remove_ip_rule(&self, _src_ip: &str, _table: u32) -> anyhow::Result<()> {
+    async fn remove_ip_rule(
+        &self,
+        _src_ip: &str,
+        _table: u32,
+        _priority: u32,
+    ) -> anyhow::Result<()> {
         unimplemented!()
     }
-    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
+    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32, u32)>> {
         unimplemented!()
     }
     async fn add_switchback_rule(
@@ -221,7 +226,12 @@ impl PolicyRouter for StubPolicyRouter {
     async fn list_neigh_proxies(&self, _i: &str) -> anyhow::Result<Vec<String>> {
         unimplemented!()
     }
-    async fn add_host_route(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {
+    async fn add_host_route(
+        &self,
+        _ip: &str,
+        _i: &str,
+        _pref_src: std::net::Ipv4Addr,
+    ) -> anyhow::Result<()> {
         unimplemented!()
     }
     async fn remove_host_route(&self, _ip: &str, _i: &str) -> anyhow::Result<()> {

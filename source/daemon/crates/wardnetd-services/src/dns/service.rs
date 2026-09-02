@@ -19,8 +19,8 @@ use wardnet_common::api::{
     ListQueryLogResponse, QueryLogEvent, ToggleDnsRequest, UpdateDnsConfigRequest,
 };
 use wardnet_common::dns::{
-    DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode,
-    ForwarderSelectionMode, UpstreamDns,
+    DEFAULT_FORWARD_DEADLINE_MS, DEFAULT_UPSTREAM_TIMEOUT_MS, DnsConfig, DnsProtocol,
+    DnsQueryLogEntry, DnsQueryResult, DnsResolutionMode, ForwarderSelectionMode, UpstreamDns,
 };
 use wardnet_common::event::WardnetEvent;
 
@@ -34,6 +34,18 @@ use wardnetd_data::repository::{
 
 pub const QUERY_LOG_MAX_LIMIT: u32 = 500;
 pub const QUERY_LOG_DEFAULT_LIMIT: u32 = 50;
+/// Bounds for [`DnsConfig::upstream_timeout_ms`]. The floor keeps an admin
+/// from setting a deadline no real upstream can meet (which would SERVFAIL
+/// every query); the ceiling keeps one rung of the ladder from outlasting a
+/// client stub's patience on its own.
+pub const UPSTREAM_TIMEOUT_MIN_MS: u32 = 100;
+pub const UPSTREAM_TIMEOUT_MAX_MS: u32 = 10_000;
+/// Bounds for [`DnsConfig::forward_deadline_ms`]. The ceiling is deliberately
+/// above a stub resolver's ~5s patience: an admin debugging a slow link may
+/// want to see the answer arrive even though no client is still waiting for
+/// it, and the query log records it either way.
+pub const FORWARD_DEADLINE_MIN_MS: u32 = 200;
+pub const FORWARD_DEADLINE_MAX_MS: u32 = 15_000;
 pub const QUERY_LOG_RETENTION_MIN_DAYS: u32 = 1;
 pub const QUERY_LOG_RETENTION_MAX_DAYS: u32 = 30;
 
@@ -136,6 +148,14 @@ impl DnsServiceImpl {
             .unwrap_or_else(|| "true".to_owned())
             == "true";
         let rate_limit_per_second = Self::parse_u32(get("dns_rate_limit_per_second").await?, 0)?;
+        let upstream_timeout_ms = Self::parse_u32(
+            get("dns_upstream_timeout_ms").await?,
+            DEFAULT_UPSTREAM_TIMEOUT_MS,
+        )?;
+        let forward_deadline_ms = Self::parse_u32(
+            get("dns_forward_deadline_ms").await?,
+            DEFAULT_FORWARD_DEADLINE_MS,
+        )?;
         let dns_filtering_enabled = get("dns_filtering_enabled")
             .await?
             .unwrap_or_else(|| "true".to_owned())
@@ -171,6 +191,8 @@ impl DnsServiceImpl {
             dnssec_enabled,
             rebinding_protection,
             rate_limit_per_second,
+            upstream_timeout_ms,
+            forward_deadline_ms,
             dns_filtering_enabled,
             query_log_enabled,
             query_log_retention_days,
@@ -188,6 +210,35 @@ impl DnsServiceImpl {
             timestamp: chrono::Utc::now(),
         });
     }
+}
+
+/// Validate the forwarding timings an update results in.
+///
+/// Pure so the rules can be unit-tested without a repository. Beyond the
+/// independent ranges, the pair has to be ordered: a per-upstream timeout
+/// larger than the whole-query deadline means the first upstream can consume
+/// the entire budget, so the ladder would never reach a second one and
+/// failover would exist only on paper.
+pub(crate) fn validate_forward_timings(
+    upstream_timeout_ms: u32,
+    forward_deadline_ms: u32,
+) -> Result<(), String> {
+    if !(UPSTREAM_TIMEOUT_MIN_MS..=UPSTREAM_TIMEOUT_MAX_MS).contains(&upstream_timeout_ms) {
+        return Err(format!(
+            "upstream_timeout_ms must be between {UPSTREAM_TIMEOUT_MIN_MS} and {UPSTREAM_TIMEOUT_MAX_MS}"
+        ));
+    }
+    if !(FORWARD_DEADLINE_MIN_MS..=FORWARD_DEADLINE_MAX_MS).contains(&forward_deadline_ms) {
+        return Err(format!(
+            "forward_deadline_ms must be between {FORWARD_DEADLINE_MIN_MS} and {FORWARD_DEADLINE_MAX_MS}"
+        ));
+    }
+    if upstream_timeout_ms > forward_deadline_ms {
+        return Err(format!(
+            "upstream_timeout_ms ({upstream_timeout_ms}) must not exceed forward_deadline_ms ({forward_deadline_ms})"
+        ));
+    }
+    Ok(())
 }
 
 /// Resolve the forwarder selection (mode + single-server address) an update
@@ -244,6 +295,21 @@ impl DnsService for DnsServiceImpl {
             return Err(AppError::BadRequest(format!(
                 "query_log_retention_days must be between {QUERY_LOG_RETENTION_MIN_DAYS} and {QUERY_LOG_RETENTION_MAX_DAYS}"
             )));
+        }
+
+        // Forwarding timings. Both fields are independently optional, so the
+        // pair has to be validated as it will end up — a request that raises
+        // only the per-upstream timeout must still be checked against the
+        // persisted whole-query deadline.
+        if req.upstream_timeout_ms.is_some() || req.forward_deadline_ms.is_some() {
+            let current = self.load_config().await?;
+            validate_forward_timings(
+                req.upstream_timeout_ms
+                    .unwrap_or(current.upstream_timeout_ms),
+                req.forward_deadline_ms
+                    .unwrap_or(current.forward_deadline_ms),
+            )
+            .map_err(AppError::BadRequest)?;
         }
 
         // ---- Validation phase ----
@@ -386,6 +452,18 @@ impl DnsService for DnsServiceImpl {
                 .await
                 .map_err(AppError::Internal)?;
         }
+        if let Some(v) = req.upstream_timeout_ms {
+            self.system_config
+                .set("dns_upstream_timeout_ms", &v.to_string())
+                .await
+                .map_err(AppError::Internal)?;
+        }
+        if let Some(v) = req.forward_deadline_ms {
+            self.system_config
+                .set("dns_forward_deadline_ms", &v.to_string())
+                .await
+                .map_err(AppError::Internal)?;
+        }
         if let Some(v) = req.dns_filtering_enabled {
             self.system_config
                 .set("dns_filtering_enabled", if v { "true" } else { "false" })
@@ -489,40 +567,41 @@ impl DnsService for DnsServiceImpl {
             result: params.result, // already Option<DnsQueryResult>
         };
 
-        let rows = self
+        // Over-fetch a single row past the page to learn whether another page
+        // exists. This runs after the clamp above, so the cap still governs
+        // what is returned. `has_more` is read before the extra row is truncated
+        // away, and is exact as long as the repository returns a row per stored
+        // row: its Rust mapping is total, and its lookup joins are inner joins
+        // held up by the foreign keys on those columns. Break either — a
+        // fallible mapping, or a lookup row deleted behind the constraint — and
+        // a full page reports that no further page exists.
+        let mut rows = self
             .dns_repo
-            .query_log_paginated(limit, offset, &filter)
+            .query_log_paginated(limit + 1, offset, &filter)
             .await
             .map_err(AppError::Internal)?;
-        let total = self
-            .dns_repo
-            .query_log_count(&filter)
-            .await
-            .map_err(AppError::Internal)?;
+        let has_more = rows.len() > limit as usize;
+        rows.truncate(limit as usize);
 
         let entries: Vec<DnsQueryLogEntry> = rows
             .into_iter()
-            .filter_map(|row| {
-                let timestamp = parse_iso_timestamp(&row.timestamp).ok()?;
-                let device_id = row
+            .map(|row| DnsQueryLogEntry {
+                id: 0,
+                timestamp: row.timestamp,
+                client_ip: row.client_ip,
+                domain: row.domain,
+                query_type: row.query_type,
+                result: DnsQueryResult::parse(&row.result),
+                upstream: row.upstream,
+                latency_ms: row.latency_ms,
+                device_id: row
                     .device_id
                     .as_deref()
-                    .and_then(|s| Uuid::parse_str(s).ok());
-                Some(DnsQueryLogEntry {
-                    id: 0,
-                    timestamp,
-                    client_ip: row.client_ip,
-                    domain: row.domain,
-                    query_type: row.query_type,
-                    result: DnsQueryResult::parse(&row.result),
-                    upstream: row.upstream,
-                    latency_ms: row.latency_ms,
-                    device_id,
-                })
+                    .and_then(|s| Uuid::parse_str(s).ok()),
             })
             .collect();
 
-        Ok(ListQueryLogResponse { entries, total })
+        Ok(ListQueryLogResponse { entries, has_more })
     }
 
     fn subscribe_query_stream(&self) -> Result<broadcast::Receiver<QueryLogEvent>, AppError> {
@@ -539,10 +618,4 @@ impl DnsService for DnsServiceImpl {
         auth_context::require_admin()?;
         Ok(0)
     }
-}
-
-fn parse_iso_timestamp(s: &str) -> anyhow::Result<chrono::DateTime<chrono::Utc>> {
-    use chrono::NaiveDateTime;
-    let naive = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%SZ")?;
-    Ok(chrono::TimeZone::from_utc_datetime(&chrono::Utc, &naive))
 }

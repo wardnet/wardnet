@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { Pencil, Trash2 } from "lucide-react";
 import { FormActions } from "@wardnet/web";
 import { Text } from "@wardnet/web";
@@ -68,7 +68,7 @@ export function ConditionalForwardingCard({
     setEditing(null);
   }
 
-  const columns = useMemo<ColumnDef<ConditionalForwardingRule>[]>(
+  const columns = useMemo<DataTableColumnDef<ConditionalForwardingRule>[]>(
     () => [
       {
         id: "domain",

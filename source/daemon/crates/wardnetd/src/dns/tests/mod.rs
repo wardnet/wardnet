@@ -10,3 +10,4 @@ mod pipeline;
 mod rate_limit;
 mod reply_capture;
 mod server;
+mod upstream_pool;

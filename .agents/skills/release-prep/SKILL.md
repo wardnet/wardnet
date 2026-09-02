@@ -189,26 +189,49 @@ and not the other's, so never infer one from the other — run both.
 `info.version` alone does not appear in either generated client, so a
 pure CalVer bump normally leaves both untouched.
 
-## Step 4 — Rebuild embedded web apps
+## Step 4 — The embedded web apps build themselves
 
 The daemon binary embeds three web apps at compile time via
-`rust_embed`. The dist folders for `user-app` and `admin-app` are
-committed to the repo (not CI-built); `admin-site/web/dist` is
-CI-built. For every release, rebuild the committed dists so the
-shipped binary contains the latest source:
+`rust_embed` — `user-app`, `admin-app` and `admin-site`. **All three
+dist trees are CI-built. None of them is committed, and a release does
+not rebuild them.** There is nothing to do in this step; it exists only
+because the opposite instruction stood here long enough to be worth
+contradicting explicitly.
+
+`.gitignore` ignores `source/{admin-site,user-app,admin-app}/dist/*`
+and un-ignores a single `dist/.info` sentinel per app. That sentinel is
+the only tracked file under any dist, and it exists so the directory
+survives in git — `rust_embed` needs the folder to exist for the daemon
+crate to compile even before any Vite output has been produced.
+
+The build path is `release.yml` → `build-daemon.yml`, whose `build-web`
+job runs `make build-web` and uploads all three trees as the
+`web-ui-dist` artifact; the per-target build job downloads it into
+`source/` before compiling. The artifact carries every dist for a
+reason recorded in that workflow: omit one and the app it belongs to
+ships empty.
+
+If you do run a local build, Vite empties each `dist/` and deletes the
+tracked sentinel with it. Restore it — `make build-web` already does
+this on your behalf:
 
 ```sh
-cd source/user-app  && yarn install --immutable && yarn build
-cd source/admin-app && yarn install --immutable && yarn build
+git checkout -- source/admin-site/dist/.info \
+                source/user-app/dist/.info \
+                source/admin-app/dist/.info
 ```
 
-Commit the resulting dist changes alongside the version files. Any
-new content-hashed asset files (fonts, icons, JS/CSS bundles) must be
-staged; deleted old hashes must be unstaged/removed.
+> Until `2026.08.01` this step said the `user-app` and `admin-app`
+> dists were committed and had to be rebuilt and staged for every
+> release. That stopped being true when [#596] gitignored them and
+> moved all three to the CI `build-web` job. The instruction survived
+> because following it *looks* like it works: the rebuild succeeds, git
+> reports nothing to stage because the output is ignored, and the
+> release goes out correctly — built by CI, for reasons unrelated to
+> anything the step did. Committing those dists now would add megabytes
+> of ignored build output per release that CI overwrites anyway.
 
-**Do not rebuild `source/admin-site/web/dist/`** — that is managed by
-the CI `build-web` job and only the placeholder `index.html` is
-tracked.
+[#596]: https://github.com/wardnet/wardnet/pull/596
 
 ## Step 5 — Verify
 
@@ -255,8 +278,6 @@ Files in the commit:
 - `docs/openapi.json`
 - `source/daemon/Cargo.toml`, `source/daemon/Cargo.lock`
 - `source/web-ui/package.json`, `source/site/package.json`
-- `source/user-app/dist/` — all files (new bundles + deleted old hashes)
-- `source/admin-app/dist/` — all files (new bundles + deleted old hashes)
 - (only if a generated client drifted)
   `source/sdk/wardnet-js/src/internal/openapi-schema.ts`,
   `source/sdk/wardnet-go/internal/rest/rest.gen.go`
@@ -377,6 +398,12 @@ release looks entirely green.
   owns it. A hand bump produces a version with no changelog entry and
   no published tag behind it, and the *next* `changeset version` builds
   on top of that phantom — skipping a version permanently.
+- **Committing the web `dist` trees.** They are gitignored and
+  CI-built; only each `dist/.info` sentinel is tracked. A local build
+  deletes those sentinels, so a release that stages "the dist changes"
+  commits a deletion that breaks the daemon crate's `rust_embed` folder
+  and nothing else. `git status` looking empty after a web build is the
+  correct outcome, not a sign the build failed.
 - **Trusting the targets table because it was already there.** Every
   other pitfall on this list is caught by a gate — `check-version`,
   `check-openapi`, CI. This one is caught by nothing. It is prose,

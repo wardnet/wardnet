@@ -69,7 +69,7 @@ use crate::device::DeviceServiceImpl;
 use crate::device::discovery::DeviceDiscoveryServiceImpl;
 use crate::device::identification::{DeviceIdentificationService, DeviceIdentificationServiceImpl};
 use crate::dhcp::DhcpServiceImpl;
-use crate::dns::DnsServiceImpl;
+use crate::dns::{DnsServiceImpl, UpstreamHealth};
 use crate::dns_filter::DnsFilterServiceImpl;
 use crate::dns_local::DnsLocalServiceImpl;
 use crate::event::{BroadcastEventBus, EventPublisher};
@@ -234,6 +234,12 @@ pub struct Services {
     pub device: Arc<dyn DeviceService>,
     pub dhcp: Arc<dyn DhcpService>,
     pub dns: Arc<dyn DnsService>,
+    /// Per-upstream reachability, shared between the DNS server's latency
+    /// prober (which publishes it), the DNS status endpoint, and the
+    /// `dns_upstream_unreachable` detector. Created here rather than inside
+    /// the DNS server because the anomaly registry below needs it before the
+    /// daemon binary constructs that server.
+    pub upstream_health: Arc<UpstreamHealth>,
     pub anomaly: Arc<dyn AnomalyService>,
     pub dns_filter: Arc<dyn DnsFilterService>,
     pub dns_local: Arc<dyn DnsLocalService>,
@@ -839,10 +845,12 @@ fn create_services(
 
     // Detectors talk to services, so the registry is built last — every
     // service it reaches for already exists by this point.
+    let upstream_health = Arc::new(UpstreamHealth::new());
     let anomaly_registry = Arc::new(AnomalyDetectorRegistry::new(
         &config.anomalies.enabled,
         &DetectorDeps {
             dns_filter: dns_filter_service.clone(),
+            upstream_health: upstream_health.clone(),
             tunnel: tunnel_service.clone(),
             running_version: crate::version::RELEASE_VERSION.to_owned(),
         },
@@ -865,6 +873,7 @@ fn create_services(
         device: device_service,
         dhcp: dhcp_service,
         dns: dns_service,
+        upstream_health,
         anomaly: anomaly_service,
         dns_filter: dns_filter_service,
         dns_local: dns_local_service,

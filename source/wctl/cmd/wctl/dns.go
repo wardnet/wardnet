@@ -135,6 +135,8 @@ func printDNSConfig(cfg *wardnet.DNSConfig) {
 	fmt.Printf("dnssec:              %t\n", cfg.DNSSECEnabled)
 	fmt.Printf("rebind protection:   %t\n", cfg.RebindingProtection)
 	fmt.Printf("rate limit:          %d/s\n", cfg.RateLimitPerSecond)
+	fmt.Printf("forward timeouts:    %dms per upstream, %dms overall\n",
+		cfg.UpstreamTimeoutMs, cfg.ForwardDeadlineMs)
 	fmt.Printf("filtering:           %t\n", cfg.FilteringEnabled)
 	fmt.Printf("query log:           %t (%d day retention)\n",
 		cfg.QueryLogEnabled, cfg.QueryLogRetentionDays)

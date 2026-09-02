@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { Split } from "lucide-react";
 import { Button } from "@wardnet/web";
 import { Card, CardContent } from "@wardnet/web";
@@ -71,7 +71,7 @@ export default function RoutingProfiles() {
     setDeleteTarget(null);
   }
 
-  const columns = useMemo<ColumnDef<RoutingProfile>[]>(
+  const columns = useMemo<DataTableColumnDef<RoutingProfile>[]>(
     () => [
       {
         id: "profile",

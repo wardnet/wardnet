@@ -1,7 +1,7 @@
 //! The transport-independent DNS resolve core (#911).
 //!
 //! [`QueryPipeline`] owns every piece of shared state a query needs —
-//! config, resolver, recursor, rate limiter, cache, filter, routing and
+//! config, upstream pool, recursor, rate limiter, cache, filter, routing and
 //! device snapshots, authoritative view — and exposes
 //! [`QueryPipeline::handle`]: raw query bytes in, at most one response
 //! sent on the supplied [`DnsSocket`] (exactly one on every resolution
@@ -19,7 +19,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
-use chrono::Utc;
+use chrono::{SubsecRound, Utc};
 use hickory_proto::op::{Message, OpCode, ResponseCode};
 use hickory_proto::serialize::binary::{BinDecodable, BinEncodable};
 use hickory_resolver::Resolver;
@@ -31,7 +31,7 @@ use tokio::sync::RwLock;
 use uuid::Uuid;
 use wardnet_common::dns::{
     DnsConfig, DnsQueryResult, DnsRecordSource, DnsRecordType, DnsResolutionMode, FilterAction,
-    UpstreamDns, UpstreamId,
+    UpstreamId,
 };
 use wardnet_common::net::is_private_ip;
 use wardnetd_data::repository::{QueryLogRow, TunnelRepository};
@@ -46,6 +46,7 @@ use wardnetd_services::dns::classify_response;
 use wardnetd_services::dns::server::DnsSocket;
 
 use crate::dns::rate_limit::RateLimiter;
+use crate::dns::upstream_pool::{UpstreamEntry, UpstreamPool};
 
 pub(crate) type TokioResolver = Resolver<TokioRuntimeProvider>;
 pub(crate) type TokioRecursor = Recursor<TokioRuntimeProvider>;
@@ -164,12 +165,15 @@ pub(crate) struct TunnelForwarderInfo {
 /// shared state the handlers read.
 pub struct QueryPipeline {
     pub(crate) config: Arc<RwLock<DnsConfig>>,
-    /// Shared upstream resolver. Lives behind a lock (rather than being
-    /// per-query) so `update_config` can rebuild and swap it when
-    /// upstream servers / DNSSEC / protocol change, without restarting
-    /// the listener. Built from the current config; rebuilt on every
-    /// `update_config`.
-    pub(crate) resolver: Arc<RwLock<TokioResolver>>,
+    /// The forwarding ladder (#1199): every configured upstream with its own
+    /// single-server resolver, plus the ordered subset currently worth
+    /// trying. Swapped rather than locked — the query path only reads it, and
+    /// two writers touch it for different reasons: `update_config` rebuilds
+    /// the whole pool when upstreams / DNSSEC / forwarder mode change, while
+    /// the latency prober republishes just the serving order as upstreams
+    /// fail and recover. Both go through `ArcSwap`, so neither can block a
+    /// query in flight.
+    pub(crate) pool: Arc<ArcSwap<UpstreamPool>>,
     /// Recursive resolver (Stage 5). `Some` only when
     /// `resolution_mode == Recursive`; rebuilt/cleared in `update_config`
     /// when the mode or the DNSSEC toggle changes, so forwarding mode
@@ -240,7 +244,7 @@ impl QueryPipeline {
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         config: Arc<RwLock<DnsConfig>>,
-        resolver: Arc<RwLock<TokioResolver>>,
+        pool: Arc<ArcSwap<UpstreamPool>>,
         recursor: Arc<RwLock<Option<TokioRecursor>>>,
         rate_limiter: Arc<RateLimiter>,
         cache: Arc<RwLock<DnsCache>>,
@@ -253,7 +257,7 @@ impl QueryPipeline {
     ) -> Self {
         Self {
             config,
-            resolver,
+            pool,
             recursor,
             rate_limiter,
             cache,
@@ -861,7 +865,7 @@ impl QueryPipeline {
                 if recursive {
                     resolve_via_recursor(
                         &self.recursor,
-                        &self.resolver,
+                        &self.pool,
                         reply,
                         &self.config,
                         &self.cache,
@@ -880,7 +884,7 @@ impl QueryPipeline {
                     .await?;
                 } else {
                     forward_via_default_resolver(
-                        &self.resolver,
+                        &self.pool,
                         reply,
                         &self.config,
                         &self.cache,
@@ -975,7 +979,7 @@ impl QueryPipeline {
 
 #[allow(clippy::too_many_arguments)]
 async fn forward_via_default_resolver(
-    resolver: &Arc<RwLock<TokioResolver>>,
+    pool: &Arc<ArcSwap<UpstreamPool>>,
     socket: &Arc<dyn DnsSocket>,
     config: &Arc<RwLock<DnsConfig>>,
     cache: &Arc<RwLock<DnsCache>>,
@@ -991,30 +995,44 @@ async fn forward_via_default_resolver(
     upstream_id: UpstreamId,
     routing_profile: Option<&Arc<dyn RoutingProfileService>>,
 ) -> anyhow::Result<()> {
-    // Clone the Arc-backed resolver out and drop the read guard before the
-    // upstream round-trip. tokio's RwLock is write-preferring, so holding the
-    // guard across `.lookup().await` lets an `update_config` resolver rebuild
-    // (the queued writer) block every new query until the slowest in-flight
-    // lookup returns — a single config edit could otherwise stall DNS for all
-    // clients for as long as the upstream timeout.
-    let resolver = resolver.read().await.clone();
-    let lookup: Result<Lookup, _> = resolver.lookup(domain, rtype).await;
-
-    // Snapshot the config fields we need, then drop the guard, so the response
-    // and cache work below doesn't hold the config lock across its awaits
-    // either.
-    let (upstream, rebinding_protection, ttl_min, ttl_max) = {
+    // Snapshot the config fields we need and drop the guard before the
+    // upstream round-trip. tokio's RwLock is write-preferring, so holding it
+    // across the ladder would let a queued `update_config` block every new
+    // query until the slowest in-flight lookup returns — a single config edit
+    // could otherwise stall DNS for every client for a full deadline.
+    let (deadline, per_upstream, rebinding_protection, ttl_min, ttl_max) = {
         let cfg = config.read().await;
         (
-            upstream_label(&cfg.upstream_servers),
+            std::time::Duration::from_millis(u64::from(cfg.forward_deadline_ms)),
+            std::time::Duration::from_millis(u64::from(cfg.upstream_timeout_ms)),
             cfg.rebinding_protection,
             cfg.cache_ttl_min_secs,
             cfg.cache_ttl_max_secs,
         )
     };
 
-    match lookup {
-        Ok(lookup) => {
+    let pool = pool.load_full();
+    // The whole-query ceiling. Reaching it means every upstream we had time
+    // for was still silent, and holding the query any longer only produces an
+    // answer the client has stopped listening for — while its retransmits
+    // pile up against our own rate limiter.
+    let outcome = tokio::time::timeout(
+        deadline,
+        walk_ladder(pool.serving(), domain, rtype, per_upstream),
+    )
+    .await
+    .unwrap_or_else(|_| {
+        tracing::warn!(
+            %domain,
+            ?rtype,
+            ?deadline,
+            "forwarding deadline expired with no upstream answer; returning ServFail"
+        );
+        LadderOutcome::Exhausted
+    });
+
+    match outcome {
+        LadderOutcome::Answered { address, lookup } => {
             send_resolved(
                 socket,
                 cache,
@@ -1028,7 +1046,7 @@ async fn forward_via_default_resolver(
                 start,
                 pass_result,
                 upstream_id,
-                upstream,
+                Some(address),
                 rebinding_protection,
                 ttl_min,
                 ttl_max,
@@ -1039,9 +1057,14 @@ async fn forward_via_default_resolver(
         }
         // The upstream answered "no such record / no such name" — a valid
         // negative resolution, not an upstream failure. Relay it as
-        // NODATA/NXDOMAIN rather than SERVFAIL.
-        Err(e) if e.is_no_records_found() || e.is_nx_domain() => {
-            let nx_domain = e.is_nx_domain();
+        // NODATA/NXDOMAIN rather than SERVFAIL, and never fail over: the
+        // authority has spoken, and asking a second server the same question
+        // would at best waste a round-trip and at worst contradict it.
+        LadderOutcome::Negative {
+            address,
+            nx_domain,
+            soa,
+        } => {
             relay_negative(
                 socket,
                 cache,
@@ -1055,18 +1078,20 @@ async fn forward_via_default_resolver(
                 start,
                 pass_result,
                 upstream_id,
-                upstream,
+                Some(address),
                 nx_domain,
-                e.into_soa(),
+                soa,
                 ttl_min,
                 ttl_max,
             )
             .await?;
         }
-        Err(e) => {
+        // Every upstream failed, so no upstream served this query. The log
+        // row's `upstream` stays empty rather than blaming one of them: the
+        // per-server failures were already logged individually above, with
+        // their real addresses.
+        LadderOutcome::Exhausted => {
             send_servfail(socket, src, id, &request).await?;
-            let elapsed = start.elapsed();
-            tracing::debug!(%domain, ?rtype, ?elapsed, error = %e, "upstream failed for {domain}: {e}");
             record_query(
                 log_sink,
                 domain,
@@ -1074,12 +1099,83 @@ async fn forward_via_default_resolver(
                 src,
                 attribution,
                 DnsQueryResult::UpstreamError.as_str(),
-                upstream,
-                elapsed,
+                None,
+                start.elapsed(),
             );
         }
     }
     Ok(())
+}
+
+/// What walking the forwarding ladder produced.
+enum LadderOutcome {
+    /// An upstream returned records. `address` is the server that did — known
+    /// exactly, because we asked it on its own.
+    Answered { address: String, lookup: Lookup },
+    /// An upstream returned a valid negative answer, which is terminal.
+    Negative {
+        address: String,
+        nx_domain: bool,
+        soa: Option<Box<hickory_proto::rr::Record<hickory_proto::rr::rdata::SOA>>>,
+    },
+    /// Nothing answered: every upstream failed, or there were none to try.
+    Exhausted,
+}
+
+/// Try each serving upstream in turn until one resolves the query.
+///
+/// This is the failover the admin UI has always described. Each upstream gets
+/// its own bounded attempt, and only a *failure* advances to the next one —
+/// a negative answer is a resolution and stops the walk.
+///
+/// The caller bounds the whole walk; `per_upstream` bounds one rung, so a
+/// single black-holing server cannot consume the entire budget and starve the
+/// servers behind it. That per-rung wrapper is deliberately belt-and-braces
+/// over hickory's own `opts.timeout`: the incident behind #1199 recorded
+/// 20-31s lookups against a resolver whose internal deadline should already
+/// have capped them, so the ladder does not take that bound on trust.
+async fn walk_ladder(
+    serving: &[Arc<UpstreamEntry>],
+    domain: &str,
+    rtype: hickory_proto::rr::RecordType,
+    per_upstream: std::time::Duration,
+) -> LadderOutcome {
+    for entry in serving {
+        let address = entry.address();
+        let attempt =
+            tokio::time::timeout(per_upstream, entry.resolver.lookup(domain, rtype)).await;
+
+        let error = match attempt {
+            Ok(Ok(lookup)) => {
+                return LadderOutcome::Answered {
+                    address: address.to_owned(),
+                    lookup,
+                };
+            }
+            Ok(Err(e)) if e.is_no_records_found() || e.is_nx_domain() => {
+                return LadderOutcome::Negative {
+                    address: address.to_owned(),
+                    nx_domain: e.is_nx_domain(),
+                    soa: e.into_soa(),
+                };
+            }
+            Ok(Err(e)) => e.to_string(),
+            Err(_) => format!("no answer within {per_upstream:?}"),
+        };
+
+        // One line per failing upstream, naming the server that actually
+        // failed. Before #1199 an upstream outage produced no log output at
+        // all — thousands of failed queries and a silent journal — so this is
+        // deliberately at `warn`, not `debug`.
+        tracing::warn!(
+            upstream = %address,
+            %domain,
+            ?rtype,
+            error = %error,
+            "upstream DNS server failed; trying the next one"
+        );
+    }
+    LadderOutcome::Exhausted
 }
 
 /// Shared post-resolution responder for the direct-device upstream paths
@@ -1206,7 +1302,7 @@ async fn send_resolved(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn resolve_via_recursor(
     recursor: &Arc<RwLock<Option<TokioRecursor>>>,
-    resolver: &Arc<RwLock<TokioResolver>>,
+    pool: &Arc<ArcSwap<UpstreamPool>>,
     socket: &Arc<dyn DnsSocket>,
     config: &Arc<RwLock<DnsConfig>>,
     cache: &Arc<RwLock<DnsCache>>,
@@ -1242,7 +1338,7 @@ pub(crate) async fn resolve_via_recursor(
 
     handle_recursor_outcome(
         recursor_result,
-        resolver,
+        pool,
         socket,
         config,
         cache,
@@ -1268,7 +1364,7 @@ pub(crate) async fn resolve_via_recursor(
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn handle_recursor_outcome(
     recursor_result: Option<Result<Message, RecursorError>>,
-    resolver: &Arc<RwLock<TokioResolver>>,
+    pool: &Arc<ArcSwap<UpstreamPool>>,
     socket: &Arc<dyn DnsSocket>,
     config: &Arc<RwLock<DnsConfig>>,
     cache: &Arc<RwLock<DnsCache>>,
@@ -1353,7 +1449,7 @@ pub(crate) async fn handle_recursor_outcome(
             }
             if has_upstreams {
                 forward_via_default_resolver(
-                    resolver,
+                    pool,
                     socket,
                     config,
                     cache,
@@ -1745,7 +1841,9 @@ pub(crate) fn record_query(
     let Some(sink) = sink else { return };
 
     let row = QueryLogRow {
-        timestamp: Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+        // Whole seconds: the log's resolution is one second, and anything
+        // finer would stream a precision the stored row cannot return.
+        timestamp: Utc::now().trunc_subsecs(0),
         client_ip: src.ip().to_string(),
         domain: domain.trim_end_matches('.').to_owned(),
         query_type: format!("{rtype:?}"),
@@ -1761,10 +1859,6 @@ pub(crate) fn record_query(
 #[allow(clippy::cast_precision_loss)]
 pub(crate) fn duration_to_ms(d: std::time::Duration) -> f64 {
     (d.as_micros() as f64) / 1000.0
-}
-
-pub(crate) fn upstream_label(upstreams: &[UpstreamDns]) -> Option<String> {
-    upstreams.first().map(|u| u.address.clone())
 }
 
 /// Map a hickory [`RecordType`] to our domain [`DnsRecordType`].

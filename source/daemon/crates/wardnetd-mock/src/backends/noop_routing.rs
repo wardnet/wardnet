@@ -152,7 +152,7 @@ impl PolicyRouter for NoopPolicyRouter {
         Ok(true)
     }
 
-    async fn add_ip_rule(&self, src_ip: &str, table: u32) -> anyhow::Result<()> {
+    async fn add_ip_rule(&self, src_ip: &str, table: u32, _priority: u32) -> anyhow::Result<()> {
         tracing::debug!(
             src_ip,
             table,
@@ -161,7 +161,7 @@ impl PolicyRouter for NoopPolicyRouter {
         Ok(())
     }
 
-    async fn remove_ip_rule(&self, src_ip: &str, table: u32) -> anyhow::Result<()> {
+    async fn remove_ip_rule(&self, src_ip: &str, table: u32, _priority: u32) -> anyhow::Result<()> {
         tracing::debug!(
             src_ip,
             table,
@@ -170,7 +170,7 @@ impl PolicyRouter for NoopPolicyRouter {
         Ok(())
     }
 
-    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32)>> {
+    async fn list_wardnet_rules(&self) -> anyhow::Result<Vec<(String, u32, u32)>> {
         Ok(Vec::new())
     }
 
@@ -330,11 +330,17 @@ impl PolicyRouter for NoopPolicyRouter {
         Ok(Vec::new())
     }
 
-    async fn add_host_route(&self, ip: &str, interface: &str) -> anyhow::Result<()> {
+    async fn add_host_route(
+        &self,
+        ip: &str,
+        interface: &str,
+        pref_src: std::net::Ipv4Addr,
+    ) -> anyhow::Result<()> {
         tracing::debug!(
             ip,
             interface,
-            "mock policy add_host_route: {ip}/32 dev {interface}",
+            %pref_src,
+            "mock policy add_host_route: {ip}/32 dev {interface} src {pref_src}",
         );
         Ok(())
     }
