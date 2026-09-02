@@ -179,10 +179,13 @@ you're about to make, rather than the whole set.
   the log must outlive — plus `VACUUM` may renumber a non-`INTEGER` table's
   rowid), **no integer enums** for the closed columns (`DnsQueryResult::slot` is
   a compile-time exhaustiveness device, not a wire format), and **no FTS5**
-  (+232 MB and slower than `LIKE`). Invariants: only **`lk_domain`** is pruned —
-  the others are bounded by physical reality and the `SELECT DISTINCT` scan is
-  paid per table; the prune uses **`NOT IN (SELECT DISTINCT …)`**, never a
-  correlated `NOT EXISTS` (367 ms vs 135 s); and **nothing above `wardnetd-data`
+  (+232 MB and slower than `LIKE`). Invariants: only **`lk_dns_domain`** is pruned —
+  the others grow far more slowly and the `SELECT DISTINCT` scan is paid per
+  table; the prune uses **`NOT IN (SELECT DISTINCT …)`**, never a correlated
+  `NOT EXISTS` (135 s), and **`dns_query_log(domain_id)` must stay indexed** or
+  `PRAGMA foreign_keys=ON` makes each orphan scan the whole log (33.5 s vs
+  0.016 s on 500k rows — any timing taken in the `sqlite3` CLI has foreign keys
+  *off* and does not apply); and **nothing above `wardnetd-data`
   knows lookup tables exist**, which is what keeps the API contract unchanged.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT

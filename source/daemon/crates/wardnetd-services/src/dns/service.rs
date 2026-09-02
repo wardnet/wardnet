@@ -569,8 +569,10 @@ impl DnsService for DnsServiceImpl {
 
         // Over-fetch a single row past the page to learn whether another page
         // exists. This runs after the clamp above, so the cap still governs
-        // what is returned, and `has_more` is read before the extra row is
-        // truncated away.
+        // what is returned. `has_more` is read before the extra row is truncated
+        // away, and is exact because the repository's row mapping is total — a
+        // mapping that can drop a row would let a full page report that no
+        // further page exists.
         let mut rows = self
             .dns_repo
             .query_log_paginated(limit + 1, offset, &filter)

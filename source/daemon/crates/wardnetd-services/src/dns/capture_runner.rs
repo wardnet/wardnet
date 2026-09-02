@@ -27,10 +27,10 @@ use crate::auth_context;
 use crate::device::DeviceService;
 use crate::event::EventPublisher;
 
-/// Prune loop tick interval.
 /// Rendering for `dns_events.captured_at`, which is a TEXT column.
 const CAPTURED_AT_FMT: &str = "%Y-%m-%dT%H:%M:%SZ";
 
+/// Prune loop tick interval.
 pub const PRUNE_INTERVAL: Duration = Duration::from_hours(1);
 
 /// Background runner capturing per-device DNS events.

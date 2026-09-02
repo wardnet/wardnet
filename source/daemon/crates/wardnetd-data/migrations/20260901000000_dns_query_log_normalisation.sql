@@ -40,9 +40,24 @@ CREATE TABLE IF NOT EXISTS dns_query_log (
     protocol_id   INTEGER NOT NULL REFERENCES lk_dns_protocol(id)
 );
 
--- Only two indexes survive. `timestamp` serves the retention DELETE, and
--- `device_id` serves the per-device seek (measured 0.4 ms -> 145.6 ms without
--- it). The old covering indexes on domain / client_ip / result existed solely
--- for a pagination COUNT that no longer runs, and cost 152 MB.
+-- `timestamp` serves the retention DELETE; `device_id` serves the per-device
+-- seek (measured 0.4 ms -> 145.6 ms without it).
+--
+-- `domain_id` is indexed because the daemon runs with `PRAGMA foreign_keys=ON`
+-- (see `db.rs`). SQLite proves a parent DELETE safe by scanning the child table
+-- once per deleted parent row, so pruning `lk_dns_domain` without this index
+-- costs a full scan of this table per orphan: measured 33.5 s against 500k rows
+-- and 2,000 orphans, versus 0.016 s with it. It also turns the domain substring
+-- filter into a covering-index seek.
+--
+-- The old text indexes on `domain` and `client_ip` are gone for good: both
+-- filters are leading-wildcard LIKE, which can never seek, so they only ever
+-- covered a pagination COUNT that no longer runs.
+--
+-- `result` is a deliberate regression, not dead weight: its old index was a
+-- real reverse-ordered seek for `WHERE result = ? ORDER BY id DESC LIMIT n`,
+-- and filtering the admin log by an uncommon result now scans the table.
+-- Indexing `result_id` would restore it for ~18 MB.
 CREATE INDEX IF NOT EXISTS idx_dns_query_log_timestamp ON dns_query_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_dns_query_log_device_id ON dns_query_log(device_id);
+CREATE INDEX IF NOT EXISTS idx_dns_query_log_domain_id ON dns_query_log(domain_id);

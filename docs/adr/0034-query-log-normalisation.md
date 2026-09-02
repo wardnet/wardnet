@@ -50,13 +50,15 @@ indexed integer `IN`, scanning thousands of rows instead of millions.
 no DNS and no DHCP while systemd's start timeout runs. The new table is therefore
 created empty and the old one dropped: **existing query-log history is discarded.**
 Accepted deliberately — the log is capped at 7 days, refills immediately, and the
-box has a single operator who agreed to the loss. Called out in the release notes.
+box has a single operator who agreed to the loss. This must be called out in the
+release notes for whichever version ships it.
 
 ## Consequences
 
-- **Only `lk_domain` is pruned.** It is the only lookup that grows without bound
-  (~543 orphans/day, ~198k/year) and the only one whose size is load-bearing: the
-  substring scan is fast precisely because it reads thousands of rows. The other
+- **Only `lk_dns_domain` is pruned.** It is the only lookup that grows fast enough
+  to matter (~543 orphans/day, ~198k/year) and the only one whose size is
+  load-bearing: the substring scan is fast precisely because it reads thousands
+  of rows. The other
   six are pinned by physical or configured reality and total kilobytes forever.
   Pruning them is not free — the expensive half is the `SELECT DISTINCT` scan of
   1.79M rows, paid *per table*, on a single-connection write pool.
@@ -65,11 +67,18 @@ box has a single operator who agreed to the loss. Called out in the release note
   cadence and no other caller. A separate method would put the word `lookup` in the
   service trait and the mock, and would move a mandatory ordering into a runner
   convention that no test protects.
-- **The prune query form matters by 370×.** Use
-  `DELETE FROM lk_domain WHERE id NOT IN (SELECT DISTINCT domain_id FROM dns_query_log)`
-  (367 ms). The `NOT EXISTS` form reads more naturally, is a correlated subquery
-  that rescans the log per lookup row, and measured 135 s — a two-minute writer
-  stall. The plan is asserted in a test.
+- **The prune is fast only if two separate things hold.** Use
+  `DELETE FROM lk_dns_domain WHERE id NOT IN (SELECT DISTINCT domain_id FROM dns_query_log)`.
+  The `NOT EXISTS` form reads more naturally, is a correlated subquery that
+  rescans the log per lookup row, and measured 135 s — a two-minute writer stall.
+  Separately, **`dns_query_log(domain_id)` must stay indexed**: the daemon runs
+  with `PRAGMA foreign_keys=ON`, and SQLite proves a parent DELETE safe by
+  scanning the child table once per deleted row unless the child key is indexed.
+  Measured on 500k rows and 2,000 orphans: 0.061 s with foreign keys off, **33.5 s
+  with them on and no index**, 0.016 s with the index. Any prune timing measured
+  in the `sqlite3` CLI is measured with foreign keys *off*, because that is the
+  CLI's default and not the daemon's — the two are not comparable. The index
+  costs ~20 MB and is why this lands at roughly 128 MB rather than 109 MB.
 - **Timestamps are whole seconds, deliberately.** `QueryLogRow.timestamp` is a
   `DateTime<Utc>` and the producer truncates sub-second precision explicitly. That
   rule previously lived by accident inside a format string. Without the truncation

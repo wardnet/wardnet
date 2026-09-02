@@ -60,11 +60,23 @@ struct DbQueryLogRow {
 }
 
 impl DbQueryLogRow {
-    /// A row whose epoch seconds are outside `DateTime`'s range is dropped
-    /// rather than clamped — a clamped timestamp reads as a real observation.
-    fn into_row(self) -> Option<QueryLogRow> {
-        Some(QueryLogRow {
-            timestamp: DateTime::from_timestamp(self.timestamp, 0)?,
+    /// An epoch outside `DateTime`'s range falls back to the Unix epoch rather
+    /// than dropping the row. Every value this repository writes is in range,
+    /// so reaching the fallback means the column was written by something else
+    /// — and a visibly wrong 1970 timestamp in a seven-day log is diagnosable,
+    /// whereas a silently shorter page makes the caller's `has_more` report
+    /// that no further page exists.
+    fn into_row(self) -> QueryLogRow {
+        let timestamp = DateTime::from_timestamp(self.timestamp, 0).unwrap_or_else(|| {
+            tracing::warn!(
+                epoch = self.timestamp,
+                "query log row has an out-of-range timestamp: epoch={epoch}",
+                epoch = self.timestamp,
+            );
+            DateTime::UNIX_EPOCH
+        });
+        QueryLogRow {
+            timestamp,
             client_ip: self.client_ip,
             domain: self.domain,
             query_type: self.query_type,
@@ -73,7 +85,7 @@ impl DbQueryLogRow {
             latency_ms: self.latency_ms,
             device_id: self.device_id,
             protocol: self.protocol,
-        })
+        }
     }
 }
 
@@ -249,10 +261,7 @@ impl DnsRepository for SqliteDnsRepository {
         q = q.bind(limit).bind(offset);
 
         let rows = q.fetch_all(&self.pools.read).await?;
-        Ok(rows
-            .into_iter()
-            .filter_map(DbQueryLogRow::into_row)
-            .collect())
+        Ok(rows.into_iter().map(DbQueryLogRow::into_row).collect())
     }
 
     async fn cleanup_query_log(&self, retention_days: u32) -> anyhow::Result<u64> {
@@ -307,8 +316,12 @@ fn build_where(filter: &QueryLogFilter) -> (String, Vec<String>) {
         binds.push(format!("%{ip}%"));
     }
     if let Some(ref device_id) = filter.device_id {
+        // Scalar `=`, not `IN`: an IN-list SQLite cannot prove is a single
+        // value forces `USE TEMP B-TREE FOR ORDER BY`, which sorts every row
+        // for that device before `LIMIT` applies. The scalar form keeps
+        // `idx_dns_query_log_device_id` serving the ordering with an early exit.
         conditions.push(format!(
-            "q.device_id IN (SELECT id FROM {LK_DEVICE} WHERE v = ?)"
+            "q.device_id = (SELECT id FROM {LK_DEVICE} WHERE v = ?)"
         ));
         binds.push(device_id.clone());
     }
@@ -319,8 +332,9 @@ fn build_where(filter: &QueryLogFilter) -> (String, Vec<String>) {
         binds.push(format!("%{domain}%"));
     }
     if let Some(result) = filter.result {
+        // Scalar, for the same reason as the device filter above.
         conditions.push(format!(
-            "q.result_id IN (SELECT id FROM {LK_RESULT} WHERE v = ?)"
+            "q.result_id = (SELECT id FROM {LK_RESULT} WHERE v = ?)"
         ));
         binds.push(result.as_str().to_owned());
     }

@@ -4,6 +4,16 @@ use crate::repository::dns::{DnsRepository, QueryLogFilter, QueryLogRow};
 use chrono::{DateTime, SubsecRound, Utc};
 use wardnet_common::dns::DnsQueryResult;
 
+/// sqlx leaves `foreign_keys` off by default, but the daemon's pools set it on
+/// (`db.rs`). Without this the seven lookup constraints are never exercised —
+/// neither a violation nor the cost they impose on the prune.
+async fn enable_foreign_keys(pool: &sqlx::SqlitePool) {
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
 fn ts_now() -> DateTime<Utc> {
     Utc::now().trunc_subsecs(0)
 }
@@ -368,16 +378,47 @@ async fn cleanup_prunes_orphaned_domains_and_keeps_live_ones() {
     assert_eq!(domains, vec!["kept.com"]);
 }
 
-/// The prune must stay a single scan of the log. The correlated `NOT EXISTS`
-/// form rescans `dns_query_log` once per lookup row and measured 135 s against
-/// a real database — a two-minute stall on the single-connection write pool.
+/// The prune must stay a single scan of the log, in two independent respects.
+///
+/// The query plan covers one: a correlated `NOT EXISTS` rescans
+/// `dns_query_log` per lookup row and measured 135 s against a real database.
+///
+/// The plan cannot cover the other. With `foreign_keys=ON` — which is how the
+/// daemon runs — SQLite proves each parent DELETE safe by scanning the child
+/// table, once per deleted row, unless the child key is indexed. Those scans
+/// never appear in `EXPLAIN QUERY PLAN`, so the index is asserted directly:
+/// measured 33.5 s without it versus 0.016 s with, on 500k rows.
 #[tokio::test]
-async fn prune_plan_scans_the_log_once() {
+async fn prune_scans_the_log_once() {
     let pool = test_pool().await;
+    enable_foreign_keys(&pool).await;
     let repo = SqliteDnsRepository::new(pool.clone());
     repo.insert_query_log_batch(&[sample_row("10.0.0.1", "example.com", "allowed")])
         .await
         .unwrap();
+
+    let indexed: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_index_list('dns_query_log')")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    let mut covers_domain_id = false;
+    for index in indexed {
+        let cols: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+            "SELECT name FROM pragma_index_info('{index}')"
+        )))
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        if cols.first().map(String::as_str) == Some("domain_id") {
+            covers_domain_id = true;
+        }
+    }
+    assert!(
+        covers_domain_id,
+        "dns_query_log.domain_id must be indexed or the FK check makes the \
+         prune scan the whole log once per orphaned domain"
+    );
 
     let rows = sqlx::query_as::<_, (i64, i64, i64, String)>(
         "EXPLAIN QUERY PLAN \
@@ -401,4 +442,43 @@ async fn prune_plan_scans_the_log_once() {
         !plan.contains("CORRELATED"),
         "prune must not become a correlated subquery, got: {plan}"
     );
+}
+
+/// The lookup ids are real foreign keys, so a row pointing at a domain the
+/// prune removed must be impossible rather than merely unlikely.
+#[tokio::test]
+async fn prune_never_orphans_a_live_log_row() {
+    let pool = test_pool().await;
+    enable_foreign_keys(&pool).await;
+    let repo = SqliteDnsRepository::new(pool.clone());
+
+    let old = DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
+        .unwrap()
+        .with_timezone(&Utc);
+    let mut stale = sample_row("10.0.0.1", "expired.com", "allowed");
+    stale.timestamp = old;
+    repo.insert_query_log_batch(&[stale, sample_row("10.0.0.2", "kept.com", "allowed")])
+        .await
+        .unwrap();
+
+    repo.cleanup_query_log(30).await.unwrap();
+
+    let (violations,): (i64,) = sqlx::query_as(
+        "SELECT COUNT(*) FROM dns_query_log q \
+         LEFT JOIN lk_dns_domain d ON d.id = q.domain_id WHERE d.id IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        violations, 0,
+        "prune left a log row pointing at a deleted domain"
+    );
+
+    let rows = repo
+        .query_log_paginated(10, 0, &QueryLogFilter::default())
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].domain, "kept.com");
 }
