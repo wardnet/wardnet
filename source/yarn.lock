@@ -3622,20 +3622,20 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@redocly/openapi-core@npm:^1.34.5":
-  version: 1.34.18
-  resolution: "@redocly/openapi-core@npm:1.34.18"
+"@redocly/openapi-core@npm:^1.34.6":
+  version: 1.34.19
+  resolution: "@redocly/openapi-core@npm:1.34.19"
   dependencies:
     "@redocly/ajv": "npm:8.11.2"
     "@redocly/config": "npm:0.22.0"
     colorette: "npm:1.4.0"
     https-proxy-agent: "npm:7.0.6"
     js-levenshtein: "npm:1.1.6"
-    js-yaml: "npm:4.3.0"
+    js-yaml: "npm:4.3.1"
     minimatch: "npm:5.1.9"
     pluralize: "npm:8.0.0"
     yaml-ast-parser: "npm:0.0.43"
-  checksum: 10c0/0de76dc17a489724974feebcd0de84a3c9447822b596acfe157ff63a93be815b4ee085308a5cd14070b2129065e17fa25a7a90f9854d5d299f957ed47d15775c
+  checksum: 10c0/1cf46f5158a2620520d0e2eeb17a2f697bda4ad6df8b615d39456e56fd6abbbc9e7d971be91802a96d2842c6f02fc9e3c8ba0c4bfb24206989be93536a61a412
   languageName: node
   linkType: hard
 
@@ -5527,7 +5527,7 @@ __metadata:
   dependencies:
     "@vitest/coverage-v8": "npm:4.1.11"
     consola: "npm:^3.4.2"
-    openapi-typescript: "npm:7.9.1"
+    openapi-typescript: "npm:7.13.0"
     prettier: "npm:3.9.6"
     tsup: "npm:8.5.1"
     typescript: "npm:6.0.3"
@@ -9520,21 +9520,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"openapi-typescript@npm:7.9.1":
-  version: 7.9.1
-  resolution: "openapi-typescript@npm:7.9.1"
+"openapi-typescript@npm:7.13.0":
+  version: 7.13.0
+  resolution: "openapi-typescript@npm:7.13.0"
   dependencies:
-    "@redocly/openapi-core": "npm:^1.34.5"
+    "@redocly/openapi-core": "npm:^1.34.6"
     ansi-colors: "npm:^4.1.3"
     change-case: "npm:^5.4.4"
     parse-json: "npm:^8.3.0"
-    supports-color: "npm:^10.1.0"
+    supports-color: "npm:^10.2.2"
     yargs-parser: "npm:^21.1.1"
   peerDependencies:
     typescript: ^5.x
   bin:
     openapi-typescript: bin/cli.js
-  checksum: 10c0/52db65d211f872e0a34018cca409f388d70d55fa7cd6e07eacbb8ffc873ed78ffa29f95758766e2bd51ef87145aea8b66350638355cac5887f407aba9080d408
+  checksum: 10c0/56d25e160fee33a231646d0648407ca4e65415ff7696b6545bca948828a941a3aeb55585fe34159b71ba8ad93bac55d025db46815132ea092d07ef7386efa462
   languageName: node
   linkType: hard
 
@@ -11143,7 +11143,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"supports-color@npm:^10.1.0":
+"supports-color@npm:^10.2.2":
   version: 10.2.2
   resolution: "supports-color@npm:10.2.2"
   checksum: 10c0/fb28dd7e0cdf80afb3f2a41df5e068d60c8b4f97f7140de2eaed5b42e075d82a0e980b20a2c0efd2b6d73cfacb55555285d8cc719fa0472220715aefeaa1da7c
