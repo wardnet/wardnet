@@ -89,3 +89,26 @@ fn update_network_zone_request_subnet_is_three_state() {
         serde_json::from_str(r#"{"subnet":{"cidr":"10.44.0.0/24"}}"#).unwrap();
     assert_eq!(set.subnet.unwrap().unwrap().cidr, "10.44.0.0/24");
 }
+
+/// The DNS query-stream WebSocket is not described by `OpenAPI`, so nothing else
+/// pins its shape. A whole-second UTC instant must serialise as `...:56Z` —
+/// the admin UI parses these, and chrono would happily emit `+00:00` or a
+/// fractional part if the value carried one.
+#[test]
+fn query_log_event_timestamp_serialises_as_whole_second_zulu() {
+    let event = crate::api::QueryLogEvent {
+        timestamp: chrono::DateTime::parse_from_rfc3339("2026-05-05T12:34:56Z")
+            .expect("literal is valid RFC 3339")
+            .with_timezone(&chrono::Utc),
+        client_ip: "10.0.0.1".to_owned(),
+        domain: "example.com".to_owned(),
+        query_type: "A".to_owned(),
+        result: crate::dns::DnsQueryResult::Forwarded,
+        upstream: None,
+        latency_ms: 1.0,
+        device_id: None,
+    };
+
+    let json = serde_json::to_value(&event).expect("event serialises");
+    assert_eq!(json["timestamp"], "2026-05-05T12:34:56Z");
+}

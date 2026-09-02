@@ -182,6 +182,94 @@ expose `dns_local_repo`; `DbMaintenanceRunner` takes a thin
 `MaintenanceService` rather than `MaintenanceRepository`. Reaching for a
 `Arc<dyn *Repository>` inside a runner is a layering violation.
 
+## DNS forwarding ladder (issue #1199)
+
+The default-forwarder path — step 3 of the resolution pipeline above, whenever
+the selected upstream is `Default` — is a ladder this daemon walks itself,
+built in `wardnetd/src/dns/upstream_pool.rs` and driven by `walk_ladder` in
+`pipeline.rs`.
+
+### Why not one hickory resolver holding every upstream
+
+That is what it used to be, and it did not do what the admin UI promises.
+`NameServerPool::try_send` treats `ServerOrderingStrategy` as a *sort* and then
+races `num_concurrent_reqs` servers — **2** by default, which we never set — in
+parallel, returning whichever answers first and penalising the loser's SRTT. So
+"Failover (in order)" sent every query to the first *two* providers at once: the
+configured order was not honoured, and a second provider saw traffic the admin
+never agreed to show it. It also made the query log unfixable, because hickory's
+`Lookup` carries no record of which name server answered — which is why the
+`upstream` column used to report `upstream_servers[0]` for every query
+regardless of what actually happened.
+
+One single-server resolver per upstream, walked here, fixes all of it at once:
+the order is exactly what was configured, one provider is asked at a time, and
+the rung that answered is known by construction.
+
+### `UpstreamPool` — `all` vs `serving`
+
+`all` is every usable upstream with its own resolver, rebuilt only when
+`update_config` sees upstreams / DNSSEC / forwarder mode change. `serving` is
+the ordered subset the ladder actually tries, recomputed from scratch after
+every probe round. Both live in one `ArcSwap`, so a rebuild never blocks a query
+in flight, and the prober republishes `serving` through `rcu` so a concurrent
+config rebuild wins rather than being clobbered. Entries are shared `Arc`s:
+an upstream that is evicted and later restored keeps its warm `DoT`/`DoH`
+connection.
+
+`serving` = effective upstreams (mode-narrowed) − those the prober reports
+unreachable, ordered by mode: `Failover` keeps the configured order, `Fastest`
+sorts by the prober's EWMA (the same number the DNS page displays — previously
+the UI showed our EWMA while hickory routed by its own hidden SRTT), `Single`
+is the pinned server. Two invariants: an upstream *absent* from the health
+snapshot is unmeasured, not down, or the pool would empty on every startup; and
+if every upstream looks unreachable the full set is restored, because a ladder
+of zero servers answers nothing.
+
+### Bounds
+
+Set explicitly rather than inherited — hickory's defaults (5s timeout, 2
+*retries*, each rerunning the whole ladder) are what let a degraded upstream
+stall a query for 20-30s while the client's stub resolver had long since given
+up and was retransmitting into our own rate limiter.
+
+| Bound | Source | Scope |
+|---|---|---|
+| `opts.timeout` | `DnsConfig::upstream_timeout_ms` (default 1500ms) | one server's connection *and* hickory's internal pool loop |
+| per-rung `tokio::time::timeout` | same value | one rung, so a black-holing server cannot starve the ones behind it |
+| whole-ladder `tokio::time::timeout` | `DnsConfig::forward_deadline_ms` (default 3500ms) | the query, kept under a glibc stub's ~5s patience |
+| `opts.attempts = 0` | constant | hickory's retry is off; the next *rung* is the retry, and it reaches a different server |
+| `opts.num_concurrent_reqs = 1` | constant | redundant today, set so a future second server here cannot silently reintroduce racing |
+
+`attempts = 0` is not "one packet": `UdpClientStream` still retransmits up to
+four datagrams spaced by `max(1.2 × SRTT, 333ms)` underneath.
+
+**A negative answer is terminal.** NXDOMAIN and NODATA are resolutions, not
+failures — failing over on one would re-ask a question the authority already
+answered, leak the name to a second provider, and risk a contradictory answer.
+Only a genuine failure advances a rung.
+
+### Attribution
+
+`dns_query_log.upstream` names the rung that answered, exactly. When the whole
+ladder is exhausted it is **NULL**: no upstream served the query, so naming one
+would skew the per-upstream aggregates and point diagnosis at the wrong
+provider — which is precisely what the old behaviour did during the incident
+that prompted this. Which servers failed is in the per-upstream `warn!` lines
+instead, one per failing rung, plus one line per transition when the prober
+takes an upstream out of rotation or puts it back.
+
+Sustained failure also raises a `dns_upstream_unreachable` anomaly, one per
+upstream, from a preventive detector reading the same `UpstreamHealth` handle.
+That handle exists because of construction order: the anomaly registry is built
+during service wiring, while `UdpDnsServer` is constructed later by the daemon
+binary, so both are handed a clone rather than one holding a reference to the
+other. The prober keeps its **own** resolver per upstream, separate from the
+serving ones — for `DoT`/`DoH` a shared connection would queue the probe behind
+live queries and measure latency-plus-queueing. The cost of that independence:
+a probe's success is not proof the serving path is healthy, so reachability is a
+routing *hint*, and the per-rung deadline is what actually protects a client.
+
 ## DDNS subsystem (issue #527 / #521 umbrella)
 
 Keeps the Pi's public A record current and (in later commits) handles ACME DNS-01 TXT records. Lives entirely in `wardnetd-services/src/ddns/`.

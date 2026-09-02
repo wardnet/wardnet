@@ -46,7 +46,7 @@ fn severity_slugs_are_stable() {
 #[test]
 fn all_contains_every_variant() {
     // Bump this alongside the enum; the count is the whole point of the test.
-    assert_eq!(AnomalyType::ALL.len(), 6);
+    assert_eq!(AnomalyType::ALL.len(), 7);
 
     let mut slugs: Vec<&str> = AnomalyType::ALL.iter().map(|t| t.as_str()).collect();
     slugs.sort_unstable();

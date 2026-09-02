@@ -814,6 +814,7 @@ async fn run(
             services.device_ip_snapshot.snapshot(),
             services.tunnel_repo.clone(),
             services.event_publisher.clone(),
+            services.upstream_health.clone(),
         )
         .with_log_sink(services.dns_log_sink.clone()),
     );
