@@ -1,11 +1,11 @@
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import { blocklistFailureSummary, timeAgo, Text } from "@wardnet/web";
 import type { Blocklist } from "@wardnet/js";
 
-function createColumns(): ColumnDef<Blocklist>[] {
+function createColumns(): DataTableColumnDef<Blocklist>[] {
   return [
     {
       accessorKey: "name",

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { Trash2 } from "lucide-react";
 import { Plus as PlusIcon } from "lucide-react";
 import { Button } from "@wardnet/web";
@@ -97,7 +97,7 @@ export function ZoneExceptionsCard({
         : (deviceMap.get(endpoint.id) ?? "Unknown device");
   }, [zones, devices]);
 
-  const columns = useMemo<ColumnDef<ZoneException>[]>(
+  const columns = useMemo<DataTableColumnDef<ZoneException>[]>(
     () => [
       {
         id: "from",

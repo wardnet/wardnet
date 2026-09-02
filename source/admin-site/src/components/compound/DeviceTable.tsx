@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { Pill, deviceDisplayName } from "@wardnet/web";
 import {
   DataTable,
@@ -20,7 +20,7 @@ import type {
 function buildColumns(
   settingsByDevice: Map<string, DeviceDnsFilterSettings>,
   profilesById: Map<string, DnsFilterProfile>,
-): ColumnDef<Device>[] {
+): DataTableColumnDef<Device>[] {
   return [
     {
       accessorKey: "name",

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { ArrowDown, ArrowUp, Lock } from "lucide-react";
 import { Button } from "@wardnet/web";
 import { FormActions } from "@wardnet/web";
@@ -179,9 +179,9 @@ export function UpstreamServersCard({
   }
 
   const columns = useMemo<
-    ColumnDef<UpstreamDns & { __index: number }>[]
+    DataTableColumnDef<UpstreamDns & { __index: number }>[]
   >(() => {
-    const cols: ColumnDef<UpstreamDns & { __index: number }>[] = [];
+    const cols: DataTableColumnDef<UpstreamDns & { __index: number }>[] = [];
     // The per-server radio only appears in single-server mode — that's the
     // only mode where "which one" is a choice.
     if (effMode === "single") {

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import {
   Card,
   CardContent,
@@ -23,7 +23,7 @@ interface Props {
   isError: boolean;
 }
 
-function buildColumns(): ColumnDef<Device>[] {
+function buildColumns(): DataTableColumnDef<Device>[] {
   return [
     {
       accessorKey: "name",

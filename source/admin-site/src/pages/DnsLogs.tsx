@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 
 import { PageHeader } from "@/components/compound/PageHeader";
 import { DataTable } from "@/components/core/ui/data-table";
@@ -168,7 +168,7 @@ export default function DnsLogs() {
   const rangeStart = page * PAGE_SIZE + 1;
   const rangeEnd = page * PAGE_SIZE + persistedRows.length;
 
-  const columns: ColumnDef<RowShape>[] = useMemo(
+  const columns: DataTableColumnDef<RowShape>[] = useMemo(
     () => [
       {
         accessorKey: "timestamp",
