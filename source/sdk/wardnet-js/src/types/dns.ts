@@ -58,6 +58,17 @@ export interface DnsConfig {
   dnssec_enabled: boolean;
   rebinding_protection: boolean;
   rate_limit_per_second: number;
+  /**
+   * How long a single upstream gets to answer before the forwarder moves on
+   * to the next one. Bounds one rung of the ladder, not the whole query.
+   */
+  upstream_timeout_ms: number;
+  /**
+   * Wall-clock ceiling on a forwarded query, across every upstream tried.
+   * Kept below a client stub resolver's own patience (~5s) so the client is
+   * still listening when the answer arrives.
+   */
+  forward_deadline_ms: number;
   /** Global emergency stop for DNS filtering. Renamed from `ad_blocking_enabled`. */
   dns_filtering_enabled: boolean;
   query_log_enabled: boolean;
@@ -86,6 +97,9 @@ export interface UpdateDnsConfigRequest {
   dnssec_enabled?: boolean;
   rebinding_protection?: boolean;
   rate_limit_per_second?: number;
+  /** Must not exceed `forward_deadline_ms`. */
+  upstream_timeout_ms?: number;
+  forward_deadline_ms?: number;
   dns_filtering_enabled?: boolean;
   query_log_enabled?: boolean;
   query_log_retention_days?: number;
@@ -181,5 +195,13 @@ export interface ListQueryLogParams {
 
 export interface ListQueryLogResponse {
   entries: DnsQueryLogEntry[];
-  total: number;
+  /**
+   * Whether a further page exists, derived by over-fetching one row beyond
+   * the requested limit.
+   *
+   * There is deliberately no total count: a `COUNT(*)` over the query log is
+   * a full table scan, measured at ~300 ms per page load. Render a row range
+   * from the offset and `entries.length` instead.
+   */
+  has_more: boolean;
 }

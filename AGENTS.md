@@ -42,6 +42,18 @@ you're about to make, rather than the whole set.
   event-driven rebuild on `DnsLocalChanged`, and why background runners
   (including `DnsRunner`) call `DnsLocalService` rather than holding
   `dns_local_repo` directly.
+- **[DNS forwarding ladder](.agents/architecture.md#dns-forwarding-ladder-issue-1199)** —
+  why the default forwarder walks its own ladder of single-server resolvers
+  instead of one multi-server hickory resolver (which races
+  `num_concurrent_reqs = 2` servers regardless of `ServerOrderingStrategy`, so
+  "Failover (in order)" queried two providers at once and no honest
+  `dns_query_log.upstream` was possible); `UpstreamPool`'s `all` vs `serving`
+  split and how the latency prober's `reachable` flag became load-bearing;
+  the explicit bounds (`upstream_timeout_ms` per rung, `forward_deadline_ms`
+  overall, `attempts = 0`) that replaced hickory's inherited 20-30s worst case.
+  Invariants: **a negative answer is terminal** (never fail over on
+  NXDOMAIN/NODATA), an **unmeasured** upstream is not a down one, and an
+  exhausted ladder blames **no** upstream.
 - **[DDNS subsystem](.agents/architecture.md#ddns-subsystem-issue-527--521-umbrella)** —
   `DnsProvider` trait (bridge + Cloudflare impls), `DdnsService` (auth-gated, stores config in
   `system_config` and secrets in `SecretStore`), `DdnsUpdateRunner` (idle-until-configured 5-min
@@ -156,6 +168,26 @@ you're about to make, rather than the whole set.
   profiles combine by **rank, not order**, and assigning any explicit
   `profile_ids` **drops the household defaults**. Invariant: **asking never
   promotes a device to managed** — only the approval's `grant_device` does.
+- **[Query-log normalisation](docs/adr/0034-query-log-normalisation.md)** —
+  why `dns_query_log` moved its seven repeated text columns onto
+  `(id INTEGER PRIMARY KEY, v TEXT UNIQUE)` lookup tables and an epoch
+  `timestamp` (591 MB → **146 MB**, measured — 109 MB for the normalisation plus
+  ~37 MB of integer indexes it cannot run correctly without), and why it is
+  **a space change, not a speed change**. Covers the rejections that a reader would otherwise re-propose:
+  **no id cache** (per-batch resolution already removed the cost, and the cache
+  was the only thing forcing the prune's placement), **no FK into `devices`**
+  (`devices.id` is `TEXT`, so it saves nothing, and device retention deletes rows
+  the log must outlive — plus `VACUUM` may renumber a non-`INTEGER` table's
+  rowid), **no integer enums** for the closed columns (`DnsQueryResult::slot` is
+  a compile-time exhaustiveness device, not a wire format), and **no FTS5**
+  (+232 MB and slower than `LIKE`). Invariants: only **`lk_dns_domain`** is pruned —
+  the others grow far more slowly and the `SELECT DISTINCT` scan is paid per
+  table; the prune uses **`NOT IN (SELECT DISTINCT …)`**, never a correlated
+  `NOT EXISTS` (135 s), and **`dns_query_log(domain_id)` must stay indexed** or
+  `PRAGMA foreign_keys=ON` makes each orphan scan the whole log (33.5 s vs
+  0.016 s on 500k rows — any timing taken in the `sqlite3` CLI has foreign keys
+  *off* and does not apply); and **nothing above `wardnetd-data`
+  knows lookup tables exist**, which is what keeps the API contract unchanged.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

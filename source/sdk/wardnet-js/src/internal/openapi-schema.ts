@@ -2337,7 +2337,7 @@ export interface components {
          *     than a silently inert entry.
          * @enum {string}
          */
-        AnomalyType: "tunnel_start_failed" | "tunnel_unhealthy" | "update_failed" | "dhcp_conflict" | "route_table_lost" | "blocklist_refresh_failing";
+        AnomalyType: "tunnel_start_failed" | "tunnel_unhealthy" | "update_failed" | "dhcp_conflict" | "route_table_lost" | "blocklist_refresh_failing" | "dns_upstream_unreachable";
         /**
          * @description An anomaly as served by the HTTP API.
          *
@@ -3318,6 +3318,17 @@ export interface components {
             dns_filtering_enabled: boolean;
             dnssec_enabled: boolean;
             enabled: boolean;
+            /**
+             * Format: int32
+             * @description Wall-clock ceiling on a forwarded query, across every upstream tried.
+             *
+             *     Once it expires the client gets SERVFAIL immediately rather than an
+             *     answer it stopped waiting for. Keep it below the client stub
+             *     resolver's own patience (~5s on glibc): an answer that arrives after
+             *     the stub gave up is work done for nobody, and the stub's retry lands
+             *     on our rate limiter.
+             */
+            forward_deadline_ms: number;
             /** @description How the configured upstreams are used on the forwarding path. */
             forwarder_selection_mode: components["schemas"]["ForwarderSelectionMode"];
             query_log_enabled: boolean;
@@ -3334,6 +3345,17 @@ export interface components {
              */
             single_upstream?: string | null;
             upstream_servers: components["schemas"]["UpstreamDns"][];
+            /**
+             * Format: int32
+             * @description How long a single upstream gets to answer before the forwarder moves
+             *     on to the next one in the ladder.
+             *
+             *     Bounds one rung, not the whole query — that is
+             *     [`DnsConfig::forward_deadline_ms`]. Raise it on a link where a
+             *     legitimate upstream round-trip is slow; every millisecond of it is
+             *     time the client spends waiting on a server that may never answer.
+             */
+            upstream_timeout_ms: number;
         };
         /** @description Response for GET /api/dns/config. */
         DnsConfigResponse: {
@@ -3903,8 +3925,18 @@ export interface components {
         /** @description Response for `GET /api/dns/log`. */
         ListQueryLogResponse: {
             entries: components["schemas"]["DnsQueryLogEntry"][];
-            /** Format: int64 */
-            total: number;
+            /**
+             * @description Whether a further page exists, derived by over-fetching one row beyond
+             *     the requested limit.
+             *
+             *     There is deliberately no total count. `dns_query_log` is the largest
+             *     table on the box and both text filters use a leading-wildcard `LIKE`,
+             *     which SQLite cannot seek on, so `COUNT(*)` degrades to a full scan —
+             *     measured at ~300 ms per page load against ~1 ms for the rows it
+             *     accompanied. Reinstating a count, even a capped one, restores that
+             *     scan and makes the narrow single-column indexes load-bearing again.
+             */
+            has_more: boolean;
         };
         /**
          * @description Response for GET /api/dns/local/records and
@@ -4886,6 +4918,11 @@ export interface components {
             cache_ttl_min_secs?: number | null;
             dns_filtering_enabled?: boolean | null;
             dnssec_enabled?: boolean | null;
+            /**
+             * Format: int32
+             * @description Wall-clock ceiling on a whole forwarded query, in milliseconds.
+             */
+            forward_deadline_ms?: number | null;
             forwarder_selection_mode?: null | components["schemas"]["ForwarderSelectionMode"];
             query_log_enabled?: boolean | null;
             /** Format: int32 */
@@ -4901,6 +4938,12 @@ export interface components {
              */
             single_upstream?: string | null;
             upstream_servers?: components["schemas"]["UpstreamDnsRequest"][] | null;
+            /**
+             * Format: int32
+             * @description Per-upstream answer deadline on the forwarding ladder, in
+             *     milliseconds. Must not exceed `forward_deadline_ms`.
+             */
+            upstream_timeout_ms?: number | null;
         };
         /**
          * @description Request body for PUT /api/dns/filter/config.

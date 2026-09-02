@@ -6,7 +6,7 @@
     "license": {
       "name": "GPL-3.0-or-later"
     },
-    "version": "2026.08.00"
+    "version": "2026.08.01"
   },
   "paths": {
     "/api/access-requests": {
@@ -24862,7 +24862,8 @@
           "update_failed",
           "dhcp_conflict",
           "route_table_lost",
-          "blocklist_refresh_failing"
+          "blocklist_refresh_failing",
+          "dns_upstream_unreachable"
         ]
       },
       "ApiAnomaly": {
@@ -27113,6 +27114,8 @@
           "dnssec_enabled",
           "rebinding_protection",
           "rate_limit_per_second",
+          "upstream_timeout_ms",
+          "forward_deadline_ms",
           "dns_filtering_enabled",
           "query_log_enabled",
           "query_log_retention_days"
@@ -27142,6 +27145,12 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "forward_deadline_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Wall-clock ceiling on a forwarded query, across every upstream tried.\n\nOnce it expires the client gets SERVFAIL immediately rather than an\nanswer it stopped waiting for. Keep it below the client stub\nresolver's own patience (~5s on glibc): an answer that arrives after\nthe stub gave up is work done for nobody, and the stub's retry lands\non our rate limiter.",
+            "minimum": 0
           },
           "forwarder_selection_mode": {
             "$ref": "#/components/schemas/ForwarderSelectionMode",
@@ -27178,6 +27187,12 @@
             "items": {
               "$ref": "#/components/schemas/UpstreamDns"
             }
+          },
+          "upstream_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long a single upstream gets to answer before the forwarder moves\non to the next one in the ladder.\n\nBounds one rung, not the whole query — that is\n[`DnsConfig::forward_deadline_ms`]. Raise it on a link where a\nlegitimate upstream round-trip is slow; every millisecond of it is\ntime the client spends waiting on a server that may never answer.",
+            "minimum": 0
           }
         }
       },
@@ -28466,7 +28481,7 @@
         "description": "Response for `GET /api/dns/log`.",
         "required": [
           "entries",
-          "total"
+          "has_more"
         ],
         "properties": {
           "entries": {
@@ -28475,10 +28490,9 @@
               "$ref": "#/components/schemas/DnsQueryLogEntry"
             }
           },
-          "total": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether a further page exists, derived by over-fetching one row beyond\nthe requested limit.\n\nThere is deliberately no total count. `dns_query_log` is the largest\ntable on the box and both text filters use a leading-wildcard `LIKE`,\nwhich SQLite cannot seek on, so `COUNT(*)` degrades to a full scan —\nmeasured at ~300 ms per page load against ~1 ms for the rows it\naccompanied. Reinstating a count, even a capped one, restores that\nscan and makes the narrow single-column indexes load-bearing again."
           }
         }
       },
@@ -30698,6 +30712,15 @@
               "null"
             ]
           },
+          "forward_deadline_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Wall-clock ceiling on a whole forwarded query, in milliseconds.",
+            "minimum": 0
+          },
           "forwarder_selection_mode": {
             "oneOf": [
               {
@@ -30761,6 +30784,15 @@
             "items": {
               "$ref": "#/components/schemas/UpstreamDnsRequest"
             }
+          },
+          "upstream_timeout_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Per-upstream answer deadline on the forwarding ladder, in\nmilliseconds. Must not exceed `forward_deadline_ms`.",
+            "minimum": 0
           }
         }
       },

@@ -1256,6 +1256,13 @@ pub struct UpdateDnsConfigRequest {
     pub rebinding_protection: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limit_per_second: Option<u32>,
+    /// Per-upstream answer deadline on the forwarding ladder, in
+    /// milliseconds. Must not exceed `forward_deadline_ms`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream_timeout_ms: Option<u32>,
+    /// Wall-clock ceiling on a whole forwarded query, in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forward_deadline_ms: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dns_filtering_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1861,15 +1868,24 @@ pub struct ListQueryLogParams {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ListQueryLogResponse {
     pub entries: Vec<DnsQueryLogEntry>,
-    pub total: u64,
+    /// Whether a further page exists, derived by over-fetching one row beyond
+    /// the requested limit.
+    ///
+    /// There is deliberately no total count. `dns_query_log` is the largest
+    /// table on the box and both text filters use a leading-wildcard `LIKE`,
+    /// which SQLite cannot seek on, so `COUNT(*)` degrades to a full scan —
+    /// measured at ~300 ms per page load against ~1 ms for the rows it
+    /// accompanied. Reinstating a count, even a capped one, restores that
+    /// scan and makes the narrow single-column indexes load-bearing again.
+    pub has_more: bool,
 }
 
 /// Live event broadcast over `/api/dns/log/stream`. Mirrors a row in
 /// `dns_query_log` so clients can render entries before they're persisted.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct QueryLogEvent {
-    /// RFC 3339 timestamp.
-    pub timestamp: String,
+    /// Whole-second UTC instant, serialised as RFC 3339 (`...:56Z`).
+    pub timestamp: DateTime<Utc>,
     pub client_ip: String,
     pub domain: String,
     pub query_type: String,

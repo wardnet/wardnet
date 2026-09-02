@@ -27,6 +27,9 @@ use crate::auth_context;
 use crate::device::DeviceService;
 use crate::event::EventPublisher;
 
+/// Rendering for `dns_events.captured_at`, which is a TEXT column.
+const CAPTURED_AT_FMT: &str = "%Y-%m-%dT%H:%M:%SZ";
+
 /// Prune loop tick interval.
 pub const PRUNE_INTERVAL: Duration = Duration::from_hours(1);
 
@@ -154,8 +157,12 @@ async fn runner_loop(
                 if let Some(ref device_id) = row.device_id
                     && enabled.contains(device_id.as_str())
                 {
+                    // `dns_events.captured_at` is TEXT and stays that way, so
+                    // the instant is rendered here in the one shape that column
+                    // has always held.
+                    let captured_at = row.timestamp.format(CAPTURED_AT_FMT).to_string();
                     match dns_events_repo
-                        .insert(device_id, &row.domain, &row.result, &row.timestamp)
+                        .insert(device_id, &row.domain, &row.result, &captured_at)
                         .await
                     {
                         Ok(row_id) => {
@@ -165,7 +172,7 @@ async fn runner_loop(
                                 row_id,
                                 domain: row.domain,
                                 status: row.result,
-                                captured_at: row.timestamp,
+                                captured_at,
                                 timestamp: Utc::now(),
                             });
                         }

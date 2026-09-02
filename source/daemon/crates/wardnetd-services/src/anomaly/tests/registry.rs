@@ -9,6 +9,7 @@ use crate::anomaly::registry::{AnomalyDetectorRegistry, DetectorDeps, EnabledDet
 fn deps() -> DetectorDeps {
     DetectorDeps {
         dns_filter: FakeDnsFilter::new(5, Vec::new()),
+        upstream_health: std::sync::Arc::new(crate::dns::UpstreamHealth::new()),
         tunnel: FakeTunnels::new(Vec::new()),
         running_version: "2026.08.00".to_owned(),
     }
@@ -63,12 +64,18 @@ fn the_schedule_contains_only_detectors_with_an_interval() {
 
     let schedule = registry.schedule();
 
+    // The two state-polling detectors: a blocklist's failure counter and the
+    // DNS prober's reachability snapshot. Everything else is reactive and has
+    // nothing to schedule.
+    let scheduled: Vec<AnomalyType> = schedule.iter().map(|(t, _)| *t).collect();
     assert_eq!(
-        schedule.len(),
-        1,
-        "only the blocklist detector is preventive today"
+        scheduled,
+        vec![
+            AnomalyType::BlocklistRefreshFailing,
+            AnomalyType::DnsUpstreamUnreachable,
+        ],
+        "only the preventive detectors are scheduled, in slug order"
     );
-    assert_eq!(schedule[0].0, AnomalyType::BlocklistRefreshFailing);
 }
 
 #[test]

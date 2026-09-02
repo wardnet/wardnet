@@ -134,6 +134,21 @@ describe("anomalySubjectLink", () => {
     }
   });
 
+  // `dns` covers both ad blocking and the upstream servers, so the component
+  // alone is not enough: an upstream anomaly labelled "Open Ad Blocking"
+  // would send an admin to the wrong page to fix it.
+  it("labels an unreachable upstream by DNS rather than ad blocking", () => {
+    const link = anomalySubjectLink(
+      anomaly({
+        type: "dns_upstream_unreachable",
+        component: "dns",
+        subject_id: "8.8.8.8",
+      }),
+      { fallback: () => "/dns" },
+    );
+    expect(link).toEqual({ href: "/dns", label: "Open DNS" });
+  });
+
   it("names the target so list rows do not all share one accessible name", () => {
     expect(anomalySubjectLink(anomaly(), RICH)?.label).toBe(
       "Open the blocklist",
