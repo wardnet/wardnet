@@ -61,10 +61,12 @@ release notes for whichever version ships it.
 
 ## Consequences
 
-- **Only `lk_dns_domain` is pruned.** It is the only lookup that grows fast enough
-  to matter (~543 orphans/day, ~198k/year) and the only one whose size is
-  load-bearing: the substring scan is fast precisely because it reads thousands
-  of rows. The other six are **not** pruned, and two of them do grow without an
+- **Only `lk_dns_domain` is pruned.** It is the lookup that grows fast enough to
+  matter — ~543 orphans/day, ~198k/year, against tens or hundreds a year for the
+  rest — and its size is load-bearing: the substring scan is fast precisely
+  because it reads thousands of rows. It is not the *only* load-bearing one:
+  `lk_dns_client_ip` is scanned by a `LIKE` in the same way, it simply stays
+  small enough that scanning it is free. The other six are **not** pruned, and two of them do grow without an
   upper bound: `lk_dns_device` gains an entry per device UUID, and MAC
   randomisation plus the 30-day device retention means a returning phone can
   mint a new one, while `lk_dns_client_ip` keeps every address ever seen and

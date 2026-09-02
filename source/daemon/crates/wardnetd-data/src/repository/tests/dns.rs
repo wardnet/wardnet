@@ -465,9 +465,14 @@ async fn prune_never_orphans_a_live_log_row() {
     )
     .execute(&pool)
     .await;
+    let error = rejected
+        .expect_err("a dangling lookup id must be refused")
+        .to_string();
     assert!(
-        rejected.is_err(),
-        "foreign keys are not enforced on this pool, so the assertions below prove nothing"
+        error.to_uppercase().contains("FOREIGN KEY"),
+        "the insert must fail on the foreign key, not on something else — a \
+         later NOT NULL column would otherwise keep this green while foreign \
+         key enforcement silently regressed. Got: {error}"
     );
 
     repo.cleanup_query_log(30).await.unwrap();
@@ -492,17 +497,19 @@ async fn prune_never_orphans_a_live_log_row() {
     assert_eq!(rows[0].domain, "kept.com");
 }
 
-/// A batch spanning several `RESOLVE_CHUNK` chunks must resolve every value to
-/// its own id — the failure this guards is a later chunk's ids overwriting or
-/// shadowing an earlier one's, which would silently file rows under the wrong
-/// domain.
+/// A batch spanning several `RESOLVE_CHUNK` chunks resolves every value to its
+/// own id — the failure guarded here is a later chunk's ids overwriting or
+/// shadowing an earlier one's, which would file rows under the wrong domain
+/// with nothing failing.
 ///
-/// It does not reach SQLite's bind limit (700 binds is far under it) and is not
-/// meant to: the limit is why the chunking exists, this pins that the chunking
-/// is correct. `insert_query_log_batch` is a public trait method, so the batch
-/// size is the caller's choice, not a convention this repository can assume.
+/// This does **not** prove the chunking is necessary: 700 binds is far under
+/// SQLite's limit, so it passes with `RESOLVE_CHUNK` removed. The limit is why
+/// chunking exists; this pins that chunking is *correct*. Reaching the real
+/// limit needs >32,766 distinct values in one batch, which no caller produces
+/// and which would trade a slow test for a case the type system already makes
+/// unreachable in practice.
 #[tokio::test]
-async fn resolves_more_distinct_values_than_one_statement_can_bind() {
+async fn resolves_values_spanning_several_chunks() {
     let pool = test_pool().await;
     let repo = SqliteDnsRepository::new(pool.clone());
 

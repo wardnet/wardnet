@@ -296,12 +296,16 @@ impl DnsRepository for SqliteDnsRepository {
         // Prune orphaned domains in the same call, immediately after the
         // retention delete — before it, almost nothing is orphaned yet.
         //
-        // `NOT IN (SELECT DISTINCT ...)` measured 367 ms; the equivalent
-        // correlated `NOT EXISTS` rescans the log once per lookup row and
-        // measured 135 s, which would stall the single-connection write pool
-        // for two minutes. `lk_dns_domain` is the only lookup pruned: it is the
-        // only one that grows without bound, and the only one whose size is
-        // load-bearing (substring search scans it).
+        // Use `NOT IN (SELECT DISTINCT ...)`: the equivalent correlated
+        // `NOT EXISTS` rescans the log once per lookup row and measured 135 s,
+        // which would stall the single-connection write pool for two minutes.
+        //
+        // `lk_dns_domain` is the only lookup pruned because it is the only one
+        // that grows fast enough to matter — ~543 orphans/day against tens or
+        // hundreds a year. It is *not* the only one that grows, nor the only
+        // one whose size is load-bearing: `lk_dns_client_ip` also accumulates
+        // and is also scanned by a `LIKE` in `build_where`. Pruning a second
+        // lookup is a live question, not a settled one; see ADR 0034.
         // The retention DELETE has already committed — it and the prune are
         // separate autocommit statements. A prune failure is therefore reported
         // rather than propagated: returning `Err` here would tell the runner the

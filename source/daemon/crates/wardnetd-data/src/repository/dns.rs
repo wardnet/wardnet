@@ -27,8 +27,13 @@ pub trait DnsRepository: Send + Sync {
         filter: &QueryLogFilter,
     ) -> anyhow::Result<Vec<QueryLogRow>>;
 
-    /// Delete query log entries older than `retention_days`, then prune the
-    /// domain lookups the delete orphaned. Returns the query-log rows deleted.
+    /// Delete query log entries older than `retention_days`, then make a
+    /// best-effort attempt to prune the domain lookups the delete orphaned.
+    ///
+    /// Returns the query-log rows deleted. The retention delete commits before
+    /// the prune runs, so a prune failure is logged and the count still
+    /// returned rather than reported as a failed cleanup — the consequence is
+    /// orphans surviving a tick, not lost retention.
     async fn cleanup_query_log(&self, retention_days: u32) -> anyhow::Result<u64>;
 }
 
