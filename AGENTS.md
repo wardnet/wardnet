@@ -171,8 +171,9 @@ you're about to make, rather than the whole set.
 - **[Query-log normalisation](docs/adr/0034-query-log-normalisation.md)** —
   why `dns_query_log` moved its seven repeated text columns onto
   `(id INTEGER PRIMARY KEY, v TEXT UNIQUE)` lookup tables and an epoch
-  `timestamp` (591 MB → 109 MB, measured), and why it is **a space change, not a
-  speed change**. Covers the rejections that a reader would otherwise re-propose:
+  `timestamp` (591 MB → **146 MB**, measured — 109 MB for the normalisation plus
+  ~37 MB of integer indexes it cannot run correctly without), and why it is
+  **a space change, not a speed change**. Covers the rejections that a reader would otherwise re-propose:
   **no id cache** (per-batch resolution already removed the cost, and the cache
   was the only thing forcing the prune's placement), **no FK into `devices`**
   (`devices.id` is `TEXT`, so it saves nothing, and device retention deletes rows

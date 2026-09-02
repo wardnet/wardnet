@@ -54,10 +54,12 @@ CREATE TABLE IF NOT EXISTS dns_query_log (
 -- filters are leading-wildcard LIKE, which can never seek, so they only ever
 -- covered a pagination COUNT that no longer runs.
 --
--- `result` is a deliberate regression, not dead weight: its old index was a
--- real reverse-ordered seek for `WHERE result = ? ORDER BY id DESC LIMIT n`,
--- and filtering the admin log by an uncommon result now scans the table.
--- Indexing `result_id` would restore it for ~18 MB.
+-- `result_id` is indexed because the old `result` index was never dead weight:
+-- it served `WHERE result = ? ORDER BY id DESC LIMIT n` as a reverse-ordered
+-- seek with early exit, which is what the admin log's result dropdown does.
+-- Without it that filter scans the table — measured 79.6 ms versus 0.3 ms for
+-- a rare result, and that is a warm page cache, not an SD card.
 CREATE INDEX IF NOT EXISTS idx_dns_query_log_timestamp ON dns_query_log(timestamp);
 CREATE INDEX IF NOT EXISTS idx_dns_query_log_device_id ON dns_query_log(device_id);
 CREATE INDEX IF NOT EXISTS idx_dns_query_log_domain_id ON dns_query_log(domain_id);
+CREATE INDEX IF NOT EXISTS idx_dns_query_log_result_id ON dns_query_log(result_id);

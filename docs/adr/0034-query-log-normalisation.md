@@ -4,8 +4,14 @@
 3,792 distinct domains, 29 device ids held as 36-byte UUID strings, 24 client IPs
 and 8 results — 591 MB for the table and its indexes. Moving the seven repeated
 columns onto `(id INTEGER PRIMARY KEY, v TEXT UNIQUE)` lookup tables and storing
-`timestamp` as an epoch integer takes the subsystem to 109 MB (−82%) and the whole
-database from 1.07 GB to ~585 MB, measured on a snapshot of the live box.
+`timestamp` as an epoch integer takes the subsystem to **146 MB (−75%)** and the
+whole database from 1.07 GB to **~620 MB**, measured on a snapshot of the live box.
+
+The normalisation alone reaches 109 MB. The remaining 37 MB is two integer
+indexes — `domain_id` and `result_id` — that the measurement did not include and
+that the daemon cannot run correctly without; see the consequences below. Quoting
+the 109 MB figure describes a database that would stall its writer for minutes a
+day and scan the whole log for a result filter.
 
 **It is a space change, not a speed change.** The joins cost a fraction of a
 millisecond on already-trivial queries and win on the expensive ones. Removing the
@@ -67,6 +73,13 @@ release notes for whichever version ships it.
   cadence and no other caller. A separate method would put the word `lookup` in the
   service trait and the mock, and would move a mandatory ordering into a runner
   convention that no test protects.
+- **`dns_query_log(domain_id)` and `(result_id)` are indexed, and that is not
+  optional.** Together they cost ~37 MB, which is the whole difference between
+  the 109 MB the normalisation reaches on its own and the 146 MB that ships.
+  `result_id` restores what the old `result` index did — a reverse-ordered seek
+  with early exit for the admin log's result dropdown, measured 79.6 ms versus
+  0.3 ms for a rare result on a warm cache — and `domain_id` is what keeps the
+  prune from stalling the writer, below.
 - **The prune is fast only if two separate things hold.** Use
   `DELETE FROM lk_dns_domain WHERE id NOT IN (SELECT DISTINCT domain_id FROM dns_query_log)`.
   The `NOT EXISTS` form reads more naturally, is a correlated subquery that
@@ -78,7 +91,7 @@ release notes for whichever version ships it.
   with them on and no index**, 0.016 s with the index. Any prune timing measured
   in the `sqlite3` CLI is measured with foreign keys *off*, because that is the
   CLI's default and not the daemon's — the two are not comparable. The index
-  costs ~20 MB and is why this lands at roughly 128 MB rather than 109 MB.
+  costs ~20 MB, and with `result_id` accounts for the 146 MB this lands at.
 - **Timestamps are whole seconds, deliberately.** `QueryLogRow.timestamp` is a
   `DateTime<Utc>` and the producer truncates sub-second precision explicitly. That
   rule previously lived by accident inside a format string. Without the truncation
