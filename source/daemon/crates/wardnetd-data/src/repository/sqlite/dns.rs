@@ -285,15 +285,29 @@ impl DnsRepository for SqliteDnsRepository {
         // for two minutes. `lk_dns_domain` is the only lookup pruned: it is the
         // only one that grows without bound, and the only one whose size is
         // load-bearing (substring search scans it).
-        let pruned = sqlx::query(sqlx::AssertSqlSafe(format!(
+        // The retention DELETE has already committed — it and the prune are
+        // separate autocommit statements. A prune failure is therefore reported
+        // rather than propagated: returning `Err` here would tell the runner the
+        // whole cleanup failed and hide the rows retention did delete, when the
+        // only real consequence is that some orphaned domains outlive one tick.
+        match sqlx::query(sqlx::AssertSqlSafe(format!(
             "DELETE FROM {LK_DOMAIN} WHERE id NOT IN (SELECT DISTINCT domain_id FROM dns_query_log)"
         )))
         .execute(&self.pools.write)
-        .await?
-        .rows_affected();
-
-        if pruned > 0 {
-            tracing::debug!(pruned, "pruned orphaned query-log domains: pruned={pruned}");
+        .await
+        {
+            Ok(result) => {
+                let pruned = result.rows_affected();
+                if pruned > 0 {
+                    tracing::debug!(pruned, "pruned orphaned query-log domains: pruned={pruned}");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "failed to prune orphaned query-log domains; retention delete stands: {e}"
+                );
+            }
         }
         Ok(deleted)
     }

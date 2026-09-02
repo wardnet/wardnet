@@ -4,16 +4,6 @@ use crate::repository::dns::{DnsRepository, QueryLogFilter, QueryLogRow};
 use chrono::{DateTime, SubsecRound, Utc};
 use wardnet_common::dns::DnsQueryResult;
 
-/// sqlx leaves `foreign_keys` off by default, but the daemon's pools set it on
-/// (`db.rs`). Without this the seven lookup constraints are never exercised —
-/// neither a violation nor the cost they impose on the prune.
-async fn enable_foreign_keys(pool: &sqlx::SqlitePool) {
-    sqlx::query("PRAGMA foreign_keys = ON")
-        .execute(pool)
-        .await
-        .unwrap();
-}
-
 fn ts_now() -> DateTime<Utc> {
     Utc::now().trunc_subsecs(0)
 }
@@ -391,7 +381,6 @@ async fn cleanup_prunes_orphaned_domains_and_keeps_live_ones() {
 #[tokio::test]
 async fn prune_scans_the_log_once() {
     let pool = test_pool().await;
-    enable_foreign_keys(&pool).await;
     let repo = SqliteDnsRepository::new(pool.clone());
     repo.insert_query_log_batch(&[sample_row("10.0.0.1", "example.com", "allowed")])
         .await
@@ -444,12 +433,16 @@ async fn prune_scans_the_log_once() {
     );
 }
 
-/// The lookup ids are real foreign keys, so a row pointing at a domain the
-/// prune removed must be impossible rather than merely unlikely.
+/// The prune must not leave a log row pointing at a domain it deleted.
+///
+/// The first assertion is what stops the rest being vacuous: the prune deletes
+/// only unreferenced rows by construction, so it could never orphan one on its
+/// own — the check that a dangling id is *refused* is what ties this to the
+/// declared constraints. It also pins the enforcement the prune's cost depends
+/// on: see `prune_scans_the_log_once`.
 #[tokio::test]
 async fn prune_never_orphans_a_live_log_row() {
     let pool = test_pool().await;
-    enable_foreign_keys(&pool).await;
     let repo = SqliteDnsRepository::new(pool.clone());
 
     let old = DateTime::parse_from_rfc3339("2020-01-01T00:00:00Z")
@@ -460,6 +453,22 @@ async fn prune_never_orphans_a_live_log_row() {
     repo.insert_query_log_batch(&[stale, sample_row("10.0.0.2", "kept.com", "allowed")])
         .await
         .unwrap();
+
+    // A dangling id must be refused outright, not merely never produced.
+    // sqlx enables `foreign_keys` by default and the daemon's pools set it
+    // explicitly, so this asserts a property both rely on rather than one this
+    // test arranges.
+    let rejected = sqlx::query(
+        "INSERT INTO dns_query_log \
+         (timestamp, client_ip_id, domain_id, query_type_id, result_id, latency_ms, protocol_id) \
+         VALUES (0, 1, 999999, 1, 1, 0, 1)",
+    )
+    .execute(&pool)
+    .await;
+    assert!(
+        rejected.is_err(),
+        "foreign keys are not enforced on this pool, so the assertions below prove nothing"
+    );
 
     repo.cleanup_query_log(30).await.unwrap();
 

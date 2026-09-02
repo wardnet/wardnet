@@ -64,10 +64,16 @@ release notes for whichever version ships it.
 - **Only `lk_dns_domain` is pruned.** It is the only lookup that grows fast enough
   to matter (~543 orphans/day, ~198k/year) and the only one whose size is
   load-bearing: the substring scan is fast precisely because it reads thousands
-  of rows. The other
-  six are pinned by physical or configured reality and total kilobytes forever.
-  Pruning them is not free — the expensive half is the `SELECT DISTINCT` scan of
-  1.79M rows, paid *per table*, on a single-connection write pool.
+  of rows. The other six are **not** pruned, and two of them do grow without an
+  upper bound: `lk_dns_device` gains an entry per device UUID, and MAC
+  randomisation plus the 30-day device retention means a returning phone can
+  mint a new one, while `lk_dns_client_ip` keeps every address ever seen and
+  IPv6 privacy extensions rotate those roughly daily. That is a slow leak of
+  kilobytes a year against a table measured in hundreds of megabytes, and it is
+  left unreclaimed deliberately: pruning is not free — the expensive half is the
+  `SELECT DISTINCT` scan of 1.79M rows, paid *per table*, on a
+  single-connection write pool. Revisit it if either lookup ever grows large
+  enough to slow the filter that scans it.
 - **The prune lives inside `cleanup_query_log`, not behind its own trait method.**
   It is only meaningful immediately after the retention delete, has no independent
   cadence and no other caller. A separate method would put the word `lookup` in the
