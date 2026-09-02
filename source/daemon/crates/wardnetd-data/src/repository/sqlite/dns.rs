@@ -1,16 +1,34 @@
 //! SQLite-backed [`DnsRepository`] implementation — query log only.
 //!
-//! After the Stage 7 split, filter-source CRUD lives in
+//! Filter-source CRUD lives in
 //! [`SqliteDnsFilterRepository`](super::dns_filter::SqliteDnsFilterRepository).
-//! DNS observability stats moved to the generic `StatsRepository`.
+//! DNS observability stats are served by the generic `StatsRepository`.
+//!
+//! The query log is normalised: every repeated column is an integer id into a
+//! `lk_dns_*` lookup table and `timestamp` is a whole-second Unix epoch. That
+//! layout is confined to this module — the repository resolves ids on write and
+//! joins them back on read, so nothing above `wardnetd-data` knows the lookup
+//! tables exist. See `docs/adr/0034-query-log-normalisation.md`.
+
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
-use sqlx::SqlitePool;
+use chrono::DateTime;
+use sqlx::{Sqlite, SqlitePool, Transaction};
 
 use crate::db::DbPools;
 use crate::repository::dns::{DnsRepository, QueryLogFilter, QueryLogRow};
 
-const TS_FMT: &str = "%Y-%m-%dT%H:%M:%SZ";
+/// Lookup table for each repeated column, paired with the `dns_query_log`
+/// column holding its id. Table names reach the SQL builders from this array
+/// only — never from a caller — which is what makes the dynamic SQL below safe.
+const LK_DOMAIN: &str = "lk_dns_domain";
+const LK_CLIENT_IP: &str = "lk_dns_client_ip";
+const LK_DEVICE: &str = "lk_dns_device";
+const LK_QUERY_TYPE: &str = "lk_dns_query_type";
+const LK_RESULT: &str = "lk_dns_result";
+const LK_UPSTREAM: &str = "lk_dns_upstream";
+const LK_PROTOCOL: &str = "lk_dns_protocol";
 
 pub struct SqliteDnsRepository {
     pools: DbPools,
@@ -30,7 +48,7 @@ impl SqliteDnsRepository {
 
 #[derive(sqlx::FromRow)]
 struct DbQueryLogRow {
-    timestamp: String,
+    timestamp: i64,
     client_ip: String,
     domain: String,
     query_type: String,
@@ -42,9 +60,23 @@ struct DbQueryLogRow {
 }
 
 impl DbQueryLogRow {
+    /// An epoch outside `DateTime`'s range falls back to the Unix epoch rather
+    /// than dropping the row. Every value this repository writes is in range,
+    /// so reaching the fallback means the column was written by something else
+    /// — and a visibly wrong 1970 timestamp in a seven-day log is diagnosable,
+    /// whereas a silently shorter page makes the caller's `has_more` report
+    /// that no further page exists.
     fn into_row(self) -> QueryLogRow {
+        let timestamp = DateTime::from_timestamp(self.timestamp, 0).unwrap_or_else(|| {
+            tracing::warn!(
+                epoch = self.timestamp,
+                "query log row has an out-of-range timestamp: epoch={epoch}",
+                epoch = self.timestamp,
+            );
+            DateTime::UNIX_EPOCH
+        });
         QueryLogRow {
-            timestamp: self.timestamp,
+            timestamp,
             client_ip: self.client_ip,
             domain: self.domain,
             query_type: self.query_type,
@@ -57,26 +89,159 @@ impl DbQueryLogRow {
     }
 }
 
+/// Largest number of distinct values bound in one statement.
+///
+/// `insert_query_log_batch` is a public trait method, so the batch size is the
+/// caller's choice; chunking here means a caller that hands over more distinct
+/// values than SQLite will bind gets a few more statements rather than
+/// `too many SQL variables` at runtime.
+const RESOLVE_CHUNK: usize = 256;
+
+/// Resolve every `values` entry in `table` to its lookup id, inserting the ones
+/// that are new.
+///
+/// Two statements per chunk, never one per row — that is what keeps roughly
+/// 1.79M lookups a week off the writer without needing a cache in front of it.
+async fn resolve_ids(
+    tx: &mut Transaction<'_, Sqlite>,
+    table: &str,
+    values: &HashSet<&str>,
+) -> anyhow::Result<HashMap<String, i64>> {
+    let mut ids = HashMap::with_capacity(values.len());
+    if values.is_empty() {
+        return Ok(ids);
+    }
+    let all: Vec<&str> = values.iter().copied().collect();
+    for chunk in all.chunks(RESOLVE_CHUNK) {
+        resolve_chunk(tx, table, chunk, &mut ids).await?;
+    }
+    Ok(ids)
+}
+
+async fn resolve_chunk(
+    tx: &mut Transaction<'_, Sqlite>,
+    table: &str,
+    values: &[&str],
+    ids: &mut HashMap<String, i64>,
+) -> anyhow::Result<()> {
+    let placeholders = vec!["?"; values.len()].join(", ");
+
+    // `ON CONFLICT DO NOTHING` rather than `INSERT OR IGNORE`: the latter also
+    // swallows unrelated constraint failures on this table.
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO {table} (v) VALUES {} ON CONFLICT(v) DO NOTHING",
+        vec!["(?)"; values.len()].join(", ")
+    )));
+    for v in values {
+        q = q.bind(*v);
+    }
+    q.execute(&mut **tx).await?;
+
+    let mut q = sqlx::query_as::<_, (i64, String)>(sqlx::AssertSqlSafe(format!(
+        "SELECT id, v FROM {table} WHERE v IN ({placeholders})"
+    )));
+    for v in values {
+        q = q.bind(*v);
+    }
+    for (id, v) in q.fetch_all(&mut **tx).await? {
+        ids.insert(v, id);
+    }
+    Ok(())
+}
+
+/// Look up an id the batch is known to have resolved. A miss means the resolve
+/// step and the bind step disagree about which values the batch contains, which
+/// would silently write a wrong id; fail the batch instead.
+fn id_for(ids: &HashMap<String, i64>, table: &str, value: &str) -> anyhow::Result<i64> {
+    ids.get(value)
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("unresolved {table} lookup value: {value}"))
+}
+
 #[async_trait]
 impl DnsRepository for SqliteDnsRepository {
     async fn insert_query_log_batch(&self, entries: &[QueryLogRow]) -> anyhow::Result<()> {
+        if entries.is_empty() {
+            return Ok(());
+        }
         let mut tx = self.pools.write.begin().await?;
+
+        let domains = resolve_ids(
+            &mut tx,
+            LK_DOMAIN,
+            &entries.iter().map(|e| e.domain.as_str()).collect(),
+        )
+        .await?;
+        let client_ips = resolve_ids(
+            &mut tx,
+            LK_CLIENT_IP,
+            &entries.iter().map(|e| e.client_ip.as_str()).collect(),
+        )
+        .await?;
+        let query_types = resolve_ids(
+            &mut tx,
+            LK_QUERY_TYPE,
+            &entries.iter().map(|e| e.query_type.as_str()).collect(),
+        )
+        .await?;
+        let results = resolve_ids(
+            &mut tx,
+            LK_RESULT,
+            &entries.iter().map(|e| e.result.as_str()).collect(),
+        )
+        .await?;
+        let protocols = resolve_ids(
+            &mut tx,
+            LK_PROTOCOL,
+            &entries.iter().map(|e| e.protocol.as_str()).collect(),
+        )
+        .await?;
+        let upstreams = resolve_ids(
+            &mut tx,
+            LK_UPSTREAM,
+            &entries
+                .iter()
+                .filter_map(|e| e.upstream.as_deref())
+                .collect(),
+        )
+        .await?;
+        let devices = resolve_ids(
+            &mut tx,
+            LK_DEVICE,
+            &entries
+                .iter()
+                .filter_map(|e| e.device_id.as_deref())
+                .collect(),
+        )
+        .await?;
+
         for entry in entries {
+            let upstream_id = entry
+                .upstream
+                .as_deref()
+                .map(|v| id_for(&upstreams, LK_UPSTREAM, v))
+                .transpose()?;
+            let device_id = entry
+                .device_id
+                .as_deref()
+                .map(|v| id_for(&devices, LK_DEVICE, v))
+                .transpose()?;
+
             sqlx::query(
                 "INSERT INTO dns_query_log \
-                 (timestamp, client_ip, domain, query_type, result, upstream, latency_ms, \
-                 device_id, protocol) \
+                 (timestamp, client_ip_id, domain_id, query_type_id, result_id, upstream_id, \
+                 latency_ms, device_id, protocol_id) \
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
-            .bind(&entry.timestamp)
-            .bind(&entry.client_ip)
-            .bind(&entry.domain)
-            .bind(&entry.query_type)
-            .bind(&entry.result)
-            .bind(&entry.upstream)
+            .bind(entry.timestamp.timestamp())
+            .bind(id_for(&client_ips, LK_CLIENT_IP, &entry.client_ip)?)
+            .bind(id_for(&domains, LK_DOMAIN, &entry.domain)?)
+            .bind(id_for(&query_types, LK_QUERY_TYPE, &entry.query_type)?)
+            .bind(id_for(&results, LK_RESULT, &entry.result)?)
+            .bind(upstream_id)
             .bind(entry.latency_ms)
-            .bind(&entry.device_id)
-            .bind(&entry.protocol)
+            .bind(device_id)
+            .bind(id_for(&protocols, LK_PROTOCOL, &entry.protocol)?)
             .execute(&mut *tx)
             .await?;
         }
@@ -92,10 +257,18 @@ impl DnsRepository for SqliteDnsRepository {
     ) -> anyhow::Result<Vec<QueryLogRow>> {
         let (where_clause, binds) = build_where(filter);
         let sql = format!(
-            "SELECT timestamp, client_ip, domain, query_type, result, upstream, latency_ms, \
-             device_id, protocol \
-             FROM dns_query_log {where_clause} \
-             ORDER BY id DESC LIMIT ? OFFSET ?"
+            "SELECT q.timestamp, ip.v AS client_ip, d.v AS domain, qt.v AS query_type, \
+             r.v AS result, up.v AS upstream, q.latency_ms, dev.v AS device_id, p.v AS protocol \
+             FROM dns_query_log q \
+             JOIN {LK_CLIENT_IP} ip ON ip.id = q.client_ip_id \
+             JOIN {LK_DOMAIN} d ON d.id = q.domain_id \
+             JOIN {LK_QUERY_TYPE} qt ON qt.id = q.query_type_id \
+             JOIN {LK_RESULT} r ON r.id = q.result_id \
+             JOIN {LK_PROTOCOL} p ON p.id = q.protocol_id \
+             LEFT JOIN {LK_UPSTREAM} up ON up.id = q.upstream_id \
+             LEFT JOIN {LK_DEVICE} dev ON dev.id = q.device_id \
+             {where_clause} \
+             ORDER BY q.id DESC LIMIT ? OFFSET ?"
         );
 
         let mut q = sqlx::query_as::<_, DbQueryLogRow>(sqlx::AssertSqlSafe(sql));
@@ -112,37 +285,101 @@ impl DnsRepository for SqliteDnsRepository {
         let cutoff = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::days(i64::from(retention_days)))
             .unwrap_or_else(chrono::Utc::now)
-            .format(TS_FMT)
-            .to_string();
+            .timestamp();
 
         let result = sqlx::query("DELETE FROM dns_query_log WHERE timestamp < ?")
-            .bind(&cutoff)
+            .bind(cutoff)
             .execute(&self.pools.write)
             .await?;
-        Ok(result.rows_affected())
+        let deleted = result.rows_affected();
+
+        // Prune orphaned domains in the same call, immediately after the
+        // retention delete — before it, almost nothing is orphaned yet.
+        //
+        // Use `NOT IN (SELECT DISTINCT ...)`: the equivalent correlated
+        // `NOT EXISTS` rescans the log once per lookup row and measured 135 s,
+        // which would stall the single-connection write pool for two minutes.
+        //
+        // `lk_dns_domain` is the only lookup pruned because it is the only one
+        // that grows fast enough to matter — ~543 orphans/day against tens or
+        // hundreds a year. It is *not* the only one that grows, nor the only
+        // one whose size is load-bearing: `lk_dns_client_ip` also accumulates
+        // and is also scanned by a `LIKE` in `build_where`. Pruning a second
+        // lookup is a live question, not a settled one; see ADR 0034.
+        // Nothing but the retention DELETE can orphan a domain, so a tick that
+        // removed no rows has nothing to prune and skips the scan — which is
+        // every tick on a box younger than its retention window. A prune that
+        // failed on an earlier tick is picked up by the next one that deletes,
+        // so orphans are deferred rather than stranded.
+        if deleted == 0 {
+            return Ok(0);
+        }
+
+        // The retention DELETE has already committed — it and the prune are
+        // separate autocommit statements. A prune failure is therefore reported
+        // rather than propagated: returning `Err` here would tell the runner the
+        // whole cleanup failed and hide the rows retention did delete, when the
+        // only real consequence is that some orphaned domains outlive one tick.
+        match sqlx::query(sqlx::AssertSqlSafe(format!(
+            "DELETE FROM {LK_DOMAIN} WHERE id NOT IN (SELECT DISTINCT domain_id FROM dns_query_log)"
+        )))
+        .execute(&self.pools.write)
+        .await
+        {
+            Ok(result) => {
+                let pruned = result.rows_affected();
+                if pruned > 0 {
+                    tracing::debug!(pruned, "pruned orphaned query-log domains: pruned={pruned}");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "failed to prune orphaned query-log domains; retention delete stands: {e}"
+                );
+            }
+        }
+        Ok(deleted)
     }
 }
 
 fn build_where(filter: &QueryLogFilter) -> (String, Vec<String>) {
-    let mut conditions: Vec<&str> = Vec::new();
+    let mut conditions: Vec<String> = Vec::new();
     let mut binds: Vec<String> = Vec::new();
     // Substring match, mirroring the domain filter: the admin UI feeds this
     // from a free-text input, so a partial IP ("192.168.1") must narrow
     // rather than silently matching nothing.
+    //
+    // Every filter resolves against its lookup table and feeds an indexed
+    // integer `IN`. That is what makes substring search cheap: the scan reads
+    // the few thousand distinct values, not the millions of log rows.
     if let Some(ref ip) = filter.client_ip {
-        conditions.push("client_ip LIKE ?");
+        conditions.push(format!(
+            "q.client_ip_id IN (SELECT id FROM {LK_CLIENT_IP} WHERE v LIKE ?)"
+        ));
         binds.push(format!("%{ip}%"));
     }
     if let Some(ref device_id) = filter.device_id {
-        conditions.push("device_id = ?");
+        // Scalar `=`, not `IN`: an IN-list SQLite cannot prove is a single
+        // value forces `USE TEMP B-TREE FOR ORDER BY`, which sorts every row
+        // for that device before `LIMIT` applies. The scalar form keeps
+        // `idx_dns_query_log_device_id` serving the ordering with an early exit.
+        conditions.push(format!(
+            "q.device_id = (SELECT id FROM {LK_DEVICE} WHERE v = ?)"
+        ));
         binds.push(device_id.clone());
     }
     if let Some(ref domain) = filter.domain {
-        conditions.push("domain LIKE ?");
+        conditions.push(format!(
+            "q.domain_id IN (SELECT id FROM {LK_DOMAIN} WHERE v LIKE ?)"
+        ));
         binds.push(format!("%{domain}%"));
     }
     if let Some(result) = filter.result {
-        conditions.push("result = ?");
+        // Scalar, for the same reason as the device filter above.
+        conditions.push(format!(
+            "q.result_id = (SELECT id FROM {LK_RESULT} WHERE v = ?)"
+        ));
         binds.push(result.as_str().to_owned());
     }
     let where_clause = if conditions.is_empty() {

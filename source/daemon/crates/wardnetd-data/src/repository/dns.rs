@@ -11,6 +11,7 @@
 //! query log table.
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use wardnet_common::dns::DnsQueryResult;
 
 #[async_trait]
@@ -26,7 +27,13 @@ pub trait DnsRepository: Send + Sync {
         filter: &QueryLogFilter,
     ) -> anyhow::Result<Vec<QueryLogRow>>;
 
-    /// Delete query log entries older than `retention_days`.
+    /// Delete query log entries older than `retention_days`, then make a
+    /// best-effort attempt to prune the domain lookups the delete orphaned.
+    ///
+    /// Returns the query-log rows deleted. The retention delete commits before
+    /// the prune runs, so a prune failure is logged and the count still
+    /// returned rather than reported as a failed cleanup — the consequence is
+    /// orphans surviving a tick, not lost retention.
     async fn cleanup_query_log(&self, retention_days: u32) -> anyhow::Result<u64>;
 }
 
@@ -35,7 +42,10 @@ pub trait DnsRepository: Send + Sync {
 /// Row struct for DNS query log inserts.
 #[derive(Debug, Clone)]
 pub struct QueryLogRow {
-    pub timestamp: String,
+    /// Whole seconds. The producer truncates sub-second precision explicitly so
+    /// the streamed event never carries a resolution the epoch-second column
+    /// cannot return.
+    pub timestamp: DateTime<Utc>,
     pub client_ip: String,
     pub domain: String,
     pub query_type: String,

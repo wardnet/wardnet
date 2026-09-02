@@ -1,6 +1,7 @@
 //! Unit tests for `DnsLogSink` — the hot-path channel between the DNS
 //! server and the persistence runner / WS subscribers.
 
+use super::ts;
 use crate::dns::log_sink::DnsLogSink;
 use crate::stats::buffer::StatsBuffer;
 use crate::stats::meter::Meter;
@@ -8,7 +9,7 @@ use wardnetd_data::repository::QueryLogRow;
 
 fn sample_row(domain: &str) -> QueryLogRow {
     QueryLogRow {
-        timestamp: "2026-05-05T00:00:00Z".to_owned(),
+        timestamp: ts("2026-05-05T00:00:00Z"),
         client_ip: "10.0.0.1".to_owned(),
         domain: domain.to_owned(),
         query_type: "A".to_owned(),
