@@ -541,3 +541,31 @@ async fn resolves_values_spanning_several_chunks() {
     seen.dedup();
     assert_eq!(seen.len(), 700, "some rows resolved to the wrong lookup id");
 }
+
+/// A tick that deletes nothing skips the prune scan entirely. Only the
+/// retention delete can orphan a domain, so there is nothing to collect — and
+/// on a box younger than its retention window that is every tick.
+#[tokio::test]
+async fn cleanup_skips_the_prune_when_nothing_expired() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool.clone());
+    repo.insert_query_log_batch(&[sample_row("10.0.0.1", "kept.com", "allowed")])
+        .await
+        .unwrap();
+
+    // An orphan that no retention delete produced. The prune would collect it;
+    // the guard means this tick does not look.
+    sqlx::query("INSERT INTO lk_dns_domain (v) VALUES ('never-referenced.example')")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let deleted = repo.cleanup_query_log(30).await.unwrap();
+    assert_eq!(deleted, 0);
+
+    let domains: Vec<String> = sqlx::query_scalar("SELECT v FROM lk_dns_domain ORDER BY v")
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(domains, vec!["kept.com", "never-referenced.example"]);
+}

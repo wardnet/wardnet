@@ -306,6 +306,15 @@ impl DnsRepository for SqliteDnsRepository {
         // one whose size is load-bearing: `lk_dns_client_ip` also accumulates
         // and is also scanned by a `LIKE` in `build_where`. Pruning a second
         // lookup is a live question, not a settled one; see ADR 0034.
+        // Nothing but the retention DELETE can orphan a domain, so a tick that
+        // removed no rows has nothing to prune and skips the scan — which is
+        // every tick on a box younger than its retention window. A prune that
+        // failed on an earlier tick is picked up by the next one that deletes,
+        // so orphans are deferred rather than stranded.
+        if deleted == 0 {
+            return Ok(0);
+        }
+
         // The retention DELETE has already committed — it and the prune are
         // separate autocommit statements. A prune failure is therefore reported
         // rather than propagated: returning `Err` here would tell the runner the

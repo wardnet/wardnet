@@ -1,4 +1,10 @@
-# Normalising the DNS query log onto lookup ids
+---
+status: accepted
+date: 2026-09-02
+issue: "#1323 (dns_query_log: normalise repeated text onto lookup ids)"
+---
+
+# ADR: Normalising the DNS query log onto lookup ids
 
 `dns_query_log` stored every column as repeated text. Across 1.79M rows there are
 3,792 distinct domains, 29 device ids held as 36-byte UUID strings, 24 client IPs
