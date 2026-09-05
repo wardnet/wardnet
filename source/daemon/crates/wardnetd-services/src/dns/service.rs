@@ -558,7 +558,6 @@ impl DnsService for DnsServiceImpl {
             .limit
             .unwrap_or(QUERY_LOG_DEFAULT_LIMIT)
             .clamp(1, QUERY_LOG_MAX_LIMIT);
-        let offset = params.offset.unwrap_or(0);
 
         let filter = QueryLogFilter {
             client_ip: params.client_ip,
@@ -577,31 +576,42 @@ impl DnsService for DnsServiceImpl {
         // a full page reports that no further page exists.
         let mut rows = self
             .dns_repo
-            .query_log_paginated(limit + 1, offset, &filter)
+            .query_log_paginated(limit + 1, params.before, &filter)
             .await
             .map_err(AppError::Internal)?;
         let has_more = rows.len() > limit as usize;
         rows.truncate(limit as usize);
 
+        // The cursor for the next page is the oldest id on this one, and only
+        // means anything when a further page exists. Reading it from the last
+        // returned row rather than from the over-fetched one keeps it exact
+        // when `has_more` is false and the extra row was never there.
+        let next_cursor = has_more.then(|| rows.last().map(|row| row.id)).flatten();
+
         let entries: Vec<DnsQueryLogEntry> = rows
             .into_iter()
             .map(|row| DnsQueryLogEntry {
-                id: 0,
-                timestamp: row.timestamp,
-                client_ip: row.client_ip,
-                domain: row.domain,
-                query_type: row.query_type,
-                result: DnsQueryResult::parse(&row.result),
-                upstream: row.upstream,
-                latency_ms: row.latency_ms,
+                id: row.id,
+                timestamp: row.entry.timestamp,
+                client_ip: row.entry.client_ip,
+                domain: row.entry.domain,
+                query_type: row.entry.query_type,
+                result: DnsQueryResult::parse(&row.entry.result),
+                upstream: row.entry.upstream,
+                latency_ms: row.entry.latency_ms,
                 device_id: row
+                    .entry
                     .device_id
                     .as_deref()
                     .and_then(|s| Uuid::parse_str(s).ok()),
             })
             .collect();
 
-        Ok(ListQueryLogResponse { entries, has_more })
+        Ok(ListQueryLogResponse {
+            entries,
+            has_more,
+            next_cursor,
+        })
     }
 
     fn subscribe_query_stream(&self) -> Result<broadcast::Receiver<QueryLogEvent>, AppError> {

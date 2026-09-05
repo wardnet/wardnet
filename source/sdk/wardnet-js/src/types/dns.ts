@@ -181,7 +181,15 @@ export interface QueryLogEvent {
 
 export interface ListQueryLogParams {
   limit?: number;
-  offset?: number;
+  /**
+   * Keyset cursor: return the newest entries with an id below this one. Omit
+   * for the first page, then pass the previous response's `next_cursor`.
+   *
+   * There is deliberately no offset. An offset makes the daemon walk and
+   * discard every row already read, so page cost grows with depth; a cursor
+   * makes every page the same seek.
+   */
+  before?: number;
   domain?: string;
   client_ip?: string;
   /**
@@ -199,9 +207,17 @@ export interface ListQueryLogResponse {
    * Whether a further page exists, derived by over-fetching one row beyond
    * the requested limit.
    *
-   * There is deliberately no total count: a `COUNT(*)` over the query log is
-   * a full table scan, measured at ~300 ms per page load. Render a row range
-   * from the offset and `entries.length` instead.
+   * There is deliberately no total count: counting the query log has no
+   * `LIMIT` to stop at and was measured at ~300 ms per page load. Render a
+   * row count from `entries.length` instead.
    */
   has_more: boolean;
+  /**
+   * Cursor to pass as `before` for the next page. Absent exactly when
+   * `has_more` is false — the daemon omits the field rather than sending
+   * `null`, so `before: response.next_cursor` round-trips under `strict`.
+   *
+   * Paging backwards is the caller's job: keep the cursors already used.
+   */
+  next_cursor?: number;
 }

@@ -197,6 +197,7 @@ describe("DnsLogs", () => {
           },
         ],
         has_more: true,
+        next_cursor: 900,
       },
       isLoading: false,
     });
@@ -205,7 +206,7 @@ describe("DnsLogs", () => {
     await user.click(screen.getByTestId("live-tail"));
 
     expect(screen.getByText("history.example.com")).toBeInTheDocument();
-    expect(screen.getByText(/Showing 1–1 · page 1/)).toBeInTheDocument();
+    expect(screen.getByText(/Showing 1 entry · page 1/)).toBeInTheDocument();
 
     const prev = screen.getByRole("button", { name: "Previous" });
     const next = screen.getByRole("button", { name: "Next" });
@@ -216,9 +217,9 @@ describe("DnsLogs", () => {
     expect(screen.getByText(/page 1/)).toBeInTheDocument();
   });
 
-  it("disables Next on the last page and reports the range, not a total", async () => {
-    // The server sends no count, so the range has to come from the offset and
-    // the rows actually returned — and Next is driven by has_more alone.
+  it("disables Next on the last page and reports the page size, not a total", async () => {
+    // The server sends no count and a cursor names a row rather than a
+    // position, so the footer can only report what this page holds.
     useDnsQueryLog.mockReturnValue({
       data: {
         entries: [
@@ -239,18 +240,18 @@ describe("DnsLogs", () => {
     renderWithProviders(<DnsLogs />);
     await user.click(screen.getByTestId("live-tail"));
 
-    expect(screen.getByText(/Showing 1–1 · page 1/)).toBeInTheDocument();
+    expect(screen.getByText(/Showing 1 entry · page 1/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled();
   });
 
-  it("reports no entries on a later page instead of a range starting at zero", async () => {
-    // Paging forward drops `data` until the next fetch lands. An offset-derived
-    // range is non-zero on any page past the first, so emptiness has to be read
-    // from the rows themselves or the footer reads "Showing 0–50".
-    useDnsQueryLog.mockImplementation((params: { offset: number }) =>
-      params.offset > 0
-        ? { data: { entries: [], has_more: false }, isLoading: false }
-        : {
+  it("carries the cursor forward and reports emptiness from the rows", async () => {
+    // Two things at once, because they share the same fetch. Next must send the
+    // cursor the previous page returned — an arithmetic page number would ask
+    // for the wrong rows — and a page that comes back empty must say so from
+    // the rows rather than from a count it does not have.
+    useDnsQueryLog.mockImplementation((params: { before?: number }) =>
+      params.before === undefined
+        ? {
             data: {
               entries: [
                 {
@@ -263,17 +264,218 @@ describe("DnsLogs", () => {
                 },
               ],
               has_more: true,
+              next_cursor: 4242,
             },
             isLoading: false,
-          },
+          }
+        : { data: { entries: [], has_more: false }, isLoading: false },
     );
     const user = userEvent.setup();
     renderWithProviders(<DnsLogs />);
     await user.click(screen.getByTestId("live-tail"));
     await user.click(screen.getByRole("button", { name: "Next" }));
 
+    expect(useDnsQueryLog).toHaveBeenCalledWith(
+      expect.objectContaining({ before: 4242 }),
+    );
     expect(screen.getByText("No entries · page 2")).toBeInTheDocument();
-    expect(screen.queryByText(/Showing 0/)).not.toBeInTheDocument();
+    useDnsQueryLog.mockReset();
+  });
+
+  it("drops the cursor when the domain search changes", async () => {
+    // `resetPaging` is wired to four filters and each call site is its own
+    // one-liner, so covering one does not cover the rest.
+    useDnsQueryLog.mockImplementation((params: { before?: number }) =>
+      params.before === undefined
+        ? {
+            data: {
+              entries: [
+                {
+                  timestamp: "2026-07-01T09:00:00",
+                  client_ip: "10.232.1.10",
+                  domain: "first.example.com",
+                  query_type: "A",
+                  result: "allowed",
+                  latency_ms: 0.5,
+                },
+              ],
+              has_more: true,
+              next_cursor: 4242,
+            },
+            isLoading: false,
+          }
+        : { data: { entries: [], has_more: false }, isLoading: false },
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<DnsLogs />);
+    await user.click(screen.getByTestId("live-tail"));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.type(screen.getByPlaceholderText("Search domain…"), "ads");
+
+    expect(screen.getByText(/page 1/)).toBeInTheDocument();
+    expect(useDnsQueryLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ before: undefined, domain: "ads" }),
+    );
+    useDnsQueryLog.mockReset();
+  });
+
+  it("drops the cursor when the result filter changes", async () => {
+    useDnsQueryLog.mockImplementation((params: { before?: number }) =>
+      params.before === undefined
+        ? {
+            data: {
+              entries: [
+                {
+                  timestamp: "2026-07-01T09:00:00",
+                  client_ip: "10.232.1.10",
+                  domain: "first.example.com",
+                  query_type: "A",
+                  result: "allowed",
+                  latency_ms: 0.5,
+                },
+              ],
+              has_more: true,
+              next_cursor: 4242,
+            },
+            isLoading: false,
+          }
+        : { data: { entries: [], has_more: false }, isLoading: false },
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<DnsLogs />);
+    await user.click(screen.getByTestId("live-tail"));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByTestId("dns-log-result-filter"));
+    await user.click(screen.getByRole("option", { name: "Blocked" }));
+
+    expect(useDnsQueryLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ before: undefined, result: "blocked" }),
+    );
+    useDnsQueryLog.mockReset();
+  });
+
+  it("stacks a cursor per page and unwinds it one page at a time", async () => {
+    // The trail is a stack, so the bug it can have is an off-by-one that only
+    // shows past the first level: Previous from page 3 must land on page 2's
+    // cursor, not on the first page.
+    const cursors = new Map<string, number>([
+      ["first", 900],
+      ["900", 800],
+    ]);
+    useDnsQueryLog.mockImplementation((params: { before?: number }) => {
+      const key = params.before === undefined ? "first" : String(params.before);
+      const next = cursors.get(key);
+      return {
+        data: {
+          entries: [
+            {
+              timestamp: "2026-07-01T09:00:00",
+              client_ip: "10.232.1.10",
+              domain: `page-${key}.example.com`,
+              query_type: "A",
+              result: "allowed",
+              latency_ms: 0.5,
+            },
+          ],
+          has_more: next !== undefined,
+          next_cursor: next,
+        },
+        isLoading: false,
+      };
+    });
+    const user = userEvent.setup();
+    renderWithProviders(<DnsLogs />);
+    await user.click(screen.getByTestId("live-tail"));
+
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(useDnsQueryLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ before: 900 }),
+    );
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText(/page 3/)).toBeInTheDocument();
+    expect(useDnsQueryLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ before: 800 }),
+    );
+
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+    expect(screen.getByText(/page 2/)).toBeInTheDocument();
+    expect(useDnsQueryLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ before: 900 }),
+    );
+    useDnsQueryLog.mockReset();
+  });
+
+  it("returns to the first page without a cursor", async () => {
+    // Previous is served from the cursors already used, so stepping back to
+    // page 1 must ask for the newest page rather than for a cursor.
+    useDnsQueryLog.mockImplementation((params: { before?: number }) =>
+      params.before === undefined
+        ? {
+            data: {
+              entries: [
+                {
+                  timestamp: "2026-07-01T09:00:00",
+                  client_ip: "10.232.1.10",
+                  domain: "first.example.com",
+                  query_type: "A",
+                  result: "allowed",
+                  latency_ms: 0.5,
+                },
+              ],
+              has_more: true,
+              next_cursor: 4242,
+            },
+            isLoading: false,
+          }
+        : { data: { entries: [], has_more: false }, isLoading: false },
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<DnsLogs />);
+    await user.click(screen.getByTestId("live-tail"));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: "Previous" }));
+
+    expect(screen.getByText("first.example.com")).toBeInTheDocument();
+    expect(useDnsQueryLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ before: undefined }),
+    );
+    useDnsQueryLog.mockReset();
+  });
+
+  it("drops the cursor when a filter changes", async () => {
+    // A cursor addresses a row in the result set it came from, so keeping it
+    // across a filter change would open the new set part-way down.
+    useDnsQueryLog.mockImplementation((params: { before?: number }) =>
+      params.before === undefined
+        ? {
+            data: {
+              entries: [
+                {
+                  timestamp: "2026-07-01T09:00:00",
+                  client_ip: "10.232.1.10",
+                  domain: "first.example.com",
+                  query_type: "A",
+                  result: "allowed",
+                  latency_ms: 0.5,
+                },
+              ],
+              has_more: true,
+              next_cursor: 4242,
+            },
+            isLoading: false,
+          }
+        : { data: { entries: [], has_more: false }, isLoading: false },
+    );
+    const user = userEvent.setup();
+    renderWithProviders(<DnsLogs />);
+    await user.click(screen.getByTestId("live-tail"));
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.type(screen.getByTestId("dns-log-ip-filter"), "10.0.0.1");
+
+    expect(screen.getByText(/page 1/)).toBeInTheDocument();
+    expect(useDnsQueryLog).toHaveBeenLastCalledWith(
+      expect.objectContaining({ before: undefined, client_ip: "10.0.0.1" }),
+    );
     useDnsQueryLog.mockReset();
   });
 

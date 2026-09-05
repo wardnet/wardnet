@@ -1849,8 +1849,16 @@ pub struct ListSnapshotsResponse {
 pub struct ListQueryLogParams {
     #[serde(default)]
     pub limit: Option<u32>,
+    /// Keyset cursor: return the newest entries with an id below this one.
+    /// Omit for the first page, then pass the previous response's
+    /// `next_cursor`.
+    ///
+    /// There is deliberately no offset. `dns_query_log` is the largest table
+    /// on the box, and an offset makes SQLite walk and discard every row the
+    /// caller already read, so page cost grows with depth. A cursor makes
+    /// every page the same seek into the primary key.
     #[serde(default)]
-    pub offset: Option<u32>,
+    pub before: Option<i64>,
     #[serde(default)]
     pub domain: Option<String>,
     #[serde(default)]
@@ -1872,12 +1880,21 @@ pub struct ListQueryLogResponse {
     /// the requested limit.
     ///
     /// There is deliberately no total count. `dns_query_log` is the largest
-    /// table on the box and both text filters use a leading-wildcard `LIKE`,
-    /// which SQLite cannot seek on, so `COUNT(*)` degrades to a full scan —
-    /// measured at ~300 ms per page load against ~1 ms for the rows it
-    /// accompanied. Reinstating a count, even a capped one, restores that
-    /// scan and makes the narrow single-column indexes load-bearing again.
+    /// table on the box, and a count has no `LIMIT` to stop at: the filters
+    /// are served by indexes, but counting still visits every row that matches
+    /// rather than the page's worth — measured at ~300 ms per page load
+    /// against ~1 ms for the rows it accompanied. Reinstating a count, even a
+    /// capped one, restores that work on every page.
     pub has_more: bool,
+    /// Cursor to pass as `before` to fetch the page after this one. `None`
+    /// exactly when `has_more` is false.
+    ///
+    /// Paging backwards is the caller's job: it holds the cursors it has
+    /// already used. The alternative — a second, ascending query behind a
+    /// `after` parameter — doubles the endpoint's shapes to serve a Previous
+    /// button that the client can already answer from what it has seen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<i64>,
 }
 
 /// Live event broadcast over `/api/dns/log/stream`. Mirrors a row in

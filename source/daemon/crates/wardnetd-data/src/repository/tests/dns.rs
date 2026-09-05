@@ -1,6 +1,7 @@
 use super::test_pool;
 use crate::repository::SqliteDnsRepository;
 use crate::repository::dns::{DnsRepository, QueryLogFilter, QueryLogRow};
+use crate::repository::sqlite::dns::{ClientIp, build_where, page_sql};
 use chrono::{DateTime, SubsecRound, Utc};
 use wardnet_common::dns::DnsQueryResult;
 
@@ -35,14 +36,26 @@ async fn insert_and_query_log_batch() {
     repo.insert_query_log_batch(&entries).await.unwrap();
 
     let filter = QueryLogFilter::default();
-    let rows = repo.query_log_paginated(10, 0, &filter).await.unwrap();
+    let rows = repo.query_log_paginated(10, None, &filter).await.unwrap();
     assert_eq!(rows.len(), 3);
 
-    let page2 = repo.query_log_paginated(10, 3, &filter).await.unwrap();
-    assert!(page2.is_empty());
-
-    let limited = repo.query_log_paginated(2, 0, &filter).await.unwrap();
+    let limited = repo.query_log_paginated(2, None, &filter).await.unwrap();
     assert_eq!(limited.len(), 2);
+
+    // The cursor is the oldest id on the page just read, so the next page
+    // starts strictly below it and the two never overlap.
+    let page2 = repo
+        .query_log_paginated(10, Some(limited[1].id), &filter)
+        .await
+        .unwrap();
+    assert_eq!(page2.len(), 1);
+    assert!(page2[0].id < limited[1].id);
+
+    let past_the_end = repo
+        .query_log_paginated(10, Some(page2[0].id), &filter)
+        .await
+        .unwrap();
+    assert!(past_the_end.is_empty());
 }
 
 #[tokio::test]
@@ -61,10 +74,10 @@ async fn query_log_filter_by_client_ip() {
         client_ip: Some("192.168.1.10".to_owned()),
         ..Default::default()
     };
-    let rows = repo.query_log_paginated(10, 0, &filter).await.unwrap();
+    let rows = repo.query_log_paginated(10, None, &filter).await.unwrap();
     assert_eq!(rows.len(), 2);
     for row in &rows {
-        assert_eq!(row.client_ip, "192.168.1.10");
+        assert_eq!(row.entry.client_ip, "192.168.1.10");
     }
 
     // Substring semantics: a partial IP from the free-text filter narrows
@@ -73,7 +86,7 @@ async fn query_log_filter_by_client_ip() {
         client_ip: Some("192.168.1".to_owned()),
         ..Default::default()
     };
-    let rows = repo.query_log_paginated(10, 0, &partial).await.unwrap();
+    let rows = repo.query_log_paginated(10, None, &partial).await.unwrap();
     assert_eq!(rows.len(), 3, "partial IP must match all 192.168.1.* rows");
 }
 
@@ -101,10 +114,10 @@ async fn query_log_filter_by_device_id() {
         device_id: Some(device.to_owned()),
         ..Default::default()
     };
-    let rows = repo.query_log_paginated(10, 0, &filter).await.unwrap();
+    let rows = repo.query_log_paginated(10, None, &filter).await.unwrap();
     assert_eq!(rows.len(), 2, "both IPs' rows attribute to the device");
     for row in &rows {
-        assert_eq!(row.device_id.as_deref(), Some(device));
+        assert_eq!(row.entry.device_id.as_deref(), Some(device));
     }
 }
 
@@ -124,10 +137,10 @@ async fn query_log_filter_by_domain() {
         domain: Some("tracker".to_owned()),
         ..Default::default()
     };
-    let rows = repo.query_log_paginated(10, 0, &filter).await.unwrap();
+    let rows = repo.query_log_paginated(10, None, &filter).await.unwrap();
     assert_eq!(rows.len(), 2);
     for row in &rows {
-        assert!(row.domain.contains("tracker"));
+        assert!(row.entry.domain.contains("tracker"));
     }
 }
 
@@ -147,10 +160,10 @@ async fn query_log_filter_by_result() {
         result: Some(DnsQueryResult::Blocked),
         ..Default::default()
     };
-    let rows = repo.query_log_paginated(10, 0, &filter).await.unwrap();
+    let rows = repo.query_log_paginated(10, None, &filter).await.unwrap();
     assert_eq!(rows.len(), 2);
     for row in &rows {
-        assert_eq!(row.result, "blocked");
+        assert_eq!(row.entry.result, "blocked");
     }
 }
 
@@ -171,7 +184,7 @@ async fn query_log_filter_combines_conditions_with_and() {
         result: Some(DnsQueryResult::Blocked),
         ..Default::default()
     };
-    let rows = repo.query_log_paginated(10, 0, &filter).await.unwrap();
+    let rows = repo.query_log_paginated(10, None, &filter).await.unwrap();
     assert_eq!(rows.len(), 2);
 
     let combined = QueryLogFilter {
@@ -179,9 +192,9 @@ async fn query_log_filter_combines_conditions_with_and() {
         result: Some(DnsQueryResult::Blocked),
         ..Default::default()
     };
-    let rows = repo.query_log_paginated(10, 0, &combined).await.unwrap();
+    let rows = repo.query_log_paginated(10, None, &combined).await.unwrap();
     assert_eq!(rows.len(), 1, "conditions narrow rather than widen");
-    assert_eq!(rows[0].client_ip, "10.0.0.2");
+    assert_eq!(rows[0].entry.client_ip, "10.0.0.2");
 }
 
 #[tokio::test]
@@ -235,11 +248,11 @@ async fn cleanup_query_log() {
     assert_eq!(deleted, 2);
 
     let rows = repo
-        .query_log_paginated(10, 0, &QueryLogFilter::default())
+        .query_log_paginated(10, None, &QueryLogFilter::default())
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].domain, "fresh.com");
+    assert_eq!(rows[0].entry.domain, "fresh.com");
 }
 
 #[tokio::test]
@@ -255,14 +268,14 @@ async fn query_log_paginated_ordering() {
     repo.insert_query_log_batch(&entries).await.unwrap();
 
     let rows = repo
-        .query_log_paginated(10, 0, &QueryLogFilter::default())
+        .query_log_paginated(10, None, &QueryLogFilter::default())
         .await
         .unwrap();
     assert_eq!(rows.len(), 3);
 
-    assert_eq!(rows[0].domain, "third.com");
-    assert_eq!(rows[1].domain, "second.com");
-    assert_eq!(rows[2].domain, "first.com");
+    assert_eq!(rows[0].entry.domain, "third.com");
+    assert_eq!(rows[1].entry.domain, "second.com");
+    assert_eq!(rows[2].entry.domain, "first.com");
 }
 
 #[tokio::test]
@@ -273,7 +286,7 @@ async fn insert_empty_batch() {
     repo.insert_query_log_batch(&[]).await.unwrap();
 
     let rows = repo
-        .query_log_paginated(10, 0, &QueryLogFilter::default())
+        .query_log_paginated(10, None, &QueryLogFilter::default())
         .await
         .unwrap();
     assert!(rows.is_empty());
@@ -311,11 +324,11 @@ async fn repeated_values_share_one_lookup_row() {
     }
 
     let rows = repo
-        .query_log_paginated(10, 0, &QueryLogFilter::default())
+        .query_log_paginated(10, None, &QueryLogFilter::default())
         .await
         .unwrap();
     assert_eq!(rows.len(), 6);
-    assert!(rows.iter().all(|r| r.domain == "example.com"));
+    assert!(rows.iter().all(|r| r.entry.domain == "example.com"));
 }
 
 #[tokio::test]
@@ -331,10 +344,10 @@ async fn timestamp_survives_the_epoch_round_trip() {
     repo.insert_query_log_batch(&[entry]).await.unwrap();
 
     let rows = repo
-        .query_log_paginated(10, 0, &QueryLogFilter::default())
+        .query_log_paginated(10, None, &QueryLogFilter::default())
         .await
         .unwrap();
-    assert_eq!(rows[0].timestamp, when);
+    assert_eq!(rows[0].entry.timestamp, when);
 }
 
 #[tokio::test]
@@ -490,11 +503,11 @@ async fn prune_never_orphans_a_live_log_row() {
     );
 
     let rows = repo
-        .query_log_paginated(10, 0, &QueryLogFilter::default())
+        .query_log_paginated(10, None, &QueryLogFilter::default())
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].domain, "kept.com");
+    assert_eq!(rows[0].entry.domain, "kept.com");
 }
 
 /// A batch spanning several `RESOLVE_CHUNK` chunks resolves every value to its
@@ -531,12 +544,12 @@ async fn resolves_values_spanning_several_chunks() {
     assert_eq!(domains, 700);
 
     let rows = repo
-        .query_log_paginated(1000, 0, &QueryLogFilter::default())
+        .query_log_paginated(1000, None, &QueryLogFilter::default())
         .await
         .unwrap();
     assert_eq!(rows.len(), 700);
     // Every row must carry its own domain, not a neighbour's id.
-    let mut seen: Vec<String> = rows.into_iter().map(|r| r.domain).collect();
+    let mut seen: Vec<String> = rows.into_iter().map(|r| r.entry.domain).collect();
     seen.sort();
     seen.dedup();
     assert_eq!(seen.len(), 700, "some rows resolved to the wrong lookup id");
@@ -568,4 +581,230 @@ async fn cleanup_skips_the_prune_when_nothing_expired() {
         .await
         .unwrap();
     assert_eq!(domains, vec!["kept.com", "never-referenced.example"]);
+}
+
+/// `client_ip_id` is indexed, and the single-client filter is the shape that
+/// index can seek — asserted against the statement the repository builds.
+///
+/// The pair matters more than either half. The index is inert if the filter
+/// reaches SQLite as something it cannot constrain on, and the filter shape
+/// buys nothing without the index; either way the page becomes a full pass over
+/// `dns_query_log`. Specifically, an `IN (SELECT …)` predicate over the same
+/// indexed column sorts instead of seeking, because `ORDER BY q.id DESC` gives
+/// the planner a backwards primary-key walk to prefer.
+///
+/// The plan is taken from `page_sql` rather than a copy of it, because the joins
+/// and the ordering are what decide whether the index is used at all — a
+/// hand-written approximation stays green while the real statement stops
+/// seeking.
+#[tokio::test]
+async fn client_ip_filter_seeks_its_index() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool.clone());
+    repo.insert_query_log_batch(&[sample_row("10.0.0.1", "example.com", "allowed")])
+        .await
+        .unwrap();
+
+    let indexed: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM pragma_index_list('dns_query_log')")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    let mut covers_client_ip_id = false;
+    for index in indexed {
+        let cols: Vec<String> = sqlx::query_scalar("SELECT name FROM pragma_index_info(?)")
+            .bind(&index)
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        if cols.first().map(String::as_str) == Some("client_ip_id") {
+            covers_client_ip_id = true;
+        }
+    }
+    assert!(
+        covers_client_ip_id,
+        "dns_query_log.client_ip_id must be indexed or the client filter scans the log"
+    );
+
+    let plan = page_plan(&pool, Some(&ClientIp::One(1)), None).await;
+    assert!(
+        plan.contains("SEARCH q") && plan.contains("idx_dns_query_log_client_ip_id"),
+        "the client filter should seek its index, got: {plan}"
+    );
+    // Under an equality constraint the index's entries are already in rowid
+    // order, so the ordering costs nothing. A sort here would mean every row
+    // for that client is visited before `LIMIT` applies.
+    assert!(
+        !plan.contains("TEMP B-TREE"),
+        "the index must serve the ordering too, got: {plan}"
+    );
+}
+
+/// The same seek survives a cursor: paging deeper must not cost the index.
+///
+/// `q.id < ?` and `q.client_ip_id = ?` compete for the same rowid ordering, so
+/// a planner that took the cursor as its driving constraint would go back to
+/// testing every row for the client filter.
+#[tokio::test]
+async fn a_cursor_does_not_cost_the_client_index() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool.clone());
+    repo.insert_query_log_batch(&[sample_row("10.0.0.1", "example.com", "allowed")])
+        .await
+        .unwrap();
+
+    let plan = page_plan(&pool, Some(&ClientIp::One(1)), Some(42)).await;
+    assert!(
+        plan.contains("SEARCH q") && plan.contains("idx_dns_query_log_client_ip_id"),
+        "a cursor must not displace the client index, got: {plan}"
+    );
+    assert!(
+        !plan.contains("TEMP B-TREE"),
+        "the index must still serve the ordering, got: {plan}"
+    );
+}
+
+/// `EXPLAIN QUERY PLAN` over the statement `query_log_paginated` builds, for a
+/// filter already resolved to `client_ip`.
+async fn page_plan(
+    pool: &sqlx::SqlitePool,
+    client_ip: Option<&ClientIp>,
+    before: Option<i64>,
+) -> String {
+    let (where_clause, _) = build_where(&QueryLogFilter::default(), client_ip, before);
+    let rows = sqlx::query_as::<_, (i64, i64, i64, String)>(sqlx::AssertSqlSafe(format!(
+        "EXPLAIN QUERY PLAN {}",
+        page_sql(&where_clause)
+    )))
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    rows.into_iter()
+        .map(|(_, _, _, detail)| detail)
+        .collect::<Vec<_>>()
+        .join(" | ")
+}
+
+/// A client the log has never recorded returns an empty page.
+///
+/// The substring is resolved against `lk_dns_client_ip` before the log is
+/// queried, so "no such client" is answered from a few thousand lookup rows.
+/// Left to SQLite the same verdict costs a pass over everything the other
+/// filters admit, because there is no matching row for `LIMIT` to stop at.
+#[tokio::test]
+async fn an_unknown_client_yields_an_empty_page() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool);
+    repo.insert_query_log_batch(&[
+        sample_row("192.168.1.10", "a.com", "allowed"),
+        sample_row("192.168.1.20", "b.com", "allowed"),
+    ])
+    .await
+    .unwrap();
+
+    let filter = QueryLogFilter {
+        client_ip: Some("10.9.9.9".to_owned()),
+        ..Default::default()
+    };
+    let rows = repo.query_log_paginated(10, None, &filter).await.unwrap();
+    assert!(rows.is_empty());
+}
+
+/// A substring broad enough to match more clients than the repository will
+/// name individually still returns their rows.
+///
+/// Past that threshold the filter reverts to handing SQLite the pattern, so
+/// this pins the fallback rather than the seek — the two paths must agree on
+/// what the filter means.
+#[tokio::test]
+async fn a_broad_client_substring_matches_every_client_it_names() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool);
+
+    // 100 distinct clients, all sharing the "10.0." prefix, which is more than
+    // the repository binds individually.
+    let entries: Vec<QueryLogRow> = (0..100)
+        .map(|i| sample_row(&format!("10.0.{i}.1"), "example.com", "allowed"))
+        .collect();
+    repo.insert_query_log_batch(&entries).await.unwrap();
+    repo.insert_query_log_batch(&[sample_row("172.16.0.1", "other.com", "allowed")])
+        .await
+        .unwrap();
+
+    let filter = QueryLogFilter {
+        client_ip: Some("10.0.".to_owned()),
+        ..Default::default()
+    };
+    let rows = repo.query_log_paginated(200, None, &filter).await.unwrap();
+    assert_eq!(rows.len(), 100);
+    assert!(rows.iter().all(|r| r.entry.client_ip.starts_with("10.0.")));
+}
+
+/// Paging with a cursor visits every row exactly once, in descending id order,
+/// and the last page reports itself by coming back short.
+#[tokio::test]
+async fn cursor_paging_walks_the_log_without_gaps_or_repeats() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool);
+
+    let entries: Vec<QueryLogRow> = (0..25)
+        .map(|i| sample_row("10.0.0.1", &format!("d{i}.com"), "allowed"))
+        .collect();
+    repo.insert_query_log_batch(&entries).await.unwrap();
+
+    let mut seen: Vec<i64> = Vec::new();
+    let mut cursor: Option<i64> = None;
+    loop {
+        let page = repo
+            .query_log_paginated(10, cursor, &QueryLogFilter::default())
+            .await
+            .unwrap();
+        if page.is_empty() {
+            break;
+        }
+        seen.extend(page.iter().map(|r| r.id));
+        cursor = page.last().map(|r| r.id);
+    }
+
+    assert_eq!(seen.len(), 25, "every row is visited exactly once");
+    let mut sorted = seen.clone();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted.len(), 25, "no row is served on two pages");
+    assert!(
+        seen.windows(2).all(|w| w[0] > w[1]),
+        "the walk stays in descending id order across page boundaries"
+    );
+}
+
+/// A cursor and a filter compose: the page is the filtered rows below the
+/// cursor, not the cursor applied to an unfiltered page.
+#[tokio::test]
+async fn a_cursor_narrows_within_a_filter() {
+    let pool = test_pool().await;
+    let repo = SqliteDnsRepository::new(pool);
+
+    repo.insert_query_log_batch(&[
+        sample_row("10.0.0.1", "a.com", "allowed"),
+        sample_row("10.0.0.2", "b.com", "allowed"),
+        sample_row("10.0.0.1", "c.com", "allowed"),
+        sample_row("10.0.0.2", "d.com", "allowed"),
+    ])
+    .await
+    .unwrap();
+
+    let filter = QueryLogFilter {
+        client_ip: Some("10.0.0.1".to_owned()),
+        ..Default::default()
+    };
+    let first = repo.query_log_paginated(1, None, &filter).await.unwrap();
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].entry.domain, "c.com");
+
+    let second = repo
+        .query_log_paginated(10, Some(first[0].id), &filter)
+        .await
+        .unwrap();
+    assert_eq!(second.len(), 1, "only the other 10.0.0.1 row is below it");
+    assert_eq!(second[0].entry.domain, "a.com");
 }
