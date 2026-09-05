@@ -19,13 +19,19 @@ pub trait DnsRepository: Send + Sync {
     /// Batch-insert query log entries.
     async fn insert_query_log_batch(&self, entries: &[QueryLogRow]) -> anyhow::Result<()>;
 
-    /// Paginated query log with optional filters.
+    /// One page of the query log, newest first, with optional filters.
+    ///
+    /// `before` is a keyset cursor: the page holds the newest `limit` rows
+    /// whose id is below it, and `None` starts at the newest row. Pagination
+    /// is forward-only by construction — an offset makes the database walk and
+    /// discard every row the caller already read, so page cost grows with
+    /// depth, whereas a cursor turns every page into the same seek.
     async fn query_log_paginated(
         &self,
         limit: u32,
-        offset: u32,
+        before: Option<i64>,
         filter: &QueryLogFilter,
-    ) -> anyhow::Result<Vec<QueryLogRow>>;
+    ) -> anyhow::Result<Vec<QueryLogPageRow>>;
 
     /// Delete query log entries older than `retention_days`, then make a
     /// best-effort attempt to prune the domain lookups the delete orphaned.
@@ -56,6 +62,19 @@ pub struct QueryLogRow {
     /// Transport the query arrived over: `"udp"` (classic `:53`) or `"dot"`
     /// (the `:853` DNS-over-TLS listener, issue #912).
     pub protocol: String,
+}
+
+/// A stored query-log row, paired with the id that addresses it.
+///
+/// Distinct from [`QueryLogRow`], which is what a caller hands to
+/// `insert_query_log_batch`, where an id would be a value nothing can supply:
+/// the column is assigned by the insert.
+#[derive(Debug, Clone)]
+pub struct QueryLogPageRow {
+    /// Rowid of the entry. Descending id is the log's newest-first order, so
+    /// this doubles as the keyset cursor for the page that follows.
+    pub id: i64,
+    pub entry: QueryLogRow,
 }
 
 /// Filters for query log pagination.

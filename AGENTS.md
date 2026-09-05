@@ -188,6 +188,23 @@ you're about to make, rather than the whole set.
   0.016 s on 500k rows — any timing taken in the `sqlite3` CLI has foreign keys
   *off* and does not apply); and **nothing above `wardnetd-data`
   knows lookup tables exist**, which is what keeps the API contract unchanged.
+- **[Query-log read path](docs/adr/0035-query-log-read-path.md)** — why the
+  admin log's client filter resolves its substring against `lk_dns_client_ip`
+  **in Rust** before touching the log, and how the resolved cardinality picks
+  the predicate: none → empty page, one → `=` against the single-column
+  `idx_dns_query_log_client_ip_id`, a handful → `IN`, more than 64 → back to the
+  pattern (a guard, not a path a household reaches — the measured box holds 24
+  clients). The load-bearing fact: **indexing `client_ip_id` does nothing for
+  the `IN (SELECT …)` form**, because `ORDER BY q.id DESC` lets SQLite prefer the
+  backwards primary-key walk and decline the index — only the resolved scalar
+  `=` seeks it, measured 0.3 ms against 19.7 ms at 1.37M rows for a client whose
+  rows have aged. Also why pagination is a `before` cursor rather than an offset,
+  and why `next_cursor` is one-directional. Invariants: the index is
+  **single-column** — under an equality constraint SQLite already walks it in
+  rowid order, so `ORDER BY id DESC LIMIT n` needs no sort and a trailing `id`
+  would only widen every entry; and **the endpoint has exactly one pagination
+  model** — a second, offset-based one would keep the slow path reachable and
+  tested.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

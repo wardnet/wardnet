@@ -12566,16 +12566,16 @@
             }
           },
           {
-            "name": "offset",
+            "name": "before",
             "in": "query",
+            "description": "Keyset cursor: return the newest entries with an id below this one.\nOmit for the first page, then pass the previous response's\n`next_cursor`.\n\nThere is deliberately no offset. `dns_query_log` is the largest table\non the box, and an offset makes SQLite walk and discard every row the\ncaller already read, so page cost grows with depth. A cursor makes\nevery page the same seek into the primary key.",
             "required": false,
             "schema": {
               "type": [
                 "integer",
                 "null"
               ],
-              "format": "int32",
-              "minimum": 0
+              "format": "int64"
             }
           },
           {
@@ -28492,7 +28492,15 @@
           },
           "has_more": {
             "type": "boolean",
-            "description": "Whether a further page exists, derived by over-fetching one row beyond\nthe requested limit.\n\nThere is deliberately no total count. `dns_query_log` is the largest\ntable on the box and both text filters use a leading-wildcard `LIKE`,\nwhich SQLite cannot seek on, so `COUNT(*)` degrades to a full scan —\nmeasured at ~300 ms per page load against ~1 ms for the rows it\naccompanied. Reinstating a count, even a capped one, restores that\nscan and makes the narrow single-column indexes load-bearing again."
+            "description": "Whether a further page exists, derived by over-fetching one row beyond\nthe requested limit.\n\nThere is deliberately no total count. `dns_query_log` is the largest\ntable on the box, and a count has no `LIMIT` to stop at: the filters\nare served by indexes, but counting still visits every row that matches\nrather than the page's worth — measured at ~300 ms per page load\nagainst ~1 ms for the rows it accompanied. Reinstating a count, even a\ncapped one, restores that work on every page."
+          },
+          "next_cursor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Cursor to pass as `before` to fetch the page after this one. `None`\nexactly when `has_more` is false.\n\nPaging backwards is the caller's job: it holds the cursors it has\nalready used. The alternative — a second, ascending query behind a\n`after` parameter — doubles the endpoint's shapes to serve a Previous\nbutton that the client can already answer from what it has seen."
           }
         }
       },

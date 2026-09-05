@@ -18,7 +18,7 @@ use crate::dns::service::{
 use crate::error::AppError;
 use wardnet_common::auth::AuthContext;
 use wardnetd_data::repository::{
-    DnsRepository, QueryLogFilter, QueryLogRow, SystemConfigRepository,
+    DnsRepository, QueryLogFilter, QueryLogPageRow, QueryLogRow, SystemConfigRepository,
 };
 
 fn upstreams() -> Vec<String> {
@@ -133,9 +133,9 @@ impl DnsRepository for StubDnsRepo {
     async fn query_log_paginated(
         &self,
         _l: u32,
-        _o: u32,
+        _b: Option<i64>,
         _f: &QueryLogFilter,
-    ) -> anyhow::Result<Vec<QueryLogRow>> {
+    ) -> anyhow::Result<Vec<QueryLogPageRow>> {
         unimplemented!()
     }
     async fn cleanup_query_log(&self, _d: u32) -> anyhow::Result<u64> {
@@ -358,6 +358,8 @@ async fn valid_timings_persist_and_reload() {
 struct PagingDnsRepo {
     available: usize,
     seen_limit: Mutex<Option<u32>>,
+    /// Cursor per call, in call order.
+    seen_before: Mutex<Vec<Option<i64>>>,
 }
 
 impl PagingDnsRepo {
@@ -365,6 +367,7 @@ impl PagingDnsRepo {
         Arc::new(Self {
             available,
             seen_limit: Mutex::new(None),
+            seen_before: Mutex::new(Vec::new()),
         })
     }
 }
@@ -377,22 +380,28 @@ impl DnsRepository for PagingDnsRepo {
     async fn query_log_paginated(
         &self,
         limit: u32,
-        _o: u32,
+        before: Option<i64>,
         _f: &QueryLogFilter,
-    ) -> anyhow::Result<Vec<QueryLogRow>> {
+    ) -> anyhow::Result<Vec<QueryLogPageRow>> {
         *self.seen_limit.lock().unwrap() = Some(limit);
+        self.seen_before.lock().unwrap().push(before);
         let n = self.available.min(limit as usize);
+        // Ids descend from `available`, so the newest row is served first and
+        // the oldest id on a page is the cursor the next one starts below.
         Ok((0..n)
-            .map(|i| QueryLogRow {
-                timestamp: ts("2026-09-01T00:00:00Z"),
-                client_ip: "10.0.0.1".to_owned(),
-                domain: format!("d{i}.com"),
-                query_type: "A".to_owned(),
-                result: "allowed".to_owned(),
-                upstream: None,
-                latency_ms: 1.0,
-                device_id: None,
-                protocol: "udp".to_owned(),
+            .map(|i| QueryLogPageRow {
+                id: i64::try_from(self.available - i).expect("test row count fits"),
+                entry: QueryLogRow {
+                    timestamp: ts("2026-09-01T00:00:00Z"),
+                    client_ip: "10.0.0.1".to_owned(),
+                    domain: format!("d{i}.com"),
+                    query_type: "A".to_owned(),
+                    result: "allowed".to_owned(),
+                    upstream: None,
+                    latency_ms: 1.0,
+                    device_id: None,
+                    protocol: "udp".to_owned(),
+                },
             })
             .collect())
     }
@@ -460,4 +469,64 @@ async fn the_over_fetch_is_applied_after_the_limit_clamp() {
         *repo.seen_limit.lock().unwrap(),
         Some(QUERY_LOG_MAX_LIMIT + 1)
     );
+}
+
+#[tokio::test]
+async fn the_next_cursor_is_the_oldest_id_on_the_page() {
+    // Ids descend from `available`, so a 50-row page out of 51 ends at 51-49.
+    let repo = PagingDnsRepo::new(51);
+    let res = page(repo, 50).await;
+    assert!(res.has_more);
+    assert_eq!(res.next_cursor, Some(2));
+    assert_eq!(
+        res.next_cursor,
+        res.entries.last().map(|e| e.id),
+        "the cursor addresses a row the caller was actually given, so the \
+         page after it neither repeats nor skips one"
+    );
+}
+
+#[tokio::test]
+async fn a_last_page_offers_no_cursor() {
+    // The cursor is what a caller pages on, so offering one past the end
+    // invites a request that can only come back empty.
+    let repo = PagingDnsRepo::new(7);
+    let res = page(repo, 50).await;
+    assert!(!res.has_more);
+    assert_eq!(res.next_cursor, None);
+}
+
+#[tokio::test]
+async fn an_empty_page_offers_no_cursor() {
+    let repo = PagingDnsRepo::new(0);
+    let res = page(repo, 50).await;
+    assert!(res.entries.is_empty());
+    assert!(!res.has_more);
+    assert_eq!(res.next_cursor, None);
+}
+
+#[tokio::test]
+async fn the_cursor_reaches_the_repository_unchanged() {
+    // The service clamps the limit but must not reinterpret the cursor: it is
+    // a row id, not a page number, and arithmetic on it would skip rows.
+    let repo = PagingDnsRepo::new(10);
+    let svc = paging_service(Arc::clone(&repo));
+    crate::auth_context::with_context(
+        admin(),
+        svc.list_query_log(ListQueryLogParams {
+            limit: Some(5),
+            before: Some(4_242),
+            ..Default::default()
+        }),
+    )
+    .await
+    .unwrap();
+    assert_eq!(repo.seen_before.lock().unwrap().as_slice(), [Some(4_242)]);
+}
+
+#[tokio::test]
+async fn the_first_page_asks_for_no_cursor() {
+    let repo = PagingDnsRepo::new(10);
+    page(Arc::clone(&repo), 5).await;
+    assert_eq!(repo.seen_before.lock().unwrap().as_slice(), [None]);
 }

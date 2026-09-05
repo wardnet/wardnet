@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 
 import { PageHeader } from "@/components/compound/PageHeader";
@@ -98,8 +98,18 @@ export default function DnsLogs() {
   const [deviceId, setDeviceId] = useState("");
   const [clientIp, setClientIp] = useState("");
   const [result, setResult] = useState("any");
-  const [page, setPage] = useState(0);
+  // One cursor per page visited: `null` opens the newest page, and each later
+  // entry is the `next_cursor` the page before it returned. The endpoint pages
+  // forward only, so Previous drops the last entry rather than asking for a
+  // page that ends where the current one begins.
+  const [trail, setTrail] = useState<(number | null)[]>([null]);
   const [liveTail, setLiveTail] = useState(true);
+
+  const before = trail[trail.length - 1] ?? undefined;
+  const page = trail.length - 1;
+  // Every filter change makes the current cursor meaningless — it addresses a
+  // row in the old result set — so a new filter starts a new trail.
+  const resetPaging = useCallback(() => setTrail([null]), []);
 
   const { data: devicesData } = useDevices();
   // The dropdown is id-keyed so duplicates by IP are fine, but a device
@@ -138,13 +148,13 @@ export default function DnsLogs() {
   const filterParams = useMemo(
     () => ({
       limit: PAGE_SIZE,
-      offset: page * PAGE_SIZE,
+      before,
       domain: domain || undefined,
       client_ip: clientIp || undefined,
       device_id: deviceId || undefined,
       result: result === "any" ? undefined : (result as DnsQueryResult),
     }),
-    [domain, clientIp, deviceId, result, page],
+    [domain, clientIp, deviceId, result, before],
   );
   const { data, isLoading } = useDnsQueryLog(filterParams);
 
@@ -156,17 +166,12 @@ export default function DnsLogs() {
 
   const rows = showLive ? liveRows : persistedRows;
   const hasMore = data?.has_more ?? false;
-  // The endpoint returns no total — a count over dns_query_log is a full scan.
-  // The range is derived from the page offset and the rows actually returned,
-  // so a short last page reads "Showing 51–63" and gives back the exact size
-  // of a result set narrow enough to end within the page.
-  // Emptiness is a property of the rows, not of the range: on any page past
-  // the first, an offset-derived end is non-zero even with nothing to show,
-  // which is the state every page change passes through while the next fetch
-  // is in flight.
+  const nextCursor = data?.next_cursor ?? null;
+  // The endpoint returns neither a total nor a row offset: a count over
+  // dns_query_log has no LIMIT to stop at, and a cursor addresses a row rather
+  // than a position, so there is no absolute index to count from. The footer
+  // reports what this page holds and which page it is, both of which are known.
   const hasRows = persistedRows.length > 0;
-  const rangeStart = page * PAGE_SIZE + 1;
-  const rangeEnd = page * PAGE_SIZE + persistedRows.length;
 
   const columns: DataTableColumnDef<RowShape>[] = useMemo(
     () => [
@@ -266,7 +271,7 @@ export default function DnsLogs() {
           value={deviceId}
           onChange={(id) => {
             setDeviceId(id);
-            setPage(0);
+            resetPaging();
           }}
           triggerClassName="select-trigger--md w-40 min-w-0 sm:w-48"
         />
@@ -280,7 +285,7 @@ export default function DnsLogs() {
           value={clientIp}
           onChange={(e) => {
             setClientIp(e.target.value);
-            setPage(0);
+            resetPaging();
           }}
         />
       </div>
@@ -288,7 +293,7 @@ export default function DnsLogs() {
         value={result}
         onValueChange={(v) => {
           setResult(v);
-          setPage(0);
+          resetPaging();
         }}
       >
         <SelectTrigger
@@ -358,7 +363,7 @@ export default function DnsLogs() {
         searchValue={domain}
         onSearchChange={(v) => {
           setDomain(v);
-          setPage(0);
+          resetPaging();
         }}
         searchPlaceholder="Search domain…"
         filters={filters}
@@ -372,7 +377,9 @@ export default function DnsLogs() {
         >
           <span>
             {hasRows
-              ? `Showing ${rangeStart.toLocaleString()}–${rangeEnd.toLocaleString()} · page ${page + 1}`
+              ? `Showing ${persistedRows.length.toLocaleString()} ${
+                  persistedRows.length === 1 ? "entry" : "entries"
+                } · page ${page + 1}`
               : `No entries · page ${page + 1}`}
           </span>
           <div className="flex gap-2">
@@ -380,15 +387,19 @@ export default function DnsLogs() {
               variant="outline"
               size="sm"
               disabled={page === 0}
-              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              onClick={() =>
+                setTrail((t) => (t.length > 1 ? t.slice(0, -1) : t))
+              }
             >
               Previous
             </Button>
             <Button
               variant="outline"
               size="sm"
-              disabled={!hasMore}
-              onClick={() => setPage((p) => p + 1)}
+              disabled={!hasMore || nextCursor === null}
+              onClick={() =>
+                setTrail((t) => (nextCursor === null ? t : [...t, nextCursor]))
+              }
             >
               Next
             </Button>

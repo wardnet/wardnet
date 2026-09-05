@@ -33,7 +33,7 @@ pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow, PrunedDevice};
 pub use device_identification::{DeviceIdentificationRepository, DeviceSignalRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
-pub use dns::{DnsRepository, QueryLogFilter, QueryLogRow};
+pub use dns::{DnsRepository, QueryLogFilter, QueryLogPageRow, QueryLogRow};
 pub use dns_events::{DnsCaptureStats, DnsEventRow, DnsEventsRepository};
 pub use dns_filter::{
     AllowlistRow, BlocklistRow, BlocklistUpdate, CustomRuleRow, CustomRuleUpdate,
