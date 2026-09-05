@@ -839,7 +839,23 @@ pub(crate) fn build_response(
         .set_xid(request.xid())
         .set_yiaddr(lease.ip_address)
         .set_siaddr(server_ip)
-        .set_flags(Flags::default().set_broadcast())
+        // RFC 2131 §4.1: the reply carries back the client's BROADCAST bit.
+        // Asserting it on a client that did not set it describes a delivery the
+        // client never asked for; one that checks the field discards the reply
+        // and retransmits at the RENEWING 60-second floor for the life of the
+        // lease. Where the datagram actually goes is decided by the caller —
+        // `reply_destination` for a REQUEST reply, an unconditional broadcast
+        // for an OFFER, whose client has no address to be reached at yet.
+        //
+        // Only that one bit crosses over. The other 15 are MBZ, and `Flags`
+        // round-trips all 16 unmasked, so echoing the field wholesale would
+        // reflect whatever an unauthenticated client put in them straight back
+        // out — onto the broadcast address, in the case of an OFFER.
+        .set_flags(if request.flags().broadcast() {
+            Flags::default().set_broadcast()
+        } else {
+            Flags::default()
+        })
         .set_chaddr(request.chaddr());
 
     let opts = response.opts_mut();
