@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
-use hickory_resolver::recursor::{DnssecConfig, DnssecPolicy, Recursor, RecursorOptions};
+use hickory_resolver::recursor::{
+    DnssecConfig, DnssecPolicy, QNameMinimization, Recursor, RecursorOptions,
+};
 use tokio::net::UdpSocket;
 use tokio::sync::{Mutex, RwLock, broadcast};
 use tokio::task::JoinHandle;
@@ -819,10 +821,6 @@ const ROOT_HINTS: &[IpAddr] = &[
     IpAddr::V4(Ipv4Addr::new(202, 12, 27, 33)), // m
 ];
 
-/// Build a recursive resolver from the root hints (Stage 5).
-/// `dnssec_enabled` selects validating (built-in IANA root trust anchor)
-/// vs security-unaware. Returns `None` (logged) on construction failure so
-/// the caller can fall back to forwarding.
 /// Log which upstreams entered or left the serving set.
 ///
 /// The per-query failure warnings name every server that failed, but they are
@@ -850,6 +848,31 @@ fn log_serving_changes(previous: &UpstreamPool, current: &UpstreamPool) {
     }
 }
 
+/// Options for the recursive resolver (Stage 5).
+///
+/// Everything is hickory's default except QNAME minimization, which we
+/// relax (issue #1002). Hickory's `Strict` default enforces RFC 8020 —
+/// "nothing exists below an NXDOMAIN" — while walking a name label by
+/// label to find the zone cut, so an intermediate label answered
+/// NXDOMAIN aborts the whole lookup. A spec-correct server answers
+/// NODATA for an empty non-terminal and the walk continues, but Route 53
+/// answers NXDOMAIN for an ENT sitting above a delegation, which strands
+/// names that are delegated and resolvable everywhere else. `Relaxed`
+/// keeps walking past that NXDOMAIN, matching what the public resolvers
+/// (and Unbound with `harden-below-nxdomain: no`) do. The cost is the
+/// negative-answer shortcut, not correctness: we still only trust the
+/// authoritative server we reach at the zone cut.
+pub(crate) fn recursor_options() -> RecursorOptions {
+    RecursorOptions {
+        qname_minimization: QNameMinimization::Relaxed,
+        ..RecursorOptions::default()
+    }
+}
+
+/// Build a recursive resolver from the root hints (Stage 5).
+/// `dnssec_enabled` selects validating (built-in IANA root trust anchor)
+/// vs security-unaware. Returns `None` (logged) on construction failure so
+/// the caller can fall back to forwarding.
 pub(crate) fn build_recursor(dnssec_enabled: bool) -> Option<TokioRecursor> {
     let dnssec_policy = if dnssec_enabled {
         DnssecPolicy::ValidateWithStaticKey(DnssecConfig::default())
@@ -860,7 +883,7 @@ pub(crate) fn build_recursor(dnssec_enabled: bool) -> Option<TokioRecursor> {
         ROOT_HINTS,
         dnssec_policy,
         None,
-        RecursorOptions::default(),
+        recursor_options(),
         TokioRuntimeProvider::default(),
     ) {
         Ok(recursor) => Some(recursor),

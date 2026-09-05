@@ -270,6 +270,26 @@ live queries and measure latency-plus-queueing. The cost of that independence:
 a probe's success is not proof the serving path is healthy, so reachability is a
 routing *hint*, and the per-rung deadline is what actually protects a client.
 
+### Recursive mode — relaxed QNAME minimization (issue #1002)
+
+Recursive mode (`build_recursor`) runs hickory's recursor with
+`QNameMinimization::Relaxed` rather than its `Strict` default. `Strict`
+enforces RFC 8020 — "nothing exists below an NXDOMAIN" — while the recursor
+walks a name label by label looking for the zone cut, so an intermediate
+label answered NXDOMAIN aborts the lookup. A spec-correct server answers
+NODATA for an empty non-terminal and the walk continues; Route 53 answers
+NXDOMAIN for an ENT sitting **above a delegation**, which stranded names
+that were delegated and resolvable through every public resolver — a
+household VPN's SAML login host, in the incident that prompted this. Under
+`Relaxed` the walk continues past that NXDOMAIN, which is what 1.1.1.1 /
+8.8.8.8 / 9.9.9.9 and Unbound with `harden-below-nxdomain: no` already do.
+
+What is given up is the negative-answer shortcut, not the trust boundary:
+the answer still comes from the authoritative server reached at the zone
+cut, and DNSSEC validation is unchanged. The setting is asserted by a unit
+test rather than left to the dependency's default, because the failure it
+prevents is a silent outage that only shows up against one zone shape.
+
 ## DDNS subsystem (issue #527 / #521 umbrella)
 
 Keeps the Pi's public A record current and (in later commits) handles ACME DNS-01 TXT records. Lives entirely in `wardnetd-services/src/ddns/`.

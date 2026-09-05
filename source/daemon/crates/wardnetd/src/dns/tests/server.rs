@@ -35,7 +35,7 @@ use crate::dns::pipeline::{QueryAttribution, TransportProtocol};
 use crate::dns::server::{
     LATENCY_PROBE_INTERVAL, TunnelForwarderInfo, UdpDnsServer, build_recursor, duration_to_ms,
     fold_probe_outcomes, get_or_build_tunnel_forwarder, handle_recursor_outcome, probe_upstreams,
-    resolve_via_recursor, spawn_cache_invalidator, spawn_upstream_latency_prober,
+    recursor_options, resolve_via_recursor, spawn_cache_invalidator, spawn_upstream_latency_prober,
 };
 use crate::dns::upstream_pool::UpstreamPool;
 use crate::tests::stubs::StubDnsFilterService;
@@ -2529,6 +2529,22 @@ fn build_recursor_constructs_for_both_dnssec_settings() {
     assert!(
         build_recursor(true).is_some(),
         "recursor must build with DNSSEC validation enabled"
+    );
+}
+
+// The recursor's own behaviour needs the root servers, so what CI can pin
+// is the option we depend on: with hickory's `Strict` default, a name under
+// an empty non-terminal that Route 53 answers NXDOMAIN never resolves in
+// recursive mode (#1002). A dependency bump that silently reset this would
+// bring the outage back, so assert the setting rather than the default.
+#[test]
+fn recursor_options_relax_qname_minimization() {
+    use hickory_resolver::recursor::QNameMinimization;
+
+    assert_eq!(
+        recursor_options().qname_minimization,
+        QNameMinimization::Relaxed,
+        "recursive mode must keep walking past an intermediate NXDOMAIN"
     );
 }
 

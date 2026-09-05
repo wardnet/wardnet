@@ -206,14 +206,20 @@ criterion = { version = "0.8", default-features = false, features = [
 ] }
 
 # https://crates.io/crates/hickory-proto
-hickory-proto = { version = "0.26", features = ["dnssec-ring"] }
+# Kept in lockstep with hickory-resolver's floor below: 0.26.2's resolver
+# uses hickory-proto/-net items that 0.26.1 does not export, even though
+# its own requirement says only "0.26".
+hickory-proto = { version = "0.26.2", features = ["dnssec-ring"] }
 # https://crates.io/crates/hickory-resolver
 # DNS Stage 4: tls-ring/https-ring enable DoT/DoH upstreams; dnssec-ring
 # enables ResolverOpts.validate; webpki-roots bundles Mozilla roots so the
 # appliance can verify upstream DoT/DoH certs without a system trust store.
 # DNS Stage 5: `recursor` enables hickory_resolver::recursor::Recursor (the
 # standalone hickory-recursor crate was folded into hickory-resolver).
-hickory-resolver = { version = "0.26", features = [
+# 0.26.2 is a floor, not a preference: it is the first release carrying
+# `RecursorOptions::qname_minimization`, which `build_recursor` needs to
+# resolve names under a Route 53 empty non-terminal (issue #1002).
+hickory-resolver = { version = "0.26.2", features = [
     "tls-ring",
     "https-ring",
     "dnssec-ring",
