@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 import { SERVICE_OPTIONS, matchServiceLabel } from "@/lib/serviceBundles";
 
 describe("serviceBundles", () => {
-  it("offers the two real backend presets plus custom", () => {
+  it("offers the three real backend presets plus custom", () => {
     const presets = SERVICE_OPTIONS.filter(
       (o) => o.spec !== "custom" && o.spec.type === "preset",
     );
-    expect(presets.map((p) => p.id)).toEqual(["casting", "smart-home"]);
+    expect(presets.map((p) => p.id)).toEqual([
+      "casting",
+      "mirroring",
+      "smart-home",
+    ]);
     expect(SERVICE_OPTIONS[SERVICE_OPTIONS.length - 1].id).toBe("custom");
   });
 
@@ -51,6 +55,26 @@ describe("serviceBundles", () => {
         ],
       }),
     ).toMatch(/Web/);
+  });
+
+  it("offers the mirroring preset", () => {
+    // The daemon has carried `ServiceSet::Mirroring` all along; without an
+    // entry here there is no way to select it from the admin UI, and casting a
+    // local media source cross-zone has no working configuration: `casting`
+    // opens control ports only, so the stream dies on its negotiated port.
+    const mirroring = SERVICE_OPTIONS.find(
+      (o) =>
+        o.spec !== "custom" &&
+        o.spec.type === "preset" &&
+        o.spec.set === "mirroring",
+    );
+    expect(mirroring).toBeDefined();
+  });
+
+  it("matches the mirroring preset back to its label", () => {
+    expect(
+      matchServiceLabel({ type: "preset", set: "mirroring" }),
+    ).not.toBeNull();
   });
 
   it("returns null for an unknown custom port list", () => {
