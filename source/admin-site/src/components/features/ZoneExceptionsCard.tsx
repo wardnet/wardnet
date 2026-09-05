@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { Trash2 } from "lucide-react";
 import { Plus as PlusIcon } from "lucide-react";
+import { ApiErrorAlert } from "@wardnet/web";
 import { Button } from "@wardnet/web";
 import { FormActions } from "@wardnet/web";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
@@ -64,6 +65,20 @@ interface ZoneExceptionsCardProps {
   devices: Device[];
   /** True while the page's create mutation is in flight. */
   isSaving: boolean;
+  /**
+   * The create mutation's failure, or `null`. The daemon rejects an invalid
+   * exception with a 400 whose body carries the reason — a full-range service
+   * that is not device-to-device, an endpoint that no longer exists — and
+   * without it on screen a rejected save is indistinguishable from one that
+   * silently did nothing.
+   */
+  createError: Error | null;
+  /**
+   * Clears {@link ZoneExceptionsCardProps.createError}. The mutation holds its
+   * failure until the next `mutate`, so without this a rejection outlives the
+   * form it came from and greets the next one before anything is submitted.
+   */
+  onResetCreateError: () => void;
   onCreateException: MutateFn<ZoneExceptionBody>;
   onDeleteException: (id: string) => void;
 }
@@ -81,6 +96,8 @@ export function ZoneExceptionsCard({
   zones,
   devices,
   isSaving,
+  createError,
+  onResetCreateError,
   onCreateException,
   onDeleteException,
 }: ZoneExceptionsCardProps) {
@@ -152,20 +169,26 @@ export function ZoneExceptionsCard({
         </Text>
 
         {formOpen && (
-          <ExceptionForm
-            zones={zones.map((z) => ({ id: z.id, name: z.name }))}
-            devices={devices.map((d) => ({
-              id: d.id,
-              name: deviceDisplayName(d),
-            }))}
-            isSaving={isSaving}
-            onCancel={() => setFormOpen(false)}
-            onCreate={(body) =>
-              onCreateException(body, {
-                onSuccess: () => setFormOpen(false),
-              })
-            }
-          />
+          <>
+            <ExceptionForm
+              zones={zones.map((z) => ({ id: z.id, name: z.name }))}
+              devices={devices.map((d) => ({
+                id: d.id,
+                name: deviceDisplayName(d),
+              }))}
+              isSaving={isSaving}
+              onCancel={() => {
+                onResetCreateError();
+                setFormOpen(false);
+              }}
+              onCreate={(body) =>
+                onCreateException(body, {
+                  onSuccess: () => setFormOpen(false),
+                })
+              }
+            />
+            {createError && <ApiErrorAlert error={createError} />}
+          </>
         )}
 
         <DataTable
@@ -173,7 +196,10 @@ export function ZoneExceptionsCard({
           data={exceptions}
           emptyMessage="No cross-zone exceptions yet."
           addLabel="Add exception"
-          onAdd={() => setFormOpen(true)}
+          onAdd={() => {
+            onResetCreateError();
+            setFormOpen(true);
+          }}
           addTestId="exception-add"
           rowActionsTestId="exception-row-menu"
           rowActions={(row) => (
