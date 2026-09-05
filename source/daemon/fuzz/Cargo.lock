@@ -4539,7 +4539,7 @@ dependencies = [
  "base64 0.23.1",
  "chrono",
  "cms",
- "const-oid 0.9.6",
+ "const-oid 0.10.2",
  "cron",
  "der 0.7.10",
  "ed25519-dalek",
