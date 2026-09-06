@@ -2179,3 +2179,52 @@ async fn exception_endpoint_without_an_address_is_skipped() {
         "the rest of the ruleset must survive one unresolvable exception"
     );
 }
+
+#[tokio::test]
+async fn a_departed_device_gets_no_switchback_target() {
+    // A zone endpoint resolves whether or not its members are present, so every
+    // device in the zone is accumulated — including one whose `last_ip`
+    // discovery cleared when it departed. Recording that device against an
+    // empty address makes `RoutingService` ask the kernel for a rule whose
+    // source is "", which netlink rejects; the carve-out is simply never
+    // installed and each reconcile repeats the attempt.
+    let h = build().await;
+    enable_dhcp(&h).await;
+    insert_subnet_zone(&h.zones, ZONE_A, "Family", "192.168.200.0/24", false).await;
+    insert_subnet_zone(&h.zones, ZONE_B, "Entertainment", "192.168.201.0/24", false).await;
+    let present = insert_device(&h.devices, "192.168.200.10", ZONE_A).await;
+    let departed = insert_device(&h.devices, "", ZONE_A).await;
+    let now = chrono::Utc::now();
+    h.exceptions
+        .insert(&ZoneException {
+            id: Uuid::new_v4(),
+            from: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_A.parse().unwrap(),
+            },
+            to: ExceptionEndpoint {
+                kind: ExceptionEndpointKind::Zone,
+                id: ZONE_B.parse().unwrap(),
+            },
+            service: ServiceSpec::Preset {
+                set: ServiceSet::Casting,
+            },
+            bidirectional: true,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+
+    as_admin(h.svc.handle_exceptions_changed()).await.unwrap();
+
+    let sw = switchback(&h).await;
+    assert!(
+        sw.contains(&format!("{present}=192.168.200.10=[\"192.168.201.0/24\"]")),
+        "the present device still gets its target: {sw:?}"
+    );
+    assert!(
+        sw.contains(&format!("{departed}==[]")),
+        "the departed device must carry no target: {sw:?}"
+    );
+}
