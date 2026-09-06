@@ -218,6 +218,23 @@ you're about to make, rather than the whole set.
   is not. Invariant: **recovery-channel health never feeds `HealthMonitor` or
   `/dev/watchdog`** — the soft watchdog would restart `wardnetd` during a *cloud*
   outage. Glossary in [CONTEXT.md](CONTEXT.md#recovery-plane-issue-1201).
+- **[MCP control-plane authorization](docs/adr/0037-mcp-control-plane-authorization.md)** —
+  why `wardnet-mcp` is its **own** OAuth 2.1 Authorization Server rather than a
+  Resource Server pointing elsewhere: the daemon as AS is circular (daemon down ⇒
+  no token ⇒ cannot diagnose the daemon), and wardnet-cloud as AS would work but
+  violates [ADR-0031](docs/adr/0031-household-identity.md) — *nothing in
+  wardnet-cloud can grant access to a home network*. Covers why standard MCP auth
+  (RFC 9728 / 8414 / 7591 / 8707 + PKCE) is chosen for *client* reasons, why being
+  an **issuer** sidesteps the JOSE surface ADR-0031 §6 declined, and why break-glass
+  is a refresh token **pre-provisioned in advance** (the **Local admin** idiom).
+  Critically: `mcp.<slug>` is **predictable** — the slug is public via CT logs — so
+  unlike ADR-0029’s secret hostname, OAuth carries the whole load, and the
+  rate-limit / lockout / constrained-DCR obligations that follow are part of the
+  decision. Invariants: **the network-exposed surface never runs as root and the
+  root surface is never network-exposed** (`wardnet-mcp-helper` takes the
+  `wardnet-postupgrade-runner` trust-anchor shape), and an **armed mutation**
+  disarms only on an *independent positive re-probe* of the changed path — never
+  channel liveness — rolling back through the **database**, per ADR-0028.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

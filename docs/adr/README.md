@@ -15,8 +15,9 @@ edge-release-channel one.
 
 Numbers also drift between an issue and its ADR: the #1201 epic was written against
 `0033`/`0034`, which were taken before it landed, so its two decision records are
-[0036](0036-recovery-plane-is-a-separate-process.md) and `0037`. Scan this directory,
-not the issue text.
+[0036](0036-recovery-plane-is-a-separate-process.md) and
+[0037](0037-mcp-control-plane-authorization.md). Scan this directory, not the
+issue text.
 
 | # | Title | Date | Status |
 |---|---|---|---|
@@ -56,3 +57,4 @@ not the issue text.
 | [0034](0034-query-log-normalisation.md) | The DNS query log is normalised onto integer lookup ids | 2026-09-02 | Accepted |
 | [0035](0035-query-log-read-path.md) | The query-log read path seeks an index and pages on a cursor | 2026-09-05 | Accepted |
 | [0036](0036-recovery-plane-is-a-separate-process.md) | The recovery plane is a separate process the daemon provisions | 2026-09-06 | Accepted |
+| [0037](0037-mcp-control-plane-authorization.md) | The MCP control plane is its own OAuth 2.1 authorization server | 2026-09-06 | Accepted |
