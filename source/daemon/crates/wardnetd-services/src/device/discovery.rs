@@ -244,6 +244,11 @@ pub struct DeviceDiscoveryServiceImpl {
     trusted_subnets: ArcSwap<Vec<ipnetwork::Ipv4Network>>,
     /// Wardnet's own LAN IP. Never a device, whatever ARP says (issue #886).
     lan_ip: std::net::Ipv4Addr,
+    /// The LAN gateway's MAC and the address it holds, cached alongside
+    /// `trusted_subnets` and refreshed with them. A gateway's MAC is on every
+    /// frame it forwards, so it identifies the gateway only when the source IP
+    /// is the gateway's own.
+    gateway: ArcSwap<Option<(String, String)>>,
     /// Per-MAC recent distinct-IP history, keyed by MAC. Feeds the flap detector
     /// that stops trusting a MAC claiming many addresses at once (issue #886).
     ip_history: Arc<RwLock<HashMap<String, IpFlapHistory>>>,
@@ -281,6 +286,7 @@ impl DeviceDiscoveryServiceImpl {
             // startup + event-driven `rebuild_trusted_subnets` calls.
             trusted_subnets: ArcSwap::from_pointee(vec![lan_subnet]),
             lan_ip,
+            gateway: ArcSwap::from_pointee(None),
             state: Arc::new(RwLock::new(HashMap::new())),
             ip_history: Arc::new(RwLock::new(HashMap::new())),
             device_locks: tokio::sync::Mutex::new(HashMap::new()),
@@ -759,6 +765,22 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             count = subnets.len(),
         );
         self.trusted_subnets.store(Arc::new(subnets));
+
+        // The gateway identity rides the same refresh: both are cached facts
+        // about the environment that the per-observation path must not pay a
+        // database query for.
+        let mac = self
+            .system_config
+            .get_router_mac()
+            .await
+            .map_err(AppError::Internal)?;
+        let ip = self
+            .system_config
+            .get("dhcp_router_ip")
+            .await
+            .map_err(AppError::Internal)?;
+        self.gateway
+            .store(Arc::new(mac.zip(ip).map(|(m, i)| (m.to_lowercase(), i))));
         Ok(())
     }
 
@@ -780,6 +802,25 @@ impl DeviceDiscoveryService for DeviceDiscoveryServiceImpl {
             if !trusted.iter().any(|subnet| subnet.contains(ip)) {
                 return Ok(ObservationResult::Ignored);
             }
+        }
+
+        // The gateway forwards other hosts' traffic, and traffic it hairpins
+        // back onto the LAN keeps the original source IP — which sits inside a
+        // trusted subnet and so survives the filter above. Believed, it makes
+        // the gateway look like a device that changes address many times a
+        // minute, and every apparent change flushes conntrack for that address,
+        // dropping the established flows of whichever device really owns it. It
+        // also invents a device row for an address nothing has ever leased.
+        if let Some((gateway_mac, gateway_ip)) = self.gateway.load().as_ref()
+            && obs.mac.eq_ignore_ascii_case(gateway_mac)
+            && obs.ip != *gateway_ip
+        {
+            tracing::debug!(
+                mac = %obs.mac,
+                ip = %obs.ip,
+                "device discovery: ignoring an address the gateway is only forwarding for"
+            );
+            return Ok(ObservationResult::Ignored);
         }
 
         // Serialize the full observe-then-persist sequence for this mac against
