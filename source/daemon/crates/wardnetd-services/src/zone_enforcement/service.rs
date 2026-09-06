@@ -479,7 +479,24 @@ impl ZoneEnforcementServiceImpl {
         match endpoint.kind {
             ExceptionEndpointKind::Device => {
                 match self.devices.find_by_id(&endpoint.id.to_string()).await {
-                    Ok(Some(device)) => Some(format!("{}/32", device.last_ip)),
+                    // Discovery clears `last_ip` the moment a device departs, so
+                    // an endpoint that is merely switched off arrives here with
+                    // no address. Rendering it anyway yields a bare "/32", which
+                    // the firewall rejects — and `apply_zone_isolation` fails as
+                    // a unit, so one absent device would drop every unrelated
+                    // cross-zone deny and leave the network with no isolation.
+                    // Skipping the exception costs only that exception, and it
+                    // returns by itself when the device is seen again.
+                    Ok(Some(device)) => {
+                        let Ok(ip) = device.last_ip.parse::<Ipv4Addr>() else {
+                            tracing::warn!(
+                                device_id = %endpoint.id,
+                                "zone enforcer: exception endpoint has no address, skipping"
+                            );
+                            return None;
+                        };
+                        Some(format!("{ip}/32"))
+                    }
                     Ok(None) => {
                         tracing::warn!(
                             device_id = %endpoint.id,
@@ -1407,11 +1424,19 @@ fn add_switchback_target(
     device: &Device,
     target_cidr: &str,
 ) {
-    if target_cidr == format!("{}/32", device.last_ip) {
+    // A zone endpoint resolves whether or not its members are present, so a
+    // device that has departed — discovery clears `last_ip` — arrives here with
+    // no address. Recorded anyway, `RoutingService` asks the kernel for a rule
+    // whose source is "", netlink rejects it, and the carve-out is never
+    // installed; the device earns its targets back when it is next seen.
+    let Ok(ip) = device.last_ip.parse::<Ipv4Addr>() else {
+        return;
+    };
+    if target_cidr == format!("{ip}/32") {
         return;
     }
     acc.entry(device.id)
-        .or_insert_with(|| (device.last_ip.clone(), BTreeSet::new()))
+        .or_insert_with(|| (ip.to_string(), BTreeSet::new()))
         .1
         .insert(target_cidr.to_owned());
 }

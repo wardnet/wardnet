@@ -51,13 +51,19 @@ const casting: ZoneException = {
   updated_at: "2026-01-01T00:00:00Z",
 };
 
-function renderCard({ exceptions = [] as ZoneException[] } = {}) {
+function renderCard({
+  exceptions = [] as ZoneException[],
+  createError = null as Error | null,
+  onResetCreateError = vi.fn(),
+} = {}) {
   return renderWithProviders(
     <ZoneExceptionsCard
       exceptions={exceptions}
       zones={[makeZone()]}
       devices={[makeDevice({ id: "d1", name: "Phone" })]}
       isSaving={false}
+      createError={createError}
+      onResetCreateError={onResetCreateError}
       onCreateException={onCreateException}
       onDeleteException={onDeleteException}
     />,
@@ -139,6 +145,31 @@ describe("ZoneExceptionsCard", () => {
       },
       expect.objectContaining({ onSuccess: expect.any(Function) }),
     );
+  });
+
+  it("closes the form once the create succeeds", async () => {
+    // The page owns the mutation, so the card only learns of success through
+    // the `onSuccess` callback it hands down; without it the form stays open
+    // over a save that already landed.
+    onCreateException.mockImplementation(
+      (_body: unknown, cbs?: { onSuccess?: () => void }) => cbs?.onSuccess?.(),
+    );
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderCard();
+    await user.click(screen.getByTestId("exception-add"));
+
+    const combos = screen.getAllByRole("combobox");
+    await user.click(combos[0]);
+    await user.click(
+      await screen.findByRole("option", { name: "Device: Phone" }),
+    );
+    await user.click(combos[1]);
+    await user.click(
+      await screen.findByRole("option", { name: "Zone: Guest" }),
+    );
+    await user.click(screen.getByTestId("exception-submit"));
+
+    expect(screen.queryByTestId("exception-submit")).not.toBeInTheDocument();
   });
 
   it("creates a smart-home exception (issue #1098)", async () => {
@@ -309,5 +340,56 @@ describe("ZoneExceptionsCard", () => {
     await user.click(await screen.findByTestId("exception-delete"));
     await user.click(await screen.findByTestId("confirm-dialog-confirm"));
     expect(onDeleteException).toHaveBeenCalledWith("e1");
+  });
+  it("shows why the daemon rejected the exception", async () => {
+    // The daemon answers an invalid exception with a 400 carrying the reason.
+    // With no error channel the card discards it and the save looks like it
+    // did nothing, leaving the operator to read the browser console to learn
+    // that a full-range service has to be device-to-device. The reason belongs
+    // with the form that is still open behind it, so it goes when the form does.
+    const user = userEvent.setup();
+    renderCard({
+      createError: new Error(
+        "a full-range (all-ports) exception requires device-to-device endpoints",
+      ),
+    });
+    await user.click(screen.getByTestId("exception-add"));
+
+    expect(
+      screen.getByText(/requires device-to-device endpoints/i),
+    ).toBeInTheDocument();
+  });
+
+  it("clears the rejection before a reopened form is shown", async () => {
+    // The mutation keeps its error until the next `mutate`, so a reopened form
+    // would greet the operator with the last rejection before they have
+    // submitted anything.
+    const onResetCreateError = vi.fn();
+    const user = userEvent.setup();
+    renderCard({
+      createError: new Error(
+        "a full-range (all-ports) exception requires device-to-device endpoints",
+      ),
+      onResetCreateError,
+    });
+
+    await user.click(screen.getByTestId("exception-add"));
+
+    expect(onResetCreateError).toHaveBeenCalled();
+  });
+
+  it("drops the rejection reason when the form is cancelled", async () => {
+    const user = userEvent.setup();
+    renderCard({
+      createError: new Error(
+        "a full-range (all-ports) exception requires device-to-device endpoints",
+      ),
+    });
+    await user.click(screen.getByTestId("exception-add"));
+    await user.click(screen.getByRole("button", { name: /cancel/i }));
+
+    expect(
+      screen.queryByText(/requires device-to-device endpoints/i),
+    ).not.toBeInTheDocument();
   });
 });
