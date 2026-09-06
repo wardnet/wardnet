@@ -10,7 +10,8 @@ issue: "#1202 (Agent-ops 1 — the recovery plane is a separate process the daem
 > ADR-0034. Both numbers were taken by ADRs authored between the epic's design
 > interview (2026-08-15) and this change; per the README's rule the set is scanned
 > and incremented, so this is **0036** and the MCP authorization-server ADR (#1203)
-> is **0037**. The epic's text is not rewritten — this note is the redirect.
+> is [**0037**](0037-mcp-control-plane-authorization.md). The epic's text is not
+> rewritten — this note is the redirect.
 
 ## Context
 
@@ -37,7 +38,8 @@ before anyone could use it.
 
 This ADR records the process split that fixes that, and the constraints that
 made every simpler arrangement impossible. It decides *where the transport
-lives*; ADR-0037 decides how the control plane on top of it authenticates.
+lives*; [ADR-0037](0037-mcp-control-plane-authorization.md) decides how the
+control plane on top of it authenticates.
 
 ## Decision
 
@@ -47,7 +49,7 @@ lives*; ADR-0037 decides how the control plane on top of it authenticates.
 |---|---|---|
 | `wardnetd` | features; provisions the tunneller at setup and on remote-access change | `always` + `WatchdogSec=15` |
 | `wardnet-tunneller` | dumb frame router: owns the single WebSocket, dispatches by `dest_port` / SNI | `always`, no watchdog |
-| `wardnet-mcp` | control plane; unprivileged local listener behind OAuth 2.1 (ADR-0037) | `always` |
+| `wardnet-mcp` | control plane; unprivileged local listener behind OAuth 2.1 ([ADR-0037](0037-mcp-control-plane-authorization.md)) | `always` |
 
 The split is not "extract the recovery feature". It is "extract the *transport*,
 and nothing else". `wardnet-tunneller` owns the dial (Ed25519 PoP + WebSocket
