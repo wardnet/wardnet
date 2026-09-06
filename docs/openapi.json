@@ -6,7 +6,7 @@
     "license": {
       "name": "GPL-3.0-or-later"
     },
-    "version": "2026.08.01"
+    "version": "2026.09.00"
   },
   "paths": {
     "/api/access-requests": {
