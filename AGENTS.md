@@ -205,6 +205,19 @@ you're about to make, rather than the whole set.
   would only widen every entry; and **the endpoint has exactly one pagination
   model** — a second, offset-based one would keep the slow path reachable and
   tested.
+- **[Recovery plane](docs/adr/0036-recovery-plane-is-a-separate-process.md)** — why the
+  reverse-tunnel client leaves `wardnetd` for a standalone `wardnet-tunneller`
+  (the always-up process is deliberately the *dumbest* one), why the **tunneller**
+  is extracted rather than the MCP server (both relayed features terminate in the
+  daemon, so what must survive a restart is the **transport**), and why a second
+  tunnel is impossible without cloud surgery (`TunnelRegistry::register(&slug)` is
+  slug-keyed and aborts the incumbent). Covers the **Ed25519 seed** handoff — tokens
+  would sever the channel an hour into a daemon outage — with its two-copies-on-disk
+  blast radius stated, and why egress independence is already true by construction
+  (no `SO_MARK`/`fwmark`/`SO_BINDTODEVICE`, no nftables `output` hook) while **DNS**
+  is not. Invariant: **recovery-channel health never feeds `HealthMonitor` or
+  `/dev/watchdog`** — the soft watchdog would restart `wardnetd` during a *cloud*
+  outage. Glossary in [CONTEXT.md](CONTEXT.md#recovery-plane-issue-1201).
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with
