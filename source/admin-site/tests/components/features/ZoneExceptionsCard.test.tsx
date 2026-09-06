@@ -147,6 +147,31 @@ describe("ZoneExceptionsCard", () => {
     );
   });
 
+  it("closes the form once the create succeeds", async () => {
+    // The page owns the mutation, so the card only learns of success through
+    // the `onSuccess` callback it hands down; without it the form stays open
+    // over a save that already landed.
+    onCreateException.mockImplementation(
+      (_body: unknown, cbs?: { onSuccess?: () => void }) => cbs?.onSuccess?.(),
+    );
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    renderCard();
+    await user.click(screen.getByTestId("exception-add"));
+
+    const combos = screen.getAllByRole("combobox");
+    await user.click(combos[0]);
+    await user.click(
+      await screen.findByRole("option", { name: "Device: Phone" }),
+    );
+    await user.click(combos[1]);
+    await user.click(
+      await screen.findByRole("option", { name: "Zone: Guest" }),
+    );
+    await user.click(screen.getByTestId("exception-submit"));
+
+    expect(screen.queryByTestId("exception-submit")).not.toBeInTheDocument();
+  });
+
   it("creates a smart-home exception (issue #1098)", async () => {
     // The preset the casting one was silently failing to cover: it must reach
     // the daemon as a real backend preset, not as an expanded port list.
