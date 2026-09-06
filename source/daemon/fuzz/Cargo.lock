@@ -4560,7 +4560,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "spki 0.7.3",
+ "spki 0.8.0",
  "sqlx",
  "sysinfo",
  "tar",
