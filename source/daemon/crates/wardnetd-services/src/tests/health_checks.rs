@@ -170,6 +170,20 @@ struct MockDhcpService {
 
 #[async_trait]
 impl DhcpService for MockDhcpService {
+    async fn renewal_counts_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, i64)>, crate::error::AppError> {
+        unimplemented!()
+    }
+
+    async fn renewal_count_for_mac_since(
+        &self,
+        _mac: &str,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, crate::error::AppError> {
+        unimplemented!()
+    }
     async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
         if self.fail {
             return Err(AppError::Internal(anyhow::anyhow!(

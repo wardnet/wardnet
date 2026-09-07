@@ -136,7 +136,45 @@ impl DbLeaseLogRow {
 
 #[async_trait]
 impl DhcpRepository for SqliteDhcpRepository {
-    // ── Leases ──────────────────────────────────────────────────────
+    async fn count_renewals_by_mac_since(&self, since: &str) -> anyhow::Result<Vec<(String, i64)>> {
+        // `created_at` is fixed-width RFC 3339 text, so lexicographic
+        // comparison is chronological — the assumption the rest of this
+        // repository already makes about the column.
+        //
+        // Aggregated in SQL because the detector only needs the count, and a
+        // client stuck at the renewal floor contributes thousands of rows a day.
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT mac_address, COUNT(*) FROM dhcp_lease_log \
+             WHERE event_type = 'renewed' AND created_at >= ? \
+             GROUP BY mac_address",
+        )
+        .bind(since)
+        .fetch_all(&self.pools.read)
+        .await?;
+        Ok(rows)
+    }
+
+    async fn count_renewals_for_mac_since(&self, mac: &str, since: &str) -> anyhow::Result<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM dhcp_lease_log \
+             WHERE mac_address = ? AND event_type = 'renewed' AND created_at >= ?",
+        )
+        .bind(mac)
+        .bind(since)
+        .fetch_one(&self.pools.read)
+        .await?;
+        Ok(count)
+    }
+
+    async fn prune_lease_logs(&self, older_than: &str) -> anyhow::Result<u64> {
+        Ok(
+            sqlx::query("DELETE FROM dhcp_lease_log WHERE created_at < ?")
+                .bind(older_than)
+                .execute(&self.pools.write)
+                .await?
+                .rows_affected(),
+        )
+    }
 
     async fn insert_lease(&self, row: &DhcpLeaseRow) -> anyhow::Result<()> {
         sqlx::query(

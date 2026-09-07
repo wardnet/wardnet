@@ -79,6 +79,20 @@ impl MockRunnerDhcpService {
 
 #[async_trait]
 impl DhcpService for MockRunnerDhcpService {
+    async fn renewal_counts_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, i64)>, crate::error::AppError> {
+        unimplemented!()
+    }
+
+    async fn renewal_count_for_mac_since(
+        &self,
+        _mac: &str,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, crate::error::AppError> {
+        unimplemented!()
+    }
     async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
     }
@@ -390,6 +404,20 @@ async fn runner_handles_config_load_failure() {
 
     #[async_trait]
     impl DhcpService for FailConfigService {
+        async fn renewal_counts_since(
+            &self,
+            _since: chrono::DateTime<chrono::Utc>,
+        ) -> Result<Vec<(String, i64)>, crate::error::AppError> {
+            unimplemented!()
+        }
+
+        async fn renewal_count_for_mac_since(
+            &self,
+            _mac: &str,
+            _since: chrono::DateTime<chrono::Utc>,
+        ) -> Result<i64, crate::error::AppError> {
+            unimplemented!()
+        }
         async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
             unimplemented!()
         }

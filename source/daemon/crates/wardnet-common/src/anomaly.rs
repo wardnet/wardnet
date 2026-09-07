@@ -76,6 +76,9 @@ pub enum AnomalyType {
     /// An upstream DNS server has stopped answering the reachability prober,
     /// so the forwarder has taken it out of rotation.
     DnsUpstreamUnreachable,
+    /// A DHCP client is re-requesting its lease far more often than the
+    /// configured lease implies, which means it is not registering our reply.
+    DhcpRenewalStorm,
 }
 
 impl AnomalyType {
@@ -88,6 +91,7 @@ impl AnomalyType {
         Self::RouteTableLost,
         Self::BlocklistRefreshFailing,
         Self::DnsUpstreamUnreachable,
+        Self::DhcpRenewalStorm,
     ];
 
     /// Stable `snake_case` identifier. This is the wire form: it is the
@@ -103,6 +107,7 @@ impl AnomalyType {
             Self::RouteTableLost => "route_table_lost",
             Self::BlocklistRefreshFailing => "blocklist_refresh_failing",
             Self::DnsUpstreamUnreachable => "dns_upstream_unreachable",
+            Self::DhcpRenewalStorm => "dhcp_renewal_storm",
         }
     }
 
@@ -127,9 +132,10 @@ impl AnomalyType {
             | Self::UpdateFailed
             | Self::RouteTableLost
             | Self::BlocklistRefreshFailing => AnomalySeverity::Error,
-            Self::TunnelUnhealthy | Self::DhcpConflict | Self::DnsUpstreamUnreachable => {
-                AnomalySeverity::Warning
-            }
+            Self::TunnelUnhealthy
+            | Self::DhcpConflict
+            | Self::DnsUpstreamUnreachable
+            | Self::DhcpRenewalStorm => AnomalySeverity::Warning,
         }
     }
 
@@ -139,7 +145,7 @@ impl AnomalyType {
         match self {
             Self::TunnelStartFailed | Self::TunnelUnhealthy => "tunnel",
             Self::UpdateFailed => "update",
-            Self::DhcpConflict => "dhcp",
+            Self::DhcpConflict | Self::DhcpRenewalStorm => "dhcp",
             Self::RouteTableLost => "routing",
             Self::BlocklistRefreshFailing | Self::DnsUpstreamUnreachable => "dns",
         }
@@ -157,7 +163,7 @@ impl AnomalyType {
         match self {
             Self::TunnelStartFailed | Self::TunnelUnhealthy => "/tunnels",
             Self::UpdateFailed => "/settings",
-            Self::DhcpConflict => "/dhcp",
+            Self::DhcpConflict | Self::DhcpRenewalStorm => "/dhcp",
             Self::RouteTableLost => "/routing",
             Self::BlocklistRefreshFailing => "/dns/filter",
             Self::DnsUpstreamUnreachable => "/dns",
@@ -196,6 +202,12 @@ impl AnomalyType {
                 "The list is still enforcing its last good download, but it is going \
                  stale. Check the URL is still valid and reachable from the gateway, \
                  then refresh it from Ad Blocking."
+            }
+            Self::DhcpRenewalStorm => {
+                "This device keeps asking for its address back far sooner than its lease \
+                 requires, which usually means it is not accepting our replies. It still \
+                 works, but it is generating constant network churn. Try restarting it, \
+                 or give it a fixed reservation."
             }
             Self::DnsUpstreamUnreachable => {
                 "This server has stopped answering, so queries are going to the other \

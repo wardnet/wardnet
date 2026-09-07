@@ -560,3 +560,126 @@ impl AnomalyDetector for FakeDetector {
         Ok(self.verdict)
     }
 }
+
+/// `DhcpService` double for the renewal-storm detector.
+///
+/// Only the three methods that detector touches are real; everything else is
+/// `unimplemented!()` so a change that starts depending on one shows up loudly.
+pub struct FakeDhcpService {
+    lease_duration_secs: u32,
+    counts: Vec<(String, i64)>,
+}
+
+impl FakeDhcpService {
+    #[must_use]
+    pub fn new(lease_duration_secs: u32, counts: &[(&str, i64)]) -> Self {
+        Self {
+            lease_duration_secs,
+            counts: counts
+                .iter()
+                .map(|(mac, n)| ((*mac).to_owned(), *n))
+                .collect(),
+        }
+    }
+}
+
+#[async_trait]
+impl crate::dhcp::DhcpService for FakeDhcpService {
+    async fn get_dhcp_config(&self) -> Result<wardnet_common::dhcp::DhcpConfig, AppError> {
+        Ok(wardnet_common::dhcp::DhcpConfig {
+            enabled: true,
+            gateway_ip: "192.168.100.1".parse().unwrap(),
+            pool_start: "192.168.100.100".parse().unwrap(),
+            pool_end: "192.168.100.200".parse().unwrap(),
+            subnet_mask: "255.255.255.0".parse().unwrap(),
+            upstream_dns: vec![],
+            lease_duration_secs: self.lease_duration_secs,
+            router_ip: None,
+        })
+    }
+
+    async fn renewal_counts_since(
+        &self,
+        _since: chrono::DateTime<Utc>,
+    ) -> Result<Vec<(String, i64)>, AppError> {
+        Ok(self.counts.clone())
+    }
+
+    async fn renewal_count_for_mac_since(
+        &self,
+        mac: &str,
+        _since: chrono::DateTime<Utc>,
+    ) -> Result<i64, AppError> {
+        Ok(self
+            .counts
+            .iter()
+            .find(|(m, _)| m == mac)
+            .map_or(0, |(_, n)| *n))
+    }
+
+    async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_config(
+        &self,
+        _req: UpdateDhcpConfigRequest,
+    ) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn preview_config(
+        &self,
+        _req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn toggle(&self, _req: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_leases(&self) -> Result<ListDhcpLeasesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn revoke_lease(&self, _id: Uuid) -> Result<RevokeDhcpLeaseResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_reservations(&self) -> Result<ListDhcpReservationsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_reservation(
+        &self,
+        _req: CreateDhcpReservationRequest,
+    ) -> Result<CreateDhcpReservationResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_reservation(
+        &self,
+        _id: Uuid,
+    ) -> Result<DeleteDhcpReservationResponse, AppError> {
+        unimplemented!()
+    }
+    async fn status(&self) -> Result<DhcpStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn assign_lease(
+        &self,
+        _mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<wardnet_common::dhcp::DhcpLease, AppError> {
+        unimplemented!()
+    }
+    async fn renew_lease(
+        &self,
+        _mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<wardnet_common::dhcp::DhcpLease, AppError> {
+        unimplemented!()
+    }
+    async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn cleanup_expired(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
+    }
+}

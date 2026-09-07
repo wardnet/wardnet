@@ -852,6 +852,7 @@ fn create_services(
             dns_filter: dns_filter_service.clone(),
             upstream_health: upstream_health.clone(),
             tunnel: tunnel_service.clone(),
+            dhcp: dhcp_service.clone(),
             running_version: crate::version::RELEASE_VERSION.to_owned(),
         },
     ));

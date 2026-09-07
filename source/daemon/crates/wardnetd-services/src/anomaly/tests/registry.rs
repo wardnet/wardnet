@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use wardnet_common::anomaly::AnomalyType;
 
-use super::support::{FakeDetector, FakeDnsFilter, FakeTunnels};
+use super::support::{FakeDetector, FakeDhcpService, FakeDnsFilter, FakeTunnels};
 use crate::anomaly::registry::{AnomalyDetectorRegistry, DetectorDeps, EnabledDetectors};
 
 fn deps() -> DetectorDeps {
@@ -11,6 +11,7 @@ fn deps() -> DetectorDeps {
         dns_filter: FakeDnsFilter::new(5, Vec::new()),
         upstream_health: std::sync::Arc::new(crate::dns::UpstreamHealth::new()),
         tunnel: FakeTunnels::new(Vec::new()),
+        dhcp: std::sync::Arc::new(FakeDhcpService::new(86_400, &[])),
         running_version: "2026.08.00".to_owned(),
     }
 }
@@ -64,14 +65,15 @@ fn the_schedule_contains_only_detectors_with_an_interval() {
 
     let schedule = registry.schedule();
 
-    // The two state-polling detectors: a blocklist's failure counter and the
-    // DNS prober's reachability snapshot. Everything else is reactive and has
-    // nothing to schedule.
+    // The state-polling detectors: a blocklist's failure counter, a MAC's
+    // renewal count over the last day, and the DNS prober's reachability
+    // snapshot. Everything else is reactive and has nothing to schedule.
     let scheduled: Vec<AnomalyType> = schedule.iter().map(|(t, _)| *t).collect();
     assert_eq!(
         scheduled,
         vec![
             AnomalyType::BlocklistRefreshFailing,
+            AnomalyType::DhcpRenewalStorm,
             AnomalyType::DnsUpstreamUnreachable,
         ],
         "only the preventive detectors are scheduled, in slug order"

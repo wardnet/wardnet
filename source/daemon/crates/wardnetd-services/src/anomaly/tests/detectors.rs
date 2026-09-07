@@ -6,11 +6,13 @@ use uuid::Uuid;
 use wardnet_common::anomaly::{Anomaly, AnomalyStatus, AnomalyType};
 use wardnet_common::tunnel::TunnelStatus;
 
-use super::support::{DnsFilterProfileStub, FakeDnsFilter, FakeTunnels, blocklist, tunnel};
+use super::support::{
+    DnsFilterProfileStub, FakeDhcpService, FakeDnsFilter, FakeTunnels, blocklist, tunnel,
+};
 use crate::anomaly::detector::AnomalyDetector;
 use crate::anomaly::detectors::{
-    BlocklistRefreshFailingDetector, DnsUpstreamUnreachableDetector, TransientDetector,
-    TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
+    BlocklistRefreshFailingDetector, DhcpRenewalStormDetector, DnsUpstreamUnreachableDetector,
+    TransientDetector, TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
 };
 use crate::dns::UpstreamHealth;
 
@@ -582,5 +584,155 @@ async fn a_subjectless_anomaly_resolves_rather_than_lingering() {
         .reevaluate(&anomaly(AnomalyType::DnsUpstreamUnreachable, None))
         .await
         .unwrap();
+    assert_eq!(status, AnomalyStatus::Resolved);
+}
+
+// ---------------------------------------------------------------------------
+// DhcpRenewalStormDetector (#1338)
+//
+// The threshold is derived from the configured lease rather than hardcoded,
+// so the tests pin both the derivation and the boundary: a constant tuned for
+// a 24h lease fires for every healthy device on a 1h one.
+// ---------------------------------------------------------------------------
+
+fn renewal_detector(lease_duration_secs: u32, counts: &[(&str, i64)]) -> DhcpRenewalStormDetector {
+    DhcpRenewalStormDetector::new(Arc::new(FakeDhcpService::new(lease_duration_secs, counts)))
+}
+
+#[tokio::test]
+async fn a_client_renewing_far_above_the_lease_rate_is_reported() {
+    // 24h lease => T1 12h => 2 renewals/day expected => threshold 40.
+    let detector = renewal_detector(86_400, &[("8c:86:dd:3d:0f:96", 2_567)]);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].anomaly_type, AnomalyType::DhcpRenewalStorm);
+    assert_eq!(reports[0].subject_id.as_deref(), Some("8c:86:dd:3d:0f:96"));
+    let details = reports[0].details.as_ref().unwrap();
+    assert_eq!(details["renewals"], 2_567);
+    assert_eq!(details["threshold"], 40);
+}
+
+#[tokio::test]
+async fn a_client_renewing_at_the_expected_rate_is_not_reported() {
+    let detector = renewal_detector(86_400, &[("d8:ec:5e:8f:3c:a4", 2)]);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert!(reports.is_empty());
+}
+
+/// The boundary is exclusive: exactly at the threshold is not yet a storm.
+#[tokio::test]
+async fn the_threshold_itself_does_not_raise_an_anomaly() {
+    let detector = renewal_detector(86_400, &[("aa:bb:cc:dd:ee:ff", 40)]);
+    assert!(detector.detect().await.unwrap().is_empty());
+
+    let detector = renewal_detector(86_400, &[("aa:bb:cc:dd:ee:ff", 41)]);
+    assert_eq!(detector.detect().await.unwrap().len(), 1);
+}
+
+/// The regression this whole derivation exists to prevent. With a 1h lease a
+/// healthy client renews ~48 times a day; a threshold hardcoded for a 24h
+/// lease (40) would fire for every device on the network.
+#[tokio::test]
+async fn a_short_lease_raises_the_threshold_instead_of_flagging_healthy_clients() {
+    // 1h lease => T1 30min => 48 renewals/day expected => threshold 960.
+    let detector = renewal_detector(3_600, &[("d8:ec:5e:8f:3c:a4", 48)]);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert!(
+        reports.is_empty(),
+        "a client renewing at the rate a 1h lease implies is healthy, not a storm"
+    );
+}
+
+#[tokio::test]
+async fn a_short_lease_still_reports_a_genuine_storm() {
+    let detector = renewal_detector(3_600, &[("8c:86:dd:3d:0f:96", 2_000)]);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].details.as_ref().unwrap()["threshold"], 960);
+}
+
+/// A very long lease drives the derived threshold below a handful, where a
+/// single retry pair would otherwise raise an anomaly.
+#[tokio::test]
+async fn a_very_long_lease_falls_back_to_the_absolute_floor() {
+    // 30 day lease => T1 15 days => 0.067 renewals/day => derived threshold 2.
+    let detector = renewal_detector(2_592_000, &[("aa:bb:cc:dd:ee:ff", 5)]);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert!(
+        reports.is_empty(),
+        "five renewals must not be a storm however long the lease is"
+    );
+}
+
+#[tokio::test]
+async fn each_offending_client_gets_its_own_report() {
+    let detector = renewal_detector(
+        86_400,
+        &[
+            ("8c:86:dd:3d:0f:96", 2_567),
+            ("80:69:1a:75:e1:58", 150),
+            ("d8:ec:5e:8f:3c:a4", 26),
+        ],
+    );
+
+    let reports = detector.detect().await.unwrap();
+
+    let mut subjects: Vec<_> = reports
+        .iter()
+        .map(|r| r.subject_id.clone().unwrap())
+        .collect();
+    subjects.sort();
+    assert_eq!(subjects, vec!["80:69:1a:75:e1:58", "8c:86:dd:3d:0f:96"]);
+}
+
+#[tokio::test]
+async fn an_open_storm_stays_open_while_the_client_still_storms() {
+    let detector = renewal_detector(86_400, &[("8c:86:dd:3d:0f:96", 2_567)]);
+    let open = anomaly(AnomalyType::DhcpRenewalStorm, Some("8c:86:dd:3d:0f:96"));
+
+    let status = detector.reevaluate(&open).await.unwrap();
+
+    assert_eq!(status, AnomalyStatus::Open);
+}
+
+#[tokio::test]
+async fn a_storm_resolves_once_the_client_settles() {
+    let detector = renewal_detector(86_400, &[("8c:86:dd:3d:0f:96", 3)]);
+    let open = anomaly(AnomalyType::DhcpRenewalStorm, Some("8c:86:dd:3d:0f:96"));
+
+    let status = detector.reevaluate(&open).await.unwrap();
+
+    assert_eq!(status, AnomalyStatus::Resolved);
+}
+
+/// A client that has not renewed at all since the anomaly opened is absent
+/// from the counts entirely, which must resolve rather than hang open.
+#[tokio::test]
+async fn a_storm_resolves_when_the_client_stops_renewing_altogether() {
+    let detector = renewal_detector(86_400, &[]);
+    let open = anomaly(AnomalyType::DhcpRenewalStorm, Some("8c:86:dd:3d:0f:96"));
+
+    let status = detector.reevaluate(&open).await.unwrap();
+
+    assert_eq!(status, AnomalyStatus::Resolved);
+}
+
+#[tokio::test]
+async fn a_storm_without_a_subject_resolves_rather_than_lingering() {
+    let detector = renewal_detector(86_400, &[("8c:86:dd:3d:0f:96", 2_567)]);
+    let open = anomaly(AnomalyType::DhcpRenewalStorm, None);
+
+    let status = detector.reevaluate(&open).await.unwrap();
+
     assert_eq!(status, AnomalyStatus::Resolved);
 }

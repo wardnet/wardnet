@@ -6,9 +6,10 @@ use wardnet_common::anomaly::AnomalyType;
 
 use crate::anomaly::detector::AnomalyDetector;
 use crate::anomaly::detectors::{
-    BlocklistRefreshFailingDetector, DnsUpstreamUnreachableDetector, TransientDetector,
-    TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
+    BlocklistRefreshFailingDetector, DhcpRenewalStormDetector, DnsUpstreamUnreachableDetector,
+    TransientDetector, TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
 };
+use crate::dhcp::DhcpService;
 use crate::dns::UpstreamHealth;
 use crate::dns_filter::DnsFilterService;
 use crate::tunnel::TunnelService;
@@ -22,6 +23,9 @@ pub type EnabledDetectors = HashMap<String, bool>;
 /// rule background runners follow.
 pub struct DetectorDeps {
     pub dns_filter: Arc<dyn DnsFilterService>,
+    /// Lease-renewal counts and the configured lease duration, for
+    /// `DhcpRenewalStorm`'s derived threshold.
+    pub dhcp: Arc<dyn DhcpService>,
     /// Per-upstream reachability, published by the DNS server's latency
     /// prober. A handle rather than the server itself: the registry is built
     /// during service wiring, before the daemon binary constructs the DNS
@@ -79,6 +83,9 @@ impl AnomalyDetectorRegistry {
             registry.register(Arc::new(TransientDetector::new(
                 AnomalyType::RouteTableLost,
             )));
+        }
+        if Self::is_enabled(enabled, AnomalyType::DhcpRenewalStorm) {
+            registry.register(Arc::new(DhcpRenewalStormDetector::new(deps.dhcp.clone())));
         }
         if Self::is_enabled(enabled, AnomalyType::DhcpConflict) {
             registry.register(Arc::new(TransientDetector::new(AnomalyType::DhcpConflict)));

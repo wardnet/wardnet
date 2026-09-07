@@ -119,4 +119,23 @@ pub trait DhcpRepository: Send + Sync {
     /// lease record — released or expired leases can be deleted while
     /// the per-device history stays intact (issue #312).
     async fn find_lease_logs_by_mac(&self, mac: &str) -> anyhow::Result<Vec<DhcpLeaseLog>>;
+
+    /// Renewal counts per MAC since `since` (RFC 3339), for the renewal-storm
+    /// detector.
+    ///
+    /// Aggregated in SQL rather than by loading rows: the observed pathological
+    /// client writes ~2,500 renewals a day on its own, and the detector only
+    /// ever needs the count.
+    async fn count_renewals_by_mac_since(&self, since: &str) -> anyhow::Result<Vec<(String, i64)>>;
+
+    /// Renewal count for a single MAC since `since` (RFC 3339).
+    async fn count_renewals_for_mac_since(&self, mac: &str, since: &str) -> anyhow::Result<i64>;
+
+    /// Delete lease-log rows older than `older_than` (RFC 3339), returning how
+    /// many were removed.
+    ///
+    /// The table is an append-only audit trail with no natural ceiling — a
+    /// single client stuck at the renewal floor contributes ~2,500 rows a day
+    /// indefinitely.
+    async fn prune_lease_logs(&self, older_than: &str) -> anyhow::Result<u64>;
 }
