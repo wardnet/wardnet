@@ -2,6 +2,7 @@ pub mod access_request;
 pub mod anomaly;
 pub mod api_key;
 pub mod device;
+pub mod device_event;
 pub mod device_identification;
 pub mod dhcp;
 pub mod dns;
@@ -31,6 +32,9 @@ pub use access_request::{AccessRequestRepository, DuplicateOpenAccessRequestErro
 pub use anomaly::{ANOMALY_RETENTION_CAP, AnomalyRepository, NewAnomaly};
 pub use api_key::ApiKeyRepository;
 pub use device::{DeviceRepository, DeviceRow, PrunedDevice};
+pub use device_event::{
+    DEVICE_EVENT_MAX_PER_DEVICE, DEVICE_EVENT_RETENTION_DAYS, DeviceEventRepository, NewDeviceEvent,
+};
 pub use device_identification::{DeviceIdentificationRepository, DeviceSignalRow};
 pub use dhcp::{DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow};
 pub use dns::{DnsRepository, QueryLogFilter, QueryLogPageRow, QueryLogRow};

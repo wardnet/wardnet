@@ -52,6 +52,8 @@
 
 **Routing target** — Where a device's traffic egresses: a specific **tunnel**, **direct** (bypass all tunnels, use the WAN), or **default** (explicitly defer to the gateway's default policy). A device's *current* routing target is its per-device rule if one exists.
 
+**Egress path** — A concrete path packets can actually leave the box by: one **tunnel** interface (`wg_ward*`), or **direct** (the WAN). Distinct from a **routing target**, which is a *policy choice* and may also be `default` — a deferral that resolves to whichever path the gateway policy currently selects. Every routing target except `default` denotes an egress path; `default` denotes whichever one is in force. The distinction is load-bearing for diagnostics: an egress path is the thing a socket can be bound to and therefore the thing a probe can measure (`SO_BINDTODEVICE` per tunnel, unbound for direct), whereas probing `default` would silently change meaning when the policy changed. Per-path health probes and the anomalies they raise are keyed by egress path — the tunnel's id, or the literal `direct`.
+
 **Routing rule** — A per-device binding of a device to a routing target, created by an admin or by the device owner (self-service). At most one rule exists per device.
 
 **Default policy** — The gateway-wide fallback applied to a device that has **no** routing rule of its own. A device following the default policy is distinct from one whose rule's target is explicitly *default*: the former has no rule (its current routing target is absent/`null`), the latter has a rule that names *default* as the target. Both ultimately follow the gateway policy, but only the latter is a persisted choice.

@@ -6,6 +6,7 @@ pub mod backup;
 pub mod config;
 pub mod config_restore;
 pub mod device;
+pub mod device_event;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_filter;
