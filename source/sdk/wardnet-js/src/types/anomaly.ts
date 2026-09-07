@@ -13,6 +13,10 @@ export type AnomalyType =
   | "route_table_lost"
   | "blocklist_refresh_failing"
   | "dns_upstream_unreachable"
+  | "dhcp_renewal_storm"
+  | "device_address_churn"
+  | "egress_path_unreachable"
+  | "egress_path_degraded"
   | (string & {});
 
 /** How serious an anomaly is. */

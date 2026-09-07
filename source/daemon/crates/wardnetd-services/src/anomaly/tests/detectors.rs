@@ -13,10 +13,12 @@ use super::support::{
 use crate::anomaly::detector::AnomalyDetector;
 use crate::anomaly::detectors::{
     BlocklistRefreshFailingDetector, DeviceAddressChurnDetector, DhcpRenewalStormDetector,
-    DnsUpstreamUnreachableDetector, TransientDetector, TunnelStartFailedDetector,
-    TunnelUnhealthyDetector, UpdateFailedDetector,
+    DnsUpstreamUnreachableDetector, EgressPathDetector, TransientDetector,
+    TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
 };
 use crate::dns::UpstreamHealth;
+use crate::egress_path::EgressPathHealth;
+use wardnet_common::egress_path::{PathHealth, PathProbeOutcome, StageOutcome};
 
 fn anomaly(anomaly_type: AnomalyType, subject: Option<&str>) -> Anomaly {
     Anomaly {
@@ -844,5 +846,192 @@ async fn churn_without_a_subject_resolves_rather_than_lingering() {
     assert_eq!(
         detector.reevaluate(&open).await.unwrap(),
         AnomalyStatus::Resolved
+    );
+}
+
+// ---------------------------------------------------------------------------
+// EgressPathDetector (#1338)
+//
+// The two stages are separate types, and the split is the whole diagnostic:
+// connect-ok + transfer-fail is the MSS/MTU signature a connect-only probe
+// reports as healthy.
+// ---------------------------------------------------------------------------
+
+fn path_health(path: &str, connect_ok: bool, transfer_ok: Option<bool>) -> PathHealth {
+    PathHealth {
+        path: path.to_owned(),
+        label: format!("Tunnel {path}"),
+        outcome: PathProbeOutcome {
+            connect: if connect_ok {
+                StageOutcome::succeeded(12)
+            } else {
+                StageOutcome::failed("connection refused")
+            },
+            transfer: transfer_ok.map(|ok| {
+                if ok {
+                    StageOutcome::succeeded(48)
+                } else {
+                    StageOutcome::failed("timed out mid-handshake")
+                }
+            }),
+        },
+    }
+}
+
+fn path_health_snapshot(entries: Vec<PathHealth>) -> Arc<EgressPathHealth> {
+    let health = Arc::new(EgressPathHealth::new());
+    health.publish(entries);
+    health
+}
+
+#[tokio::test]
+async fn a_path_that_cannot_connect_is_reported_unreachable() {
+    let health = path_health_snapshot(vec![path_health("wg-1", false, None)]);
+    let detector = EgressPathDetector::unreachable(health);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].anomaly_type, AnomalyType::EgressPathUnreachable);
+    assert_eq!(reports[0].subject_id.as_deref(), Some("wg-1"));
+}
+
+/// The case the whole two-stage design exists for: the handshake completes, so
+/// a connect-only probe would call this healthy, and every real connection
+/// still stalls.
+#[tokio::test]
+async fn a_path_that_connects_but_cannot_transfer_is_reported_degraded() {
+    let health = path_health_snapshot(vec![path_health("wg-1", true, Some(false))]);
+    let detector = EgressPathDetector::degraded(health);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].anomaly_type, AnomalyType::EgressPathDegraded);
+    assert_eq!(reports[0].details.as_ref().unwrap()["stage"], "transfer");
+}
+
+/// One fault must raise one anomaly. A dead path has no transfer stage to
+/// judge, so it must not also read as degraded.
+#[tokio::test]
+async fn a_dead_path_raises_only_the_unreachable_anomaly() {
+    let health = path_health_snapshot(vec![path_health("wg-1", false, None)]);
+
+    assert_eq!(
+        EgressPathDetector::unreachable(health.clone())
+            .detect()
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        EgressPathDetector::degraded(health)
+            .detect()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn a_healthy_path_raises_nothing() {
+    let health = path_health_snapshot(vec![path_health("wg-1", true, Some(true))]);
+
+    assert!(
+        EgressPathDetector::unreachable(health.clone())
+            .detect()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        EgressPathDetector::degraded(health)
+            .detect()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+/// Nothing measured is not the same as everything down. The first sweep can run
+/// before the first probe round completes, and an empty snapshot must not put
+/// every path on the dashboard.
+#[tokio::test]
+async fn an_unmeasured_snapshot_raises_nothing() {
+    let health = Arc::new(EgressPathHealth::new());
+
+    assert!(
+        EgressPathDetector::unreachable(health.clone())
+            .detect()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        EgressPathDetector::degraded(health)
+            .detect()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn each_failing_path_gets_its_own_report() {
+    let health = path_health_snapshot(vec![
+        path_health("wg-1", false, None),
+        path_health("direct", false, None),
+        path_health("wg-2", true, Some(true)),
+    ]);
+
+    let mut subjects: Vec<_> = EgressPathDetector::unreachable(health)
+        .detect()
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.subject_id.clone().unwrap())
+        .collect();
+    subjects.sort();
+
+    assert_eq!(subjects, vec!["direct", "wg-1"]);
+}
+
+#[tokio::test]
+async fn a_path_anomaly_resolves_once_the_path_recovers() {
+    let health = path_health_snapshot(vec![path_health("wg-1", true, Some(true))]);
+    let detector = EgressPathDetector::unreachable(health);
+    let open = anomaly(AnomalyType::EgressPathUnreachable, Some("wg-1"));
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Resolved
+    );
+}
+
+/// A path that has left the probe set — its tunnel was deleted, or is no longer
+/// up and so belongs to `TunnelUnhealthy` — must not keep an anomaly open that
+/// nothing will ever close.
+#[tokio::test]
+async fn a_path_that_left_the_probe_set_resolves() {
+    let health = path_health_snapshot(vec![path_health("wg-2", true, Some(true))]);
+    let detector = EgressPathDetector::unreachable(health);
+    let open = anomaly(AnomalyType::EgressPathUnreachable, Some("wg-1"));
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Resolved
+    );
+}
+
+#[tokio::test]
+async fn a_path_anomaly_stays_open_while_the_path_is_still_broken() {
+    let health = path_health_snapshot(vec![path_health("wg-1", true, Some(false))]);
+    let detector = EgressPathDetector::degraded(health);
+    let open = anomaly(AnomalyType::EgressPathDegraded, Some("wg-1"));
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Open
     );
 }

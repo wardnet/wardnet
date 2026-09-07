@@ -104,6 +104,16 @@ export type {
   ReevaluateAnomaliesResponse,
 } from "./types/anomaly.js";
 
+// Types — device timeline
+export type {
+  DeviceDhcpEvent,
+  DeviceDnsBucket,
+  DeviceEventKind,
+  DeviceTimelineEvent,
+  DeviceTimelineResponse,
+  DeviceTimelineWindow,
+} from "./types/device-timeline.js";
+
 // Types — system
 export type {
   LastShutdownState,

@@ -27,6 +27,7 @@ use wardnet_common::config::{
 };
 use wardnetd::device_detector::DeviceDetector;
 use wardnetd::device_snapshot_listener::DeviceSnapshotListener;
+use wardnetd::egress_path_prober::RealEgressPathProber;
 use wardnetd::entitlement_listener::EntitlementListener;
 use wardnetd::firewall_netlink::NetlinkFirewallManager;
 use wardnetd::garp_pnet::PnetGarpOps;
@@ -77,6 +78,7 @@ use wardnetd_services::dns::query_log_runner::DnsQueryLogRunner;
 use wardnetd_services::dns::runner::DnsRunner;
 use wardnetd_services::dns_filter::blocklist_downloader::{BlocklistFetcher, HttpBlocklistFetcher};
 use wardnetd_services::dns_filter::runner::DnsFilterRunner;
+use wardnetd_services::egress_path::{EgressPathProbeRunner, ProbeTarget};
 use wardnetd_services::health::checks::{
     DbHealthCheck, DhcpServerHealthCheck, DnsServerHealthCheck, DotServerHealthCheck,
     LivenessHealthCheck,
@@ -527,6 +529,21 @@ async fn run(
     let device_event_listener = DeviceEventListener::start(
         &services.event_publisher,
         services.device_event.clone(),
+        &root_span,
+    );
+    // Probes each egress path — every tunnel that is up, plus direct — and
+    // publishes what came back for the path detectors to read.
+    //
+    // Deliberately not wired into `HealthMonitor`: a failing path probe is an
+    // anomaly, never a watchdog input, or a flaky VPN would restart the daemon.
+    let egress_path_probe_runner = EgressPathProbeRunner::start(
+        Arc::new(RealEgressPathProber::new(
+            ProbeTarget::default(),
+            config.tunnel.test_probe_url.clone(),
+        )),
+        services.tunnel.clone(),
+        services.egress_path_health.clone(),
+        services.stats_meter.clone(),
         &root_span,
     );
     let anomalies_engine = AnomaliesDetectionEngine::start_with_intervals(
@@ -1315,6 +1332,7 @@ async fn run(
     push_listener.shutdown().await;
     anomaly_listener.shutdown().await;
     device_event_listener.shutdown().await;
+    egress_path_probe_runner.shutdown().await;
     anomalies_engine.shutdown().await;
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;

@@ -31,6 +31,16 @@ struct MockDnsService {
 
 #[async_trait]
 impl DnsService for MockDnsService {
+    async fn device_result_mix(
+        &self,
+        _device_id: &str,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+        _bucket_secs: i64,
+    ) -> Result<Vec<(i64, String, i64)>, AppError> {
+        Ok(Vec::new())
+    }
+
     async fn get_dns_config(&self) -> Result<DnsConfig, AppError> {
         if self.fail {
             return Err(AppError::Internal(anyhow::anyhow!(
@@ -170,6 +180,15 @@ struct MockDhcpService {
 
 #[async_trait]
 impl DhcpService for MockDhcpService {
+    async fn lease_logs_for_mac_between(
+        &self,
+        _mac: &str,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+        unimplemented!()
+    }
+
     async fn renewal_counts_since(
         &self,
         _since: chrono::DateTime<chrono::Utc>,

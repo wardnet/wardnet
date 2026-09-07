@@ -10,6 +10,7 @@ pub mod device_event;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_filter;
+pub mod egress_path;
 pub mod event;
 pub mod jobs;
 pub mod net;

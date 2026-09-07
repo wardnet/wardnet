@@ -79,6 +79,15 @@ impl MockRunnerDhcpService {
 
 #[async_trait]
 impl DhcpService for MockRunnerDhcpService {
+    async fn lease_logs_for_mac_between(
+        &self,
+        _mac: &str,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+        unimplemented!()
+    }
+
     async fn renewal_counts_since(
         &self,
         _since: chrono::DateTime<chrono::Utc>,
@@ -404,6 +413,15 @@ async fn runner_handles_config_load_failure() {
 
     #[async_trait]
     impl DhcpService for FailConfigService {
+        async fn lease_logs_for_mac_between(
+            &self,
+            _mac: &str,
+            _from: chrono::DateTime<chrono::Utc>,
+            _to: chrono::DateTime<chrono::Utc>,
+        ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+            unimplemented!()
+        }
+
         async fn renewal_counts_since(
             &self,
             _since: chrono::DateTime<chrono::Utc>,

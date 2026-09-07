@@ -23,6 +23,7 @@ pub mod dhcp;
 pub mod dns;
 pub mod dns_filter;
 pub mod dns_local;
+pub mod egress_path;
 pub mod entitlement;
 pub mod garp;
 pub mod health;
@@ -242,6 +243,10 @@ pub struct Services {
     /// the DNS server because the anomaly registry below needs it before the
     /// daemon binary constructs that server.
     pub upstream_health: Arc<UpstreamHealth>,
+    /// Per-egress-path probe results (issue #1338). Created here rather than
+    /// inside the runner because the anomaly registry needs it before the
+    /// daemon binary starts that runner.
+    pub egress_path_health: Arc<crate::egress_path::EgressPathHealth>,
     pub anomaly: Arc<dyn AnomalyService>,
     /// The observational per-device event log behind the connectivity timeline.
     pub device_event: Arc<dyn DeviceEventService>,
@@ -323,6 +328,9 @@ pub struct Services {
     pub stats: Arc<dyn StatsService>,
     /// Shared stats buffer — drained by [`StatsFlushRunner`] in `main.rs`.
     pub stats_buffer: Arc<StatsBuffer>,
+    /// Instrument factory, shared so background runners record into the same
+    /// buffer the flush runner drains.
+    pub stats_meter: Arc<Meter>,
     /// Process-wide entitlement state, flipped by the DDNS cloud clients on
     /// token mints (suspend on a `403`, restore on success). Cloned into
     /// `AppState` (to gate the premium app surfaces) and the DDNS/TLS runners
@@ -851,6 +859,8 @@ fn create_services(
         config,
     );
 
+    let egress_path_health = Arc::new(crate::egress_path::EgressPathHealth::new());
+
     let device_event_service: Arc<dyn DeviceEventService> =
         Arc::new(crate::device_event::DeviceEventServiceImpl::new(
             repo_factory.device_event(),
@@ -868,6 +878,7 @@ fn create_services(
             tunnel: tunnel_service.clone(),
             dhcp: dhcp_service.clone(),
             device_event: device_event_service.clone(),
+            egress_path_health: egress_path_health.clone(),
             running_version: crate::version::RELEASE_VERSION.to_owned(),
         },
     ));
@@ -891,6 +902,8 @@ fn create_services(
         dns: dns_service,
         upstream_health,
         anomaly: anomaly_service,
+        stats_meter: stats_meter.clone(),
+        egress_path_health,
         device_event: device_event_service,
         dns_filter: dns_filter_service,
         dns_local: dns_local_service,

@@ -566,6 +566,15 @@ impl MockDhcpRepository {
 
 #[async_trait]
 impl DhcpRepository for MockDhcpRepository {
+    async fn lease_logs_for_mac_between(
+        &self,
+        _mac: &str,
+        _from: &str,
+        _to: &str,
+    ) -> anyhow::Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>> {
+        unimplemented!()
+    }
+
     async fn count_renewals_by_mac_since(
         &self,
         _since: &str,

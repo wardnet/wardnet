@@ -81,6 +81,11 @@ pub enum AnomalyType {
     DhcpRenewalStorm,
     /// One MAC is changing address far more often than any real device does.
     DeviceAddressChurn,
+    /// An egress path cannot complete a TCP connection at all.
+    EgressPathUnreachable,
+    /// An egress path connects but cannot complete a transfer — small packets
+    /// get through, full-size segments do not.
+    EgressPathDegraded,
 }
 
 impl AnomalyType {
@@ -95,6 +100,8 @@ impl AnomalyType {
         Self::DnsUpstreamUnreachable,
         Self::DhcpRenewalStorm,
         Self::DeviceAddressChurn,
+        Self::EgressPathUnreachable,
+        Self::EgressPathDegraded,
     ];
 
     /// Stable `snake_case` identifier. This is the wire form: it is the
@@ -112,6 +119,8 @@ impl AnomalyType {
             Self::DnsUpstreamUnreachable => "dns_upstream_unreachable",
             Self::DhcpRenewalStorm => "dhcp_renewal_storm",
             Self::DeviceAddressChurn => "device_address_churn",
+            Self::EgressPathUnreachable => "egress_path_unreachable",
+            Self::EgressPathDegraded => "egress_path_degraded",
         }
     }
 
@@ -135,12 +144,14 @@ impl AnomalyType {
             Self::TunnelStartFailed
             | Self::UpdateFailed
             | Self::RouteTableLost
-            | Self::BlocklistRefreshFailing => AnomalySeverity::Error,
+            | Self::BlocklistRefreshFailing
+            | Self::EgressPathUnreachable => AnomalySeverity::Error,
             Self::TunnelUnhealthy
             | Self::DhcpConflict
             | Self::DnsUpstreamUnreachable
             | Self::DhcpRenewalStorm
-            | Self::DeviceAddressChurn => AnomalySeverity::Warning,
+            | Self::DeviceAddressChurn
+            | Self::EgressPathDegraded => AnomalySeverity::Warning,
         }
     }
 
@@ -152,6 +163,7 @@ impl AnomalyType {
             Self::UpdateFailed => "update",
             Self::DhcpConflict | Self::DhcpRenewalStorm => "dhcp",
             Self::DeviceAddressChurn => "device",
+            Self::EgressPathUnreachable | Self::EgressPathDegraded => "network",
             Self::RouteTableLost => "routing",
             Self::BlocklistRefreshFailing | Self::DnsUpstreamUnreachable => "dns",
         }
@@ -171,6 +183,7 @@ impl AnomalyType {
             Self::UpdateFailed => "/settings",
             Self::DhcpConflict | Self::DhcpRenewalStorm => "/dhcp",
             Self::DeviceAddressChurn => "/devices",
+            Self::EgressPathUnreachable | Self::EgressPathDegraded => "/tunnels",
             Self::RouteTableLost => "/routing",
             Self::BlocklistRefreshFailing => "/dns/filter",
             Self::DnsUpstreamUnreachable => "/dns",
@@ -221,6 +234,17 @@ impl AnomalyType {
                  device does. That is usually something answering for addresses it does \
                  not own — a powerline adapter or a router bridging traffic — rather than \
                  the device itself moving. Each change tears down its live connections."
+            }
+            Self::EgressPathUnreachable => {
+                "Nothing is getting out over this path — connections to the internet do \
+                 not complete at all. If it is a tunnel, check that its peer is up; if \
+                 it is the direct connection, check the line to your provider."
+            }
+            Self::EgressPathDegraded => {
+                "Connections over this path start but then stall. Small packets get \
+                 through and larger ones do not, which usually means the path's maximum \
+                 packet size is being mis-negotiated. Devices on it will see pages that \
+                 hang part-loaded and apps that retry forever."
             }
             Self::DnsUpstreamUnreachable => {
                 "This server has stopped answering, so queries are going to the other \

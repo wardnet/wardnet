@@ -585,6 +585,15 @@ impl FakeDhcpService {
 
 #[async_trait]
 impl crate::dhcp::DhcpService for FakeDhcpService {
+    async fn lease_logs_for_mac_between(
+        &self,
+        _mac: &str,
+        _from: chrono::DateTime<Utc>,
+        _to: chrono::DateTime<Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+        unimplemented!()
+    }
+
     async fn get_dhcp_config(&self) -> Result<wardnet_common::dhcp::DhcpConfig, AppError> {
         Ok(wardnet_common::dhcp::DhcpConfig {
             enabled: true,
