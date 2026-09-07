@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use wardnet_common::anomaly::AnomalyType;
 
-use super::support::{FakeDetector, FakeDhcpService, FakeDnsFilter, FakeTunnels};
+use super::support::{FakeDetector, FakeDeviceEvents, FakeDhcpService, FakeDnsFilter, FakeTunnels};
 use crate::anomaly::registry::{AnomalyDetectorRegistry, DetectorDeps, EnabledDetectors};
 
 fn deps() -> DetectorDeps {
@@ -12,6 +12,7 @@ fn deps() -> DetectorDeps {
         upstream_health: std::sync::Arc::new(crate::dns::UpstreamHealth::new()),
         tunnel: FakeTunnels::new(Vec::new()),
         dhcp: std::sync::Arc::new(FakeDhcpService::new(86_400, &[])),
+        device_event: FakeDeviceEvents::new(&[]),
         running_version: "2026.08.00".to_owned(),
     }
 }
@@ -73,6 +74,7 @@ fn the_schedule_contains_only_detectors_with_an_interval() {
         scheduled,
         vec![
             AnomalyType::BlocklistRefreshFailing,
+            AnomalyType::DeviceAddressChurn,
             AnomalyType::DhcpRenewalStorm,
             AnomalyType::DnsUpstreamUnreachable,
         ],

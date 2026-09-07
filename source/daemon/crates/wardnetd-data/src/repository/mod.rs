@@ -62,14 +62,15 @@ pub use routing_profile::{
 pub use session::{SessionForRefresh, SessionPrincipal, SessionRepository, SessionSummary};
 pub use sqlite::{
     SqliteAccessRequestRepository, SqliteAnomalyRepository, SqliteApiKeyRepository,
-    SqliteDeviceIdentificationRepository, SqliteDeviceRepository, SqliteDhcpRepository,
-    SqliteDnsEventsRepository, SqliteDnsFilterRepository, SqliteDnsLocalRepository,
-    SqliteDnsRepository, SqliteInboundWgPeerRepository, SqliteMaintenanceRepository,
-    SqliteNetworkZoneRepository, SqliteNotificationRepository, SqlitePrivateDnsGrantRepository,
-    SqlitePushRepository, SqliteRoutingProfileRepository, SqliteSessionRepository,
-    SqliteStatsRepository, SqliteSystemConfigRepository, SqliteTunnelRepository,
-    SqliteTunnelSpeedTestRepository, SqliteUpdateRepository, SqliteUserCredentialRepository,
-    SqliteUserEnrolmentRepository, SqliteUserRepository, SqliteZoneExceptionRepository,
+    SqliteDeviceEventRepository, SqliteDeviceIdentificationRepository, SqliteDeviceRepository,
+    SqliteDhcpRepository, SqliteDnsEventsRepository, SqliteDnsFilterRepository,
+    SqliteDnsLocalRepository, SqliteDnsRepository, SqliteInboundWgPeerRepository,
+    SqliteMaintenanceRepository, SqliteNetworkZoneRepository, SqliteNotificationRepository,
+    SqlitePrivateDnsGrantRepository, SqlitePushRepository, SqliteRoutingProfileRepository,
+    SqliteSessionRepository, SqliteStatsRepository, SqliteSystemConfigRepository,
+    SqliteTunnelRepository, SqliteTunnelSpeedTestRepository, SqliteUpdateRepository,
+    SqliteUserCredentialRepository, SqliteUserEnrolmentRepository, SqliteUserRepository,
+    SqliteZoneExceptionRepository,
 };
 pub use stats::{DailyStatRow, HourlyStatRow, IntradayStatRow, StatsRepository};
 pub use system_config::{LastShutdownInfo, SystemConfigRepository};

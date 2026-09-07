@@ -7,12 +7,14 @@ use wardnet_common::anomaly::{Anomaly, AnomalyStatus, AnomalyType};
 use wardnet_common::tunnel::TunnelStatus;
 
 use super::support::{
-    DnsFilterProfileStub, FakeDhcpService, FakeDnsFilter, FakeTunnels, blocklist, tunnel,
+    DnsFilterProfileStub, FakeDeviceEvents, FakeDhcpService, FakeDnsFilter, FakeTunnels, blocklist,
+    tunnel,
 };
 use crate::anomaly::detector::AnomalyDetector;
 use crate::anomaly::detectors::{
-    BlocklistRefreshFailingDetector, DhcpRenewalStormDetector, DnsUpstreamUnreachableDetector,
-    TransientDetector, TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
+    BlocklistRefreshFailingDetector, DeviceAddressChurnDetector, DhcpRenewalStormDetector,
+    DnsUpstreamUnreachableDetector, TransientDetector, TunnelStartFailedDetector,
+    TunnelUnhealthyDetector, UpdateFailedDetector,
 };
 use crate::dns::UpstreamHealth;
 
@@ -735,4 +737,112 @@ async fn a_storm_without_a_subject_resolves_rather_than_lingering() {
     let status = detector.reevaluate(&open).await.unwrap();
 
     assert_eq!(status, AnomalyStatus::Resolved);
+}
+
+// ---------------------------------------------------------------------------
+// DeviceAddressChurnDetector (#1338)
+//
+// The threshold sits inside a measured empty band (nothing on a live box falls
+// between 21 and 100 changes/day), so these cases pin the boundary and — the
+// part that distinguishes this from the #886 flap guard — that a MAC alternating
+// between only two addresses is still caught.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_mac_changing_address_constantly_is_reported() {
+    let detector =
+        DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("192.168.100.1-router", 673)]));
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].anomaly_type, AnomalyType::DeviceAddressChurn);
+    assert_eq!(reports[0].details.as_ref().unwrap()["changes"], 673);
+    assert_eq!(reports[0].details.as_ref().unwrap()["threshold"], 50);
+}
+
+#[tokio::test]
+async fn a_device_moving_occasionally_is_not_reported() {
+    let detector =
+        DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("d8:ec:5e:8f:3c:a4", 11)]));
+
+    assert!(detector.detect().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_churn_threshold_itself_does_not_raise_an_anomaly() {
+    let detector =
+        DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("aa:bb:cc:00:00:01", 50)]));
+    assert!(detector.detect().await.unwrap().is_empty());
+
+    let detector =
+        DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("aa:bb:cc:00:00:01", 51)]));
+    assert_eq!(detector.detect().await.unwrap().len(), 1);
+}
+
+/// The gap the #886 flap guard cannot see: that guard counts *distinct*
+/// addresses in a 60-second window and tolerates up to three, so a MAC
+/// alternating between exactly two never trips it however often it does so.
+#[tokio::test]
+async fn a_mac_alternating_between_two_addresses_is_still_caught() {
+    let detector =
+        DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("8c:86:dd:3d:0f:96", 238)]));
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].subject_id.as_deref(), Some("8c:86:dd:3d:0f:96"));
+}
+
+#[tokio::test]
+async fn each_churning_mac_gets_its_own_report() {
+    let detector = DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[
+        ("mac-a", 673),
+        ("mac-b", 358),
+        ("mac-c", 11),
+    ]));
+
+    let mut subjects: Vec<_> = detector
+        .detect()
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.subject_id.clone().unwrap())
+        .collect();
+    subjects.sort();
+
+    assert_eq!(subjects, vec!["mac-a", "mac-b"]);
+}
+
+#[tokio::test]
+async fn churn_stays_open_while_the_mac_keeps_changing() {
+    let detector = DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("mac-a", 673)]));
+    let open = anomaly(AnomalyType::DeviceAddressChurn, Some("mac-a"));
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Open
+    );
+}
+
+#[tokio::test]
+async fn churn_resolves_once_the_mac_settles() {
+    let detector = DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("mac-a", 2)]));
+    let open = anomaly(AnomalyType::DeviceAddressChurn, Some("mac-a"));
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Resolved
+    );
+}
+
+#[tokio::test]
+async fn churn_without_a_subject_resolves_rather_than_lingering() {
+    let detector = DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("mac-a", 673)]));
+    let open = anomaly(AnomalyType::DeviceAddressChurn, None);
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Resolved
+    );
 }

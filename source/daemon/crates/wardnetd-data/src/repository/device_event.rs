@@ -64,6 +64,30 @@ pub trait DeviceEventRepository: Send + Sync {
         since: DateTime<Utc>,
     ) -> anyhow::Result<i64>;
 
+    /// Counts of `kind` per MAC since `since`, for the churn detector's sweep.
+    ///
+    /// Aggregated in SQL because the detector only needs the counts, and the
+    /// station this exists to catch contributes hundreds of rows a day on its
+    /// own.
+    async fn count_by_mac_since(
+        &self,
+        kind: DeviceEventKind,
+        since: DateTime<Utc>,
+    ) -> anyhow::Result<Vec<(String, i64)>>;
+
+    /// The kind of the most recent event recorded for a device, if any.
+    ///
+    /// Exists because the event bus cannot distinguish a device being seen for
+    /// the first time from one returning after an absence: both are published
+    /// as `DeviceDiscovered`, and three listeners (routing, zone enforcement,
+    /// device snapshot) depend on that, so the bus is deliberately left alone.
+    /// The timeline's own history is the tie-breaker — an arrival that follows
+    /// a `Gone` is a return.
+    async fn latest_kind_for_device(
+        &self,
+        device_id: &str,
+    ) -> anyhow::Result<Option<DeviceEventKind>>;
+
     /// Apply both retention caps, returning how many rows were deleted.
     async fn prune(&self, older_than: DateTime<Utc>, max_per_device: u32) -> anyhow::Result<u64>;
 }

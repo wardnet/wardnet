@@ -166,6 +166,26 @@ impl DhcpRepository for SqliteDhcpRepository {
         Ok(count)
     }
 
+    async fn lease_logs_for_mac_between(
+        &self,
+        mac: &str,
+        from: &str,
+        to: &str,
+    ) -> anyhow::Result<Vec<DhcpLeaseLog>> {
+        let rows: Vec<DbLeaseLogRow> = sqlx::query_as(
+            "SELECT id, lease_id, mac_address, event_type, details, created_at \
+             FROM dhcp_lease_log \
+             WHERE mac_address = ? AND created_at >= ? AND created_at <= ? \
+             ORDER BY created_at, id",
+        )
+        .bind(mac)
+        .bind(from)
+        .bind(to)
+        .fetch_all(&self.pools.read)
+        .await?;
+        rows.into_iter().map(DbLeaseLogRow::into_log).collect()
+    }
+
     async fn prune_lease_logs(&self, older_than: &str) -> anyhow::Result<u64> {
         Ok(
             sqlx::query("DELETE FROM dhcp_lease_log WHERE created_at < ?")

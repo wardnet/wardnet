@@ -69,6 +69,7 @@ use wardnetd_services::cloud::TunnelerRunner;
 use wardnetd_services::db_maintenance_runner::DbMaintenanceRunner;
 use wardnetd_services::ddns::runner::DdnsUpdateRunner;
 use wardnetd_services::device::DeviceRetentionRunner;
+use wardnetd_services::device_event::DeviceEventListener;
 use wardnetd_services::dhcp::runner::DhcpRunner;
 use wardnetd_services::dns::DnsCaptureRunner;
 use wardnetd_services::dns::dhcp_lan_runner::DhcpLanRunner;
@@ -517,6 +518,15 @@ async fn run(
     let anomaly_listener = AnomalyListener::start(
         &services.event_publisher,
         services.anomaly.clone(),
+        &root_span,
+    );
+    // Subscribed alongside the anomaly listener and for the same reason: the
+    // timeline is only as complete as the point it started listening from, and
+    // early-boot arrivals are exactly what a connectivity investigation asks
+    // about.
+    let device_event_listener = DeviceEventListener::start(
+        &services.event_publisher,
+        services.device_event.clone(),
         &root_span,
     );
     let anomalies_engine = AnomaliesDetectionEngine::start_with_intervals(
@@ -1124,6 +1134,7 @@ async fn run(
     )
     .with_push_service(services.push.clone())
     .with_anomaly_service(services.anomaly.clone())
+    .with_device_event_service(services.device_event.clone())
     .with_device_identification_service(services.device_identification.clone())
     .with_routing_profile_service(services.routing_profile.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())
@@ -1303,6 +1314,7 @@ async fn run(
     entitlement_listener.shutdown().await;
     push_listener.shutdown().await;
     anomaly_listener.shutdown().await;
+    device_event_listener.shutdown().await;
     anomalies_engine.shutdown().await;
     route_monitor.shutdown().await;
     idle_watcher.shutdown().await;

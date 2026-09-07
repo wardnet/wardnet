@@ -6,9 +6,11 @@ use wardnet_common::anomaly::AnomalyType;
 
 use crate::anomaly::detector::AnomalyDetector;
 use crate::anomaly::detectors::{
-    BlocklistRefreshFailingDetector, DhcpRenewalStormDetector, DnsUpstreamUnreachableDetector,
-    TransientDetector, TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
+    BlocklistRefreshFailingDetector, DeviceAddressChurnDetector, DhcpRenewalStormDetector,
+    DnsUpstreamUnreachableDetector, TransientDetector, TunnelStartFailedDetector,
+    TunnelUnhealthyDetector, UpdateFailedDetector,
 };
+use crate::device_event::DeviceEventService;
 use crate::dhcp::DhcpService;
 use crate::dns::UpstreamHealth;
 use crate::dns_filter::DnsFilterService;
@@ -26,6 +28,8 @@ pub struct DetectorDeps {
     /// Lease-renewal counts and the configured lease duration, for
     /// `DhcpRenewalStorm`'s derived threshold.
     pub dhcp: Arc<dyn DhcpService>,
+    /// The device timeline, for `DeviceAddressChurn`'s transition counts.
+    pub device_event: Arc<dyn DeviceEventService>,
     /// Per-upstream reachability, published by the DNS server's latency
     /// prober. A handle rather than the server itself: the registry is built
     /// during service wiring, before the daemon binary constructs the DNS
@@ -82,6 +86,11 @@ impl AnomalyDetectorRegistry {
         if Self::is_enabled(enabled, AnomalyType::RouteTableLost) {
             registry.register(Arc::new(TransientDetector::new(
                 AnomalyType::RouteTableLost,
+            )));
+        }
+        if Self::is_enabled(enabled, AnomalyType::DeviceAddressChurn) {
+            registry.register(Arc::new(DeviceAddressChurnDetector::new(
+                deps.device_event.clone(),
             )));
         }
         if Self::is_enabled(enabled, AnomalyType::DhcpRenewalStorm) {

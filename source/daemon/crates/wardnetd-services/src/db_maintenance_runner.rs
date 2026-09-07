@@ -151,19 +151,32 @@ async fn record_day(
     }
 }
 
-/// Run the full daily maintenance sequence: vacuum, WAL checkpoint,
+/// Run the full daily maintenance sequence: prune, vacuum, WAL checkpoint,
 /// optimize. Each step is independent — a failure in one is logged and
 /// the next still runs, so a busy checkpoint never skips the planner
-/// refresh. The order matters: vacuum first moves freed pages onto the
-/// freelist (writing WAL frames), then the checkpoint folds them in and
-/// truncates the sidecar, then optimize refreshes statistics.
+/// refresh. The order matters: pruning the diagnostic logs frees pages,
+/// vacuum then moves them onto the freelist (writing WAL frames), the
+/// checkpoint folds them in and truncates the sidecar, and optimize
+/// refreshes statistics. Pruning after the vacuum would leave a day's
+/// deletions unreclaimed until the next run.
 pub(crate) async fn run_daily_maintenance(
     maintenance: &dyn MaintenanceService,
     admin_ctx: &AuthContext,
 ) {
+    run_prune(maintenance, admin_ctx).await;
     run_vacuum(maintenance, admin_ctx).await;
     run_checkpoint(maintenance, admin_ctx).await;
     run_optimize(maintenance, admin_ctx).await;
+}
+
+pub(crate) async fn run_prune(maintenance: &dyn MaintenanceService, admin_ctx: &AuthContext) {
+    match auth_context::with_context(admin_ctx.clone(), maintenance.prune_diagnostic_logs()).await {
+        // Logged unconditionally, like every other step: a daily job whose
+        // only output is a failure cannot be told apart from one that stopped
+        // running.
+        Ok(deleted) => tracing::info!(deleted, "pruned diagnostic logs: deleted={deleted} rows"),
+        Err(e) => tracing::warn!(error = %e, "failed to prune diagnostic logs: {e}"),
+    }
 }
 
 pub(crate) async fn run_vacuum(maintenance: &dyn MaintenanceService, admin_ctx: &AuthContext) {

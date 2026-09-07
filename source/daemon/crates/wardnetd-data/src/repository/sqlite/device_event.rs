@@ -1,18 +1,26 @@
 use async_trait::async_trait;
 use chrono::{DateTime, TimeZone, Utc};
 use sqlx::{Row, SqlitePool};
+
+use crate::DbPools;
 use wardnet_common::device_event::{DeviceEvent, DeviceEventKind};
 
 use crate::repository::device_event::{DeviceEventRepository, NewDeviceEvent};
 
 pub struct SqliteDeviceEventRepository {
-    pool: SqlitePool,
+    pools: DbPools,
 }
 
 impl SqliteDeviceEventRepository {
     #[must_use]
     pub fn new(pool: SqlitePool) -> Self {
-        Self { pool }
+        Self::new_pools(DbPools::single(pool))
+    }
+
+    /// Create with split reader/writer pools.
+    #[must_use]
+    pub fn new_pools(pools: DbPools) -> Self {
+        Self { pools }
     }
 }
 
@@ -28,7 +36,7 @@ impl DeviceEventRepository for SqliteDeviceEventRepository {
         .bind(event.kind.as_str())
         .bind(event.details)
         .bind(event.created_at.timestamp())
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?;
         Ok(())
     }
@@ -50,7 +58,7 @@ impl DeviceEventRepository for SqliteDeviceEventRepository {
         .bind(device_id)
         .bind(from.timestamp())
         .bind(to.timestamp())
-        .fetch_all(&self.pool)
+        .fetch_all(&self.pools.read)
         .await?;
 
         Ok(rows
@@ -87,15 +95,48 @@ impl DeviceEventRepository for SqliteDeviceEventRepository {
         .bind(mac)
         .bind(kind.as_str())
         .bind(since.timestamp())
-        .fetch_one(&self.pool)
+        .fetch_one(&self.pools.read)
         .await?;
         Ok(count)
+    }
+
+    async fn count_by_mac_since(
+        &self,
+        kind: DeviceEventKind,
+        since: DateTime<Utc>,
+    ) -> anyhow::Result<Vec<(String, i64)>> {
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT mac, COUNT(*) FROM device_events \
+             WHERE kind = ? AND created_at >= ? \
+             GROUP BY mac",
+        )
+        .bind(kind.as_str())
+        .bind(since.timestamp())
+        .fetch_all(&self.pools.read)
+        .await?;
+        Ok(rows)
+    }
+
+    async fn latest_kind_for_device(
+        &self,
+        device_id: &str,
+    ) -> anyhow::Result<Option<DeviceEventKind>> {
+        let kind: Option<String> = sqlx::query_scalar(
+            "SELECT kind FROM device_events WHERE device_id = ? \
+             ORDER BY created_at DESC, id DESC LIMIT 1",
+        )
+        .bind(device_id)
+        .fetch_optional(&self.pools.read)
+        .await?;
+        // An unrecognised slug reads as no history, which makes an arrival look
+        // like a first sighting — the safe way to be wrong.
+        Ok(kind.as_deref().and_then(DeviceEventKind::from_slug))
     }
 
     async fn prune(&self, older_than: DateTime<Utc>, max_per_device: u32) -> anyhow::Result<u64> {
         let aged = sqlx::query("DELETE FROM device_events WHERE created_at < ?")
             .bind(older_than.timestamp())
-            .execute(&self.pool)
+            .execute(&self.pools.write)
             .await?
             .rows_affected();
 
@@ -114,7 +155,7 @@ impl DeviceEventRepository for SqliteDeviceEventRepository {
              )",
         )
         .bind(max_per_device)
-        .execute(&self.pool)
+        .execute(&self.pools.write)
         .await?
         .rows_affected();
 

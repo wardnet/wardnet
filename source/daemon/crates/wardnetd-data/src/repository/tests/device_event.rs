@@ -269,3 +269,76 @@ async fn retention_window_is_expressed_in_days() {
     let thirty_days = Duration::days(crate::repository::DEVICE_EVENT_RETENTION_DAYS);
     assert_eq!(thirty_days.num_days(), 30);
 }
+
+#[tokio::test]
+async fn the_latest_kind_is_the_most_recent_event_for_that_device() {
+    let repo = repo().await;
+
+    repo.record(event(DEVICE, MAC, DeviceEventKind::Discovered, at(8, 0)))
+        .await
+        .unwrap();
+    repo.record(event(DEVICE, MAC, DeviceEventKind::Gone, at(9, 0)))
+        .await
+        .unwrap();
+    // A later event for a different device must not be mistaken for this one's.
+    repo.record(event(
+        OTHER_DEVICE,
+        OTHER_MAC,
+        DeviceEventKind::Discovered,
+        at(10, 0),
+    ))
+    .await
+    .unwrap();
+
+    let latest = repo.latest_kind_for_device(DEVICE).await.unwrap();
+
+    assert_eq!(latest, Some(DeviceEventKind::Gone));
+}
+
+#[tokio::test]
+async fn a_device_with_no_history_has_no_latest_kind() {
+    let repo = repo().await;
+
+    let latest = repo.latest_kind_for_device(DEVICE).await.unwrap();
+
+    assert_eq!(latest, None);
+}
+
+#[tokio::test]
+async fn counts_by_mac_are_grouped_and_scoped_to_kind_and_window() {
+    let repo = repo().await;
+
+    for minute in 0..3 {
+        repo.record(event(
+            DEVICE,
+            MAC,
+            DeviceEventKind::IpChanged,
+            at(10, minute),
+        ))
+        .await
+        .unwrap();
+    }
+    repo.record(event(
+        OTHER_DEVICE,
+        OTHER_MAC,
+        DeviceEventKind::IpChanged,
+        at(10, 0),
+    ))
+    .await
+    .unwrap();
+    // A different kind, and one before the window: neither may inflate a count.
+    repo.record(event(DEVICE, MAC, DeviceEventKind::Gone, at(10, 5)))
+        .await
+        .unwrap();
+    repo.record(event(DEVICE, MAC, DeviceEventKind::IpChanged, at(7, 0)))
+        .await
+        .unwrap();
+
+    let mut counts = repo
+        .count_by_mac_since(DeviceEventKind::IpChanged, at(9, 0))
+        .await
+        .unwrap();
+    counts.sort();
+
+    assert_eq!(counts, vec![(OTHER_MAC.to_owned(), 1), (MAC.to_owned(), 3)]);
+}

@@ -138,4 +138,12 @@ pub trait DhcpRepository: Send + Sync {
     /// single client stuck at the renewal floor contributes ~2,500 rows a day
     /// indefinitely.
     async fn prune_lease_logs(&self, older_than: &str) -> anyhow::Result<u64>;
+
+    /// Lease-log rows for one MAC inside `[from, to]` (RFC 3339), oldest first.
+    async fn lease_logs_for_mac_between(
+        &self,
+        mac: &str,
+        from: &str,
+        to: &str,
+    ) -> anyhow::Result<Vec<DhcpLeaseLog>>;
 }

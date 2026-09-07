@@ -161,6 +161,15 @@ pub trait DhcpService: Send + Sync {
         mac: &str,
         since: DateTime<Utc>,
     ) -> Result<i64, AppError>;
+
+    /// Lease-log rows for one MAC inside `[from, to]`, oldest first, for the
+    /// device timeline. Requires admin auth context.
+    async fn lease_logs_for_mac_between(
+        &self,
+        mac: &str,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError>;
 }
 
 /// Default implementation of [`DhcpService`].
@@ -1410,6 +1419,18 @@ impl DhcpService for DhcpServiceImpl {
         auth_context::require_admin()?;
         self.dhcp
             .count_renewals_for_mac_since(mac, &format_ts(since))
+            .await
+            .map_err(AppError::Internal)
+    }
+    async fn lease_logs_for_mac_between(
+        &self,
+        mac: &str,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+        auth_context::require_admin()?;
+        self.dhcp
+            .lease_logs_for_mac_between(mac, &format_ts(from), &format_ts(to))
             .await
             .map_err(AppError::Internal)
     }

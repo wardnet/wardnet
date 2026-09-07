@@ -76,10 +76,17 @@ impl MaintenanceRepository for MockRepo {
 }
 
 fn service(fail: bool) -> MaintenanceServiceImpl {
-    MaintenanceServiceImpl::new(Arc::new(MockRepo {
-        fail,
-        recorded_days: std::sync::Mutex::new(Vec::new()),
-    }))
+    // The diagnostic-log repositories are unused by these cases; a lazy pool
+    // constructs without I/O so they cost nothing here.
+    let pool = sqlx::SqlitePool::connect_lazy("sqlite::memory:").unwrap();
+    MaintenanceServiceImpl::new(
+        Arc::new(MockRepo {
+            fail,
+            recorded_days: std::sync::Mutex::new(Vec::new()),
+        }),
+        Arc::new(wardnetd_data::repository::sqlite::SqliteDeviceEventRepository::new(pool.clone())),
+        Arc::new(wardnetd_data::repository::sqlite::SqliteDhcpRepository::new(pool)),
+    )
 }
 
 fn admin_ctx() -> AuthContext {
@@ -208,4 +215,65 @@ async fn record_maintenance_day_forbidden_without_admin() {
         .await
         .expect_err("non-admin must be forbidden");
     assert!(matches!(err, AppError::Forbidden(_)));
+}
+
+// ── prune_diagnostic_logs ────────────────────────────────────────────────────
+
+/// Both diagnostic logs are pruned by the same daily step, so neither can be
+/// left growing because the other's runner happened to be the one wired up.
+#[tokio::test]
+async fn prune_diagnostic_logs_covers_device_events_and_lease_logs() {
+    use wardnet_common::device_event::DeviceEventKind;
+    use wardnetd_data::repository::sqlite::{SqliteDeviceEventRepository, SqliteDhcpRepository};
+    use wardnetd_data::repository::{DeviceEventRepository, NewDeviceEvent};
+
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect("sqlite::memory:")
+        .await
+        .unwrap();
+    sqlx::migrate!("../wardnetd-data/migrations")
+        .run(&pool)
+        .await
+        .unwrap();
+
+    let events = Arc::new(SqliteDeviceEventRepository::new(pool.clone()));
+    let ancient = chrono::Utc::now() - chrono::Duration::days(120);
+    events
+        .record(NewDeviceEvent {
+            device_id: "device-1",
+            mac: "8c:86:dd:3d:0f:96",
+            kind: DeviceEventKind::IpChanged,
+            details: None,
+            created_at: ancient,
+        })
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO dhcp_lease_log (lease_id, mac_address, event_type, created_at) \
+         VALUES ('lease-1', '8c:86:dd:3d:0f:96', 'renewed', '2025-01-01T00:00:00Z')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let service = MaintenanceServiceImpl::new(
+        Arc::new(MockRepo {
+            fail: false,
+            recorded_days: std::sync::Mutex::new(Vec::new()),
+        }),
+        events,
+        Arc::new(SqliteDhcpRepository::new(pool.clone())),
+    );
+
+    let deleted = auth_context::with_context(admin_ctx(), service.prune_diagnostic_logs())
+        .await
+        .unwrap();
+
+    assert_eq!(deleted, 2, "one row from each diagnostic log");
+}
+
+#[tokio::test]
+async fn prune_diagnostic_logs_requires_admin() {
+    let service = service(false);
+    assert!(service.prune_diagnostic_logs().await.is_err());
 }

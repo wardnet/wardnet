@@ -683,3 +683,64 @@ impl crate::dhcp::DhcpService for FakeDhcpService {
         unimplemented!()
     }
 }
+
+/// `DeviceEventService` double for the address-churn detector.
+pub struct FakeDeviceEvents {
+    counts: Vec<(String, i64)>,
+}
+
+impl FakeDeviceEvents {
+    #[must_use]
+    pub fn new(counts: &[(&str, i64)]) -> Arc<Self> {
+        Arc::new(Self {
+            counts: counts
+                .iter()
+                .map(|(mac, n)| ((*mac).to_owned(), *n))
+                .collect(),
+        })
+    }
+}
+
+#[async_trait]
+impl crate::device_event::DeviceEventService for FakeDeviceEvents {
+    async fn count_by_mac_since(
+        &self,
+        _kind: wardnet_common::device_event::DeviceEventKind,
+        _since: chrono::DateTime<Utc>,
+    ) -> Result<Vec<(String, i64)>, AppError> {
+        Ok(self.counts.clone())
+    }
+
+    async fn count_for_mac_since(
+        &self,
+        mac: &str,
+        _kind: wardnet_common::device_event::DeviceEventKind,
+        _since: chrono::DateTime<Utc>,
+    ) -> Result<i64, AppError> {
+        Ok(self
+            .counts
+            .iter()
+            .find(|(m, _)| m == mac)
+            .map_or(0, |(_, n)| *n))
+    }
+
+    async fn record(
+        &self,
+        _intent: crate::device_event::DeviceEventIntent,
+    ) -> Result<(), AppError> {
+        unimplemented!()
+    }
+
+    async fn list_for_device(
+        &self,
+        _device_id: Uuid,
+        _from: chrono::DateTime<Utc>,
+        _to: chrono::DateTime<Utc>,
+    ) -> Result<Vec<wardnet_common::device_event::DeviceEvent>, AppError> {
+        unimplemented!()
+    }
+
+    async fn prune(&self) -> Result<u64, AppError> {
+        unimplemented!()
+    }
+}

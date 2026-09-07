@@ -79,6 +79,8 @@ pub enum AnomalyType {
     /// A DHCP client is re-requesting its lease far more often than the
     /// configured lease implies, which means it is not registering our reply.
     DhcpRenewalStorm,
+    /// One MAC is changing address far more often than any real device does.
+    DeviceAddressChurn,
 }
 
 impl AnomalyType {
@@ -92,6 +94,7 @@ impl AnomalyType {
         Self::BlocklistRefreshFailing,
         Self::DnsUpstreamUnreachable,
         Self::DhcpRenewalStorm,
+        Self::DeviceAddressChurn,
     ];
 
     /// Stable `snake_case` identifier. This is the wire form: it is the
@@ -108,6 +111,7 @@ impl AnomalyType {
             Self::BlocklistRefreshFailing => "blocklist_refresh_failing",
             Self::DnsUpstreamUnreachable => "dns_upstream_unreachable",
             Self::DhcpRenewalStorm => "dhcp_renewal_storm",
+            Self::DeviceAddressChurn => "device_address_churn",
         }
     }
 
@@ -135,7 +139,8 @@ impl AnomalyType {
             Self::TunnelUnhealthy
             | Self::DhcpConflict
             | Self::DnsUpstreamUnreachable
-            | Self::DhcpRenewalStorm => AnomalySeverity::Warning,
+            | Self::DhcpRenewalStorm
+            | Self::DeviceAddressChurn => AnomalySeverity::Warning,
         }
     }
 
@@ -146,6 +151,7 @@ impl AnomalyType {
             Self::TunnelStartFailed | Self::TunnelUnhealthy => "tunnel",
             Self::UpdateFailed => "update",
             Self::DhcpConflict | Self::DhcpRenewalStorm => "dhcp",
+            Self::DeviceAddressChurn => "device",
             Self::RouteTableLost => "routing",
             Self::BlocklistRefreshFailing | Self::DnsUpstreamUnreachable => "dns",
         }
@@ -164,6 +170,7 @@ impl AnomalyType {
             Self::TunnelStartFailed | Self::TunnelUnhealthy => "/tunnels",
             Self::UpdateFailed => "/settings",
             Self::DhcpConflict | Self::DhcpRenewalStorm => "/dhcp",
+            Self::DeviceAddressChurn => "/devices",
             Self::RouteTableLost => "/routing",
             Self::BlocklistRefreshFailing => "/dns/filter",
             Self::DnsUpstreamUnreachable => "/dns",
@@ -208,6 +215,12 @@ impl AnomalyType {
                  requires, which usually means it is not accepting our replies. It still \
                  works, but it is generating constant network churn. Try restarting it, \
                  or give it a fixed reservation."
+            }
+            Self::DeviceAddressChurn => {
+                "This device keeps changing its address far more often than any real \
+                 device does. That is usually something answering for addresses it does \
+                 not own — a powerline adapter or a router bridging traffic — rather than \
+                 the device itself moving. Each change tears down its live connections."
             }
             Self::DnsUpstreamUnreachable => {
                 "This server has stopped answering, so queries are going to the other \

@@ -541,6 +541,7 @@ async fn build() -> Harness {
         policy_router,
         routing,
         dhcp,
+        std::sync::Arc::new(crate::event::BroadcastEventBus::new(64)),
         LAN_IFACE.to_owned(),
         LAN_IP,
     );
