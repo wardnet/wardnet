@@ -45,9 +45,14 @@ function eventLabel(kind: DeviceEventKind): string {
   }
 }
 
-/** A departure is the one observation that explains a total loss of traffic. */
-function eventTone(kind: DeviceEventKind): "neutral" | "warning" {
-  return kind === "gone" || kind === "conntrack_flushed" ? "warning" : "neutral";
+/**
+ * A conntrack flush is the one entry that is something done *to* the device:
+ * its live connections were torn down with nothing wrong on its own side.
+ * Everything else here — a departure included — is ordinary for a phone that
+ * sleeps, so colouring those would cry wolf.
+ */
+function eventTone(kind: DeviceEventKind): "neutral" | "danger" {
+  return kind === "conntrack_flushed" ? "danger" : "neutral";
 }
 
 function dhcpLabel(event: DeviceDhcpEvent): string {
@@ -97,21 +102,19 @@ function detailText(event: DeviceTimelineEvent): string | null {
  * is somewhere else — a total cannot say that.
  */
 export function DeviceTimelineCard({ deviceId }: { deviceId: string }) {
-  const [window, setWindow] = useState<DeviceTimelineWindow>(
-    "twenty_four_hours",
-  );
+  const [window, setWindow] =
+    useState<DeviceTimelineWindow>("twenty_four_hours");
   const { data, isLoading, isError } = useDeviceTimeline(deviceId, window);
 
-  const dnsTotals = (data?.dns ?? []).reduce<Record<string, number>>(
-    (acc, bucket) => {
-      for (const [result, count] of Object.entries(bucket.results)) {
-        acc[result] = (acc[result] ?? 0) + count;
-      }
-      return acc;
-    },
-    {},
-  );
-  const dnsResults = Object.entries(dnsTotals).sort((a, b) => b[1] - a[1]);
+  // A Map rather than an object: the keys are result slugs straight off the
+  // wire, and indexing a plain object with them is an injection sink.
+  const dnsTotals = new Map<string, number>();
+  for (const bucket of data?.dns ?? []) {
+    for (const [result, count] of Object.entries(bucket.results)) {
+      dnsTotals.set(result, (dnsTotals.get(result) ?? 0) + count);
+    }
+  }
+  const dnsResults = [...dnsTotals.entries()].sort((a, b) => b[1] - a[1]);
 
   const merged = [
     ...(data?.events ?? []).map((e) => ({

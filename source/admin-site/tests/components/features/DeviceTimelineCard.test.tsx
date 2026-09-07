@@ -115,9 +115,7 @@ describe("DeviceTimelineCard", () => {
   it("marks a departure as noteworthy", () => {
     renderCard(
       makeTimeline({
-        events: [
-          { at: "2026-09-06T10:00:00Z", kind: "gone", details: null },
-        ],
+        events: [{ at: "2026-09-06T10:00:00Z", kind: "gone", details: null }],
       }),
     );
 
@@ -127,8 +125,12 @@ describe("DeviceTimelineCard", () => {
   it("explains an empty window rather than showing a blank card", () => {
     renderCard(makeTimeline());
 
-    expect(screen.getByText(/Nothing recorded in this window/)).toBeInTheDocument();
-    expect(screen.getByText(/No DNS queries in this window/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Nothing recorded in this window/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/No DNS queries in this window/),
+    ).toBeInTheDocument();
   });
 
   it("reports a failure to load", () => {

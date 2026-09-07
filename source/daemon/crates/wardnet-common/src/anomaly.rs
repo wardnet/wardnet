@@ -179,11 +179,13 @@ impl AnomalyType {
     #[must_use]
     pub const fn url(self) -> &'static str {
         match self {
-            Self::TunnelStartFailed | Self::TunnelUnhealthy => "/tunnels",
+            Self::TunnelStartFailed
+            | Self::TunnelUnhealthy
+            | Self::EgressPathUnreachable
+            | Self::EgressPathDegraded => "/tunnels",
             Self::UpdateFailed => "/settings",
             Self::DhcpConflict | Self::DhcpRenewalStorm => "/dhcp",
             Self::DeviceAddressChurn => "/devices",
-            Self::EgressPathUnreachable | Self::EgressPathDegraded => "/tunnels",
             Self::RouteTableLost => "/routing",
             Self::BlocklistRefreshFailing => "/dns/filter",
             Self::DnsUpstreamUnreachable => "/dns",

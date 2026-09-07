@@ -704,6 +704,29 @@ pub struct StubDhcpService;
 
 #[async_trait]
 impl DhcpService for StubDhcpService {
+    async fn renewal_counts_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, i64)>, AppError> {
+        unimplemented!()
+    }
+
+    async fn renewal_count_for_mac_since(
+        &self,
+        _mac: &str,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, AppError> {
+        unimplemented!()
+    }
+
+    async fn lease_logs_for_mac_between(
+        &self,
+        _mac: &str,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+        Ok(Vec::new())
+    }
     async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
     }
@@ -785,6 +808,15 @@ pub struct StubDnsService;
 
 #[async_trait]
 impl wardnetd_services::dns::DnsService for StubDnsService {
+    async fn device_result_mix(
+        &self,
+        _device_id: &str,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+        _bucket_secs: i64,
+    ) -> Result<Vec<(i64, String, i64)>, AppError> {
+        Ok(Vec::new())
+    }
     async fn get_config(&self) -> Result<wardnet_common::api::DnsConfigResponse, AppError> {
         unimplemented!()
     }

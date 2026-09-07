@@ -217,6 +217,7 @@ async fn handle_event(event: WardnetEvent, routing: &dyn RoutingService) {
         | WardnetEvent::TunnelReconnecting { .. }
         | WardnetEvent::TunnelStartFailed { .. }
         | WardnetEvent::DeviceAdminLocked { .. }
+        | WardnetEvent::DeviceConntrackFlushed { .. }
         | WardnetEvent::TunnelStatsUpdated { .. }
         | WardnetEvent::DhcpLeaseAssigned { .. }
         | WardnetEvent::DhcpLeaseRenewed { .. }

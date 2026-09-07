@@ -42,11 +42,7 @@ export interface DeviceDnsBucket {
 }
 
 /** How far back a timeline request reaches. */
-export type DeviceTimelineWindow =
-  | "one_hour"
-  | "six_hours"
-  | "twenty_four_hours"
-  | "seven_days";
+export type DeviceTimelineWindow = "one_hour" | "six_hours" | "twenty_four_hours" | "seven_days";
 
 export interface DeviceTimelineResponse {
   from: string;
