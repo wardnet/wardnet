@@ -2,6 +2,7 @@ import { useRef } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "@wardnet/ui";
 import type {
+  DeviceTimelineWindow,
   RoutingTarget,
   UpdateDeviceRequest,
   DnsCaptureSettingsRequest,
@@ -26,6 +27,23 @@ export function useDevice(id: string) {
     queryKey: ["devices", id],
     queryFn: () => deviceService.getById(id),
     enabled: !!id,
+  });
+}
+
+/**
+ * A device's connectivity timeline for `window`.
+ *
+ * Polled rather than fetched once: the timeline is what an admin watches while
+ * a device misbehaves, and a stale view during an incident is worse than none.
+ * The interval matches the daemon's probe cadence so a refresh lands roughly
+ * one new sample at a time.
+ */
+export function useDeviceTimeline(id: string, window: DeviceTimelineWindow) {
+  return useQuery({
+    queryKey: ["devices", id, "timeline", window],
+    queryFn: () => deviceService.timeline(id, window),
+    enabled: !!id,
+    refetchInterval: 60_000,
   });
 }
 

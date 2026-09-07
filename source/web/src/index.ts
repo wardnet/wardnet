@@ -127,6 +127,7 @@ export { isIosBrowserTab } from "./lib/platform";
 export {
   useDevices,
   useDevice,
+  useDeviceTimeline,
   useMyDevice,
   useSetMyRule,
   useSetMyCaptureEnabled,

@@ -4034,6 +4034,183 @@
         }
       }
     },
+    "/api/devices/{id}/timeline": {
+      "get": {
+        "tags": [
+          "devices"
+        ],
+        "description": "A device's connectivity timeline: what it *did*, as opposed to how it is configured. Merges presence and address transitions, zone and routing rebinds, conntrack flushes, DHCP lease events, and DNS volume split by result. The split is the point — a device at one query a minute where every query succeeded rules DNS out, which a total alone cannot do. Admin only.",
+        "operationId": "devices_timeline",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Device id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "window",
+            "in": "query",
+            "description": "How far back to look. Defaults to the last 24 hours.",
+            "required": false,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "$ref": "#/components/schemas/DeviceTimelineWindow"
+                }
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The device's timeline for the window",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceTimelineResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated - session cookie or API key missing/invalid",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden - caller is not an admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Resource not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "Standard API error response.",
+                  "required": [
+                    "error"
+                  ],
+                  "properties": {
+                    "detail": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "error": {
+                      "type": "string"
+                    },
+                    "request_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ],
+                      "description": "Request ID for correlation with server logs."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/devices/{id}/zone": {
       "put": {
         "tags": [
@@ -24863,7 +25040,11 @@
           "dhcp_conflict",
           "route_table_lost",
           "blocklist_refresh_failing",
-          "dns_upstream_unreachable"
+          "dns_upstream_unreachable",
+          "dhcp_renewal_storm",
+          "device_address_churn",
+          "egress_path_unreachable",
+          "egress_path_degraded"
         ]
       },
       "ApiAnomaly": {
@@ -24944,6 +25125,80 @@
           "type": {
             "$ref": "#/components/schemas/AnomalyType",
             "description": "Stable machine-readable class identifier, e.g. `tunnel_start_failed`."
+          }
+        }
+      },
+      "ApiDeviceDhcpEvent": {
+        "type": "object",
+        "description": "One DHCP lease event on the timeline.\n\nKept separate from [`ApiDeviceTimelineEvent`] rather than folded into the\nsame list: DHCP events come from the lease audit trail, which has its own\nretention and its own vocabulary, and merging them would make a renewal\nindistinguishable from an observation Wardnet made itself.",
+        "required": [
+          "at",
+          "event_type",
+          "details"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "details": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event_type": {
+            "$ref": "#/components/schemas/DhcpLeaseEventType"
+          }
+        }
+      },
+      "ApiDeviceDnsBucket": {
+        "type": "object",
+        "description": "DNS activity for one time bucket, split by result.\n\nThe split is the point: during the outage that motivated this, the device\nwas at 1-2 queries a minute and *every one succeeded*, which is what ruled\nDNS out. A total alone cannot say that.",
+        "required": [
+          "at",
+          "results"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "results": {
+            "type": "object",
+            "description": "Result slug (`forwarded`, `blocked`, `cache_hit`, ...) to count.",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "ApiDeviceTimelineEvent": {
+        "type": "object",
+        "description": "One entry on a device's connectivity timeline.",
+        "required": [
+          "at",
+          "kind",
+          "details"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "details": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Kind-specific payload — the addresses of a change, the reason for a\nconntrack flush."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/DeviceEventKind"
           }
         }
       },
@@ -26570,6 +26825,19 @@
           }
         }
       },
+      "DeviceEventKind": {
+        "type": "string",
+        "description": "What happened to a device.\n\nDeliberately observational: every variant is something we *saw*, never a\njudgement about whether it was a problem. Judgement belongs to the anomaly\nsubsystem, which reads these rows.",
+        "enum": [
+          "discovered",
+          "returned",
+          "gone",
+          "ip_changed",
+          "zone_changed",
+          "routing_changed",
+          "conntrack_flushed"
+        ]
+      },
       "DeviceMeResponse": {
         "type": "object",
         "description": "Response for GET /api/devices/me.",
@@ -26696,6 +26964,61 @@
           "dhcp_vendor_class",
           "mdns_service",
           "probed_port"
+        ]
+      },
+      "DeviceTimelineResponse": {
+        "type": "object",
+        "description": "Response for GET /api/devices/{id}/timeline.",
+        "required": [
+          "from",
+          "to",
+          "bucket_secs",
+          "events",
+          "dhcp",
+          "dns"
+        ],
+        "properties": {
+          "bucket_secs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "How wide each [`ApiDeviceDnsBucket`] is. Minute buckets for short\nwindows, hour buckets for long ones, so the payload stays bounded\nwithout a second pagination model."
+          },
+          "dhcp": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiDeviceDhcpEvent"
+            }
+          },
+          "dns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiDeviceDnsBucket"
+            }
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApiDeviceTimelineEvent"
+            }
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "DeviceTimelineWindow": {
+        "type": "string",
+        "description": "How far back a timeline request reaches.",
+        "enum": [
+          "one_hour",
+          "six_hours",
+          "twenty_four_hours",
+          "seven_days"
         ]
       },
       "DeviceType": {
@@ -26862,6 +27185,17 @@
             "format": "date-time"
           }
         }
+      },
+      "DhcpLeaseEventType": {
+        "type": "string",
+        "description": "Types of events that can occur for a DHCP lease.",
+        "enum": [
+          "assigned",
+          "renewed",
+          "released",
+          "expired",
+          "conflict"
+        ]
       },
       "DhcpLeaseStatus": {
         "type": "string",
