@@ -11,7 +11,7 @@
     "marketing-site"
   ],
   "devDependencies": {
-    "@changesets/cli": "3.0.1",
+    "@changesets/cli": "3.0.2",
     "turbo": "^2.10.12"
   },
   "resolutions": {
