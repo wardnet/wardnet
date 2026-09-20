@@ -4542,7 +4542,7 @@ dependencies = [
  "cms",
  "const-oid 0.9.6",
  "cron",
- "der 0.7.10",
+ "der 0.8.1",
  "ed25519-dalek",
  "flate2",
  "futures",
