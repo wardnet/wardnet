@@ -15,7 +15,7 @@
 # this file stops tracking gt, which is why sync removes the ones that merely
 # restate it. Run 'gt repo config' to see the resolved spec, defaults included.
 
-gt_version: 1.6.0
+gt_version: 1.7.0
 dependabot:
   - ecosystem: cargo
     directory: /source/daemon
