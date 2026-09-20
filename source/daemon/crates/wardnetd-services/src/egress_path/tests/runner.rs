@@ -133,3 +133,240 @@ fn walk(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     }
     found
 }
+
+// ---------------------------------------------------------------------------
+// What a round records and publishes
+// ---------------------------------------------------------------------------
+
+use std::sync::Arc;
+
+use async_trait::async_trait;
+use wardnet_common::egress_path::{PathProbeOutcome, StageOutcome};
+
+use crate::egress_path::health::EgressPathHealth;
+use crate::egress_path::prober::EgressPathProber;
+use crate::egress_path::runner::{ProbePath, probe_and_publish};
+use crate::stats::{Meter, StatsBuffer};
+
+/// Returns a canned outcome per interface, and records what it was asked to
+/// probe so a test can assert the binding.
+struct FakeProber {
+    outcome: PathProbeOutcome,
+    probed: std::sync::Mutex<Vec<Option<String>>>,
+}
+
+impl FakeProber {
+    fn new(outcome: PathProbeOutcome) -> Arc<Self> {
+        Arc::new(Self {
+            outcome,
+            probed: std::sync::Mutex::new(Vec::new()),
+        })
+    }
+
+    fn probed(&self) -> Vec<Option<String>> {
+        self.probed.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl EgressPathProber for FakeProber {
+    async fn probe(&self, interface_name: Option<&str>) -> PathProbeOutcome {
+        self.probed
+            .lock()
+            .unwrap()
+            .push(interface_name.map(str::to_owned));
+        self.outcome.clone()
+    }
+}
+
+fn healthy() -> PathProbeOutcome {
+    PathProbeOutcome {
+        connect: StageOutcome::succeeded(12),
+        transfer: Some(StageOutcome::succeeded(48)),
+    }
+}
+
+fn degraded() -> PathProbeOutcome {
+    PathProbeOutcome {
+        connect: StageOutcome::succeeded(12),
+        transfer: Some(StageOutcome::failed("timed out mid-handshake")),
+    }
+}
+
+fn dead() -> PathProbeOutcome {
+    PathProbeOutcome {
+        connect: StageOutcome::failed("connection refused"),
+        transfer: None,
+    }
+}
+
+fn targets() -> Vec<ProbePath> {
+    vec![
+        ProbePath {
+            path: "direct".to_owned(),
+            label: "Direct (WAN)".to_owned(),
+            interface: None,
+        },
+        ProbePath {
+            path: "tunnel-1".to_owned(),
+            label: "Lisbon".to_owned(),
+            interface: Some("wg_ward0".to_owned()),
+        },
+    ]
+}
+
+fn meter() -> (Meter, Arc<StatsBuffer>) {
+    let buffer = StatsBuffer::new();
+    (Meter::new(buffer.clone()), buffer)
+}
+
+#[tokio::test]
+async fn a_round_probes_every_target_with_its_own_binding() {
+    let prober = FakeProber::new(healthy());
+    let health = Arc::new(EgressPathHealth::new());
+    let (meter, _buffer) = meter();
+
+    probe_and_publish(
+        &(prober.clone() as Arc<dyn EgressPathProber>),
+        targets(),
+        &health,
+        &meter,
+    )
+    .await;
+
+    assert_eq!(
+        prober.probed(),
+        vec![None, Some("wg_ward0".to_owned())],
+        "direct probes unbound; a tunnel binds to its interface"
+    );
+}
+
+#[tokio::test]
+async fn a_round_publishes_one_entry_per_path() {
+    let prober = FakeProber::new(healthy());
+    let health = Arc::new(EgressPathHealth::new());
+    let (meter, _buffer) = meter();
+
+    probe_and_publish(
+        &(prober as Arc<dyn EgressPathProber>),
+        targets(),
+        &health,
+        &meter,
+    )
+    .await;
+
+    let snapshot = health.snapshot();
+    assert_eq!(snapshot.len(), 2);
+    assert_eq!(snapshot[0].path, "direct");
+    assert_eq!(snapshot[1].label, "Lisbon");
+    assert!(snapshot.iter().all(|p| !p.outcome.connect_failed()));
+}
+
+/// Each round replaces the snapshot rather than appending to it — a reader must
+/// see the last round, not every round ever run.
+#[tokio::test]
+async fn a_later_round_replaces_the_published_snapshot() {
+    let health = Arc::new(EgressPathHealth::new());
+    let (meter, _buffer) = meter();
+
+    probe_and_publish(
+        &(FakeProber::new(healthy()) as Arc<dyn EgressPathProber>),
+        targets(),
+        &health,
+        &meter,
+    )
+    .await;
+    probe_and_publish(
+        &(FakeProber::new(degraded()) as Arc<dyn EgressPathProber>),
+        targets(),
+        &health,
+        &meter,
+    )
+    .await;
+
+    let snapshot = health.snapshot();
+    assert_eq!(snapshot.len(), 2, "not appended");
+    assert!(
+        snapshot.iter().all(|p| p.outcome.degraded()),
+        "the latest round's verdict is what is published"
+    );
+}
+
+#[tokio::test]
+async fn a_dead_path_publishes_no_transfer_stage() {
+    let health = Arc::new(EgressPathHealth::new());
+    let (meter, _buffer) = meter();
+
+    probe_and_publish(
+        &(FakeProber::new(dead()) as Arc<dyn EgressPathProber>),
+        targets(),
+        &health,
+        &meter,
+    )
+    .await;
+
+    let snapshot = health.snapshot();
+    assert!(snapshot[0].outcome.connect_failed());
+    assert!(
+        snapshot[0].outcome.transfer.is_none(),
+        "nothing to transfer over, which is what keeps it from also reading as degraded"
+    );
+    assert!(!snapshot[0].outcome.degraded());
+}
+
+#[tokio::test]
+async fn a_round_records_a_result_and_a_latency_for_each_stage() {
+    let health = Arc::new(EgressPathHealth::new());
+    let (meter, buffer) = meter();
+
+    probe_and_publish(
+        &(FakeProber::new(healthy()) as Arc<dyn EgressPathProber>),
+        vec![targets().remove(0)],
+        &health,
+        &meter,
+    )
+    .await;
+
+    let drained = buffer.drain();
+    let metrics: Vec<&str> = drained.iter().map(|s| s.metric.as_str()).collect();
+    assert!(metrics.contains(&"path.probe.result"));
+    assert!(metrics.contains(&"path.probe.latency_ms"));
+    assert_eq!(
+        drained
+            .iter()
+            .filter(|s| s.metric == "path.probe.result")
+            .count(),
+        2,
+        "one result sample per stage"
+    );
+}
+
+/// A failed stage has no latency to report, so it contributes a result sample
+/// and nothing else — a missing gauge is meaningfully different from a zero.
+#[tokio::test]
+async fn a_failed_stage_records_no_latency() {
+    let health = Arc::new(EgressPathHealth::new());
+    let (meter, buffer) = meter();
+
+    probe_and_publish(
+        &(FakeProber::new(dead()) as Arc<dyn EgressPathProber>),
+        vec![targets().remove(0)],
+        &health,
+        &meter,
+    )
+    .await;
+
+    let drained = buffer.drain();
+    assert!(
+        drained.iter().all(|s| s.metric != "path.probe.latency_ms"),
+        "a connect that never completed has no latency"
+    );
+}
+
+#[test]
+fn an_unmeasured_path_is_absent_rather_than_reported_down() {
+    let health = EgressPathHealth::new();
+
+    assert!(health.snapshot().is_empty());
+    assert!(health.get("direct").is_none());
+}

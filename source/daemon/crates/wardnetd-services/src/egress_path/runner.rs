@@ -158,8 +158,23 @@ async fn probe_round(
     health: &Arc<EgressPathHealth>,
     meter: &Meter,
 ) {
+    let targets = paths_to_probe(tunnels).await;
+    probe_and_publish(prober, targets, health, meter).await;
+}
+
+/// Probe each target, record what came back, and publish the round.
+///
+/// Split from [`probe_round`] so the recording and publishing can be exercised
+/// without standing up a whole `TunnelService`: which paths to probe is already
+/// decided by [`probe_paths`], and this is what happens to them afterwards.
+pub(crate) async fn probe_and_publish(
+    prober: &Arc<dyn EgressPathProber>,
+    targets: Vec<ProbePath>,
+    health: &Arc<EgressPathHealth>,
+    meter: &Meter,
+) {
     let mut results = Vec::new();
-    for target in paths_to_probe(tunnels).await {
+    for target in targets {
         let outcome = prober.probe(target.interface.as_deref()).await;
         record(meter, &target.path, &outcome);
 
