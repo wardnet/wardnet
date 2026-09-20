@@ -259,6 +259,12 @@ fn host_dropin_items() -> Vec<Item> {
             Action::Remove,
             Some("hardware watchdog module load"),
         ),
+        Item::new(
+            Kind::File,
+            "/etc/systemd/journald.conf.d/wardnet.conf",
+            Action::Remove,
+            Some("journal retention drop-in; journald reverts to the system defaults"),
+        ),
     ]
 }
 

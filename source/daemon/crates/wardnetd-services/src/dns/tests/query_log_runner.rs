@@ -19,6 +19,7 @@ use wardnet_common::auth::AuthContext;
 use wardnet_common::dns::{DnsConfig, DnsResolutionMode};
 use wardnetd_data::repository::QueryLogRow;
 
+use super::ts;
 use crate::DnsService;
 use crate::dns::log_sink::DnsLogSink;
 use crate::dns::query_log_runner::DnsQueryLogRunner;
@@ -98,6 +99,8 @@ impl DnsService for MockService {
             dnssec_enabled: false,
             rebinding_protection: false,
             rate_limit_per_second: 0,
+            upstream_timeout_ms: wardnet_common::dns::DEFAULT_UPSTREAM_TIMEOUT_MS,
+            forward_deadline_ms: wardnet_common::dns::DEFAULT_FORWARD_DEADLINE_MS,
             dns_filtering_enabled: false,
             query_log_enabled: self.query_log_enabled,
             query_log_retention_days: 7,
@@ -139,7 +142,7 @@ impl DnsService for MockService {
 
 fn sample_row() -> QueryLogRow {
     QueryLogRow {
-        timestamp: "2026-05-05T00:00:00Z".to_owned(),
+        timestamp: ts("2026-05-05T00:00:00Z"),
         client_ip: "10.0.0.1".to_owned(),
         domain: "example.com".to_owned(),
         query_type: "A".to_owned(),

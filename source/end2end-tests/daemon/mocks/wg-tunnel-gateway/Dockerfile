@@ -7,7 +7,7 @@
 # its own keypair + inner subnet via the mounted wg0.conf.
 #
 # Build context is this directory.
-FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b
 
 # wireguard-tools brings wg + wg-quick. The data path is the host kernel module
 # (netlink), same as the daemon-under-test — there is no userspace fallback.

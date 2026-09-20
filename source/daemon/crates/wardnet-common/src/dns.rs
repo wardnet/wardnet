@@ -129,6 +129,16 @@ pub struct UpstreamLatency {
     pub reachable: bool,
 }
 
+/// Default for [`DnsConfig::upstream_timeout_ms`]. Roughly three times the
+/// round-trip a healthy public resolver answers in, so a slow-but-working
+/// upstream is not cut off, and short enough that two of them fit inside
+/// [`DEFAULT_FORWARD_DEADLINE_MS`].
+pub const DEFAULT_UPSTREAM_TIMEOUT_MS: u32 = 1_500;
+/// Default for [`DnsConfig::forward_deadline_ms`]. Comfortably below the
+/// ~5s a glibc stub resolver waits, so the client is still listening when
+/// the answer (or the SERVFAIL) arrives.
+pub const DEFAULT_FORWARD_DEADLINE_MS: u32 = 3_500;
+
 /// Top-level DNS server configuration.
 ///
 /// Persisted as individual keys in the `system_config` KV table,
@@ -152,6 +162,22 @@ pub struct DnsConfig {
     pub dnssec_enabled: bool,
     pub rebinding_protection: bool,
     pub rate_limit_per_second: u32,
+    /// How long a single upstream gets to answer before the forwarder moves
+    /// on to the next one in the ladder.
+    ///
+    /// Bounds one rung, not the whole query — that is
+    /// [`DnsConfig::forward_deadline_ms`]. Raise it on a link where a
+    /// legitimate upstream round-trip is slow; every millisecond of it is
+    /// time the client spends waiting on a server that may never answer.
+    pub upstream_timeout_ms: u32,
+    /// Wall-clock ceiling on a forwarded query, across every upstream tried.
+    ///
+    /// Once it expires the client gets SERVFAIL immediately rather than an
+    /// answer it stopped waiting for. Keep it below the client stub
+    /// resolver's own patience (~5s on glibc): an answer that arrives after
+    /// the stub gave up is work done for nobody, and the stub's retry lands
+    /// on our rate limiter.
+    pub forward_deadline_ms: u32,
     /// Global DNS filtering emergency stop. When `false`, every query
     /// short-circuits to `Pass` regardless of per-device or per-profile
     /// state — the kill switch above the kill switch.
@@ -196,6 +222,8 @@ impl Default for DnsConfig {
             dnssec_enabled: false,
             rebinding_protection: true,
             rate_limit_per_second: 0,
+            upstream_timeout_ms: DEFAULT_UPSTREAM_TIMEOUT_MS,
+            forward_deadline_ms: DEFAULT_FORWARD_DEADLINE_MS,
             dns_filtering_enabled: true,
             query_log_enabled: true,
             query_log_retention_days: 7,

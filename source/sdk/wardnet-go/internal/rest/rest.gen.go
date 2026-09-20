@@ -124,6 +124,7 @@ func (e AnomalySeverity) Valid() bool {
 const (
 	BlocklistRefreshFailing AnomalyType = "blocklist_refresh_failing"
 	DhcpConflict            AnomalyType = "dhcp_conflict"
+	DnsUpstreamUnreachable  AnomalyType = "dns_upstream_unreachable"
 	RouteTableLost          AnomalyType = "route_table_lost"
 	TunnelStartFailed       AnomalyType = "tunnel_start_failed"
 	TunnelUnhealthy         AnomalyType = "tunnel_unhealthy"
@@ -136,6 +137,8 @@ func (e AnomalyType) Valid() bool {
 	case BlocklistRefreshFailing:
 		return true
 	case DhcpConflict:
+		return true
+	case DnsUpstreamUnreachable:
 		return true
 	case RouteTableLost:
 		return true
@@ -2802,6 +2805,15 @@ type DnsConfig struct {
 	DnssecEnabled       bool `json:"dnssec_enabled"`
 	Enabled             bool `json:"enabled"`
 
+	// ForwardDeadlineMs Wall-clock ceiling on a forwarded query, across every upstream tried.
+	//
+	// Once it expires the client gets SERVFAIL immediately rather than an
+	// answer it stopped waiting for. Keep it below the client stub
+	// resolver's own patience (~5s on glibc): an answer that arrives after
+	// the stub gave up is work done for nobody, and the stub's retry lands
+	// on our rate limiter.
+	ForwardDeadlineMs int32 `json:"forward_deadline_ms"`
+
 	// ForwarderSelectionMode How the configured upstreams are used on the forwarding path.
 	ForwarderSelectionMode ForwarderSelectionMode `json:"forwarder_selection_mode"`
 	QueryLogEnabled        bool                   `json:"query_log_enabled"`
@@ -2817,6 +2829,15 @@ type DnsConfig struct {
 	// always one of the `upstream_servers` addresses.
 	SingleUpstream  *string       `json:"single_upstream,omitempty"`
 	UpstreamServers []UpstreamDns `json:"upstream_servers"`
+
+	// UpstreamTimeoutMs How long a single upstream gets to answer before the forwarder moves
+	// on to the next one in the ladder.
+	//
+	// Bounds one rung, not the whole query — that is
+	// [`DnsConfig::forward_deadline_ms`]. Raise it on a link where a
+	// legitimate upstream round-trip is slow; every millisecond of it is
+	// time the client spends waiting on a server that may never answer.
+	UpstreamTimeoutMs int32 `json:"upstream_timeout_ms"`
 }
 
 // DnsConfigResponse Response for GET /api/dns/config.
@@ -3491,7 +3512,26 @@ type ListProvidersResponse struct {
 // ListQueryLogResponse Response for `GET /api/dns/log`.
 type ListQueryLogResponse struct {
 	Entries []DnsQueryLogEntry `json:"entries"`
-	Total   int64              `json:"total"`
+
+	// HasMore Whether a further page exists, derived by over-fetching one row beyond
+	// the requested limit.
+	//
+	// There is deliberately no total count. `dns_query_log` is the largest
+	// table on the box, and a count has no `LIMIT` to stop at: the filters
+	// are served by indexes, but counting still visits every row that matches
+	// rather than the page's worth — measured at ~300 ms per page load
+	// against ~1 ms for the rows it accompanied. Reinstating a count, even a
+	// capped one, restores that work on every page.
+	HasMore bool `json:"has_more"`
+
+	// NextCursor Cursor to pass as `before` to fetch the page after this one. `None`
+	// exactly when `has_more` is false.
+	//
+	// Paging backwards is the caller's job: it holds the cursors it has
+	// already used. The alternative — a second, ascending query behind a
+	// `after` parameter — doubles the endpoint's shapes to serve a Previous
+	// button that the client can already answer from what it has seen.
+	NextCursor *int64 `json:"next_cursor,omitempty"`
 }
 
 // ListRecordsResponse Response for GET /api/dns/local/records and
@@ -4691,11 +4731,14 @@ type UpdateDhcpConfigRequest struct {
 
 // UpdateDnsConfigRequest Request body for PUT /api/dns/config.
 type UpdateDnsConfigRequest struct {
-	CacheSize              *int32                  `json:"cache_size,omitempty"`
-	CacheTtlMaxSecs        *int32                  `json:"cache_ttl_max_secs,omitempty"`
-	CacheTtlMinSecs        *int32                  `json:"cache_ttl_min_secs,omitempty"`
-	DnsFilteringEnabled    *bool                   `json:"dns_filtering_enabled,omitempty"`
-	DnssecEnabled          *bool                   `json:"dnssec_enabled,omitempty"`
+	CacheSize           *int32 `json:"cache_size,omitempty"`
+	CacheTtlMaxSecs     *int32 `json:"cache_ttl_max_secs,omitempty"`
+	CacheTtlMinSecs     *int32 `json:"cache_ttl_min_secs,omitempty"`
+	DnsFilteringEnabled *bool  `json:"dns_filtering_enabled,omitempty"`
+	DnssecEnabled       *bool  `json:"dnssec_enabled,omitempty"`
+
+	// ForwardDeadlineMs Wall-clock ceiling on a whole forwarded query, in milliseconds.
+	ForwardDeadlineMs      *int32                  `json:"forward_deadline_ms,omitempty"`
 	ForwarderSelectionMode *ForwarderSelectionMode `json:"forwarder_selection_mode,omitempty"`
 	QueryLogEnabled        *bool                   `json:"query_log_enabled,omitempty"`
 	QueryLogRetentionDays  *int32                  `json:"query_log_retention_days,omitempty"`
@@ -4708,6 +4751,10 @@ type UpdateDnsConfigRequest struct {
 	// modes. Omit to leave the current selection unchanged.
 	SingleUpstream  *string               `json:"single_upstream,omitempty"`
 	UpstreamServers *[]UpstreamDnsRequest `json:"upstream_servers,omitempty"`
+
+	// UpstreamTimeoutMs Per-upstream answer deadline on the forwarding ladder, in
+	// milliseconds. Must not exceed `forward_deadline_ms`.
+	UpstreamTimeoutMs *int32 `json:"upstream_timeout_ms,omitempty"`
 }
 
 // UpdateDnsFilterConfigRequest Request body for PUT /api/dns/filter/config.
@@ -5287,8 +5334,17 @@ type ListDeviceSettingsParams struct {
 
 // ListQueryLogParams defines parameters for ListQueryLog.
 type ListQueryLogParams struct {
-	Limit    *int32  `form:"limit,omitempty" json:"limit,omitempty"`
-	Offset   *int32  `form:"offset,omitempty" json:"offset,omitempty"`
+	Limit *int32 `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Before Keyset cursor: return the newest entries with an id below this one.
+	// Omit for the first page, then pass the previous response's
+	// `next_cursor`.
+	//
+	// There is deliberately no offset. `dns_query_log` is the largest table
+	// on the box, and an offset makes SQLite walk and discard every row the
+	// caller already read, so page cost grows with depth. A cursor makes
+	// every page the same seek into the primary key.
+	Before   *int64  `form:"before,omitempty" json:"before,omitempty"`
 	Domain   *string `form:"domain,omitempty" json:"domain,omitempty"`
 	ClientIp *string `form:"client_ip,omitempty" json:"client_ip,omitempty"`
 
@@ -15832,9 +15888,9 @@ func NewListQueryLogRequest(server string, params *ListQueryLogParams) (*http.Re
 
 		}
 
-		if params.Offset != nil {
+		if params.Before != nil {
 
-			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int32"}); err != nil {
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "before", *params.Before, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
 				return nil, err
 			} else {
 				for _, qp := range strings.Split(queryFrag, "&") {

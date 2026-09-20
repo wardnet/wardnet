@@ -1526,6 +1526,13 @@ pub struct UpdateDnsConfigRequest {
     pub rebinding_protection: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limit_per_second: Option<u32>,
+    /// Per-upstream answer deadline on the forwarding ladder, in
+    /// milliseconds. Must not exceed `forward_deadline_ms`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upstream_timeout_ms: Option<u32>,
+    /// Wall-clock ceiling on a whole forwarded query, in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub forward_deadline_ms: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dns_filtering_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -2112,8 +2119,16 @@ pub struct ListSnapshotsResponse {
 pub struct ListQueryLogParams {
     #[serde(default)]
     pub limit: Option<u32>,
+    /// Keyset cursor: return the newest entries with an id below this one.
+    /// Omit for the first page, then pass the previous response's
+    /// `next_cursor`.
+    ///
+    /// There is deliberately no offset. `dns_query_log` is the largest table
+    /// on the box, and an offset makes SQLite walk and discard every row the
+    /// caller already read, so page cost grows with depth. A cursor makes
+    /// every page the same seek into the primary key.
     #[serde(default)]
-    pub offset: Option<u32>,
+    pub before: Option<i64>,
     #[serde(default)]
     pub domain: Option<String>,
     #[serde(default)]
@@ -2131,15 +2146,33 @@ pub struct ListQueryLogParams {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct ListQueryLogResponse {
     pub entries: Vec<DnsQueryLogEntry>,
-    pub total: u64,
+    /// Whether a further page exists, derived by over-fetching one row beyond
+    /// the requested limit.
+    ///
+    /// There is deliberately no total count. `dns_query_log` is the largest
+    /// table on the box, and a count has no `LIMIT` to stop at: the filters
+    /// are served by indexes, but counting still visits every row that matches
+    /// rather than the page's worth — measured at ~300 ms per page load
+    /// against ~1 ms for the rows it accompanied. Reinstating a count, even a
+    /// capped one, restores that work on every page.
+    pub has_more: bool,
+    /// Cursor to pass as `before` to fetch the page after this one. `None`
+    /// exactly when `has_more` is false.
+    ///
+    /// Paging backwards is the caller's job: it holds the cursors it has
+    /// already used. The alternative — a second, ascending query behind a
+    /// `after` parameter — doubles the endpoint's shapes to serve a Previous
+    /// button that the client can already answer from what it has seen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<i64>,
 }
 
 /// Live event broadcast over `/api/dns/log/stream`. Mirrors a row in
 /// `dns_query_log` so clients can render entries before they're persisted.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct QueryLogEvent {
-    /// RFC 3339 timestamp.
-    pub timestamp: String,
+    /// Whole-second UTC instant, serialised as RFC 3339 (`...:56Z`).
+    pub timestamp: DateTime<Utc>,
     pub client_ip: String,
     pub domain: String,
     pub query_type: String,

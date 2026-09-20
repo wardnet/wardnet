@@ -9,9 +9,10 @@ use wardnet_common::tunnel::TunnelStatus;
 use super::support::{DnsFilterProfileStub, FakeDnsFilter, FakeTunnels, blocklist, tunnel};
 use crate::anomaly::detector::AnomalyDetector;
 use crate::anomaly::detectors::{
-    BlocklistRefreshFailingDetector, TransientDetector, TunnelStartFailedDetector,
-    TunnelUnhealthyDetector, UpdateFailedDetector,
+    BlocklistRefreshFailingDetector, DnsUpstreamUnreachableDetector, TransientDetector,
+    TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
 };
+use crate::dns::UpstreamHealth;
 
 fn anomaly(anomaly_type: AnomalyType, subject: Option<&str>) -> Anomaly {
     Anomaly {
@@ -460,4 +461,126 @@ async fn transient_stale_window_is_overridable() {
     let detector = TransientDetector::new(AnomalyType::RouteTableLost)
         .with_stale_after(Duration::from_secs(1));
     assert_eq!(detector.stale_after(), Some(Duration::from_secs(1)));
+}
+
+// ---------------------------------------------------------------------------
+// DnsUpstreamUnreachableDetector (#1199)
+//
+// The prober already maintains reachability as state, so this detector only
+// has to read it. What matters is that it reports one anomaly per failing
+// upstream and — the part that keeps the dashboard honest — closes them again
+// on every route back to "not currently unreachable".
+// ---------------------------------------------------------------------------
+
+fn health(entries: &[(&str, bool)]) -> Arc<UpstreamHealth> {
+    let health = Arc::new(UpstreamHealth::new());
+    health.publish(
+        entries
+            .iter()
+            .map(
+                |(address, reachable)| wardnet_common::dns::UpstreamLatency {
+                    address: (*address).to_owned(),
+                    avg_latency_ms: Some(12.0),
+                    reachable: *reachable,
+                },
+            )
+            .collect(),
+    );
+    health
+}
+
+#[tokio::test]
+async fn reports_nothing_while_every_upstream_answers() {
+    let detector =
+        DnsUpstreamUnreachableDetector::new(health(&[("1.1.1.1", true), ("8.8.8.8", true)]));
+    assert!(detector.detect().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn reports_nothing_when_nothing_has_been_measured() {
+    // An empty snapshot means the prober has not run, or the forwarding path
+    // is not serving. Neither is evidence that an upstream is down, and
+    // raising an anomaly from it would alert on every startup.
+    let detector = DnsUpstreamUnreachableDetector::new(Arc::new(UpstreamHealth::new()));
+    assert!(detector.detect().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn reports_one_anomaly_per_failing_upstream() {
+    let detector = DnsUpstreamUnreachableDetector::new(health(&[
+        ("1.1.1.1", true),
+        ("8.8.8.8", false),
+        ("9.9.9.9", false),
+    ]));
+
+    let reports = detector.detect().await.unwrap();
+    let subjects: Vec<Option<String>> = reports.iter().map(|r| r.subject_id.clone()).collect();
+    assert_eq!(
+        subjects,
+        vec![Some("8.8.8.8".to_owned()), Some("9.9.9.9".to_owned())],
+        "each failing upstream gets its own anomaly, keyed by address"
+    );
+    assert!(
+        reports[0].message.contains("8.8.8.8"),
+        "the message names the server: {}",
+        reports[0].message
+    );
+}
+
+#[tokio::test]
+async fn an_open_anomaly_stays_open_while_the_upstream_is_still_down() {
+    let detector = DnsUpstreamUnreachableDetector::new(health(&[("8.8.8.8", false)]));
+    let status = detector
+        .reevaluate(&anomaly(
+            AnomalyType::DnsUpstreamUnreachable,
+            Some("8.8.8.8"),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(status, AnomalyStatus::Open);
+}
+
+#[tokio::test]
+async fn recovery_resolves_the_anomaly() {
+    let detector = DnsUpstreamUnreachableDetector::new(health(&[("8.8.8.8", true)]));
+    let status = detector
+        .reevaluate(&anomaly(
+            AnomalyType::DnsUpstreamUnreachable,
+            Some("8.8.8.8"),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(status, AnomalyStatus::Resolved);
+}
+
+#[tokio::test]
+async fn an_upstream_that_left_the_snapshot_resolves() {
+    // Removed from the config, or DNS switched off/recursive so the prober
+    // publishes nothing. The condition that opened the anomaly no longer
+    // holds either way, and leaving it open would strand an entry on the
+    // dashboard about a server the box no longer uses.
+    for snapshot in [
+        health(&[("1.1.1.1", true)]),
+        Arc::new(UpstreamHealth::new()),
+    ] {
+        let detector = DnsUpstreamUnreachableDetector::new(snapshot);
+        let status = detector
+            .reevaluate(&anomaly(
+                AnomalyType::DnsUpstreamUnreachable,
+                Some("8.8.8.8"),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(status, AnomalyStatus::Resolved);
+    }
+}
+
+#[tokio::test]
+async fn a_subjectless_anomaly_resolves_rather_than_lingering() {
+    let detector = DnsUpstreamUnreachableDetector::new(health(&[("8.8.8.8", false)]));
+    let status = detector
+        .reevaluate(&anomaly(AnomalyType::DnsUpstreamUnreachable, None))
+        .await
+        .unwrap();
+    assert_eq!(status, AnomalyStatus::Resolved);
 }

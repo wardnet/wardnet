@@ -678,6 +678,13 @@ struct MockSystemConfig {
 }
 
 impl MockSystemConfig {
+    /// Point the LAN gateway at a MAC and the address it holds.
+    fn set_gateway(&self, mac: &str, ip: &str) {
+        let mut v = self.values.lock().unwrap();
+        v.insert("router_mac".to_owned(), mac.to_owned());
+        v.insert("dhcp_router_ip".to_owned(), ip.to_owned());
+    }
+
     /// Flip the `quarantine_new_devices` toggle for a test.
     fn set_quarantine(&self, enabled: bool) {
         self.values.lock().unwrap().insert(
@@ -2606,4 +2613,51 @@ async fn omitting_the_name_still_preserves_it() {
 
     let stored = h.repo.find_by_id(&id.to_string()).await.unwrap().unwrap();
     assert_eq!(stored.name, Some("Living Room TV".to_owned()));
+}
+
+/// A gateway's MAC is on every frame it forwards. Traffic it hairpins back
+/// onto the LAN keeps the original source IP, which sits inside a trusted
+/// subnet and so survives the off-LAN filter.
+#[tokio::test]
+async fn a_gateway_mac_does_not_claim_the_addresses_it_forwards() {
+    let h = build_harness();
+    h.system_config
+        .set_gateway("aa:bb:cc:00:00:fe", "192.168.1.254");
+    h.svc.rebuild_trusted_subnets().await.unwrap();
+
+    // A hairpinned frame: the gateway's MAC, another host's address.
+    let forwarded = h
+        .process_observation(&sample_observation("aa:bb:cc:00:00:fe", "192.168.1.55"))
+        .await
+        .unwrap();
+
+    assert!(
+        matches!(forwarded, ObservationResult::Ignored),
+        "a gateway must not be recorded at an address it is only forwarding          for, got {forwarded:?}"
+    );
+    let updates = h.repo.last_seen_updates.lock().unwrap();
+    assert!(
+        updates.iter().all(|(_, ip, _, _)| ip != "192.168.1.55"),
+        "the forwarded address must not be written anywhere: {updates:?}"
+    );
+}
+
+/// The guard is about forwarded traffic, not about the gateway itself: it is
+/// still a device, and still has to be discoverable at its own address.
+#[tokio::test]
+async fn a_gateway_is_still_learned_at_its_own_address() {
+    let h = build_harness();
+    h.system_config
+        .set_gateway("aa:bb:cc:00:00:fe", "192.168.1.254");
+    h.svc.rebuild_trusted_subnets().await.unwrap();
+
+    let own = h
+        .process_observation(&sample_observation("aa:bb:cc:00:00:fe", "192.168.1.254"))
+        .await
+        .unwrap();
+
+    assert!(
+        !matches!(own, ObservationResult::Ignored),
+        "the gateway at its own address is an ordinary observation, got {own:?}"
+    );
 }

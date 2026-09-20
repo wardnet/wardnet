@@ -16,6 +16,10 @@ export const ADMIN_SITE_ANOMALY_ROUTES: AnomalyRouteMap = {
   blocklist: (profileId, blocklistId) =>
     `/dns/filter/profiles/${profileId}#blocklist-${blocklistId}`,
   fallback: (anomaly) => {
+    // Upstream servers are configured on the DNS page; the rest of the `dns`
+    // component belongs to ad blocking.
+    if (anomaly.type === "dns_upstream_unreachable") return "/dns";
+
     switch (anomaly.component) {
       case "tunnel":
         return "/tunnels";

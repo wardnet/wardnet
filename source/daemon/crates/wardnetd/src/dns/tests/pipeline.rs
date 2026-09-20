@@ -38,7 +38,7 @@ use wardnetd_services::dns::server::DnsSocket;
 use crate::dns::pipeline::{ClientIdentity, QueryPipeline, TransportProtocol};
 use crate::dns::rate_limit::RateLimiter;
 use crate::dns::reply_capture::ReplyCapture;
-use crate::dns::server::build_forwarding_resolver;
+use crate::dns::upstream_pool::UpstreamPool;
 use crate::tests::stubs::StubDnsFilterService;
 
 fn src() -> SocketAddr {
@@ -109,12 +109,12 @@ pub(super) fn stub_tunnel_repo() -> Arc<dyn TunnelRepository> {
 /// Construct a pipeline over stub state, before wrapping in `Arc` — the shared
 /// core of [`build_pipeline`] and [`build_pipeline_with_timeout`].
 fn make_pipeline(cfg: DnsConfig, sink: Option<Arc<DnsLogSink>>) -> QueryPipeline {
-    let resolver = Arc::new(RwLock::new(build_forwarding_resolver(&cfg)));
+    let pool = Arc::new(ArcSwap::from_pointee(UpstreamPool::build(&cfg)));
     let rate_limiter = Arc::new(RateLimiter::new(cfg.rate_limit_per_second));
     let cache = Arc::new(RwLock::new(DnsCache::new(cfg.cache_size as usize)));
     let mut pipeline = QueryPipeline::new(
         Arc::new(RwLock::new(cfg)),
-        resolver,
+        pool,
         Arc::new(RwLock::new(None)),
         rate_limiter,
         cache,

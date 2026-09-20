@@ -12,7 +12,7 @@
   ],
   "devDependencies": {
     "@changesets/cli": "3.0.1",
-    "turbo": "^2.10.11"
+    "turbo": "^2.10.12"
   },
   "resolutions": {
     "path-to-regexp": "8.4.0",

@@ -2846,3 +2846,50 @@ async fn packets_beyond_the_handler_cap_are_dropped() {
     cancel.cancel();
     let _ = handle.await;
 }
+
+#[test]
+fn build_response_leaves_broadcast_clear_when_the_client_did_not_set_it() {
+    // RFC 2131 §4.1: the reply echoes the request's flags field. Asserting the
+    // flag on a client that never asked for it tells that client the server is
+    // answering a request it did not make: a TP-Link TL-WPA7517 discards the
+    // ACK, retransmits at the RENEWING 60-second floor, and drops every client
+    // behind it each time round.
+    let request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    assert!(
+        !request.flags().broadcast(),
+        "fixture must model a client that did not set the flag"
+    );
+    let lease = test_lease();
+    let scope = test_scope();
+
+    let response = crate::dhcp::server::build_response(&request, MessageType::Ack, &lease, &scope);
+
+    assert!(!response.flags().broadcast());
+}
+
+#[test]
+fn build_response_sets_broadcast_when_the_client_asked_for_it() {
+    let mut request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    request.set_flags(Flags::default().set_broadcast());
+    let lease = test_lease();
+    let scope = test_scope();
+
+    let response = crate::dhcp::server::build_response(&request, MessageType::Ack, &lease, &scope);
+
+    assert!(response.flags().broadcast());
+}
+
+#[test]
+fn build_response_does_not_reflect_the_clients_reserved_flag_bits() {
+    // RFC 2131 §4.1 fixes the 15 bits below BROADCAST at zero. `Flags` encodes
+    // and decodes all 16 unmasked, so a reply built from the request's whole
+    // flags field hands an unauthenticated client's bits back to the segment.
+    let mut request = build_request([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]);
+    request.set_flags(Flags::new(0x7fff));
+    let lease = test_lease();
+    let scope = test_scope();
+
+    let response = crate::dhcp::server::build_response(&request, MessageType::Ack, &lease, &scope);
+
+    assert_eq!(u16::from(response.flags()), 0);
+}

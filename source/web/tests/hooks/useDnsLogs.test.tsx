@@ -14,7 +14,7 @@ describe("useDnsQueryLog", () => {
   beforeEach(() => vi.clearAllMocks());
 
   it("fetches the paginated query log with the given filter", async () => {
-    dnsService.listQueryLog.mockResolvedValue({ entries: [], total: 0 });
+    dnsService.listQueryLog.mockResolvedValue({ entries: [], has_more: false });
     const filter = { limit: 50, offset: 0 };
     const { result } = renderHook(() => useDnsQueryLog(filter), {
       wrapper: createQueryWrapper(),

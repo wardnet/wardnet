@@ -13,6 +13,12 @@ later of the two (Switchback) moved to `0026` rather than churn the dozen
 inbound references — including a generated SDK file — that pointed at the
 edge-release-channel one.
 
+Numbers also drift between an issue and its ADR: the #1201 epic was written against
+`0033`/`0034`, which were taken before it landed, so its two decision records are
+[0036](0036-recovery-plane-is-a-separate-process.md) and
+[0037](0037-mcp-control-plane-authorization.md). Scan this directory, not the
+issue text.
+
 | # | Title | Date | Status |
 |---|---|---|---|
 | [0001](0001-chart-zoom.md) | Drop Recharts Brush in favour of drag-to-zoom | 2026-05-27 | Accepted |
@@ -48,3 +54,7 @@ edge-release-channel one.
 | [0031](0031-household-identity.md) | Household identity is box-local; the cloud never vouches, and device affinity never authenticates | 2026-08-10 | Accepted |
 | [0032](0032-managed-devices-and-retention.md) | `managed` is an explicit latching column; only unmanaged devices are pruned | 2026-08-10 | Accepted |
 | [0033](0033-household-access-requests.md) | One access-request inbox, with per-kind approvers | 2026-08-14 | Accepted — supersedes §5 of [ADR-0029](0029-private-dns-dot.md) in part |
+| [0034](0034-query-log-normalisation.md) | The DNS query log is normalised onto integer lookup ids | 2026-09-02 | Accepted |
+| [0035](0035-query-log-read-path.md) | The query-log read path seeks an index and pages on a cursor | 2026-09-05 | Accepted |
+| [0036](0036-recovery-plane-is-a-separate-process.md) | The recovery plane is a separate process the daemon provisions | 2026-09-06 | Accepted |
+| [0037](0037-mcp-control-plane-authorization.md) | The MCP control plane is its own OAuth 2.1 authorization server | 2026-09-06 | Accepted |

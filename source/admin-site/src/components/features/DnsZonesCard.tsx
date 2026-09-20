@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { Pencil, Trash2 } from "lucide-react";
 import { FormActions } from "@wardnet/web";
 import { Card, CardContent, CardHeader, CardTitle } from "@wardnet/web";
@@ -80,7 +80,7 @@ export function DnsZonesCard({
     setEditing(null);
   }
 
-  const columns = useMemo<ColumnDef<DnsZone>[]>(
+  const columns = useMemo<DataTableColumnDef<DnsZone>[]>(
     () => [
       {
         id: "name",

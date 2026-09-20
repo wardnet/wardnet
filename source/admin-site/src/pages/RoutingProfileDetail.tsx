@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { Button } from "@wardnet/web";
 import {
   Card,
@@ -329,7 +329,7 @@ function RuleForm({
 
 /** Device + IP columns, matching the tunnel "used by" table
  *  (`TunnelDevicesTable`) so device rows read consistently across the app. */
-function buildUsedByColumns(): ColumnDef<Device>[] {
+function buildUsedByColumns(): DataTableColumnDef<Device>[] {
   return [
     {
       accessorKey: "name",

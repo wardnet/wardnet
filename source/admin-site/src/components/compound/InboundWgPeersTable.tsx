@@ -1,11 +1,11 @@
 import { useMemo } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { Text } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { StatusBadge } from "@/components/compound/StatusBadge";
 import type { InboundWgPeerSummary } from "@wardnet/js";
 
-function buildColumns(): ColumnDef<InboundWgPeerSummary>[] {
+function buildColumns(): DataTableColumnDef<InboundWgPeerSummary>[] {
   return [
     {
       id: "name",

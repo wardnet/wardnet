@@ -1,0 +1,32 @@
+-- Index `dns_query_log.client_ip_id`, the one filter column the normalisation
+-- left unindexed.
+--
+-- The admin log's client filter resolves a substring against `lk_dns_client_ip`
+-- and constrains the log by the single id it usually matches. Without an index
+-- on that column SQLite can only walk the primary key backwards and test each
+-- row, so the filter survives on early exit at `LIMIT`: a client with recent
+-- traffic answers immediately, a client whose rows have aged towards the
+-- retention horizon reads everything newer than them first. `lk_dns_client_ip`
+-- is never pruned, so a client that has gone quiet still resolves to an id and
+-- still runs that query — the repository's short-circuit covers a substring
+-- matching *no* client, not a client matching no recent rows.
+--
+-- Measured on a synthetic table of this schema at the production row count
+-- (1.37M rows, 24 distinct clients): the seek costs 0.3 ms where the backwards
+-- walk costs 19.7 ms, and the gap widens with the table.
+--
+-- Single-column, matching `idx_dns_query_log_device_id` rather than the
+-- composite `(client_ip_id, id)` that looks more thorough. Under an equality
+-- constraint on a single-column index SQLite walks that key's entries in rowid
+-- order, so `ORDER BY q.id DESC LIMIT n` is served by reading the index
+-- backwards and stopping at `n` — the trailing `id` would buy nothing and cost
+-- a wider entry per row across the largest table on the box.
+--
+-- The equality constraint is not free: a substring can match several clients,
+-- and the repository only emits `=` when it resolved to exactly one id. See
+-- `build_where` for what it emits for the other cardinalities.
+--
+-- Building it costs 0.38 s and 13.1 MB at that row count on an SSD; migrations
+-- run before `READY=1`, so on the Pi's SD card expect that to be several times
+-- longer and to delay DNS and DHCP by roughly that much, once.
+CREATE INDEX IF NOT EXISTS idx_dns_query_log_client_ip_id ON dns_query_log(client_ip_id);

@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { Bookmark, Clock } from "lucide-react";
 import { Pill } from "@wardnet/web";
 import {
@@ -83,7 +83,7 @@ function hostLabel(entry: DhcpEntry, deviceIndex: Map<string, Device>): string {
 
 function buildColumns(
   deviceIndex: Map<string, Device>,
-): ColumnDef<DhcpEntry>[] {
+): DataTableColumnDef<DhcpEntry>[] {
   return [
     {
       id: "host",

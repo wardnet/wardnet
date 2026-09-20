@@ -210,7 +210,7 @@ impl DnsLogSink {
 #[must_use]
 pub fn row_to_event(row: &QueryLogRow) -> QueryLogEvent {
     QueryLogEvent {
-        timestamp: row.timestamp.clone(),
+        timestamp: row.timestamp,
         client_ip: row.client_ip.clone(),
         domain: row.domain.clone(),
         query_type: row.query_type.clone(),

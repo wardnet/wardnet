@@ -1,10 +1,10 @@
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import { EmptyStatePlaceholder } from "@/components/compound/EmptyStatePlaceholder";
 import { timeAgo } from "@wardnet/web";
 import type { AllowlistEntry } from "@wardnet/js";
 
-function createColumns(): ColumnDef<AllowlistEntry>[] {
+function createColumns(): DataTableColumnDef<AllowlistEntry>[] {
   return [
     {
       accessorKey: "domain",

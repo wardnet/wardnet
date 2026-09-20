@@ -46,6 +46,21 @@ describe("ADMIN_SITE_ANOMALY_ROUTES", () => {
     );
   });
 
+  // Upstream health lives on the DNS page, not the ad-blocking one the rest
+  // of the `dns` component maps to — routing it by component alone would land
+  // an admin on Ad Blocking to fix a failing upstream server.
+  it("sends an unreachable upstream to the DNS page, not ad blocking", () => {
+    expect(
+      ADMIN_SITE_ANOMALY_ROUTES.fallback?.(
+        anomaly({
+          type: "dns_upstream_unreachable",
+          component: "dns",
+          subject_id: "8.8.8.8",
+        }),
+      ),
+    ).toBe("/dns");
+  });
+
   it("sends an unrecognised component to settings", () => {
     expect(
       ADMIN_SITE_ANOMALY_ROUTES.fallback?.(anomaly({ component: "solar" })),

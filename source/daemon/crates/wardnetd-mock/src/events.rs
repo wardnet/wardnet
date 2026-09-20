@@ -18,7 +18,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{SubsecRound, Utc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
@@ -325,7 +325,7 @@ fn emit_fake_dns_queries(
         };
 
         sink.record(QueryLogRow {
-            timestamp: Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string(),
+            timestamp: Utc::now().trunc_subsecs(0),
             client_ip: client.1.clone(),
             domain,
             query_type: "A".to_owned(),

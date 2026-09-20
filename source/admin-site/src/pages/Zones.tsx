@@ -94,6 +94,8 @@ export default function Zones() {
           zones={zones}
           devices={devices}
           isSaving={createException.isPending}
+          createError={createException.error}
+          onResetCreateError={createException.reset}
           onCreateException={createException.mutate}
           onDeleteException={deleteException.mutate}
         />

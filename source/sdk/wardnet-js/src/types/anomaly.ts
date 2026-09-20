@@ -12,6 +12,7 @@ export type AnomalyType =
   | "dhcp_conflict"
   | "route_table_lost"
   | "blocklist_refresh_failing"
+  | "dns_upstream_unreachable"
   | (string & {});
 
 /** How serious an anomaly is. */

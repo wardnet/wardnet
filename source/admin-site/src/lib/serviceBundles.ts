@@ -4,9 +4,14 @@ import type { PortSpec, ServiceSpec } from "@wardnet/js";
  * Curated cross-zone service options for the exceptions UI.
  *
  * The daemon models a service as either a built-in **preset** or an explicit
- * **port list**. `casting` and `smart_home` are real backend presets; every
- * other entry here is a UI-side convenience that expands to an explicit port
- * list. `custom` lets the operator enter arbitrary ports.
+ * **port list**. `casting`, `mirroring` and `smart_home` are real backend
+ * presets; every other entry here is a UI-side convenience that expands to an
+ * explicit port list. `custom` lets the operator enter arbitrary ports.
+ *
+ * `mirroring` resolves to every port on both protocols, so the daemon accepts
+ * it only between two devices and rejects a zone-scoped one. It is the choice
+ * for a phone that is itself the media source (screen mirroring, local files):
+ * `casting` carries the control channel but not the stream's negotiated port.
  *
  * Note the `web` bundle below is the intended companion to `smart_home` for
  * vendors whose local control is plain HTTP (Shelly, Tasmota, ESPHome's web
@@ -31,6 +36,11 @@ export const SERVICE_OPTIONS: ServiceOption[] = [
     id: "casting",
     label: "Casting (mDNS, Cast, AirPlay, DLNA)",
     spec: { type: "preset", set: "casting" },
+  },
+  {
+    id: "mirroring",
+    label: "Screen mirroring (all ports — two devices only)",
+    spec: { type: "preset", set: "mirroring" },
   },
   {
     id: "smart-home",

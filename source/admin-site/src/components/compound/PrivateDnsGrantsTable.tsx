@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { Text, timeAgo } from "@wardnet/web";
 import { DataTable, RowAction } from "@/components/core/ui/data-table";
 import type { PrivateDnsGrantSummary } from "@wardnet/js";
@@ -14,7 +14,7 @@ interface PrivateDnsGrantsTableProps {
 
 function buildColumns(
   deviceName: (deviceId: string) => string,
-): ColumnDef<PrivateDnsGrantSummary>[] {
+): DataTableColumnDef<PrivateDnsGrantSummary>[] {
   return [
     {
       id: "device",

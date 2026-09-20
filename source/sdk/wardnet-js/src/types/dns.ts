@@ -58,6 +58,17 @@ export interface DnsConfig {
   dnssec_enabled: boolean;
   rebinding_protection: boolean;
   rate_limit_per_second: number;
+  /**
+   * How long a single upstream gets to answer before the forwarder moves on
+   * to the next one. Bounds one rung of the ladder, not the whole query.
+   */
+  upstream_timeout_ms: number;
+  /**
+   * Wall-clock ceiling on a forwarded query, across every upstream tried.
+   * Kept below a client stub resolver's own patience (~5s) so the client is
+   * still listening when the answer arrives.
+   */
+  forward_deadline_ms: number;
   /** Global emergency stop for DNS filtering. Renamed from `ad_blocking_enabled`. */
   dns_filtering_enabled: boolean;
   query_log_enabled: boolean;
@@ -86,6 +97,9 @@ export interface UpdateDnsConfigRequest {
   dnssec_enabled?: boolean;
   rebinding_protection?: boolean;
   rate_limit_per_second?: number;
+  /** Must not exceed `forward_deadline_ms`. */
+  upstream_timeout_ms?: number;
+  forward_deadline_ms?: number;
   dns_filtering_enabled?: boolean;
   query_log_enabled?: boolean;
   query_log_retention_days?: number;
@@ -167,7 +181,15 @@ export interface QueryLogEvent {
 
 export interface ListQueryLogParams {
   limit?: number;
-  offset?: number;
+  /**
+   * Keyset cursor: return the newest entries with an id below this one. Omit
+   * for the first page, then pass the previous response's `next_cursor`.
+   *
+   * There is deliberately no offset. An offset makes the daemon walk and
+   * discard every row already read, so page cost grows with depth; a cursor
+   * makes every page the same seek.
+   */
+  before?: number;
   domain?: string;
   client_ip?: string;
   /**
@@ -181,5 +203,21 @@ export interface ListQueryLogParams {
 
 export interface ListQueryLogResponse {
   entries: DnsQueryLogEntry[];
-  total: number;
+  /**
+   * Whether a further page exists, derived by over-fetching one row beyond
+   * the requested limit.
+   *
+   * There is deliberately no total count: counting the query log has no
+   * `LIMIT` to stop at and was measured at ~300 ms per page load. Render a
+   * row count from `entries.length` instead.
+   */
+  has_more: boolean;
+  /**
+   * Cursor to pass as `before` for the next page. Absent exactly when
+   * `has_more` is false — the daemon omits the field rather than sending
+   * `null`, so `before: response.next_cursor` round-trips under `strict`.
+   *
+   * Paging backwards is the caller's job: keep the cursors already used.
+   */
+  next_cursor?: number;
 }

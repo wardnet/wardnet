@@ -42,6 +42,18 @@ you're about to make, rather than the whole set.
   event-driven rebuild on `DnsLocalChanged`, and why background runners
   (including `DnsRunner`) call `DnsLocalService` rather than holding
   `dns_local_repo` directly.
+- **[DNS forwarding ladder](.agents/architecture.md#dns-forwarding-ladder-issue-1199)** —
+  why the default forwarder walks its own ladder of single-server resolvers
+  instead of one multi-server hickory resolver (which races
+  `num_concurrent_reqs = 2` servers regardless of `ServerOrderingStrategy`, so
+  "Failover (in order)" queried two providers at once and no honest
+  `dns_query_log.upstream` was possible); `UpstreamPool`'s `all` vs `serving`
+  split and how the latency prober's `reachable` flag became load-bearing;
+  the explicit bounds (`upstream_timeout_ms` per rung, `forward_deadline_ms`
+  overall, `attempts = 0`) that replaced hickory's inherited 20-30s worst case.
+  Invariants: **a negative answer is terminal** (never fail over on
+  NXDOMAIN/NODATA), an **unmeasured** upstream is not a down one, and an
+  exhausted ladder blames **no** upstream.
 - **[DDNS subsystem](.agents/architecture.md#ddns-subsystem-issue-527--521-umbrella)** —
   `DnsProvider` trait (bridge + Cloudflare impls), `DdnsService` (auth-gated, stores config in
   `system_config` and secrets in `SecretStore`), `DdnsUpdateRunner` (idle-until-configured 5-min
@@ -156,6 +168,73 @@ you're about to make, rather than the whole set.
   profiles combine by **rank, not order**, and assigning any explicit
   `profile_ids` **drops the household defaults**. Invariant: **asking never
   promotes a device to managed** — only the approval's `grant_device` does.
+- **[Query-log normalisation](docs/adr/0034-query-log-normalisation.md)** —
+  why `dns_query_log` moved its seven repeated text columns onto
+  `(id INTEGER PRIMARY KEY, v TEXT UNIQUE)` lookup tables and an epoch
+  `timestamp` (591 MB → **146 MB**, measured — 109 MB for the normalisation plus
+  ~37 MB of integer indexes it cannot run correctly without), and why it is
+  **a space change, not a speed change**. Covers the rejections that a reader would otherwise re-propose:
+  **no id cache** (per-batch resolution already removed the cost, and the cache
+  was the only thing forcing the prune's placement), **no FK into `devices`**
+  (`devices.id` is `TEXT`, so it saves nothing, and device retention deletes rows
+  the log must outlive — plus `VACUUM` may renumber a non-`INTEGER` table's
+  rowid), **no integer enums** for the closed columns (`DnsQueryResult::slot` is
+  a compile-time exhaustiveness device, not a wire format), and **no FTS5**
+  (+232 MB and slower than `LIKE`). Invariants: only **`lk_dns_domain`** is pruned —
+  the others grow far more slowly and the `SELECT DISTINCT` scan is paid per
+  table; the prune uses **`NOT IN (SELECT DISTINCT …)`**, never a correlated
+  `NOT EXISTS` (135 s), and **`dns_query_log(domain_id)` must stay indexed** or
+  `PRAGMA foreign_keys=ON` makes each orphan scan the whole log (33.5 s vs
+  0.016 s on 500k rows — any timing taken in the `sqlite3` CLI has foreign keys
+  *off* and does not apply); and **nothing above `wardnetd-data`
+  knows lookup tables exist**, which is what keeps the API contract unchanged.
+- **[Query-log read path](docs/adr/0035-query-log-read-path.md)** — why the
+  admin log's client filter resolves its substring against `lk_dns_client_ip`
+  **in Rust** before touching the log, and how the resolved cardinality picks
+  the predicate: none → empty page, one → `=` against the single-column
+  `idx_dns_query_log_client_ip_id`, a handful → `IN`, more than 64 → back to the
+  pattern (a guard, not a path a household reaches — the measured box holds 24
+  clients). The load-bearing fact: **indexing `client_ip_id` does nothing for
+  the `IN (SELECT …)` form**, because `ORDER BY q.id DESC` lets SQLite prefer the
+  backwards primary-key walk and decline the index — only the resolved scalar
+  `=` seeks it, measured 0.3 ms against 19.7 ms at 1.37M rows for a client whose
+  rows have aged. Also why pagination is a `before` cursor rather than an offset,
+  and why `next_cursor` is one-directional. Invariants: the index is
+  **single-column** — under an equality constraint SQLite already walks it in
+  rowid order, so `ORDER BY id DESC LIMIT n` needs no sort and a trailing `id`
+  would only widen every entry; and **the endpoint has exactly one pagination
+  model** — a second, offset-based one would keep the slow path reachable and
+  tested.
+- **[Recovery plane](docs/adr/0036-recovery-plane-is-a-separate-process.md)** — why the
+  reverse-tunnel client leaves `wardnetd` for a standalone `wardnet-tunneller`
+  (the always-up process is deliberately the *dumbest* one), why the **tunneller**
+  is extracted rather than the MCP server (both relayed features terminate in the
+  daemon, so what must survive a restart is the **transport**), and why a second
+  tunnel is impossible without cloud surgery (`TunnelRegistry::register(&slug)` is
+  slug-keyed and aborts the incumbent). Covers the **Ed25519 seed** handoff — tokens
+  would sever the channel an hour into a daemon outage — with its two-copies-on-disk
+  blast radius stated, and why egress independence is already true by construction
+  (no `SO_MARK`/`fwmark`/`SO_BINDTODEVICE`, no nftables `output` hook) while **DNS**
+  is not. Invariant: **recovery-channel health never feeds `HealthMonitor` or
+  `/dev/watchdog`** — the soft watchdog would restart `wardnetd` during a *cloud*
+  outage. Glossary in [CONTEXT.md](CONTEXT.md#recovery-plane-issue-1201).
+- **[MCP control-plane authorization](docs/adr/0037-mcp-control-plane-authorization.md)** —
+  why `wardnet-mcp` is its **own** OAuth 2.1 Authorization Server rather than a
+  Resource Server pointing elsewhere: the daemon as AS is circular (daemon down ⇒
+  no token ⇒ cannot diagnose the daemon), and wardnet-cloud as AS would work but
+  violates [ADR-0031](docs/adr/0031-household-identity.md) — *nothing in
+  wardnet-cloud can grant access to a home network*. Covers why standard MCP auth
+  (RFC 9728 / 8414 / 7591 / 8707 + PKCE) is chosen for *client* reasons, why being
+  an **issuer** sidesteps the JOSE surface ADR-0031 §6 declined, and why break-glass
+  is a refresh token **pre-provisioned in advance** (the **Local admin** idiom).
+  Critically: `mcp.<slug>` is **predictable** — the slug is public via CT logs — so
+  unlike ADR-0029’s secret hostname, OAuth carries the whole load, and the
+  rate-limit / lockout / constrained-DCR obligations that follow are part of the
+  decision. Invariants: **the network-exposed surface never runs as root and the
+  root surface is never network-exposed** (`wardnet-mcp-helper` takes the
+  `wardnet-postupgrade-runner` trust-anchor shape), and an **armed mutation**
+  disarms only on an *independent positive re-probe* of the changed path — never
+  channel liveness — rolling back through the **database**, per ADR-0028.
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

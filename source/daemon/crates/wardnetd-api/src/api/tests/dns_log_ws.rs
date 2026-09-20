@@ -8,7 +8,9 @@ use crate::api::dns_log_ws::ClientFilter;
 
 fn event(domain: &str, ip: &str, result: &str) -> QueryLogEvent {
     QueryLogEvent {
-        timestamp: "2026-05-05T00:00:00Z".to_owned(),
+        timestamp: chrono::DateTime::parse_from_rfc3339("2026-05-05T00:00:00Z")
+            .expect("test timestamp literal is valid RFC 3339")
+            .with_timezone(&chrono::Utc),
         client_ip: ip.to_owned(),
         domain: domain.to_owned(),
         query_type: "A".to_owned(),

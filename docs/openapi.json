@@ -6,7 +6,7 @@
     "license": {
       "name": "GPL-3.0-or-later"
     },
-    "version": "2026.08.00"
+    "version": "2026.09.00"
   },
   "paths": {
     "/api/access-requests": {
@@ -13502,16 +13502,16 @@
             }
           },
           {
-            "name": "offset",
+            "name": "before",
             "in": "query",
+            "description": "Keyset cursor: return the newest entries with an id below this one.\nOmit for the first page, then pass the previous response's\n`next_cursor`.\n\nThere is deliberately no offset. `dns_query_log` is the largest table\non the box, and an offset makes SQLite walk and discard every row the\ncaller already read, so page cost grows with depth. A cursor makes\nevery page the same seek into the primary key.",
             "required": false,
             "schema": {
               "type": [
                 "integer",
                 "null"
               ],
-              "format": "int32",
-              "minimum": 0
+              "format": "int64"
             }
           },
           {
@@ -28368,7 +28368,8 @@
           "update_failed",
           "dhcp_conflict",
           "route_table_lost",
-          "blocklist_refresh_failing"
+          "blocklist_refresh_failing",
+          "dns_upstream_unreachable"
         ]
       },
       "ApiAnomaly": {
@@ -30732,6 +30733,8 @@
           "dnssec_enabled",
           "rebinding_protection",
           "rate_limit_per_second",
+          "upstream_timeout_ms",
+          "forward_deadline_ms",
           "dns_filtering_enabled",
           "query_log_enabled",
           "query_log_retention_days"
@@ -30761,6 +30764,12 @@
           },
           "enabled": {
             "type": "boolean"
+          },
+          "forward_deadline_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Wall-clock ceiling on a forwarded query, across every upstream tried.\n\nOnce it expires the client gets SERVFAIL immediately rather than an\nanswer it stopped waiting for. Keep it below the client stub\nresolver's own patience (~5s on glibc): an answer that arrives after\nthe stub gave up is work done for nobody, and the stub's retry lands\non our rate limiter.",
+            "minimum": 0
           },
           "forwarder_selection_mode": {
             "$ref": "#/components/schemas/ForwarderSelectionMode",
@@ -30797,6 +30806,12 @@
             "items": {
               "$ref": "#/components/schemas/UpstreamDns"
             }
+          },
+          "upstream_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "How long a single upstream gets to answer before the forwarder moves\non to the next one in the ladder.\n\nBounds one rung, not the whole query — that is\n[`DnsConfig::forward_deadline_ms`]. Raise it on a link where a\nlegitimate upstream round-trip is slow; every millisecond of it is\ntime the client spends waiting on a server that may never answer.",
+            "minimum": 0
           }
         }
       },
@@ -32171,7 +32186,7 @@
         "description": "Response for `GET /api/dns/log`.",
         "required": [
           "entries",
-          "total"
+          "has_more"
         ],
         "properties": {
           "entries": {
@@ -32180,10 +32195,17 @@
               "$ref": "#/components/schemas/DnsQueryLogEntry"
             }
           },
-          "total": {
-            "type": "integer",
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether a further page exists, derived by over-fetching one row beyond\nthe requested limit.\n\nThere is deliberately no total count. `dns_query_log` is the largest\ntable on the box, and a count has no `LIMIT` to stop at: the filters\nare served by indexes, but counting still visits every row that matches\nrather than the page's worth — measured at ~300 ms per page load\nagainst ~1 ms for the rows it accompanied. Reinstating a count, even a\ncapped one, restores that work on every page."
+          },
+          "next_cursor": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
-            "minimum": 0
+            "description": "Cursor to pass as `before` to fetch the page after this one. `None`\nexactly when `has_more` is false.\n\nPaging backwards is the caller's job: it holds the cursors it has\nalready used. The alternative — a second, ascending query behind a\n`after` parameter — doubles the endpoint's shapes to serve a Previous\nbutton that the client can already answer from what it has seen."
           }
         }
       },
@@ -34546,6 +34568,15 @@
               "null"
             ]
           },
+          "forward_deadline_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Wall-clock ceiling on a whole forwarded query, in milliseconds.",
+            "minimum": 0
+          },
           "forwarder_selection_mode": {
             "oneOf": [
               {
@@ -34609,6 +34640,15 @@
             "items": {
               "$ref": "#/components/schemas/UpstreamDnsRequest"
             }
+          },
+          "upstream_timeout_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Per-upstream answer deadline on the forwarding ladder, in\nmilliseconds. Must not exceed `forward_deadline_ms`.",
+            "minimum": 0
           }
         }
       },

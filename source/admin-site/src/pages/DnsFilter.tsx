@@ -1,6 +1,6 @@
 import { useMemo, useCallback } from "react";
 import { useNavigate } from "react-router";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { DataTableColumnDef } from "@/components/core/ui/data-table";
 import { ShieldCheck } from "lucide-react";
 import { Button } from "@wardnet/web";
 import { Card, CardContent } from "@wardnet/web";
@@ -96,7 +96,7 @@ export default function DnsFilter() {
     void navigate("/dns/filter/profiles/new");
   }
 
-  const columns = useMemo<ColumnDef<DnsFilterProfile>[]>(
+  const columns = useMemo<DataTableColumnDef<DnsFilterProfile>[]>(
     () => [
       {
         id: "profile",

@@ -2523,10 +2523,12 @@ export interface components {
          * @enum {string}
          */
         AccessRequestStatus: "pending" | "approved" | "rejected";
-        /** @description Request body for `POST /api/inbound-wg/peers`.
+        /**
+         * @description Request body for `POST /api/inbound-wg/peers`.
          *
          *     A remote-access grant targets an already-managed device (issue #810): the
-         *     peer's user-facing name is taken from that device, not supplied here. */
+         *     peer's user-facing name is taken from that device, not supplied here.
+         */
         AddInboundWgPeerRequest: {
             /**
              * Format: uuid
@@ -2535,21 +2537,25 @@ export interface components {
              */
             device_id: string;
         };
-        /** @description Response for `POST /api/inbound-wg/peers`.
+        /**
+         * @description Response for `POST /api/inbound-wg/peers`.
          *
          *     Carries the complete, ready-to-import `WireGuard` client configuration —
          *     assembled server-side and containing the freshly generated **private key**
          *     exactly once. The daemon never persists the private key (it lives only in
          *     this response); the admin must copy/scan it now. This is the ONLY endpoint
-         *     that ever exposes private key material, and it is admin-gated. */
+         *     that ever exposes private key material, and it is admin-gated.
+         */
         AddInboundWgPeerResponse: {
             /** @description The peer's allocated `/32` inside the inbound tunnel subnet. */
             allowed_ip: string;
-            /** @description The full `WireGuard` client config (`.conf`) — `[Interface]`/`[Peer]`
+            /**
+             * @description The full `WireGuard` client config (`.conf`) — `[Interface]`/`[Peer]`
              *     stanzas including the private key and endpoint — ready to render as a QR
              *     code or download. `None` when no reachable endpoint is known yet (remote
              *     access / DDNS not configured); the credential is created but not usable
-             *     until an endpoint exists. */
+             *     until an endpoint exists.
+             */
             client_config?: string | null;
             /** Format: uuid */
             id: string;
@@ -2572,8 +2578,10 @@ export interface components {
          * @enum {string}
          */
         AllowedTargetKind: "direct" | "tunnel";
-        /** @description An allowlist entry, scoped to a DNS filter profile, that overrides
-         *     blocklist matches. */
+        /**
+         * @description An allowlist entry, scoped to a DNS filter profile, that overrides
+         *     blocklist matches.
+         */
         AllowlistEntry: {
             /** Format: date-time */
             created_at: string;
@@ -2606,18 +2614,22 @@ export interface components {
          *     than a silently inert entry.
          * @enum {string}
          */
-        AnomalyType: "tunnel_start_failed" | "tunnel_unhealthy" | "update_failed" | "dhcp_conflict" | "route_table_lost" | "blocklist_refresh_failing";
-        /** @description An anomaly as served by the HTTP API.
+        AnomalyType: "tunnel_start_failed" | "tunnel_unhealthy" | "update_failed" | "dhcp_conflict" | "route_table_lost" | "blocklist_refresh_failing" | "dns_upstream_unreachable";
+        /**
+         * @description An anomaly as served by the HTTP API.
          *
          *     `severity`, `component` and `hint` are derived from `anomaly_type` rather
          *     than stored, so they are materialised here for clients that would otherwise
-         *     need their own copy of the catalogue. */
+         *     need their own copy of the catalogue.
+         */
         ApiAnomaly: {
             /** @description The subsystem that raised it. */
             component: string;
-            /** @description Detector-authored payload. Best-effort: no key is guaranteed beyond
+            /**
+             * @description Detector-authored payload. Best-effort: no key is guaranteed beyond
              *     those the owning detector documents. Clients use it to deep link to the
-             *     subject (a blocklist's `profile_id`, for instance). */
+             *     subject (a blocklist's `profile_id`, for instance).
+             */
             details: Record<string, never> | null;
             /** @description What the admin can do about it. */
             hint: string;
@@ -2644,8 +2656,10 @@ export interface components {
             resolved_at: string | null;
             /** @description One of `error`, `warning`, `info`. */
             severity: components["schemas"]["AnomalySeverity"];
-            /** @description The entity this anomaly is about — a tunnel id, a blocklist id — or
-             *     `null` for box-wide conditions. */
+            /**
+             * @description The entity this anomaly is about — a tunnel id, a blocklist id — or
+             *     `null` for box-wide conditions.
+             */
             subject_id: string | null;
             /** @description Stable machine-readable class identifier, e.g. `tunnel_start_failed`. */
             type: components["schemas"]["AnomalyType"];
@@ -2657,33 +2671,43 @@ export interface components {
             /** @description Request ID for correlation with server logs. */
             request_id?: string | null;
         };
-        /** @description Request body for `POST /api/backup/import/apply`.
+        /**
+         * @description Request body for `POST /api/backup/import/apply`.
          *
          *     Consumes the `preview_token` returned by `/preview`, ensuring the
-         *     apply step always has a prior preview (no silent blind restores). */
+         *     apply step always has a prior preview (no silent blind restores).
+         */
         ApplyImportRequest: {
             preview_token: string;
         };
-        /** @description Response for `POST /api/backup/import/apply`.
+        /**
+         * @description Response for `POST /api/backup/import/apply`.
          *
          *     Returned once the swap completes. The daemon restarts subsystems
          *     (DHCP/DNS/update runners) after the swap; subsequent API calls see
-         *     the restored state. */
+         *     the restored state.
+         */
         ApplyImportResponse: {
-            /** @description Final manifest for the applied bundle — identical to the one
+            /**
+             * @description Final manifest for the applied bundle — identical to the one
              *     surfaced in the preview but repeated here so the UI can confirm
-             *     without re-fetching. */
+             *     without re-fetching.
+             */
             manifest: components["schemas"]["BundleManifest"];
-            /** @description `.bak-<timestamp>` snapshots of the files that were replaced.
-             *     Retained by the background cleanup task for 24 h. */
+            /**
+             * @description `.bak-<timestamp>` snapshots of the files that were replaced.
+             *     Retained by the background cleanup task for 24 h.
+             */
             snapshots: components["schemas"]["LocalSnapshot"][];
         };
-        /** @description Kind-specific parameters an admin supplies when **approving**.
+        /**
+         * @description Kind-specific parameters an admin supplies when **approving**.
          *
          *     Approval is not uniform across kinds, so the decision body carries a typed
          *     payload rather than a bag of optional fields. `PrivateDns` needs none — the
          *     grant is fully determined by the requesting device — but the variant exists
-         *     so the wire shape is explicit rather than "absent means Private DNS". */
+         *     so the wire shape is explicit rather than "absent means Private DNS".
+         */
         ApprovalParams: {
             /** @enum {string} */
             kind: "private_dns";
@@ -2693,7 +2717,8 @@ export interface components {
             /** Format: uuid */
             zone_id: string;
         };
-        /** @description Response for `GET /api/auth/methods` (unauthenticated).
+        /**
+         * @description Response for `GET /api/auth/methods` (unauthenticated).
          *
          *     The contract a sign-in surface reads to decide which buttons to render.
          *     Reports availability only — never a credential, a client secret, or
@@ -2703,21 +2728,28 @@ export interface components {
          *     the admin-only [`OauthProviderConfigResponse`]. Neither is a secret in the
          *     cryptographic sense, but both name the household's own registered
          *     application and its public hostname, and a surface reachable by anyone who
-         *     can address the box should disclose no more than "this button will work". */
+         *     can address the box should disclose no more than "this button will work".
+         */
         AuthMethodsResponse: {
-            /** @description Always `true`. The local password is the floor: it needs no WAN, no
-             *     certificate and no provider, and no path removes it (ADR-0031 §7). */
+            /**
+             * @description Always `true`. The local password is the floor: it needs no WAN, no
+             *     certificate and no provider, and no path removes it (ADR-0031 §7).
+             */
             password: boolean;
             providers: components["schemas"]["AuthProviderStatusResponse"][];
         };
         /** @description One federated provider's availability, for `GET /api/auth/methods`. */
         AuthProviderStatusResponse: {
-            /** @description A client secret is present. The secret itself is never returned by any
-             *     endpoint — this flag is the whole of what a reader learns. */
+            /**
+             * @description A client secret is present. The secret itself is never returned by any
+             *     endpoint — this flag is the whole of what a reader learns.
+             */
             configured: boolean;
-            /** @description The admin turned it on **and** it is fully configured. Only an enabled
+            /**
+             * @description The admin turned it on **and** it is fully configured. Only an enabled
              *     provider should be rendered as a sign-in button, and this single flag
-             *     is all a sign-in surface needs to decide. */
+             *     is all a sign-in surface needs to decide.
+             */
             enabled: boolean;
             provider: components["schemas"]["OauthProviderDto"];
         };
@@ -2741,8 +2773,10 @@ export interface components {
         BackupStatusResponse: {
             status: components["schemas"]["BackupStatus"];
         };
-        /** @description Selector persisted when a tunnel was created via country-scoped auto-select.
-         *     Present only on "best server" tunnels; `None` for specific-server or manual. */
+        /**
+         * @description Selector persisted when a tunnel was created via country-scoped auto-select.
+         *     Present only on "best server" tunnels; `None` for specific-server or manual.
+         */
         BestServerSelector: {
             country: string;
         };
@@ -2765,9 +2799,11 @@ export interface components {
             entry_count: number;
             /** Format: uuid */
             id: string;
-            /** @description Error message from the most recent failed download/parse, if any.
+            /**
+             * @description Error message from the most recent failed download/parse, if any.
              *     Cleared on a successful refresh. Surfaced in the Ad Blocking UI so
-             *     users can diagnose blocklist issues without inspecting daemon logs. */
+             *     users can diagnose blocklist issues without inspecting daemon logs.
+             */
             last_error?: string | null;
             /**
              * Format: date-time
@@ -2783,10 +2819,12 @@ export interface components {
             updated_at: string;
             url: string;
         };
-        /** @description Metadata describing a bundle. Serialised as `manifest.json` inside the tar.
+        /**
+         * @description Metadata describing a bundle. Serialised as `manifest.json` inside the tar.
          *
          *     The manifest is the first entry extracted during validation so we can
-         *     reject incompatible bundles before touching any daemon state. */
+         *     reject incompatible bundles before touching any daemon state.
+         */
         BundleManifest: {
             /**
              * Format: int32
@@ -2798,9 +2836,11 @@ export interface components {
              * @description UTC timestamp the bundle was created.
              */
             created_at: string;
-            /** @description Opaque identifier for the source host (hostname or a stable system id).
+            /**
+             * @description Opaque identifier for the source host (hostname or a stable system id).
              *     Surfaced in the restore preview so operators can confirm they're not
-             *     restoring a bundle from the wrong machine. */
+             *     restoring a bundle from the wrong machine.
+             */
             host_id: string;
             /**
              * Format: int32
@@ -2813,11 +2853,14 @@ export interface components {
              * @description Highest applied sqlx migration version at export time.
              */
             schema_version: number;
-            /** @description Daemon version (from `WARDNET_VERSION`) that produced the bundle, e.g.
-             *     `0.2.0` or `0.2.1-dev.7+gabc1234`. Informational — not used for compat. */
+            /**
+             * @description Daemon version (from `WARDNET_VERSION`) that produced the bundle, e.g.
+             *     `0.2.0` or `0.2.1-dev.7+gabc1234`. Informational — not used for compat.
+             */
             wardnet_version: string;
         };
-        /** @description Request body for `POST /api/users/me/password`.
+        /**
+         * @description Request body for `POST /api/users/me/password`.
          *
          *     The current password is required even though the caller already holds a
          *     session: a session is not proof that the person at the keyboard is the
@@ -2826,7 +2869,8 @@ export interface components {
          *
          *     On success **every** session for the account is revoked, the caller's
          *     included — so the client must expect its next request to be unauthorized
-         *     and route the person back to sign-in. */
+         *     and route the person back to sign-in.
+         */
         ChangePasswordRequest: {
             current_password: string;
             new_password: string;
@@ -2851,10 +2895,12 @@ export interface components {
         /** @description Request body for `PUT /api/auth/providers/{provider}` (admin). */
         ConfigureOauthProviderRequest: {
             client_id: string;
-            /** @description The client secret. `None` leaves any existing secret in place, so an
+            /**
+             * @description The client secret. `None` leaves any existing secret in place, so an
              *     admin can toggle `enabled` or fix a typo'd client id without re-pasting
              *     it — and so a UI that cannot read the secret back can still submit the
-             *     form it rendered. */
+             *     form it rendered.
+             */
             client_secret?: string | null;
             enabled: boolean;
         };
@@ -2867,9 +2913,11 @@ export interface components {
         };
         /** @description Request body for `POST /api/devices/me/access-requests`. */
         CreateAccessRequestRequest: {
-            /** @description Required for `allow` / `block`, and rejected for kinds that take no
+            /**
+             * @description Required for `allow` / `block`, and rejected for kinds that take no
              *     domain — the service validates against
-             *     [`AccessRequestKind::requires_domain`]. */
+             *     [`AccessRequestKind::requires_domain`].
+             */
             domain?: string | null;
             kind: components["schemas"]["AccessRequestKind"];
             reason?: string | null;
@@ -2941,8 +2989,10 @@ export interface components {
             message: string;
             rule: components["schemas"]["ConditionalForwardingRule"];
         };
-        /** @description Request body for POST /api/network/zones. `provenance` is forced to `Manual`
-         *     server-side; default flags are never set on create (use PUT to promote). */
+        /**
+         * @description Request body for POST /api/network/zones. `provenance` is forced to `Manual`
+         *     server-side; default flags are never set on create (use PUT to promote).
+         */
         CreateNetworkZoneRequest: {
             admin_ui_reachable: boolean;
             allowed_targets: components["schemas"]["AllowedTargetKind"][];
@@ -3018,12 +3068,14 @@ export interface components {
             message: string;
             tunnel: components["schemas"]["Tunnel"];
         };
-        /** @description Request body for `POST /api/users` (admin).
+        /**
+         * @description Request body for `POST /api/users` (admin).
          *
          *     Creates an account with **no credential**. The admin never learns a
          *     member's password (ADR-0031 §3), so the new user is unusable until an
          *     enrolment invitation is issued and redeemed — account creation and
-         *     credential creation are deliberately two steps. */
+         *     credential creation are deliberately two steps.
+         */
         CreateUserRequest: {
             display_name: string;
             email?: string | null;
@@ -3112,16 +3164,20 @@ export interface components {
         DdnsRegisterRequest: {
             /** @description Optional human-facing network name; defaults to the slug when omitted. */
             display_name?: string | null;
-            /** @description The vanity slug to claim, e.g. `happy-einstein`, forming
+            /**
+             * @description The vanity slug to claim, e.g. `happy-einstein`, forming
              *     `<slug>.my.wardnet.services`. The cloud validates it (3–32 chars,
-             *     `[a-z0-9-]`, no leading/trailing hyphen, not reserved). */
+             *     `[a-z0-9-]`, no leading/trailing hyphen, not reserved).
+             */
             slug: string;
         };
         /** @description Response for `POST /api/ddns/register` and `POST /api/ddns/cloudflare`. */
         DdnsRegisterResponse: {
-            /** @description `true` when the daemon JOINED an already-existing network of this
+            /**
+             * @description `true` when the daemon JOINED an already-existing network of this
              *     account (same slug, re-enrollment) instead of creating a fresh one —
-             *     the network's region and name won over the request (display only). */
+             *     the network's region and name won over the request (display only).
+             */
             adopted?: boolean;
             /** @description The public hostname now assigned to this network. */
             fqdn: string;
@@ -3130,8 +3186,10 @@ export interface components {
         };
         /** @description Response for `GET /api/ddns/resolution-check`. */
         DdnsResolutionCheckResponse: {
-            /** @description The IP the daemon last published (the value public DNS is expected to
-             *     return), if any. */
+            /**
+             * @description The IP the daemon last published (the value public DNS is expected to
+             *     return), if any.
+             */
             expected_ip?: string | null;
             /** @description The canonical FQDN that was queried, if DDNS is configured. */
             fqdn?: string | null;
@@ -3155,14 +3213,18 @@ export interface components {
             last_public_ip?: string | null;
             /** @description `None` when DDNS is not configured; otherwise `"wardnet"` or `"cloudflare"`. */
             provider?: string | null;
-            /** @description `true` when the wardnet subscription is suspended — the premium app
+            /**
+             * @description `true` when the wardnet subscription is suspended — the premium app
              *     surfaces (user PWA + admin mobile app) are disabled until it is restored.
-             *     Always `false` for BYOD-Cloudflare. */
+             *     Always `false` for BYOD-Cloudflare.
+             */
             suspended?: boolean;
         };
-        /** @description Request body for `PATCH /api/access-requests/{id}` (admin decision). Only
+        /**
+         * @description Request body for `PATCH /api/access-requests/{id}` (admin decision). Only
          *     `approved` / `rejected` are accepted — a request cannot be set back to
-         *     `pending`. */
+         *     `pending`.
+         */
         DecideAccessRequestRequest: {
             approval?: null | components["schemas"]["ApprovalParams"];
             status: components["schemas"]["AccessRequestStatus"];
@@ -3222,8 +3284,10 @@ export interface components {
         /** @description A discovered network device. */
         Device: {
             admin_locked: boolean;
-            /** @description How the device is currently reachable (LAN vs. inbound `WireGuard`).
-             *     Live status, last-observation-wins — see [`DeviceConnectionMode`]. */
+            /**
+             * @description How the device is currently reachable (LAN vs. inbound `WireGuard`).
+             *     Live status, last-observation-wins — see [`DeviceConnectionMode`].
+             */
             connection_mode: components["schemas"]["DeviceConnectionMode"];
             device_type: components["schemas"]["DeviceType"];
             /** Format: int64 */
@@ -3236,15 +3300,18 @@ export interface components {
             hostname?: string | null;
             /** Format: uuid */
             id: string;
-            /** @description Whether `mac` is locally administered (a privacy/randomized address).
+            /**
+             * @description Whether `mac` is locally administered (a privacy/randomized address).
              *     Deliberately separate from `manufacturer`: it says how the device
-             *     presents itself, not who built it. */
+             *     presents itself, not who built it.
+             */
             is_randomized: boolean;
             last_ip: string;
             /** Format: date-time */
             last_seen: string;
             mac: string;
-            /** @description Whether an admin has decided to control this device's configuration.
+            /**
+             * @description Whether an admin has decided to control this device's configuration.
              *
              *     Set by *any* admin configuration act (naming, locking, a routing rule or
              *     profile, DNS filter settings, DNS capture, a Private-DNS grant, a Remote
@@ -3258,7 +3325,8 @@ export interface components {
              *     setting to default. That upholds the invariant device retention depends
              *     on — `managed = false` implies no admin artefacts exist — so pruning a
              *     long-absent unmanaged device can never orphan a row. See issue #1181 and
-             *     `docs/adr/0032-managed-devices-and-retention.md`. */
+             *     `docs/adr/0032-managed-devices-and-retention.md`.
+             */
             managed: boolean;
             manufacturer?: string | null;
             manufacturer_source?: null | components["schemas"]["ManufacturerSource"];
@@ -3297,9 +3365,11 @@ export interface components {
             reason?: string | null;
             status: components["schemas"]["AccessRequestStatus"];
         };
-        /** @description Request body for `PATCH /api/devices/me/dns-capture` — the self-service
+        /**
+         * @description Request body for `PATCH /api/devices/me/dns-capture` — the self-service
          *     capture toggle. Flips only the `enabled` flag; retention caps stay
-         *     admin-only (set via `DnsCaptureSettingsRequest` on the admin endpoint). */
+         *     admin-only (set via `DnsCaptureSettingsRequest` on the admin endpoint).
+         */
         DeviceCaptureToggleRequest: {
             enabled: boolean;
         };
@@ -3321,16 +3391,20 @@ export interface components {
         DeviceDetailResponse: {
             current_rule?: null | components["schemas"]["RoutingTarget"];
             device: components["schemas"]["DeviceWithStatus"];
-            /** @description Identification signals observed for this device, most recent first
+            /**
+             * @description Identification signals observed for this device, most recent first
              *     (issue #1099). Empty is the normal case for a device that has only ever
-             *     been seen by ARP — it is an absence of evidence, not a failure. */
+             *     been seen by ARP — it is an absence of evidence, not a failure.
+             */
             signals: components["schemas"]["DeviceSignal"][];
         };
-        /** @description Per-device DNS filtering settings.
+        /**
+         * @description Per-device DNS filtering settings.
          *
          *     `enabled = false` is the kill switch; the device's queries skip filtering
          *     entirely. When `enabled = true` and `profile_ids` is empty, the device
-         *     inherits the global default profiles from [`DnsFilterConfig`]. */
+         *     inherits the global default profiles from [`DnsFilterConfig`].
+         */
         DeviceDnsFilterSettings: {
             /** Format: uuid */
             device_id: string;
@@ -3347,43 +3421,57 @@ export interface components {
             available_tunnels: components["schemas"]["TunnelSummary"][];
             current_rule?: null | components["schemas"]["RoutingTarget"];
             device?: null | components["schemas"]["Device"];
-            /** @description Routing profiles assigned to the caller device, in priority order.
+            /**
+             * @description Routing profiles assigned to the caller device, in priority order.
              *     Read-only — a device-keyed caller cannot manage profiles. Empty when
-             *     none are assigned. */
+             *     none are assigned.
+             */
             routing_profiles?: components["schemas"]["RoutingProfileSummary"][];
             zone?: null | components["schemas"]["ZoneSummary"];
         };
-        /** @description Response for POST /api/devices/:id/identify (admin, issue #1116).
+        /**
+         * @description Response for POST /api/devices/:id/identify (admin, issue #1116).
          *
          *     Carries what the probe *contacted* as well as what answered, so the UI can
          *     say "we tried these four ports and none answered" rather than leaving the
          *     identification card visually unchanged and the button looking broken. An
-         *     empty `answering_ports` is a real, informative result. */
+         *     empty `answering_ports` is a real, informative result.
+         */
         DeviceProbeResponse: {
-            /** @description The subset that answered. Each was recorded as a `probed_port`
-             *     identification signal and may have named the device. */
+            /**
+             * @description The subset that answered. Each was recorded as a `probed_port`
+             *     identification signal and may have named the device.
+             */
             answering_ports: number[];
-            /** @description The device re-read after the probe, so the caller sees any manufacturer
-             *     and signals the probe just produced without a second round trip. */
+            /**
+             * @description The device re-read after the probe, so the caller sees any manufacturer
+             *     and signals the probe just produced without a second round trip.
+             */
             device: components["schemas"]["DeviceDetailResponse"];
-            /** @description Every TCP port the probe contacted — the vendor catalog's full probe
-             *     surface, and by construction its upper bound. */
+            /**
+             * @description Every TCP port the probe contacted — the vendor catalog's full probe
+             *     surface, and by construction its upper bound.
+             */
             ports_probed: number[];
         };
-        /** @description A single observed fact that helps identify a device (issue #1099).
+        /**
+         * @description A single observed fact that helps identify a device (issue #1099).
          *
          *     Deliberately multi-valued per device: a device can announce several mDNS
          *     services, and each signal is independent evidence rather than a field that
-         *     overwrites the last one. */
+         *     overwrites the last one.
+         */
         DeviceSignal: {
-            /** @description `true` when the value matched a vendor in the curated catalog.
+            /**
+             * @description `true` when the value matched a vendor in the curated catalog.
              *
              *     Deliberately *not* "this signal named the device": naming is
              *     first-writer-wins against a `NULL` manufacturer (see
              *     `set_manufacturer_if_absent`), so a device already named by its IEEE
              *     registrant collects matching signals that changed nothing. Surfaced
              *     because a match is still the evidence an admin needs when the name is
-             *     itself a hedge ("Likely Govee"). */
+             *     itself a hedge ("Likely Govee").
+             */
             inferred: boolean;
             kind: components["schemas"]["DeviceSignalKind"];
             /** Format: date-time */
@@ -3400,7 +3488,8 @@ export interface components {
          * @enum {string}
          */
         DeviceType: "tv" | "phone" | "laptop" | "tablet" | "game_console" | "settop_box" | "iot" | "router" | "managed_switch" | "server" | "unknown";
-        /** @description A device enriched with its DHCP status and current routing target for API
+        /**
+         * @description A device enriched with its DHCP status and current routing target for API
          *     responses.
          *
          *     Uses `#[serde(flatten)]` so the JSON output includes all `Device` fields
@@ -3409,21 +3498,26 @@ export interface components {
          *
          *     `current_rule` mirrors [`DeviceDetailResponse::current_rule`]: `None` means
          *     the device has no rule of its own and follows the gateway default policy;
-         *     `Some(RoutingTarget::Default)` is an explicit persisted default choice. */
+         *     `Some(RoutingTarget::Default)` is an explicit persisted default choice.
+         */
         DeviceWithStatus: components["schemas"]["Device"] & {
             current_rule?: null | components["schemas"]["RoutingTarget"];
             dhcp_status: components["schemas"]["DhcpStatus"];
         };
-        /** @description DHCP pool configuration.
+        /**
+         * @description DHCP pool configuration.
          *
          *     Wardnet IS the gateway and DNS server — no need for users to configure those.
          *     The daemon auto-detects its own LAN IP and advertises itself as gateway (option 3)
          *     and DNS server (option 6) to clients. Option 3 includes the router IP as secondary
-         *     entry for automatic failover on supported clients. */
+         *     entry for automatic failover on supported clients.
+         */
         DhcpConfig: {
             enabled: boolean;
-            /** @description Wardnet's own LAN IP — auto-detected from the LAN interface.
-             *     Advertised as gateway (option 3) and DNS server (option 6). */
+            /**
+             * @description Wardnet's own LAN IP — auto-detected from the LAN interface.
+             *     Advertised as gateway (option 3) and DNS server (option 6).
+             */
             gateway_ip: string;
             /** Format: int32 */
             lease_duration_secs: number;
@@ -3475,7 +3569,8 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        /** @description Response for POST /api/network/dhcp-self-probe.
+        /**
+         * @description Response for POST /api/network/dhcp-self-probe.
          *
          *     The wizard's primary-mode step 3 uses this to verify Wardnet now
          *     owns LAN DHCP after the operator disabled it on their router:
@@ -3484,7 +3579,8 @@ export interface components {
          *       to advance.
          *     - `foreign_responded == true` → re-show the disable-DHCP guide;
          *       `foreign_server_ip` lets the wizard call out which device is
-         *       still answering. */
+         *       still answering.
+         */
         DhcpSelfProbeResponse: {
             foreign_responded: boolean;
             foreign_server_ip: string | null;
@@ -3516,13 +3612,15 @@ export interface components {
             pool_used: number;
             running: boolean;
         };
-        /** @description Request body for POST /api/network/discover-gateway-mac.
+        /**
+         * @description Request body for POST /api/network/discover-gateway-mac.
          *
          *     All fields optional. If `mac` is provided the daemon skips the ARP
          *     probe and just persists the value (validated). Otherwise it probes
          *     the gateway IP from `GET /api/network/status`; `target_ip` lets a
          *     caller override that for testing or when the gateway differs from
-         *     the kernel's default route. */
+         *     the kernel's default route.
+         */
         DiscoverGatewayMacRequest: {
             mac?: string | null;
             target_ip?: string | null;
@@ -3538,8 +3636,10 @@ export interface components {
             entries_cleared: number;
             message: string;
         };
-        /** @description Request body for `PATCH /api/devices/{id}/dns-capture` — the admin capture
-         *     controls. Omitted fields are left unchanged (merged via SQL `COALESCE`). */
+        /**
+         * @description Request body for `PATCH /api/devices/{id}/dns-capture` — the admin capture
+         *     controls. Omitted fields are left unchanged (merged via SQL `COALESCE`).
+         */
         DnsCaptureSettingsRequest: {
             /** Format: int64 */
             cap_count?: number | null;
@@ -3547,8 +3647,10 @@ export interface components {
             cap_days?: number | null;
             enabled?: boolean | null;
         };
-        /** @description Response for `GET`/`PATCH /api/devices/{id}/dns-capture` — current capture
-         *     settings alongside storage stats for the device. */
+        /**
+         * @description Response for `GET`/`PATCH /api/devices/{id}/dns-capture` — current capture
+         *     settings alongside storage stats for the device.
+         */
         DnsCaptureSettingsResponse: {
             /** Format: int64 */
             cap_count: number;
@@ -3560,10 +3662,12 @@ export interface components {
             /** Format: int64 */
             size_bytes: number;
         };
-        /** @description Top-level DNS server configuration.
+        /**
+         * @description Top-level DNS server configuration.
          *
          *     Persisted as individual keys in the `system_config` KV table,
-         *     following the same pattern as [`crate::dhcp::DhcpConfig`]. */
+         *     following the same pattern as [`crate::dhcp::DhcpConfig`].
+         */
         DnsConfig: {
             /** Format: int32 */
             cache_size: number;
@@ -3571,12 +3675,25 @@ export interface components {
             cache_ttl_max_secs: number;
             /** Format: int32 */
             cache_ttl_min_secs: number;
-            /** @description Global DNS filtering emergency stop. When `false`, every query
+            /**
+             * @description Global DNS filtering emergency stop. When `false`, every query
              *     short-circuits to `Pass` regardless of per-device or per-profile
-             *     state — the kill switch above the kill switch. */
+             *     state — the kill switch above the kill switch.
+             */
             dns_filtering_enabled: boolean;
             dnssec_enabled: boolean;
             enabled: boolean;
+            /**
+             * Format: int32
+             * @description Wall-clock ceiling on a forwarded query, across every upstream tried.
+             *
+             *     Once it expires the client gets SERVFAIL immediately rather than an
+             *     answer it stopped waiting for. Keep it below the client stub
+             *     resolver's own patience (~5s on glibc): an answer that arrives after
+             *     the stub gave up is work done for nobody, and the stub's retry lands
+             *     on our rate limiter.
+             */
+            forward_deadline_ms: number;
             /** @description How the configured upstreams are used on the forwarding path. */
             forwarder_selection_mode: components["schemas"]["ForwarderSelectionMode"];
             query_log_enabled: boolean;
@@ -3586,18 +3703,33 @@ export interface components {
             rate_limit_per_second: number;
             rebinding_protection: boolean;
             resolution_mode: components["schemas"]["DnsResolutionMode"];
-            /** @description The `address` of the single chosen upstream. `Some` iff
+            /**
+             * @description The `address` of the single chosen upstream. `Some` iff
              *     `forwarder_selection_mode` is [`ForwarderSelectionMode::Single`], and
-             *     always one of the `upstream_servers` addresses. */
+             *     always one of the `upstream_servers` addresses.
+             */
             single_upstream?: string | null;
             upstream_servers: components["schemas"]["UpstreamDns"][];
+            /**
+             * Format: int32
+             * @description How long a single upstream gets to answer before the forwarder moves
+             *     on to the next one in the ladder.
+             *
+             *     Bounds one rung, not the whole query — that is
+             *     [`DnsConfig::forward_deadline_ms`]. Raise it on a link where a
+             *     legitimate upstream round-trip is slow; every millisecond of it is
+             *     time the client spends waiting on a server that may never answer.
+             */
+            upstream_timeout_ms: number;
         };
         /** @description Response for GET /api/dns/config. */
         DnsConfigResponse: {
             config: components["schemas"]["DnsConfig"];
         };
-        /** @description Request body for `POST /api/devices/me/dns-events/ack` — acknowledges every
-         *     captured event up to and including `up_to_id` so the daemon can delete them. */
+        /**
+         * @description Request body for `POST /api/devices/me/dns-events/ack` — acknowledges every
+         *     captured event up to and including `up_to_id` so the daemon can delete them.
+         */
         DnsEventsAckRequest: {
             /** Format: int64 */
             up_to_id: number;
@@ -3615,26 +3747,32 @@ export interface components {
              *     anyone.
              */
             blocklist_failure_alert_threshold?: number;
-            /** @description Profiles applied to devices with no explicit assignment. Empty means
+            /**
+             * @description Profiles applied to devices with no explicit assignment. Empty means
              *     unassigned devices skip filtering. Multiple profiles stack — a domain
              *     blocked in any of them is blocked. Treat as a set: the order across
-             *     the get/set roundtrip is not preserved. */
+             *     the get/set roundtrip is not preserved.
+             */
             default_profile_ids: string[];
-            /** @description Global emergency stop. When `false`, every query short-circuits to
-             *     `Pass` regardless of profile state. */
+            /**
+             * @description Global emergency stop. When `false`, every query short-circuits to
+             *     `Pass` regardless of profile state.
+             */
             enabled: boolean;
         };
         /** @description Response for GET /api/dns/filter/config. */
         DnsFilterConfigResponse: {
             config: components["schemas"]["DnsFilterConfig"];
-            /** @description Whether the filters are actually being enforced right now.
+            /**
+             * @description Whether the filters are actually being enforced right now.
              *
              *     The DNS server answers queries as soon as it binds, but the compiled
              *     filters are built in the background — and after an upgrade that resets
              *     the blocklist cache, the lists have to be re-downloaded before they can
              *     block anything. During either window DNS resolves normally and
              *     blocklists are **not** enforced, which is a fail-open the admin has to
-             *     be able to see. `false` means exactly that. */
+             *     be able to see. `false` means exactly that.
+             */
             filters_ready: boolean;
             /**
              * Format: int32
@@ -3643,16 +3781,20 @@ export interface components {
              */
             pending_blocklists: number;
         };
-        /** @description A named bundle of DNS filter sources (blocklists, allowlist, custom rules).
+        /**
+         * @description A named bundle of DNS filter sources (blocklists, allowlist, custom rules).
          *
          *     Builtin profiles cannot be deleted or modified — the API responds with
-         *     `409 Conflict` when an admin attempts either operation. */
+         *     `409 Conflict` when an admin attempts either operation.
+         */
         DnsFilterProfile: {
             builtin: boolean;
             /** Format: date-time */
             created_at: string;
-            /** @description Optional operator-supplied annotation. Builtin profiles carry a
-             *     seeded description; custom profiles default to `None`. */
+            /**
+             * @description Optional operator-supplied annotation. Builtin profiles carry a
+             *     seeded description; custom profiles default to `None`.
+             */
             description?: string | null;
             /** Format: uuid */
             id: string;
@@ -3720,9 +3862,11 @@ export interface components {
             cache_size: number;
             enabled: boolean;
             running: boolean;
-            /** @description Rolling-average latency per configured upstream, from the background
+            /**
+             * @description Rolling-average latency per configured upstream, from the background
              *     prober. One entry per `upstream_servers` address; empty until the
-             *     prober has run at least once. */
+             *     prober has run at least once.
+             */
             upstream_latencies: components["schemas"]["UpstreamLatency"][];
         };
         /** @description An authoritative local DNS zone (e.g. "lab", "home", "local"). */
@@ -3754,8 +3898,10 @@ export interface components {
             enabled: boolean;
             /** Format: uuid */
             id: string;
-            /** @description Domain pattern. Either an exact name (`netflix.com`) or a wildcard
-             *     (`*.netflix.com`) that also covers the apex — see [`domain_matches`]. */
+            /**
+             * @description Domain pattern. Either an exact name (`netflix.com`) or a wildcard
+             *     (`*.netflix.com`) that also covers the apex — see [`domain_matches`].
+             */
             pattern: string;
             /** Format: uuid */
             profile_id: string;
@@ -3763,11 +3909,13 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        /** @description Where a matched domain's traffic should go.
+        /**
+         * @description Where a matched domain's traffic should go.
          *
          *     Deliberately narrower than [`crate::routing::RoutingTarget`]: a domain rule
          *     can only send traffic to a tunnel or force it direct. `Default` has no
-         *     meaning for a per-domain override, so it is not representable here. */
+         *     meaning for a per-domain override, so it is not representable here.
+         */
         DomainRoutingTarget: {
             /** Format: uuid */
             tunnel_id: string;
@@ -3777,11 +3925,13 @@ export interface components {
             /** @enum {string} */
             type: "direct";
         };
-        /** @description Response for `POST /api/users/{id}/enrolments` (admin).
+        /**
+         * @description Response for `POST /api/users/{id}/enrolments` (admin).
          *
          *     The `token` appears **exactly once**, here. Only its hash is stored, so an
          *     admin who loses it must issue another — which is the intended property, not
-         *     a limitation. */
+         *     a limitation.
+         */
         EnrolmentInviteResponse: {
             /** @description RFC 3339 expiry, so the UI can say how long it is good for. */
             expires_at: string;
@@ -3796,14 +3946,18 @@ export interface components {
             expires_at: string;
             /** Format: uuid */
             id: string;
-            /** @description `None` while outstanding; set once redeemed. An invitation is
-             *     single-use, so a non-null value means it can never be redeemed again. */
+            /**
+             * @description `None` while outstanding; set once redeemed. An invitation is
+             *     single-use, so a non-null value means it can never be redeemed again.
+             */
             used_at?: string | null;
             /** Format: uuid */
             user_id: string;
         };
-        /** @description One side of a cross-zone exception: a `kind`-tagged reference to a device or
-         *     a zone. */
+        /**
+         * @description One side of a cross-zone exception: a `kind`-tagged reference to a device or
+         *     a zone.
+         */
         ExceptionEndpoint: {
             /** Format: uuid */
             id: string;
@@ -3817,15 +3971,19 @@ export interface components {
          * @enum {string}
          */
         ExceptionEndpointKind: "device" | "zone";
-        /** @description Request body for `POST /api/backup/export`.
+        /**
+         * @description Request body for `POST /api/backup/export`.
          *
          *     The passphrase is used to derive the age encryption key via scrypt.
          *     Server-side we enforce a minimum length of
          *     `crate::backup::MIN_PASSPHRASE_LEN`; clients should surface the same
-         *     minimum in UI copy so failures happen before the request. */
+         *     minimum in UI copy so failures happen before the request.
+         */
         ExportBackupRequest: {
-            /** @description Passphrase chosen by the admin. Never logged, never persisted —
-             *     lives only in the memory of the request that produced the bundle. */
+            /**
+             * @description Passphrase chosen by the admin. Never logged, never persisted —
+             *     lives only in the memory of the request that produced the bundle.
+             */
             passphrase: string;
         };
         /**
@@ -3880,11 +4038,13 @@ export interface components {
             /** @description Debounced status of this component. */
             status: components["schemas"]["HealthStatusDto"];
         };
-        /** @description Response body for `GET /health` (issue #214).
+        /**
+         * @description Response body for `GET /health` (issue #214).
          *
          *     Unauthenticated, Actuator/k8s-style. The HTTP status code carries the
          *     machine-readable verdict (200 UP / 503 DOWN); the body adds the per-
-         *     component breakdown for humans and dashboards. */
+         *     component breakdown for humans and dashboards.
+         */
         HealthResponse: {
             /** @description Per-component statuses, in registration order. */
             components: components["schemas"]["HealthComponentDto"][];
@@ -3918,8 +4078,10 @@ export interface components {
              * @description The applied listen port.
              */
             listen_port: number;
-            /** @description The server's public key once a keypair exists (generated on first
-             *     enable). `None` until the server has been enabled at least once. */
+            /**
+             * @description The server's public key once a keypair exists (generated on first
+             *     enable). `None` until the server has been enabled at least once.
+             */
             server_public_key?: string | null;
         };
         /** @description A single inbound-`WireGuard` peer, without any private key material. */
@@ -3940,29 +4102,37 @@ export interface components {
             name: string;
             public_key: string;
         };
-        /** @description Response from the public info endpoint.
+        /**
+         * @description Response from the public info endpoint.
          *
          *     Returns basic server information without requiring authentication.
-         *     Used by the web UI's connection status widget. */
+         *     Used by the web UI's connection status widget.
+         */
         InfoResponse: {
-            /** @description Whether this box is currently entitled to the premium app surfaces
+            /**
+             * @description Whether this box is currently entitled to the premium app surfaces
              *     (the user PWA and admin mobile app) — on the wardnet DDNS provider and
              *     not suspended. The web UI uses this to self-gate an already-installed
              *     PWA served from its service-worker precache, which never re-hits the
-             *     server-side serving gate. */
+             *     server-side serving gate.
+             */
             entitled: boolean;
-            /** @description Public-facing `CalVer` (`YYYY.MM.DD`) read from the workspace-
+            /**
+             * @description Public-facing `CalVer` (`YYYY.MM.DD`) read from the workspace-
              *     root `CALVER` file at compile time. Stable across dev rebuilds
              *     and is the string the web UI displays, the auto-update runner
              *     compares against the published manifest, and the `OpenAPI` spec
-             *     declares as `info.version`. */
+             *     declares as `info.version`.
+             */
             release_version: string;
             /** Format: int64 */
             uptime_seconds: number;
-            /** @description Diagnostic version string — git-derived
+            /**
+             * @description Diagnostic version string — git-derived
              *     `MAJOR.MINOR.PATCH[-dev.N+gHASH]`. Carries dev-suffix on
              *     non-tag builds so logs and `--version` output identify the
-             *     exact commit. Use `release_version` for anything user-facing. */
+             *     exact commit. Use `release_version` for anything user-facing.
+             */
             version: string;
         };
         /** @description Handle returned when an install is kicked off. */
@@ -4005,11 +4175,13 @@ export interface components {
             phase: "failed";
             reason: string;
         };
-        /** @description Request body for POST /api/update/install.
+        /**
+         * @description Request body for POST /api/update/install.
          *
          *     If `version` is omitted, installs the latest known version for the current
          *     channel. The operation is idempotent — calling twice while one is in
-         *     flight returns the same handle. */
+         *     flight returns the same handle.
+         */
         InstallUpdateRequest: {
             version?: string | null;
         };
@@ -4036,8 +4208,10 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        /** @description Response body for a handler that dispatches a background job instead of
-         *     doing the work inline. The HTTP status code is `202 Accepted`. */
+        /**
+         * @description Response body for a handler that dispatches a background job instead of
+         *     doing the work inline. The HTTP status code is `202 Accepted`.
+         */
         JobDispatchedResponse: {
             /** Format: uuid */
             job_id: string;
@@ -4059,13 +4233,15 @@ export interface components {
          * @enum {string}
          */
         LastShutdownState: "unknown" | "graceful" | "unclean";
-        /** @description Classification of the previous daemon shutdown.
+        /**
+         * @description Classification of the previous daemon shutdown.
          *
          *     `at` is the timestamp the previous run last touched the database
          *     (graceful exit time, or last heartbeat for unclean events). It is
          *     `None` only for `unknown` (first-ever boot). `acknowledged_at` is
          *     set by `POST /api/system/shutdown/acknowledge`; the banner is
-         *     considered dismissed iff `acknowledged_at >= at`. */
+         *     considered dismissed iff `acknowledged_at >= at`.
+         */
         LastShutdownStatus: {
             /** Format: date-time */
             acknowledged_at?: string | null;
@@ -4151,11 +4327,34 @@ export interface components {
         /** @description Response for `GET /api/dns/log`. */
         ListQueryLogResponse: {
             entries: components["schemas"]["DnsQueryLogEntry"][];
-            /** Format: int64 */
-            total: number;
+            /**
+             * @description Whether a further page exists, derived by over-fetching one row beyond
+             *     the requested limit.
+             *
+             *     There is deliberately no total count. `dns_query_log` is the largest
+             *     table on the box, and a count has no `LIMIT` to stop at: the filters
+             *     are served by indexes, but counting still visits every row that matches
+             *     rather than the page's worth — measured at ~300 ms per page load
+             *     against ~1 ms for the rows it accompanied. Reinstating a count, even a
+             *     capped one, restores that work on every page.
+             */
+            has_more: boolean;
+            /**
+             * Format: int64
+             * @description Cursor to pass as `before` to fetch the page after this one. `None`
+             *     exactly when `has_more` is false.
+             *
+             *     Paging backwards is the caller's job: it holds the cursors it has
+             *     already used. The alternative — a second, ascending query behind a
+             *     `after` parameter — doubles the endpoint's shapes to serve a Previous
+             *     button that the client can already answer from what it has seen.
+             */
+            next_cursor?: number | null;
         };
-        /** @description Response for GET /api/dns/local/records and
-         *     GET /api/dns/local/zones/{id}/records. */
+        /**
+         * @description Response for GET /api/dns/local/records and
+         *     GET /api/dns/local/zones/{id}/records.
+         */
         ListRecordsResponse: {
             records: components["schemas"]["CustomDnsRecord"][];
         };
@@ -4199,21 +4398,27 @@ export interface components {
         ListZonesResponse: {
             zones: components["schemas"]["DnsZone"][];
         };
-        /** @description Summary of a local `.bak-*` directory left behind by a previous import.
+        /**
+         * @description Summary of a local `.bak-*` directory left behind by a previous import.
          *
          *     Retained for 24h by the background cleanup task so operators can manually
-         *     recover from a bad restore. Surfaced by `GET /api/backup/snapshots`. */
+         *     recover from a bad restore. Surfaced by `GET /api/backup/snapshots`.
+         */
         LocalSnapshot: {
             /**
              * Format: date-time
              * @description When the snapshot was created.
              */
             created_at: string;
-            /** @description Which file the snapshot was taken of (`"database"`, `"config"`,
-             *     `"keys"`). Lets the UI group snapshots produced by the same import. */
+            /**
+             * @description Which file the snapshot was taken of (`"database"`, `"config"`,
+             *     `"keys"`). Lets the UI group snapshots produced by the same import.
+             */
             kind: components["schemas"]["SnapshotKind"];
-            /** @description Fully-qualified path on disk, e.g.
-             *     `/var/lib/wardnet/wardnet.db.bak-20260421T143022Z`. */
+            /**
+             * @description Fully-qualified path on disk, e.g.
+             *     `/var/lib/wardnet/wardnet.db.bak-20260421T143022Z`.
+             */
             path: string;
             /**
              * Format: int64
@@ -4233,13 +4438,15 @@ export interface components {
             remember_me: boolean;
             username: string;
         };
-        /** @description Login response body.
+        /**
+         * @description Login response body.
          *
          *     `token` is the same opaque value written into the `wardnet_session` cookie;
          *     non-browser clients (e.g. scripts that don't maintain a cookie jar) can
          *     replay it on admin-gated requests via the `Authorization: Bearer <token>`
          *     header. `expires_in_seconds` is the token's remaining lifetime measured
-         *     from the moment this response was generated. */
+         *     from the moment this response was generated.
+         */
         LoginResponse: {
             /** Format: int64 */
             expires_in_seconds: number;
@@ -4256,21 +4463,27 @@ export interface components {
         MeResponse: {
             /** @description The authenticated user's display name. Same value as `username`. */
             display_name: string;
-            /** @description Optional email address. `None` for a local admin created by the wizard
-             *     or the config-file bootstrap, neither of which asks for one. */
+            /**
+             * @description Optional email address. `None` for a local admin created by the wizard
+             *     or the config-file bootstrap, neither of which asks for one.
+             */
             email?: string | null;
             /** @description The authenticated user's id. */
             id: string;
-            /** @description `admin` or `member`. Lets a UI hide admin-only surfaces without probing
-             *     endpoints for 403s. */
+            /**
+             * @description `admin` or `member`. Lets a UI hide admin-only surfaces without probing
+             *     endpoints for 403s.
+             */
             role: components["schemas"]["UserRole"];
-            /** @description The authenticated user's display name.
+            /**
+             * @description The authenticated user's display name.
              *
              *     Kept under the name `username` **additively** (ADR-0031 §8): existing
              *     clients — the setup wizard's review step among them — read this field,
              *     and for a backfilled local admin it is exactly the old
              *     `admins.username`. New clients should prefer `display_name`, which is
-             *     the same value under an honest name. */
+             *     the same value under an honest name.
+             */
             username: string;
         };
         /** @description Response for GET /api/network/status. */
@@ -4279,14 +4492,18 @@ export interface components {
             gateway: string | null;
             interface: string;
             ip: string;
-            /** @description Upstream router MAC persisted by the wizard's discover step, if
-             *     any — lets the review step display it without re-probing. */
+            /**
+             * @description Upstream router MAC persisted by the wizard's discover step, if
+             *     any — lets the review step display it without re-probing.
+             */
             router_mac?: string | null;
         };
-        /** @description A Network Zone: a named policy bucket a device belongs to (exactly one) that
+        /**
+         * @description A Network Zone: a named policy bucket a device belongs to (exactly one) that
          *     gates the device's allowed routing targets, its reachability of the Pi's
          *     admin surfaces, and (Phase 2+) its network isolation. See epic #244 and the
-         *     `adr-network-zone-isolation` ADR. */
+         *     `adr-network-zone-isolation` ADR.
+         */
         NetworkZone: {
             /** @description May devices in this zone reach the Pi's admin surfaces? (intent-only in Phase 1) */
             admin_ui_reachable: boolean;
@@ -4309,8 +4526,10 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        /** @description A Network Zone plus its current member count. Enriched view returned by the
-         *     zone list/detail endpoints. */
+        /**
+         * @description A Network Zone plus its current member count. Enriched view returned by the
+         *     zone list/detail endpoints.
+         */
         NetworkZoneView: components["schemas"]["NetworkZone"] & {
             /**
              * Format: int64
@@ -4318,18 +4537,24 @@ export interface components {
              */
             member_count: number;
         };
-        /** @description One entry of the admin notification feed (issue #482): a persisted record
-         *     of an admin-audience push notification. */
+        /**
+         * @description One entry of the admin notification feed (issue #482): a persisted record
+         *     of an admin-audience push notification.
+         */
         NotificationItem: {
             body: string;
             /** @description RFC 3339 creation timestamp. */
             created_at: string;
             id: string;
-            /** @description Stable machine tag, e.g. `new_device_quarantined`, `tunnel_offline`,
-             *     `routing_changed`. */
+            /**
+             * @description Stable machine tag, e.g. `new_device_quarantined`, `tunnel_offline`,
+             *     `routing_changed`.
+             */
             kind: string;
-            /** @description Identifier of the subject entity; what it identifies is driven by
-             *     `kind` (device UUID for device kinds, tunnel UUID for tunnel kinds). */
+            /**
+             * @description Identifier of the subject entity; what it identifies is driven by
+             *     `kind` (device UUID for device kinds, tunnel UUID for tunnel kinds).
+             */
             subject_id?: string | null;
             title: string;
             /** @description App-relative deep link (no PWA base path), e.g. `/devices`. */
@@ -4340,26 +4565,32 @@ export interface components {
             /** @description Newest first. */
             notifications: components["schemas"]["NotificationItem"][];
         };
-        /** @description One provider's full configuration, for the **admin** provider screen.
+        /**
+         * @description One provider's full configuration, for the **admin** provider screen.
          *
          *     Separate from [`AuthProviderStatusResponse`] on purpose. That one is served
          *     by the unauthenticated `GET /api/auth/methods`, so it must carry nothing an
          *     anonymous caller should not learn — not even the client id, which would
          *     otherwise disclose the household's OAuth app and canonical hostname to
-         *     anyone who can reach the box. */
+         *     anyone who can reach the box.
+         */
         OauthProviderConfigResponse: {
-            /** @description The configured client id, or `null` if none is set. Not a secret — it
+            /**
+             * @description The configured client id, or `null` if none is set. Not a secret — it
              *     rides in the authorize URL — but still admin-only, because it names the
-             *     household's own registered application. */
+             *     household's own registered application.
+             */
             client_id?: string | null;
             /** @description A client secret is present. The secret itself is never returned. */
             configured: boolean;
-            /** @description The admin's **stored** on/off flag, not the effective availability.
+            /**
+             * @description The admin's **stored** on/off flag, not the effective availability.
              *
              *     This is the field a settings form must round-trip. Submitting
              *     [`AuthProviderStatusResponse::enabled`] instead would write the
              *     *computed* value back, silently switching a provider off whenever its
-             *     hostname or secret happened to be missing at read time. */
+             *     hostname or secret happened to be missing at read time.
+             */
             enabled: boolean;
             provider: components["schemas"]["OauthProviderDto"];
             /** @description The redirect URI to register with the provider by hand. */
@@ -4373,17 +4604,21 @@ export interface components {
          * @enum {string}
          */
         OauthProviderDto: "google" | "github";
-        /** @description Response for `GET /api/auth/oauth/{provider}/start` (unauthenticated).
+        /**
+         * @description Response for `GET /api/auth/oauth/{provider}/start` (unauthenticated).
          *
          *     JSON rather than a redirect, so the caller controls the navigation: a
          *     fetch that followed a 302 to an external origin would be opaque to the
-         *     client and impossible to surface an error from. */
+         *     client and impossible to surface an error from.
+         */
         OauthStartResponse: {
             /** @description The provider's authorize URL, fully parameterised. Send the browser here. */
             url: string;
         };
-        /** @description An inclusive port range for a single protocol. A single port is expressed as
-         *     `from == to`. */
+        /**
+         * @description An inclusive port range for a single protocol. A single port is expressed as
+         *     `from == to`.
+         */
         PortSpec: {
             /** Format: int32 */
             from: number;
@@ -4391,20 +4626,24 @@ export interface components {
             /** Format: int32 */
             to: number;
         };
-        /** @description Request body for POST /api/dhcp/config/preview.
+        /**
+         * @description Request body for POST /api/dhcp/config/preview.
          *
          *     A dry-run that reports which active leases would be revoked if the pool
          *     were changed to `pool_start`–`pool_end`, so the admin can be warned before
-         *     saving. Mutates nothing. */
+         *     saving. Mutates nothing.
+         */
         PreviewDhcpConfigRequest: {
             pool_end: string;
             pool_start: string;
         };
         /** @description Response for POST /api/dhcp/config/preview. */
         PreviewDhcpConfigResponse: {
-            /** @description Active leases whose IP would fall outside the proposed pool and are not
+            /**
+             * @description Active leases whose IP would fall outside the proposed pool and are not
              *     pinned by a reservation. These devices would be forced to re-acquire an
-             *     in-range lease on their next renewal. */
+             *     in-range lease on their next renewal.
+             */
             affected: components["schemas"]["DhcpLease"][];
         };
         /** @description One per-device grant, carrying the full minted hostname the phone dials. */
@@ -4413,47 +4652,63 @@ export interface components {
             created_at: string;
             /** Format: uuid */
             device_id: string;
-            /** @description The device's secret hostname (`<token>.<domain>`) — entered into
-             *     Android Private DNS and carried as the `ServerName` in the iOS profile. */
+            /**
+             * @description The device's secret hostname (`<token>.<domain>`) — entered into
+             *     Android Private DNS and carried as the `ServerName` in the iOS profile.
+             */
             hostname: string;
             /** Format: uuid */
             id: string;
         };
-        /** @description Response for `GET /api/private-dns/me` — the device-keyed self-service view
-         *     (identified by source IP, like `GET /api/devices/me`). */
+        /**
+         * @description Response for `GET /api/private-dns/me` — the device-keyed self-service view
+         *     (identified by source IP, like `GET /api/devices/me`).
+         */
         PrivateDnsMeResponse: {
             /** @description Whether Private DNS is enabled on the box at all. */
             enabled: boolean;
             /** @description Whether *this* device holds a grant. */
             granted: boolean;
-            /** @description This device's full hostname, present only when granted and the wardnet
-             *     domain is known; `null` otherwise. */
+            /**
+             * @description This device's full hostname, present only when granted and the wardnet
+             *     domain is known; `null` otherwise.
+             */
             hostname?: string | null;
         };
-        /** @description Enable prerequisites for Private DNS, surfaced to the admin UI so it can
+        /**
+         * @description Enable prerequisites for Private DNS, surfaced to the admin UI so it can
          *     explain *why* the toggle is blocked.
          *
          *     The first three are **hard gates** — [`PrivateDnsStatusResponse::enabled`]
          *     cannot be turned on unless all are `true`. `relay_connected` is
          *     **informational**: the LAN (split-horizon) path works without the reverse
-         *     tunnel; only roaming needs it, so a disconnected relay never blocks enable. */
+         *     tunnel; only roaming needs it, so a disconnected relay never blocks enable.
+         */
         PrivateDnsPrerequisites: {
-            /** @description An issued TLS certificate is live (the `DoT` listener derives its config
-             *     from it). */
+            /**
+             * @description An issued TLS certificate is live (the `DoT` listener derives its config
+             *     from it).
+             */
             certificate: boolean;
             /** @description The box currently holds an active Premium entitlement. */
             entitled: boolean;
-            /** @description The reverse tunnel to the regional edge is up. Informational only —
-             *     roaming queries need it, LAN queries do not. */
+            /**
+             * @description The reverse tunnel to the regional edge is up. Informational only —
+             *     roaming queries need it, LAN queries do not.
+             */
             relay_connected: boolean;
-            /** @description The box is on the wardnet DDNS provider (so grants get a wildcard-SAN
-             *     hostname). */
+            /**
+             * @description The box is on the wardnet DDNS provider (so grants get a wildcard-SAN
+             *     hostname).
+             */
             wardnet_provider: boolean;
         };
         /** @description Response for `GET /api/private-dns/status` and `PUT /api/private-dns`. */
         PrivateDnsStatusResponse: {
-            /** @description The wardnet FQDN grants live under (`<token>.<domain>`), when the
-             *     provider is configured; `null` otherwise. */
+            /**
+             * @description The wardnet FQDN grants live under (`<token>.<domain>`), when the
+             *     provider is configured; `null` otherwise.
+             */
             domain?: string | null;
             /** @description Whether the feature (and therefore the `:853` listener) is enabled. */
             enabled: boolean;
@@ -4534,52 +4789,68 @@ export interface components {
              */
             resolved: number;
         };
-        /** @description Phase of an in-flight restore. Emitted as progress events so the UI can
+        /**
+         * @description Phase of an in-flight restore. Emitted as progress events so the UI can
          *     show a spinner with meaningful status text.
          *
          *     The restore pipeline is strictly sequential — no phase is ever skipped on
          *     the happy path, and a failure preserves the phase it occurred in so the
-         *     operator can tell *where* the restore broke. */
+         *     operator can tell *where* the restore broke.
+         */
         RestorePhase: "idle" | "validating" | "stopping_runners" | "backing_up" | "extracting" | "migrating" | "restarting_runners" | "applied" | {
-            /** @description Something went wrong — the `.bak-*` siblings are still on disk for
-             *     manual recovery. `reason` holds the operator-facing error message. */
+            /**
+             * @description Something went wrong — the `.bak-*` siblings are still on disk for
+             *     manual recovery. `reason` holds the operator-facing error message.
+             */
             failed: {
                 reason: string;
             };
         };
-        /** @description Schema-only stand-in so the `OpenAPI` spec can describe the
+        /**
+         * @description Schema-only stand-in so the `OpenAPI` spec can describe the
          *     multipart fields `preview_import` accepts. The handler itself
          *     pulls fields out of [`axum::extract::Multipart`] directly — this
-         *     type is never materialised at runtime. */
+         *     type is never materialised at runtime.
+         */
         RestorePreviewRequest: {
             /** @description The encrypted `.wardnet.age` bundle bytes. */
             bundle: number[];
             /** @description Passphrase that was used to encrypt the bundle on export. */
             passphrase: string;
         };
-        /** @description Response for `POST /api/backup/import/preview`.
+        /**
+         * @description Response for `POST /api/backup/import/preview`.
          *
          *     Returned before any daemon state is touched. The UI uses this to show
          *     the admin what will change — which database, config, and key files get
          *     swapped, and which bundle they came from — so the actual apply step
-         *     is a conscious confirmation. */
+         *     is a conscious confirmation.
+         */
         RestorePreviewResponse: {
-            /** @description True when the bundle's `bundle_format_version` and
+            /**
+             * @description True when the bundle's `bundle_format_version` and
              *     `schema_version` are both compatible with the running daemon. A
              *     `false` here means `apply_import` will refuse; the UI should
-             *     surface `incompatibility_reason` and hide the confirm button. */
+             *     surface `incompatibility_reason` and hide the confirm button.
+             */
             compatible: boolean;
-            /** @description Files the apply step will rename to `.bak-<timestamp>` siblings
+            /**
+             * @description Files the apply step will rename to `.bak-<timestamp>` siblings
              *     and then overwrite. Surfaced verbatim in the UI so operators
-             *     understand the blast radius before confirming. */
+             *     understand the blast radius before confirming.
+             */
             files_to_replace: string[];
-            /** @description Human-readable reason the bundle is incompatible, when
-             *     `compatible` is `false`. `None` on the happy path. */
+            /**
+             * @description Human-readable reason the bundle is incompatible, when
+             *     `compatible` is `false`. `None` on the happy path.
+             */
             incompatibility_reason?: string | null;
             /** @description Bundle manifest, fully decrypted and validated. */
             manifest: components["schemas"]["BundleManifest"];
-            /** @description Opaque token the caller passes back to `apply_import` to prove
-             *     they just saw this preview. Scoped to a single bundle + session. */
+            /**
+             * @description Opaque token the caller passes back to `apply_import` to prove
+             *     they just saw this preview. Scoped to a single bundle + session.
+             */
             preview_token: string;
         };
         /** @description Response for DELETE /api/dhcp/leases/:id. */
@@ -4612,14 +4883,16 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
-        /** @description Minimal routing-profile info exposed to a self-service caller for the
+        /**
+         * @description Minimal routing-profile info exposed to a self-service caller for the
          *     read-only "profiles applied to your device" display in the user PWA.
          *
          *     Like [`ZoneSummary`], the caller is device-keyed and cannot call the
          *     admin-gated `GET /api/routing/profiles`; `GET /api/devices/me` resolves the
          *     caller's assigned profiles (via an internal admin context) and hands back
          *     just id + name — enough to show "Netflix → UK is routing some of your
-         *     traffic" without exposing the rules or letting the user edit them. */
+         *     traffic" without exposing the rules or letting the user edit them.
+         */
         RoutingProfileSummary: {
             id: string;
             /** @description Human-readable profile name (e.g. "Streaming (UK)"). */
@@ -4638,12 +4911,16 @@ export interface components {
             /** @enum {string} */
             type: "default";
         };
-        /** @description Response for `POST /api/private-dns/grants/{device_id}/notify` — the result
-         *     of nudging a granted device's household member to set up Private DNS. */
+        /**
+         * @description Response for `POST /api/private-dns/grants/{device_id}/notify` — the result
+         *     of nudging a granted device's household member to set up Private DNS.
+         */
         SendPrivateDnsNotificationResponse: {
-            /** @description Whether at least one push subscription for the device was targeted.
+            /**
+             * @description Whether at least one push subscription for the device was targeted.
              *     `false` (not an error) when the device holds a grant but the household
-             *     member hasn't enabled notifications, so no subscription exists. */
+             *     member hasn't enabled notifications, so no subscription exists.
+             */
             delivered: boolean;
         };
         /** @description Filters for server listing. */
@@ -4681,9 +4958,11 @@ export interface components {
          * @enum {string}
          */
         ServiceSet: "casting" | "mirroring" | "smart_home";
-        /** @description How the allowed ports of an exception are specified: either a curated preset
+        /**
+         * @description How the allowed ports of an exception are specified: either a curated preset
          *     or an explicit list. Internally tagged on the wire so the two shapes are
-         *     distinguishable without a discriminant field colliding with payload keys. */
+         *     distinguishable without a discriminant field colliding with payload keys.
+         */
         ServiceSpec: {
             set: components["schemas"]["ServiceSet"];
             /** @enum {string} */
@@ -4693,10 +4972,12 @@ export interface components {
             /** @enum {string} */
             type: "ports";
         };
-        /** @description Request body for PUT /api/system/default-policy.
+        /**
+         * @description Request body for PUT /api/system/default-policy.
          *
          *     `policy` is either the literal string `"direct"` or a tunnel UUID.
-         *     The service layer validates the format and rejects anything else. */
+         *     The service layer validates the format and rejects anything else.
+         */
         SetDefaultPolicyRequest: {
             policy: string;
         };
@@ -4704,11 +4985,13 @@ export interface components {
         SetDefaultPolicyResponse: {
             policy: string;
         };
-        /** @description Request body for `PUT /api/devices/{id}/owner` (admin, ADR-0031 §4).
+        /**
+         * @description Request body for `PUT /api/devices/{id}/owner` (admin, ADR-0031 §4).
          *
          *     **Attribution, never authentication.** The owner's role has no effect on
          *     what the device may do: a device caller resolves to `AuthContext::Device`
-         *     whoever owns it, including an admin. */
+         *     whoever owns it, including an admin.
+         */
         SetDeviceOwnerRequest: {
             /**
              * Format: uuid
@@ -4725,11 +5008,13 @@ export interface components {
         SetDeviceRoutingProfilesResponse: {
             message: string;
         };
-        /** @description Request body for `PATCH /api/inbound-wg/peers/{id}`.
+        /**
+         * @description Request body for `PATCH /api/inbound-wg/peers/{id}`.
          *
          *     Pauses or resumes a peer without deleting its credential — distinct from
          *     `DELETE`, which revokes it permanently and requires a fresh keypair (and
-         *     QR scan) to re-grant. */
+         *     QR scan) to re-grant.
+         */
         SetInboundWgPeerEnabledRequest: {
             enabled: boolean;
         };
@@ -4756,10 +5041,12 @@ export interface components {
             country?: string | null;
             /** @description Credentials for authenticating with the provider. */
             credentials: components["schemas"]["ProviderCredentials"];
-            /** @description Direct server hostname for dedicated IP or manual server selection.
+            /**
+             * @description Direct server hostname for dedicated IP or manual server selection.
              *     Bypasses server listing -- resolves directly by hostname.
              *     Accepts short form (`pt131`) or full (`pt131.nordvpn.com`).
-             *     Takes precedence over `server_id` when both are set. */
+             *     Takes precedence over `server_id` when both are set.
+             */
             hostname?: string | null;
             /** @description Optional label override; defaults to provider-generated label. */
             label?: string | null;
@@ -4786,9 +5073,11 @@ export interface components {
         };
         /** @description Response for GET /api/setup/status. */
         SetupStatusResponse: {
-            /** @description Derived: `wizard_step == Completed`. Kept for `SetupGuard`
+            /**
+             * @description Derived: `wizard_step == Completed`. Kept for `SetupGuard`
              *     backwards-compat — clients that haven't been updated still get a
-             *     boolean they understand. */
+             *     boolean they understand.
+             */
             setup_completed: boolean;
             wizard_mode?: null | components["schemas"]["WizardMode"];
             wizard_step: components["schemas"]["WizardStep"];
@@ -4811,11 +5100,13 @@ export interface components {
          * @enum {string}
          */
         StatsBucket: "minute" | "hour" | "day";
-        /** @description Response for a time-series stats query.
+        /**
+         * @description Response for a time-series stats query.
          *
          *     The shape of the response mirrors the request: a single-metric
          *     query returns `metric` + `series`; a multi-metric query returns
-         *     `results` (metric name → series). Exactly one variant is populated. */
+         *     `results` (metric name → series). Exactly one variant is populated.
+         */
         StatsQueryResponse: {
             metric?: string | null;
             results?: {
@@ -4856,10 +5147,12 @@ export interface components {
             disk_free_bytes: number;
             /** Format: int64 */
             disk_total_bytes: number;
-            /** @description Classification of the previous daemon shutdown plus its
+            /**
+             * @description Classification of the previous daemon shutdown plus its
              *     acknowledgement timestamp. The web UI uses this to surface a
              *     persistent banner after an unclean shutdown until an admin
-             *     dismisses it. */
+             *     dismisses it.
+             */
             last_shutdown: components["schemas"]["LastShutdownStatus"];
             /** Format: int64 */
             memory_total_bytes: number;
@@ -4887,8 +5180,10 @@ export interface components {
         TlsStatusResponse: {
             /** @description The domain being (or already) provisioned, if any. */
             domain?: string | null;
-            /** @description Human-readable error from the last failed attempt, when `phase` is
-             *     [`TlsProvisioningPhase::Failed`]. */
+            /**
+             * @description Human-readable error from the last failed attempt, when `phase` is
+             *     [`TlsProvisioningPhase::Failed`].
+             */
             error?: string | null;
             /** @description RFC 3339 expiry of the stored certificate, when one has been issued. */
             not_after?: string | null;
@@ -4924,11 +5219,13 @@ export interface components {
             label: string;
             /** Format: date-time */
             last_handshake?: string | null;
-            /** @description When `true`, devices routed through this tunnel resolve DNS via
+            /**
+             * @description When `true`, devices routed through this tunnel resolve DNS via
              *     wardnet's DNS server (so the ad-blocking filter still runs) and
              *     wardnet forwards those queries to the tunnel's DNS server with
              *     `SO_BINDTODEVICE`. When `false`, the per-tunnel DNS server (if
-             *     any) is ignored and the system-wide upstream pool is used. */
+             *     any) is ignored and the system-wide upstream pool is used.
+             */
             override_default_dns: boolean;
             provider?: string | null;
             /** @description Human-readable name of the last resolved server (e.g. "United States #8395"). */
@@ -4940,11 +5237,13 @@ export interface components {
         TunnelDetailResponse: {
             tunnel: components["schemas"]["Tunnel"];
         };
-        /** @description Response for `GET /api/tunnels/{id}/devices`.
+        /**
+         * @description Response for `GET /api/tunnels/{id}/devices`.
          *
          *     The devices currently routed through the given tunnel — i.e. those
          *     whose user-set or admin-set routing rule has
-         *     `target = Tunnel { tunnel_id: id }`. */
+         *     `target = Tunnel { tunnel_id: id }`.
+         */
         TunnelDevicesResponse: {
             devices: components["schemas"]["Device"][];
         };
@@ -4952,8 +5251,10 @@ export interface components {
         TunnelSpeedTestHistoryResponse: {
             results: components["schemas"]["TunnelSpeedTestResult"][];
         };
-        /** @description One completed speed test: the direct (WAN) baseline and the tunnel result,
-         *     measured back-to-back in a single run. */
+        /**
+         * @description One completed speed test: the direct (WAN) baseline and the tunnel result,
+         *     measured back-to-back in a single run.
+         */
         TunnelSpeedTestResult: {
             /**
              * Format: double
@@ -5021,11 +5322,13 @@ export interface components {
         TunnelTestResponse: {
             result: components["schemas"]["TunnelTestResult"];
         };
-        /** @description Result payload of `POST /api/tunnels/{id}/test`.
+        /**
+         * @description Result payload of `POST /api/tunnels/{id}/test`.
          *
          *     The daemon brings the tunnel up if needed, sends a single HTTP probe
          *     through the tunnel interface, and reports the exit IP, ISO-3166 alpha-2
-         *     country code, and round-trip latency in milliseconds. */
+         *     country code, and round-trip latency in milliseconds.
+         */
         TunnelTestResult: {
             /** @description ISO-3166 alpha-2 country code reported by the probe service. */
             country_code: string;
@@ -5115,6 +5418,11 @@ export interface components {
             cache_ttl_min_secs?: number | null;
             dns_filtering_enabled?: boolean | null;
             dnssec_enabled?: boolean | null;
+            /**
+             * Format: int32
+             * @description Wall-clock ceiling on a whole forwarded query, in milliseconds.
+             */
+            forward_deadline_ms?: number | null;
             forwarder_selection_mode?: null | components["schemas"]["ForwarderSelectionMode"];
             query_log_enabled?: boolean | null;
             /** Format: int32 */
@@ -5123,18 +5431,28 @@ export interface components {
             rate_limit_per_second?: number | null;
             rebinding_protection?: boolean | null;
             resolution_mode?: null | components["schemas"]["DnsResolutionMode"];
-            /** @description The chosen single upstream's `address`. Only consulted when the
+            /**
+             * @description The chosen single upstream's `address`. Only consulted when the
              *     resulting mode is `single`; ignored (and forced clear) in the other
-             *     modes. Omit to leave the current selection unchanged. */
+             *     modes. Omit to leave the current selection unchanged.
+             */
             single_upstream?: string | null;
             upstream_servers?: components["schemas"]["UpstreamDnsRequest"][] | null;
+            /**
+             * Format: int32
+             * @description Per-upstream answer deadline on the forwarding ladder, in
+             *     milliseconds. Must not exceed `forward_deadline_ms`.
+             */
+            upstream_timeout_ms?: number | null;
         };
-        /** @description Request body for PUT /api/dns/filter/config.
+        /**
+         * @description Request body for PUT /api/dns/filter/config.
          *
          *     Both fields are partial-update: omitted from JSON = no change. For
          *     `default_profile_ids`, an empty list clears the default (unassigned
          *     devices stop being filtered) and a non-empty list replaces the entire
-         *     set. */
+         *     set.
+         */
         UpdateDnsFilterConfigRequest: {
             /**
              * Format: int32
@@ -5200,10 +5518,12 @@ export interface components {
          * @enum {string}
          */
         UpdateHistoryStatus: "started" | "succeeded" | "failed" | "rolled_back";
-        /** @description Request body for PUT /api/network/zones/{id} (partial update). Every field
+        /**
+         * @description Request body for PUT /api/network/zones/{id} (partial update). Every field
          *     is optional. `is_default`/`is_default_for_new` set to `Some(true)` promote
          *     this zone to the anchor / default-for-new; `Some(false)` is rejected (flags
-         *     only move by promoting another zone). `subnet: Some(None)` clears the subnet. */
+         *     only move by promoting another zone). `subnet: Some(None)` clears the subnet.
+         */
         UpdateNetworkZoneRequest: {
             admin_ui_reachable?: boolean | null;
             allowed_targets?: components["schemas"]["AllowedTargetKind"][] | null;
@@ -5218,16 +5538,20 @@ export interface components {
         UpdateNetworkZoneResponse: {
             zone: components["schemas"]["NetworkZone"];
         };
-        /** @description Request body for PUT /api/dns/filter/profiles/{id}.
+        /**
+         * @description Request body for PUT /api/dns/filter/profiles/{id}.
          *
          *     All fields are partial-update: omitting them from JSON leaves the stored
-         *     value unchanged. Pass `description: null` to clear an existing description. */
+         *     value unchanged. Pass `description: null` to clear an existing description.
+         */
         UpdateProfileRequest: {
-            /** @description `undefined` / omitted = leave unchanged. `null` = clear. `string` = set.
+            /**
+             * @description `undefined` / omitted = leave unchanged. `null` = clear. `string` = set.
              *
              *     Standard serde cannot distinguish "field absent" from "field: null" for
              *     `Option<T>`. The custom deserializer below wraps the inner deserialize so
-             *     that `null` → `Some(None)` and absent → `None`, giving us three states. */
+             *     that `null` → `Some(None)` and absent → `None`, giving us three states.
+             */
             description?: string | null;
             name?: string | null;
         };
@@ -5273,11 +5597,13 @@ export interface components {
              *     "updated to vX" notification on this timestamp.
              */
             applied_at?: string | null;
-            /** @description Version the daemon most recently *finished* applying across a restart.
+            /**
+             * @description Version the daemon most recently *finished* applying across a restart.
              *
              *     Set by the startup reconcile when `pending_version` matched the running
              *     binary. The UI polls status and has no event channel, so this (paired
-             *     with `applied_at`) is how a browser learns an update landed. */
+             *     with `applied_at`) is how a browser learns an update landed.
+             */
             applied_version?: string | null;
             /** @description Whether auto-update is enabled. */
             auto_update_enabled: boolean;
@@ -5285,11 +5611,13 @@ export interface components {
             channel: components["schemas"]["UpdateChannel"];
             /** @description Currently running daemon version. */
             current_version: string;
-            /** @description Whether this box may follow the `edge` channel — i.e. whether
+            /**
+             * @description Whether this box may follow the `edge` channel — i.e. whether
              *     `[update] allow_edge_channel` is set in `/etc/wardnet/wardnet.toml`.
              *
              *     Setting it requires root *on the box*, so the UI cannot enable edge
-             *     itself; it only renders the option when the daemon says it exists. */
+             *     itself; it only renders the option when the daemon says it exists.
+             */
             edge_available: boolean;
             /** @description Current install phase. */
             install_phase: components["schemas"]["InstallPhase"];
@@ -5305,11 +5633,13 @@ export interface components {
             last_install_at?: string | null;
             /** @description Latest version known for the active channel (if any check has run). */
             latest_version?: string | null;
-            /** @description Version the in-flight install is targeting (if any).
+            /**
+             * @description Version the in-flight install is targeting (if any).
              *
              *     Cleared by the startup reconcile once the daemon comes back up on the
              *     new binary — a pending version that outlives the restart would other-
-             *     wise be reported forever. */
+             *     wise be reported forever.
+             */
             pending_version?: string | null;
             /** @description Whether a `.old` binary is present that could be rolled back to. */
             rollback_available: boolean;
@@ -5322,25 +5652,31 @@ export interface components {
         };
         /** @description Request body for `PUT /api/tunnels/{id}/dns-override`. */
         UpdateTunnelDnsOverrideRequest: {
-            /** @description `true` routes tunneled-device DNS through wardnet (so the
+            /**
+             * @description `true` routes tunneled-device DNS through wardnet (so the
              *     ad-blocking filter still runs) using the tunnel's DNS server as
              *     upstream with `SO_BINDTODEVICE`. `false` falls back to the
-             *     system-wide upstream pool. See issue #342. */
+             *     system-wide upstream pool. See issue #342.
+             */
             override_default_dns: boolean;
         };
         /** @description Response for `PUT /api/tunnels/{id}/dns-override`. */
         UpdateTunnelDnsOverrideResponse: {
             tunnel: components["schemas"]["Tunnel"];
         };
-        /** @description Request body for `PATCH /api/users/{id}`.
+        /**
+         * @description Request body for `PATCH /api/users/{id}`.
          *
-         *     Both fields are replacements, not patches: omitting `email` clears it. */
+         *     Both fields are replacements, not patches: omitting `email` clears it.
+         */
         UpdateUserProfileRequest: {
             display_name: string;
             email?: string | null;
         };
-        /** @description Request body for PUT /api/network/zones/exceptions/{id} (partial update).
-         *     Every field is optional; absent fields are left unchanged. */
+        /**
+         * @description Request body for PUT /api/network/zones/exceptions/{id} (partial update).
+         *     Every field is optional; absent fields are left unchanged.
+         */
         UpdateZoneExceptionRequest: {
             bidirectional?: boolean | null;
             from?: null | components["schemas"]["ExceptionEndpoint"];
@@ -5374,10 +5710,12 @@ export interface components {
             port?: number | null;
             /** @description Transport protocol. */
             protocol: components["schemas"]["DnsProtocol"];
-            /** @description TLS server name (SNI) for DoT/DoH. Required when `protocol` is
+            /**
+             * @description TLS server name (SNI) for DoT/DoH. Required when `protocol` is
              *     `Tls`/`Https`, ignored otherwise: `address` is the IP to dial, and
              *     this is the hostname the upstream's certificate must match (e.g.
-             *     address `"1.1.1.1"`, `tls_server_name` `"cloudflare-dns.com"`). */
+             *     address `"1.1.1.1"`, `tls_server_name` `"cloudflare-dns.com"`).
+             */
             tls_server_name?: string | null;
         };
         /** @description Upstream DNS server in API requests. */
@@ -5390,9 +5728,11 @@ export interface components {
             /** @description TLS server name (SNI) — required when protocol is tls/https. */
             tls_server_name?: string | null;
         };
-        /** @description Rolling-average latency telemetry for one configured upstream, produced by
+        /**
+         * @description Rolling-average latency telemetry for one configured upstream, produced by
          *     the background latency prober and surfaced in the DNS status response so the
-         *     UI can show per-server performance. Not persisted. */
+         *     UI can show per-server performance. Not persisted.
+         */
         UpstreamLatency: {
             /** @description The upstream's `address`, matching [`UpstreamDns::address`]. */
             address: string;
@@ -5414,26 +5754,34 @@ export interface components {
             label?: string | null;
             /** @description Last successful authentication, or `None` if never used. */
             last_used_at?: string | null;
-            /** @description The login identifier. Safe to show: for OAuth it is the provider's own
-             *     subject, and there is no passkey path in the tree yet (#1194). */
+            /**
+             * @description The login identifier. Safe to show: for OAuth it is the provider's own
+             *     subject, and there is no passkey path in the tree yet (#1194).
+             */
             subject: string;
         };
-        /** @description A household user as the admin directory shows them (ADR-0031 §1).
+        /**
+         * @description A household user as the admin directory shows them (ADR-0031 §1).
          *
          *     Structurally carries **no credential material** — not even a derived
          *     "has a password" flag. Credentials are a separate resource
          *     (`GET /api/users/{id}/credentials`) returning
          *     [`UserCredentialResponse`], which likewise has no secret field. Keeping the
          *     two apart is what makes it impossible to leak a hash by widening a struct
-         *     somebody thought was only a name and an email. */
+         *     somebody thought was only a name and an email.
+         */
         UserResponse: {
             created_at: string;
             display_name: string;
-            /** @description Optional. A user created by the setup wizard or the config-file
-             *     bootstrap has none, because neither asks for one. */
+            /**
+             * @description Optional. A user created by the setup wizard or the config-file
+             *     bootstrap has none, because neither asks for one.
+             */
             email?: string | null;
-            /** @description A disabled user keeps their row and their device ownership but cannot
-             *     sign in, and every live session was deleted when they were disabled. */
+            /**
+             * @description A disabled user keeps their row and their device ownership but cannot
+             *     sign in, and every live session was deleted when they were disabled.
+             */
             enabled: boolean;
             /** Format: uuid */
             id: string;
@@ -5463,8 +5811,10 @@ export interface components {
         };
         /** @description Response of `GET /api/push/vapid-public-key`. */
         VapidPublicKeyResponse: {
-            /** @description Base64url (unpadded) uncompressed P-256 application server key, passed
-             *     to `PushManager.subscribe({ applicationServerKey })` in the browser. */
+            /**
+             * @description Base64url (unpadded) uncompressed P-256 application server key, passed
+             *     to `PushManager.subscribe({ applicationServerKey })` in the browser.
+             */
             key: string;
         };
         /** @description The subscriber's encryption keys, carried inside [`WebPushSubscription`]. */
@@ -5474,8 +5824,10 @@ export interface components {
             /** @description Base64url (unpadded) P-256 ECDH public key of the subscriber (`p256dh`). */
             p256dh: string;
         };
-        /** @description Standard Web Push subscription object as produced in-browser by
-         *     `PushManager.subscribe()`. Body of `POST /api/push/subscriptions`. */
+        /**
+         * @description Standard Web Push subscription object as produced in-browser by
+         *     `PushManager.subscribe()`. Body of `POST /api/push/subscriptions`.
+         */
         WebPushSubscription: {
             /** @description Push service endpoint the daemon POSTs encrypted payloads to. */
             endpoint: string;
@@ -5510,13 +5862,17 @@ export interface components {
          * @enum {string}
          */
         WizardStep: "admin" | "network" | "dhcp" | "router_mac" | "dns" | "tunnel" | "policy" | "remote_access" | "review" | "completed";
-        /** @description A cross-zone exception: an admin-granted allowance for one endpoint to reach
+        /**
+         * @description A cross-zone exception: an admin-granted allowance for one endpoint to reach
          *     another across an otherwise-isolated zone boundary (e.g. a phone casting to a
          *     TV). This is data-model only in issue #737 commit 1; the zone enforcer
-         *     consumes it in a later commit. */
+         *     consumes it in a later commit.
+         */
         ZoneException: {
-            /** @description Whether the allowance applies in both directions (`from ↔ to`) or only
-             *     `from → to`. */
+            /**
+             * @description Whether the allowance applies in both directions (`from ↔ to`) or only
+             *     `from → to`.
+             */
             bidirectional: boolean;
             /** Format: date-time */
             created_at: string;
@@ -5545,7 +5901,8 @@ export interface components {
             /** @description CIDR, e.g. "10.44.0.0/24". Validated when set; unused by any Phase-1 code path. */
             cidr: string;
         };
-        /** @description Minimal Network Zone info exposed to a self-service caller for the
+        /**
+         * @description Minimal Network Zone info exposed to a self-service caller for the
          *     read-only zone display in the user PWA.
          *
          *     The caller is device-keyed and has no admin session, so it cannot call the
@@ -5553,10 +5910,13 @@ export interface components {
          *     caller's own zone (via an internal admin context) and hands back just the
          *     name plus whether it is the anchor "home" zone — enough for
          *     "You're on: Guest — isolated from the home network" without leaking the
-         *     full zone policy. */
+         *     full zone policy.
+         */
         ZoneSummary: {
-            /** @description Whether this is the protected anchor "home" zone. When `false` the
-             *     device sits in a non-home zone that is isolated from it. */
+            /**
+             * @description Whether this is the protected anchor "home" zone. When `false` the
+             *     device sits in a non-home zone that is isolated from it.
+             */
             is_default: boolean;
             /** @description Human-readable zone name (e.g. "Guest"). */
             name: string;
@@ -5743,8 +6103,10 @@ export interface operations {
                 limit?: number | null;
                 /** @description Which anomalies to return. Defaults to `open`. */
                 status?: null | components["schemas"]["AnomalyQueryStatus"];
-                /** @description Restrict to anomalies about one entity — how a per-entity surface asks
-                 *     "what is currently wrong with *this*". */
+                /**
+                 * @description Restrict to anomalies about one entity — how a per-entity surface asks
+                 *     "what is currently wrong with *this*".
+                 */
                 subject_id?: string | null;
             };
             header?: never;
@@ -6058,8 +6420,10 @@ export interface operations {
             query?: {
                 /** @description The authorization code to exchange. */
                 code?: string | null;
-                /** @description Set instead of `code` when the person declined consent, or the provider
-                 *     refused. Its value is a provider-defined code (`access_denied`, …). */
+                /**
+                 * @description Set instead of `code` when the person declined consent, or the provider
+                 *     refused. Its value is a provider-defined code (`access_denied`, …).
+                 */
                 error?: string | null;
                 /** @description The single-use ceremony nonce issued at `/start`. */
                 state?: string | null;
@@ -6099,15 +6463,19 @@ export interface operations {
     get_api_auth_oauth_provider_start: {
         parameters: {
             query?: {
-                /** @description Whether to issue a long-lived, refreshable session. Defaults to false.
+                /**
+                 * @description Whether to issue a long-lived, refreshable session. Defaults to false.
                  *
                  *     It must be decided here and nowhere else: it gates `refresh_session`,
                  *     so an endpoint that raised it after the fact would be an endpoint that
-                 *     upgrades any short session into a 90-day one. */
+                 *     upgrades any short session into a 90-day one.
+                 */
                 remember_me?: boolean | null;
-                /** @description Which admin surface the ceremony began on: `admin` or `admin_app`.
+                /**
+                 * @description Which admin surface the ceremony began on: `admin` or `admin_app`.
                  *     Defaults to `admin`. An unrecognised value is **rejected**, not
-                 *     sanitised into something close enough. */
+                 *     sanitised into something close enough.
+                 */
                 return_to?: string | null;
             };
             header?: never;
@@ -9592,9 +9960,11 @@ export interface operations {
     get_api_dns_filter_devices: {
         parameters: {
             query?: {
-                /** @description When `Some(false)`, restrict to devices where the kill switch is off.
+                /**
+                 * @description When `Some(false)`, restrict to devices where the kill switch is off.
                  *     When `None` (default), return every device with explicit settings or
-                 *     profile assignments. */
+                 *     profile assignments.
+                 */
                 enabled?: boolean | null;
             };
             header?: never;
@@ -12559,14 +12929,26 @@ export interface operations {
     get_api_dns_log: {
         parameters: {
             query?: {
+                /**
+                 * @description Keyset cursor: return the newest entries with an id below this one.
+                 *     Omit for the first page, then pass the previous response's
+                 *     `next_cursor`.
+                 *
+                 *     There is deliberately no offset. `dns_query_log` is the largest table
+                 *     on the box, and an offset makes SQLite walk and discard every row the
+                 *     caller already read, so page cost grows with depth. A cursor makes
+                 *     every page the same seek into the primary key.
+                 */
+                before?: number | null;
                 client_ip?: string | null;
-                /** @description Filter by the device attributed at query time. Stable across DHCP
+                /**
+                 * @description Filter by the device attributed at query time. Stable across DHCP
                  *     reassignment; rows recorded before device attribution existed (or
-                 *     from unknown sources) have no device and only match `client_ip`. */
+                 *     from unknown sources) have no device and only match `client_ip`.
+                 */
                 device_id?: string | null;
                 domain?: string | null;
                 limit?: number | null;
-                offset?: number | null;
                 result?: null | components["schemas"]["DnsQueryResult"];
             };
             header?: never;
@@ -15321,8 +15703,10 @@ export interface operations {
     get_api_push_notifications: {
         parameters: {
             query?: {
-                /** @description Maximum number of entries to return (newest first). Clamped to 1..=100;
-                 *     defaults to 50. */
+                /**
+                 * @description Maximum number of entries to return (newest first). Clamped to 1..=100;
+                 *     defaults to 50.
+                 */
                 limit?: number | null;
             };
             header?: never;
@@ -15490,8 +15874,10 @@ export interface operations {
     delete_api_push_subscriptions: {
         parameters: {
             query?: {
-                /** @description When set, only the subscription with this endpoint is removed; otherwise
-                 *     every subscription owned by the caller is removed. */
+                /**
+                 * @description When set, only the subscription with this endpoint is removed; otherwise
+                 *     every subscription owned by the caller is removed.
+                 */
                 endpoint?: string | null;
             };
             header?: never;
@@ -16754,8 +17140,10 @@ export interface operations {
                 label_filter?: string;
                 /** @description Single metric name. Mutually exclusive with `metrics`. */
                 metric?: string;
-                /** @description Multiple metric names to fan out over in a single call. Mutually
-                 *     exclusive with `metric`. */
+                /**
+                 * @description Multiple metric names to fan out over in a single call. Mutually
+                 *     exclusive with `metric`.
+                 */
                 metrics?: string[];
                 to: string;
             };
@@ -16821,14 +17209,18 @@ export interface operations {
     get_api_stats_top: {
         parameters: {
             query: {
-                /** @description Storage tier to rank over. Defaults to `Minute` (intraday) when
+                /**
+                 * @description Storage tier to rank over. Defaults to `Minute` (intraday) when
                  *     omitted, preserving the original short-window behaviour; pass `Hour`
                  *     or `Day` to rank over the longer hourly/daily tiers so top-N covers
-                 *     the same window as a matching time-series query. */
+                 *     the same window as a matching time-series query.
+                 */
                 bucket?: components["schemas"]["StatsBucket"];
-                /** @description Optional label dimension to group by when `label_key` is absent
+                /**
+                 * @description Optional label dimension to group by when `label_key` is absent
                  *     from an entry's labels (e.g. rank by `"device_id"` falling back to
-                 *     `"client"` for queries from sources with no known device). */
+                 *     `"client"` for queries from sources with no known device).
+                 */
                 fallback_label_key?: string;
                 from: string;
                 /** @description Label dimension to rank by (e.g. `"domain"`, `"client"`). */
