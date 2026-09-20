@@ -1,0 +1,261 @@
+{
+  "schema": 1,
+  "tool": "criterion",
+  "commit": "7b041998f842472b7fd34d01357661f4dd4bd616",
+  "branch": "main",
+  "timestamp": "2026-09-20T08:21:16Z",
+  "measurements": [
+    {
+      "id": "authoritative/lookup_cname/10",
+      "unit": "ns",
+      "value": 45.09637343727891,
+      "lower": 45.061271541311,
+      "upper": 45.15913931309289
+    },
+    {
+      "id": "authoritative/lookup_cname/100",
+      "unit": "ns",
+      "value": 47.68701168907069,
+      "lower": 47.602972827316535,
+      "upper": 47.71283939637977
+    },
+    {
+      "id": "authoritative/lookup_cname/1000",
+      "unit": "ns",
+      "value": 45.61129664997559,
+      "lower": 45.53462706859558,
+      "upper": 45.64444988409363
+    },
+    {
+      "id": "authoritative/lookup_hit/10",
+      "unit": "ns",
+      "value": 46.42162088410089,
+      "lower": 46.3663205124776,
+      "upper": 46.507338780859655
+    },
+    {
+      "id": "authoritative/lookup_hit/100",
+      "unit": "ns",
+      "value": 45.993906818089876,
+      "lower": 45.94505157142257,
+      "upper": 46.084203246034676
+    },
+    {
+      "id": "authoritative/lookup_hit/1000",
+      "unit": "ns",
+      "value": 46.16952947845805,
+      "lower": 46.100534275850734,
+      "upper": 46.212728823819965
+    },
+    {
+      "id": "authoritative/lookup_miss/10",
+      "unit": "ns",
+      "value": 20.849847860146667,
+      "lower": 20.80713028024579,
+      "upper": 20.951608085989392
+    },
+    {
+      "id": "authoritative/lookup_miss/100",
+      "unit": "ns",
+      "value": 21.207055724277147,
+      "lower": 21.15658522293911,
+      "upper": 21.258888857112083
+    },
+    {
+      "id": "authoritative/lookup_miss/1000",
+      "unit": "ns",
+      "value": 21.232911838711786,
+      "lower": 21.17986453599311,
+      "upper": 21.27157211881898
+    },
+    {
+      "id": "authoritative/match_forwarding_rule/10",
+      "unit": "ns",
+      "value": 48.23561873323564,
+      "lower": 48.22452810035928,
+      "upper": 48.250261161786604
+    },
+    {
+      "id": "authoritative/match_forwarding_rule/100",
+      "unit": "ns",
+      "value": 346.2801066649505,
+      "lower": 345.6264889908311,
+      "upper": 348.0420081613323
+    },
+    {
+      "id": "authoritative/match_forwarding_rule/1000",
+      "unit": "ns",
+      "value": 3320.3548797798558,
+      "lower": 3320.0780131431766,
+      "upper": 3321.1983679072605
+    },
+    {
+      "id": "dns_cache/get_hit",
+      "unit": "ns",
+      "value": 116.99775396652106,
+      "lower": 116.79380732418193,
+      "upper": 117.39158340544935
+    },
+    {
+      "id": "dns_cache/get_hit/threads=1",
+      "unit": "ns",
+      "value": 125.97468655082292,
+      "lower": 125.79369604003035,
+      "upper": 126.12378461758627
+    },
+    {
+      "id": "dns_cache/get_hit/threads=16",
+      "unit": "ns",
+      "value": 1110.1365863700705,
+      "lower": 1105.8591115691559,
+      "upper": 1114.2629233511589
+    },
+    {
+      "id": "dns_cache/get_hit/threads=4",
+      "unit": "ns",
+      "value": 263.76572894434145,
+      "lower": 260.01152268183114,
+      "upper": 266.50933620294535
+    },
+    {
+      "id": "dns_cache/get_hit/threads=8",
+      "unit": "ns",
+      "value": 545.2628929577696,
+      "lower": 538.2710792650394,
+      "upper": 550.8150387427698
+    },
+    {
+      "id": "dns_cache/get_miss",
+      "unit": "ns",
+      "value": 23.400931107195618,
+      "lower": 23.194867782394763,
+      "upper": 23.44250910296822
+    },
+    {
+      "id": "dns_cache/insert",
+      "unit": "ns",
+      "value": 1151.8659658166034,
+      "lower": 1118.9895833333333,
+      "upper": 1185.0560469801956
+    },
+    {
+      "id": "dns_filter/check_block/100",
+      "unit": "ns",
+      "value": 69.39040446282988,
+      "lower": 69.32951430239346,
+      "upper": 69.44371506129596
+    },
+    {
+      "id": "dns_filter/check_block/1000",
+      "unit": "ns",
+      "value": 70.3080816704091,
+      "lower": 70.27271213093553,
+      "upper": 70.3535243402934
+    },
+    {
+      "id": "dns_filter/check_block/10000",
+      "unit": "ns",
+      "value": 73.39146854962141,
+      "lower": 73.31916067509849,
+      "upper": 73.45573375568108
+    },
+    {
+      "id": "dns_filter/check_pass/100",
+      "unit": "ns",
+      "value": 123.70216422774484,
+      "lower": 123.64057020310332,
+      "upper": 123.80288668583584
+    },
+    {
+      "id": "dns_filter/check_pass/1000",
+      "unit": "ns",
+      "value": 123.97573473786812,
+      "lower": 123.90156628313085,
+      "upper": 124.04384959654689
+    },
+    {
+      "id": "dns_filter/check_pass/10000",
+      "unit": "ns",
+      "value": 123.94100554444296,
+      "lower": 123.88151773972412,
+      "upper": 124.06265125550068
+    },
+    {
+      "id": "dns_filter/check_uncanonical",
+      "unit": "ns",
+      "value": 136.14051296248456,
+      "lower": 136.0912935765292,
+      "upper": 136.2591244297704
+    },
+    {
+      "id": "dns_filter/parse_line",
+      "unit": "ns",
+      "value": 117.16512741358272,
+      "lower": 117.04954230695748,
+      "upper": 117.2366805593205
+    },
+    {
+      "id": "dns_filter/profile_check_pass",
+      "unit": "ns",
+      "value": 539.7849030402222,
+      "lower": 532.5071112295259,
+      "upper": 541.6390252773232
+    },
+    {
+      "id": "dns_log_sink/row_to_event",
+      "unit": "ns",
+      "value": 76.35502689933547,
+      "lower": 76.34291118458229,
+      "upper": 76.36320092631527
+    },
+    {
+      "id": "dns_message/encode_response",
+      "unit": "ns",
+      "value": 445.30977042718655,
+      "lower": 445.2425343848168,
+      "upper": 445.4943494132199
+    },
+    {
+      "id": "dns_message/parse_query",
+      "unit": "ns",
+      "value": 205.18049978608596,
+      "lower": 204.3011134662689,
+      "upper": 205.62421610177515
+    },
+    {
+      "id": "dns_resolution/authoritative",
+      "unit": "ns",
+      "value": 2515.3429709775737,
+      "lower": 2511.1318704155365,
+      "upper": 2520.1458291770577
+    },
+    {
+      "id": "dns_resolution/blocked",
+      "unit": "ns",
+      "value": 1841.2295623263653,
+      "lower": 1830.1851032233642,
+      "upper": 1846.920409371564
+    },
+    {
+      "id": "dns_resolution/cache_hit",
+      "unit": "ns",
+      "value": 1373.0775392109022,
+      "lower": 1365.6987595038015,
+      "upper": 1381.250255102041
+    },
+    {
+      "id": "dns_resolution/cache_miss",
+      "unit": "ns",
+      "value": 267852.3106770833,
+      "lower": 264532.67335106386,
+      "upper": 272270.64214939025
+    },
+    {
+      "id": "dns_resolution/rewrite",
+      "unit": "ns",
+      "value": 2694.7693156373407,
+      "lower": 2684.9444155844158,
+      "upper": 2702.1092721232253
+    }
+  ]
+}
