@@ -8,7 +8,6 @@ use wardnet_common::event::WardnetEvent;
 use super::{IP, MAC};
 use crate::device_event::listener::intent_from_event;
 use crate::device_event::service::{DeviceRef, IntentKind};
-use chrono::Utc;
 
 fn now() -> chrono::DateTime<Utc> {
     Utc.with_ymd_and_hms(2026, 9, 6, 10, 0, 0).unwrap()
