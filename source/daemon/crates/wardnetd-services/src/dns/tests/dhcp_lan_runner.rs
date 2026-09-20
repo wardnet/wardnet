@@ -73,6 +73,29 @@ fn dhcp_config(lease_duration_secs: u32) -> DhcpConfig {
 
 #[async_trait]
 impl DhcpService for MockDhcp {
+    async fn lease_logs_for_mac_between(
+        &self,
+        _mac: &str,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+        unimplemented!()
+    }
+
+    async fn renewal_counts_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, i64)>, crate::error::AppError> {
+        unimplemented!()
+    }
+
+    async fn renewal_count_for_mac_since(
+        &self,
+        _mac: &str,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, crate::error::AppError> {
+        unimplemented!()
+    }
     async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
         match self.lease_secs {
             Some(n) => Ok(dhcp_config(n)),

@@ -10,6 +10,7 @@ import { DeviceIdentificationCard } from "@/components/features/DeviceIdentifica
 import { DeviceNetworkCard } from "@/components/features/DeviceNetworkCard";
 import { DeviceReleaseCard } from "@/components/features/DeviceReleaseCard";
 import { DeviceSettingsCard } from "@/components/features/DeviceSettingsCard";
+import { DeviceTimelineCard } from "@/components/features/DeviceTimelineCard";
 import { DeviceRoutingProfilesCard } from "@/components/features/DeviceRoutingProfilesCard";
 import { DeviceZoneCard } from "@/components/features/DeviceZoneCard";
 import {
@@ -233,6 +234,7 @@ function DeviceDetailLoaded({
         restoreReservation={restoreReservation}
         deleteReservation={deleteReservation}
       />
+      <DeviceTimelineCard deviceId={device.id} />
       <DeviceReleaseCard device={device} release={releaseDevice} />
     </div>
   );

@@ -628,3 +628,170 @@ async fn reservation_without_optional_fields() {
     assert!(res.hostname.is_none());
     assert!(res.description.is_none());
 }
+
+/// Direct insert so the test controls `created_at`, which
+/// [`DhcpRepository::insert_lease_log`] defaults to "now".
+async fn log_at(pool: &sqlx::SqlitePool, mac: &str, event_type: &str, created_at: &str) {
+    sqlx::query(
+        "INSERT INTO dhcp_lease_log (lease_id, mac_address, event_type, details, created_at) \
+         VALUES ('00000000-0000-0000-0000-000000000009', ?, ?, NULL, ?)",
+    )
+    .bind(mac)
+    .bind(event_type)
+    .bind(created_at)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn renewal_counts_are_grouped_by_mac_and_exclude_other_event_types() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool.clone());
+
+    for hour in 10..13 {
+        log_at(
+            &pool,
+            "8c:86:dd:3d:0f:96",
+            "renewed",
+            &format!("2026-09-06T{hour:02}:00:00Z"),
+        )
+        .await;
+    }
+    log_at(
+        &pool,
+        "80:69:1a:75:e1:58",
+        "renewed",
+        "2026-09-06T11:00:00Z",
+    )
+    .await;
+    // Other event types must not inflate the renewal rate.
+    log_at(
+        &pool,
+        "8c:86:dd:3d:0f:96",
+        "assigned",
+        "2026-09-06T11:30:00Z",
+    )
+    .await;
+    log_at(
+        &pool,
+        "8c:86:dd:3d:0f:96",
+        "expired",
+        "2026-09-06T11:40:00Z",
+    )
+    .await;
+
+    let mut counts = repo
+        .count_renewals_by_mac_since("2026-09-06T00:00:00Z")
+        .await
+        .unwrap();
+    counts.sort();
+
+    assert_eq!(
+        counts,
+        vec![
+            ("80:69:1a:75:e1:58".to_owned(), 1),
+            ("8c:86:dd:3d:0f:96".to_owned(), 3),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn renewal_counts_ignore_events_before_the_window() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool.clone());
+
+    log_at(
+        &pool,
+        "8c:86:dd:3d:0f:96",
+        "renewed",
+        "2026-09-05T23:00:00Z",
+    )
+    .await;
+    log_at(
+        &pool,
+        "8c:86:dd:3d:0f:96",
+        "renewed",
+        "2026-09-06T01:00:00Z",
+    )
+    .await;
+
+    let counts = repo
+        .count_renewals_by_mac_since("2026-09-06T00:00:00Z")
+        .await
+        .unwrap();
+
+    assert_eq!(counts, vec![("8c:86:dd:3d:0f:96".to_owned(), 1)]);
+}
+
+#[tokio::test]
+async fn a_single_macs_renewals_can_be_counted_directly() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool.clone());
+
+    log_at(
+        &pool,
+        "8c:86:dd:3d:0f:96",
+        "renewed",
+        "2026-09-06T10:00:00Z",
+    )
+    .await;
+    log_at(
+        &pool,
+        "8c:86:dd:3d:0f:96",
+        "renewed",
+        "2026-09-06T11:00:00Z",
+    )
+    .await;
+    log_at(
+        &pool,
+        "80:69:1a:75:e1:58",
+        "renewed",
+        "2026-09-06T11:00:00Z",
+    )
+    .await;
+
+    let count = repo
+        .count_renewals_for_mac_since("8c:86:dd:3d:0f:96", "2026-09-06T00:00:00Z")
+        .await
+        .unwrap();
+
+    assert_eq!(count, 2);
+}
+
+#[tokio::test]
+async fn pruning_removes_only_lease_logs_older_than_the_cutoff() {
+    let pool = test_pool().await;
+    let repo = SqliteDhcpRepository::new(pool.clone());
+
+    log_at(
+        &pool,
+        "8c:86:dd:3d:0f:96",
+        "renewed",
+        "2026-08-01T10:00:00Z",
+    )
+    .await;
+    log_at(
+        &pool,
+        "8c:86:dd:3d:0f:96",
+        "renewed",
+        "2026-08-02T10:00:00Z",
+    )
+    .await;
+    log_at(
+        &pool,
+        "8c:86:dd:3d:0f:96",
+        "renewed",
+        "2026-09-06T10:00:00Z",
+    )
+    .await;
+
+    let deleted = repo.prune_lease_logs("2026-08-07T00:00:00Z").await.unwrap();
+
+    assert_eq!(deleted, 2);
+    let remaining = repo
+        .count_renewals_for_mac_since("8c:86:dd:3d:0f:96", "2026-01-01T00:00:00Z")
+        .await
+        .unwrap();
+    assert_eq!(remaining, 1);
+}

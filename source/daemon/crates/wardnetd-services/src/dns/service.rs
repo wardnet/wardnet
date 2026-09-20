@@ -83,6 +83,19 @@ pub trait DnsService: Send + Sync {
     /// the number of rows removed (called by the `DnsQueryLogRunner` under an
     /// admin auth context).
     async fn cleanup_query_log(&self, retention_days: u32) -> Result<u64, AppError>;
+
+    /// Per-bucket DNS result mix for one device, as `(bucket_ts, result, count)`.
+    ///
+    /// The split by result is what makes the timeline able to say "every query
+    /// succeeded" — a volume alone cannot rule DNS in or out. Requires admin
+    /// auth context.
+    async fn device_result_mix(
+        &self,
+        device_id: &str,
+        from: chrono::DateTime<chrono::Utc>,
+        to: chrono::DateTime<chrono::Utc>,
+        bucket_secs: i64,
+    ) -> Result<Vec<(i64, String, i64)>, AppError>;
 }
 
 pub struct DnsServiceImpl {
@@ -627,5 +640,18 @@ impl DnsService for DnsServiceImpl {
     async fn flush_query_log(&self) -> Result<u64, AppError> {
         auth_context::require_admin()?;
         Ok(0)
+    }
+    async fn device_result_mix(
+        &self,
+        device_id: &str,
+        from: chrono::DateTime<chrono::Utc>,
+        to: chrono::DateTime<chrono::Utc>,
+        bucket_secs: i64,
+    ) -> Result<Vec<(i64, String, i64)>, AppError> {
+        auth_context::require_admin()?;
+        self.dns_repo
+            .device_result_mix(device_id, from.timestamp(), to.timestamp(), bucket_secs)
+            .await
+            .map_err(AppError::Internal)
     }
 }

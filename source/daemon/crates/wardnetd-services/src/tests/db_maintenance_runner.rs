@@ -25,6 +25,7 @@ struct MockMaintenance {
     checkpoint_calls: Mutex<u32>,
     /// Calls to `run_optimize`.
     optimize_calls: Mutex<u32>,
+    prune_calls: Mutex<u32>,
     /// The persisted last-run day the runner reads at startup.
     last_day: Mutex<Option<chrono::NaiveDate>>,
     /// Days handed to `record_maintenance_day`, in call order.
@@ -73,6 +74,7 @@ impl MockMaintenance {
             calls: Mutex::new(0),
             checkpoint_calls: Mutex::new(0),
             optimize_calls: Mutex::new(0),
+            prune_calls: Mutex::new(0),
             // Never run: a fresh database, so the first tick fires.
             last_day: Mutex::new(None),
             recorded_days: Mutex::new(Vec::new()),
@@ -113,6 +115,10 @@ impl MockMaintenance {
         *self.optimize_calls.lock().unwrap()
     }
 
+    fn prune_count(&self) -> u32 {
+        *self.prune_calls.lock().unwrap()
+    }
+
     fn recorded(&self) -> Vec<chrono::NaiveDate> {
         self.recorded_days.lock().unwrap().clone()
     }
@@ -136,6 +142,14 @@ impl MaintenanceService for MockMaintenance {
                 wal_frames: 0,
                 checkpointed_frames: 0,
             }),
+            Err(e) => Err(AppError::Internal(anyhow::anyhow!("{e}"))),
+        }
+    }
+
+    async fn prune_diagnostic_logs(&self) -> Result<u64, AppError> {
+        *self.prune_calls.lock().unwrap() += 1;
+        match &self.result {
+            Ok(_) => Ok(0),
             Err(e) => Err(AppError::Internal(anyhow::anyhow!("{e}"))),
         }
     }
@@ -256,11 +270,12 @@ async fn run_vacuum_warns_and_does_not_panic_on_error() {
 
 // ── run_daily_maintenance — vacuum + checkpoint + optimize ───────────────────
 
-/// The daily sequence must fire all three operations exactly once.
+/// The daily sequence must fire all four operations exactly once.
 #[tokio::test]
 async fn run_daily_maintenance_runs_vacuum_checkpoint_and_optimize() {
     let repo = MockMaintenance::ok(3);
     run_daily_maintenance(repo.as_ref(), &admin_ctx()).await;
+    assert_eq!(repo.prune_count(), 1, "prune should fire once");
     assert_eq!(repo.call_count(), 1, "vacuum should fire once");
     assert_eq!(repo.checkpoint_count(), 1, "checkpoint should fire once");
     assert_eq!(repo.optimize_count(), 1, "optimize should fire once");
@@ -272,6 +287,7 @@ async fn run_daily_maintenance_runs_vacuum_checkpoint_and_optimize() {
 async fn run_daily_maintenance_continues_past_errors() {
     let repo = MockMaintenance::err();
     run_daily_maintenance(repo.as_ref(), &admin_ctx()).await; // must not panic
+    assert_eq!(repo.prune_count(), 1);
     assert_eq!(repo.call_count(), 1);
     assert_eq!(repo.checkpoint_count(), 1);
     assert_eq!(repo.optimize_count(), 1);

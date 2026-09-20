@@ -333,6 +333,44 @@ impl DnsRepository for SqliteDnsRepository {
         Ok(rows.into_iter().map(DbQueryLogRow::into_page_row).collect())
     }
 
+    async fn device_result_mix(
+        &self,
+        device_id: &str,
+        from: i64,
+        to: i64,
+        bucket_secs: i64,
+    ) -> anyhow::Result<Vec<(i64, String, i64)>> {
+        // Resolve the device to its lookup id first. A device that has never
+        // resolved anything has no lookup row, which is an empty mix rather
+        // than an error.
+        let Some(lookup_id): Option<i64> =
+            sqlx::query_scalar("SELECT id FROM lk_dns_device WHERE v = ?")
+                .bind(device_id)
+                .fetch_optional(&self.pools.read)
+                .await?
+        else {
+            return Ok(Vec::new());
+        };
+
+        let bucket = bucket_secs.max(1);
+        let rows: Vec<(i64, String, i64)> = sqlx::query_as(
+            "SELECT (q.timestamp / ?) * ? AS bucket, r.v, COUNT(*) \
+             FROM dns_query_log q \
+             JOIN lk_dns_result r ON r.id = q.result_id \
+             WHERE q.device_id = ? AND q.timestamp >= ? AND q.timestamp <= ? \
+             GROUP BY bucket, r.v \
+             ORDER BY bucket",
+        )
+        .bind(bucket)
+        .bind(bucket)
+        .bind(lookup_id)
+        .bind(from)
+        .bind(to)
+        .fetch_all(&self.pools.read)
+        .await?;
+        Ok(rows)
+    }
+
     async fn cleanup_query_log(&self, retention_days: u32) -> anyhow::Result<u64> {
         let cutoff = chrono::Utc::now()
             .checked_sub_signed(chrono::Duration::days(i64::from(retention_days)))

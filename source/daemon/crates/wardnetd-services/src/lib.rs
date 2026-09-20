@@ -18,10 +18,12 @@ pub mod backup;
 pub mod cloud;
 pub mod ddns;
 pub mod device;
+pub mod device_event;
 pub mod dhcp;
 pub mod dns;
 pub mod dns_filter;
 pub mod dns_local;
+pub mod egress_path;
 pub mod entitlement;
 pub mod garp;
 pub mod health;
@@ -94,6 +96,7 @@ pub use crate::auth::AuthService;
 pub use crate::backup::BackupService;
 pub use crate::ddns::DdnsService;
 pub use crate::device::{DeviceDiscoveryService, DeviceService, ObservationResult};
+pub use crate::device_event::{DeviceEventListener, DeviceEventService};
 pub use crate::dhcp::DhcpService;
 pub use crate::dns::DnsService;
 pub use crate::dns_filter::DnsFilterService;
@@ -240,7 +243,13 @@ pub struct Services {
     /// the DNS server because the anomaly registry below needs it before the
     /// daemon binary constructs that server.
     pub upstream_health: Arc<UpstreamHealth>,
+    /// Per-egress-path probe results (issue #1338). Created here rather than
+    /// inside the runner because the anomaly registry needs it before the
+    /// daemon binary starts that runner.
+    pub egress_path_health: Arc<crate::egress_path::EgressPathHealth>,
     pub anomaly: Arc<dyn AnomalyService>,
+    /// The observational per-device event log behind the connectivity timeline.
+    pub device_event: Arc<dyn DeviceEventService>,
     pub dns_filter: Arc<dyn DnsFilterService>,
     pub dns_local: Arc<dyn DnsLocalService>,
     /// Dynamic-DNS service: registers/keeps the public A record current via the
@@ -319,6 +328,9 @@ pub struct Services {
     pub stats: Arc<dyn StatsService>,
     /// Shared stats buffer — drained by [`StatsFlushRunner`] in `main.rs`.
     pub stats_buffer: Arc<StatsBuffer>,
+    /// Instrument factory, shared so background runners record into the same
+    /// buffer the flush runner drains.
+    pub stats_meter: Arc<Meter>,
     /// Process-wide entitlement state, flipped by the DDNS cloud clients on
     /// token mints (suspend on a `403`, restore on success). Cloned into
     /// `AppState` (to gate the premium app surfaces) and the DDNS/TLS runners
@@ -688,8 +700,11 @@ fn create_services(
         lan_ip,
     ));
 
-    let maintenance_service: Arc<dyn MaintenanceService> =
-        Arc::new(MaintenanceServiceImpl::new(maintenance_repo));
+    let maintenance_service: Arc<dyn MaintenanceService> = Arc::new(MaintenanceServiceImpl::new(
+        maintenance_repo,
+        repo_factory.device_event(),
+        dhcp_repo.clone(),
+    ));
 
     let system_service: Arc<dyn SystemService> = Arc::new(SystemServiceImpl::new(
         system_config_repo.clone(),
@@ -822,6 +837,7 @@ fn create_services(
         backends.policy_router,
         routing_service.clone(),
         dhcp_service.clone(),
+        event_publisher.clone(),
         config,
         lan_ip,
     );
@@ -843,6 +859,14 @@ fn create_services(
         config,
     );
 
+    let egress_path_health = Arc::new(crate::egress_path::EgressPathHealth::new());
+
+    let device_event_service: Arc<dyn DeviceEventService> =
+        Arc::new(crate::device_event::DeviceEventServiceImpl::new(
+            repo_factory.device_event(),
+            device_repo.clone(),
+        ));
+
     // Detectors talk to services, so the registry is built last — every
     // service it reaches for already exists by this point.
     let upstream_health = Arc::new(UpstreamHealth::new());
@@ -852,6 +876,9 @@ fn create_services(
             dns_filter: dns_filter_service.clone(),
             upstream_health: upstream_health.clone(),
             tunnel: tunnel_service.clone(),
+            dhcp: dhcp_service.clone(),
+            device_event: device_event_service.clone(),
+            egress_path_health: egress_path_health.clone(),
             running_version: crate::version::RELEASE_VERSION.to_owned(),
         },
     ));
@@ -875,6 +902,9 @@ fn create_services(
         dns: dns_service,
         upstream_health,
         anomaly: anomaly_service,
+        stats_meter: stats_meter.clone(),
+        egress_path_health,
+        device_event: device_event_service,
         dns_filter: dns_filter_service,
         dns_local: dns_local_service,
         ddns,
@@ -985,6 +1015,7 @@ fn build_zone_enforcement_service(
     policy_router: Arc<dyn routing::PolicyRouter>,
     routing_service: Arc<dyn RoutingService>,
     dhcp_service: Arc<dyn DhcpService>,
+    events: Arc<dyn EventPublisher>,
     config: &ApplicationConfiguration,
     lan_ip: std::net::Ipv4Addr,
 ) -> Arc<dyn ZoneEnforcementService> {
@@ -997,6 +1028,7 @@ fn build_zone_enforcement_service(
         policy_router,
         routing_service,
         dhcp_service,
+        events,
         config.network.lan_interface.clone(),
         lan_ip,
     ))

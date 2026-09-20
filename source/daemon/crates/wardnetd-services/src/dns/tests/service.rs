@@ -127,6 +127,16 @@ impl SystemConfigRepository for MemConfig {
 struct StubDnsRepo;
 #[async_trait]
 impl DnsRepository for StubDnsRepo {
+    async fn device_result_mix(
+        &self,
+        _device_id: &str,
+        _from: i64,
+        _to: i64,
+        _bucket_secs: i64,
+    ) -> anyhow::Result<Vec<(i64, String, i64)>> {
+        Ok(Vec::new())
+    }
+
     async fn insert_query_log_batch(&self, _e: &[QueryLogRow]) -> anyhow::Result<()> {
         unimplemented!()
     }
@@ -374,6 +384,16 @@ impl PagingDnsRepo {
 
 #[async_trait]
 impl DnsRepository for PagingDnsRepo {
+    async fn device_result_mix(
+        &self,
+        _device_id: &str,
+        _from: i64,
+        _to: i64,
+        _bucket_secs: i64,
+    ) -> anyhow::Result<Vec<(i64, String, i64)>> {
+        Ok(Vec::new())
+    }
+
     async fn insert_query_log_batch(&self, _e: &[QueryLogRow]) -> anyhow::Result<()> {
         unimplemented!()
     }

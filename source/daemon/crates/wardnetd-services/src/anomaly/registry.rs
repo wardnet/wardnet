@@ -6,11 +6,15 @@ use wardnet_common::anomaly::AnomalyType;
 
 use crate::anomaly::detector::AnomalyDetector;
 use crate::anomaly::detectors::{
-    BlocklistRefreshFailingDetector, DnsUpstreamUnreachableDetector, TransientDetector,
+    BlocklistRefreshFailingDetector, DeviceAddressChurnDetector, DhcpRenewalStormDetector,
+    DnsUpstreamUnreachableDetector, EgressPathDetector, TransientDetector,
     TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
 };
+use crate::device_event::DeviceEventService;
+use crate::dhcp::DhcpService;
 use crate::dns::UpstreamHealth;
 use crate::dns_filter::DnsFilterService;
+use crate::egress_path::EgressPathHealth;
 use crate::tunnel::TunnelService;
 
 /// Per-detector enable/disable flags, keyed by
@@ -22,6 +26,15 @@ pub type EnabledDetectors = HashMap<String, bool>;
 /// rule background runners follow.
 pub struct DetectorDeps {
     pub dns_filter: Arc<dyn DnsFilterService>,
+    /// Lease-renewal counts and the configured lease duration, for
+    /// `DhcpRenewalStorm`'s derived threshold.
+    pub dhcp: Arc<dyn DhcpService>,
+    /// The device timeline, for `DeviceAddressChurn`'s transition counts.
+    pub device_event: Arc<dyn DeviceEventService>,
+    /// Per-path probe results, published by `EgressPathProbeRunner`. A handle
+    /// for the same reason `upstream_health` is one: the registry is built
+    /// before the daemon binary starts the runner.
+    pub egress_path_health: Arc<EgressPathHealth>,
     /// Per-upstream reachability, published by the DNS server's latency
     /// prober. A handle rather than the server itself: the registry is built
     /// during service wiring, before the daemon binary constructs the DNS
@@ -79,6 +92,24 @@ impl AnomalyDetectorRegistry {
             registry.register(Arc::new(TransientDetector::new(
                 AnomalyType::RouteTableLost,
             )));
+        }
+        if Self::is_enabled(enabled, AnomalyType::EgressPathUnreachable) {
+            registry.register(Arc::new(EgressPathDetector::unreachable(
+                deps.egress_path_health.clone(),
+            )));
+        }
+        if Self::is_enabled(enabled, AnomalyType::EgressPathDegraded) {
+            registry.register(Arc::new(EgressPathDetector::degraded(
+                deps.egress_path_health.clone(),
+            )));
+        }
+        if Self::is_enabled(enabled, AnomalyType::DeviceAddressChurn) {
+            registry.register(Arc::new(DeviceAddressChurnDetector::new(
+                deps.device_event.clone(),
+            )));
+        }
+        if Self::is_enabled(enabled, AnomalyType::DhcpRenewalStorm) {
+            registry.register(Arc::new(DhcpRenewalStormDetector::new(deps.dhcp.clone())));
         }
         if Self::is_enabled(enabled, AnomalyType::DhcpConflict) {
             registry.register(Arc::new(TransientDetector::new(AnomalyType::DhcpConflict)));

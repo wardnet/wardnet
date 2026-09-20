@@ -17,6 +17,11 @@ use wardnetd_data::repository::{
     IncrementalVacuumOutcome, MaintenanceRepository, WalCheckpointOutcome,
 };
 
+use wardnetd_data::repository::sqlite::format_ts;
+use wardnetd_data::repository::{
+    DEVICE_EVENT_MAX_PER_DEVICE, DEVICE_EVENT_RETENTION_DAYS, DeviceEventRepository, DhcpRepository,
+};
+
 use crate::auth_context;
 use crate::error::AppError;
 
@@ -45,16 +50,35 @@ pub trait MaintenanceService: Send + Sync {
 
     /// Record `day` as the date the daily sequence last completed.
     async fn record_maintenance_day(&self, day: chrono::NaiveDate) -> Result<(), AppError>;
+
+    /// Apply retention to the diagnostic logs, returning how many rows went.
+    ///
+    /// Covers `device_events` (a 30-day age cap plus a per-device row cap, so a
+    /// device churning far faster than the age cap can contain still has a
+    /// ceiling) and `dhcp_lease_log`, an append-only audit trail that otherwise
+    /// grows without bound — a single client stuck at the renewal floor
+    /// contributes thousands of rows a day indefinitely.
+    async fn prune_diagnostic_logs(&self) -> Result<u64, AppError>;
 }
 
 pub struct MaintenanceServiceImpl {
     repo: Arc<dyn MaintenanceRepository>,
+    device_events: Arc<dyn DeviceEventRepository>,
+    dhcp: Arc<dyn DhcpRepository>,
 }
 
 impl MaintenanceServiceImpl {
     #[must_use]
-    pub fn new(repo: Arc<dyn MaintenanceRepository>) -> Self {
-        Self { repo }
+    pub fn new(
+        repo: Arc<dyn MaintenanceRepository>,
+        device_events: Arc<dyn DeviceEventRepository>,
+        dhcp: Arc<dyn DhcpRepository>,
+    ) -> Self {
+        Self {
+            repo,
+            device_events,
+            dhcp,
+        }
     }
 }
 
@@ -95,5 +119,22 @@ impl MaintenanceService for MaintenanceServiceImpl {
             .record_maintenance_day(day)
             .await
             .map_err(AppError::Internal)
+    }
+    async fn prune_diagnostic_logs(&self) -> Result<u64, AppError> {
+        auth_context::require_admin()?;
+
+        let cutoff = chrono::Utc::now() - chrono::Duration::days(DEVICE_EVENT_RETENTION_DAYS);
+        let events = self
+            .device_events
+            .prune(cutoff, DEVICE_EVENT_MAX_PER_DEVICE)
+            .await
+            .map_err(AppError::Internal)?;
+        let leases = self
+            .dhcp
+            .prune_lease_logs(&format_ts(cutoff))
+            .await
+            .map_err(AppError::Internal)?;
+
+        Ok(events + leases)
     }
 }

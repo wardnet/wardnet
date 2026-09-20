@@ -1074,6 +1074,12 @@ impl RoutingServiceImpl {
                 device_ip,
                 "failed to flush conntrack (existing flows may stay on previous route)"
             );
+        } else {
+            self.events.publish(WardnetEvent::DeviceConntrackFlushed {
+                device_ip: device_ip.to_owned(),
+                reason: "routing target changed".to_owned(),
+                timestamp: chrono::Utc::now(),
+            });
         }
 
         // 3. Hold for device retransmits.

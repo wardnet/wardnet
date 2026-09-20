@@ -15,12 +15,13 @@ use wardnet_common::config::{ApplicationConfiguration, DatabaseProvider};
 
 use crate::db::DbPools;
 use repository::{
-    AccessRequestRepository, AnomalyRepository, ApiKeyRepository, DeviceIdentificationRepository,
-    DeviceRepository, DhcpRepository, DnsEventsRepository, DnsFilterRepository, DnsLocalRepository,
-    DnsRepository, InboundWgPeerRepository, MaintenanceRepository, NetworkZoneRepository,
-    NotificationRepository, PrivateDnsGrantRepository, PushRepository, RoutingProfileRepository,
-    SessionRepository, SqliteAccessRequestRepository, SqliteAnomalyRepository,
-    SqliteApiKeyRepository, SqliteDeviceIdentificationRepository, SqliteDeviceRepository,
+    AccessRequestRepository, AnomalyRepository, ApiKeyRepository, DeviceEventRepository,
+    DeviceIdentificationRepository, DeviceRepository, DhcpRepository, DnsEventsRepository,
+    DnsFilterRepository, DnsLocalRepository, DnsRepository, InboundWgPeerRepository,
+    MaintenanceRepository, NetworkZoneRepository, NotificationRepository,
+    PrivateDnsGrantRepository, PushRepository, RoutingProfileRepository, SessionRepository,
+    SqliteAccessRequestRepository, SqliteAnomalyRepository, SqliteApiKeyRepository,
+    SqliteDeviceEventRepository, SqliteDeviceIdentificationRepository, SqliteDeviceRepository,
     SqliteDhcpRepository, SqliteDnsEventsRepository, SqliteDnsFilterRepository,
     SqliteDnsLocalRepository, SqliteDnsRepository, SqliteInboundWgPeerRepository,
     SqliteMaintenanceRepository, SqliteNetworkZoneRepository, SqliteNotificationRepository,
@@ -65,6 +66,8 @@ pub trait RepositoryFactory: Send + Sync {
     fn push(&self) -> Arc<dyn PushRepository>;
     fn notification(&self) -> Arc<dyn NotificationRepository>;
     fn anomaly(&self) -> Arc<dyn AnomalyRepository>;
+
+    fn device_event(&self) -> Arc<dyn DeviceEventRepository>;
 
     /// Provider-specific database dumper for backup/restore.
     ///
@@ -263,6 +266,10 @@ impl RepositoryFactory for SqliteRepositoryFactory {
 
     fn anomaly(&self) -> Arc<dyn AnomalyRepository> {
         Arc::new(SqliteAnomalyRepository::new_pools(self.pools.clone()))
+    }
+
+    fn device_event(&self) -> Arc<dyn DeviceEventRepository> {
+        Arc::new(SqliteDeviceEventRepository::new_pools(self.pools.clone()))
     }
 
     fn dumper(&self) -> Arc<dyn database_dumper::DatabaseDumper> {

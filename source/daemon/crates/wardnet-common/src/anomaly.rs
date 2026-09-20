@@ -76,6 +76,16 @@ pub enum AnomalyType {
     /// An upstream DNS server has stopped answering the reachability prober,
     /// so the forwarder has taken it out of rotation.
     DnsUpstreamUnreachable,
+    /// A DHCP client is re-requesting its lease far more often than the
+    /// configured lease implies, which means it is not registering our reply.
+    DhcpRenewalStorm,
+    /// One MAC is changing address far more often than any real device does.
+    DeviceAddressChurn,
+    /// An egress path cannot complete a TCP connection at all.
+    EgressPathUnreachable,
+    /// An egress path connects but cannot complete a transfer — small packets
+    /// get through, full-size segments do not.
+    EgressPathDegraded,
 }
 
 impl AnomalyType {
@@ -88,6 +98,10 @@ impl AnomalyType {
         Self::RouteTableLost,
         Self::BlocklistRefreshFailing,
         Self::DnsUpstreamUnreachable,
+        Self::DhcpRenewalStorm,
+        Self::DeviceAddressChurn,
+        Self::EgressPathUnreachable,
+        Self::EgressPathDegraded,
     ];
 
     /// Stable `snake_case` identifier. This is the wire form: it is the
@@ -103,6 +117,10 @@ impl AnomalyType {
             Self::RouteTableLost => "route_table_lost",
             Self::BlocklistRefreshFailing => "blocklist_refresh_failing",
             Self::DnsUpstreamUnreachable => "dns_upstream_unreachable",
+            Self::DhcpRenewalStorm => "dhcp_renewal_storm",
+            Self::DeviceAddressChurn => "device_address_churn",
+            Self::EgressPathUnreachable => "egress_path_unreachable",
+            Self::EgressPathDegraded => "egress_path_degraded",
         }
     }
 
@@ -126,10 +144,14 @@ impl AnomalyType {
             Self::TunnelStartFailed
             | Self::UpdateFailed
             | Self::RouteTableLost
-            | Self::BlocklistRefreshFailing => AnomalySeverity::Error,
-            Self::TunnelUnhealthy | Self::DhcpConflict | Self::DnsUpstreamUnreachable => {
-                AnomalySeverity::Warning
-            }
+            | Self::BlocklistRefreshFailing
+            | Self::EgressPathUnreachable => AnomalySeverity::Error,
+            Self::TunnelUnhealthy
+            | Self::DhcpConflict
+            | Self::DnsUpstreamUnreachable
+            | Self::DhcpRenewalStorm
+            | Self::DeviceAddressChurn
+            | Self::EgressPathDegraded => AnomalySeverity::Warning,
         }
     }
 
@@ -139,7 +161,9 @@ impl AnomalyType {
         match self {
             Self::TunnelStartFailed | Self::TunnelUnhealthy => "tunnel",
             Self::UpdateFailed => "update",
-            Self::DhcpConflict => "dhcp",
+            Self::DhcpConflict | Self::DhcpRenewalStorm => "dhcp",
+            Self::DeviceAddressChurn => "device",
+            Self::EgressPathUnreachable | Self::EgressPathDegraded => "network",
             Self::RouteTableLost => "routing",
             Self::BlocklistRefreshFailing | Self::DnsUpstreamUnreachable => "dns",
         }
@@ -155,9 +179,13 @@ impl AnomalyType {
     #[must_use]
     pub const fn url(self) -> &'static str {
         match self {
-            Self::TunnelStartFailed | Self::TunnelUnhealthy => "/tunnels",
+            Self::TunnelStartFailed
+            | Self::TunnelUnhealthy
+            | Self::EgressPathUnreachable
+            | Self::EgressPathDegraded => "/tunnels",
             Self::UpdateFailed => "/settings",
-            Self::DhcpConflict => "/dhcp",
+            Self::DhcpConflict | Self::DhcpRenewalStorm => "/dhcp",
+            Self::DeviceAddressChurn => "/devices",
             Self::RouteTableLost => "/routing",
             Self::BlocklistRefreshFailing => "/dns/filter",
             Self::DnsUpstreamUnreachable => "/dns",
@@ -196,6 +224,29 @@ impl AnomalyType {
                 "The list is still enforcing its last good download, but it is going \
                  stale. Check the URL is still valid and reachable from the gateway, \
                  then refresh it from Ad Blocking."
+            }
+            Self::DhcpRenewalStorm => {
+                "This device keeps asking for its address back far sooner than its lease \
+                 requires, which usually means it is not accepting our replies. It still \
+                 works, but it is generating constant network churn. Try restarting it, \
+                 or give it a fixed reservation."
+            }
+            Self::DeviceAddressChurn => {
+                "This device keeps changing its address far more often than any real \
+                 device does. That is usually something answering for addresses it does \
+                 not own — a powerline adapter or a router bridging traffic — rather than \
+                 the device itself moving. Each change tears down its live connections."
+            }
+            Self::EgressPathUnreachable => {
+                "Nothing is getting out over this path — connections to the internet do \
+                 not complete at all. If it is a tunnel, check that its peer is up; if \
+                 it is the direct connection, check the line to your provider."
+            }
+            Self::EgressPathDegraded => {
+                "Connections over this path start but then stall. Small packets get \
+                 through and larger ones do not, which usually means the path's maximum \
+                 packet size is being mis-negotiated. Devices on it will see pages that \
+                 hang part-loaded and apps that retry forever."
             }
             Self::DnsUpstreamUnreachable => {
                 "This server has stopped answering, so queries are going to the other \

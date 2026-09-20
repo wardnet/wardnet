@@ -436,6 +436,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/devices/{id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description A device's connectivity timeline: what it *did*, as opposed to how it is configured. Merges presence and address transitions, zone and routing rebinds, conntrack flushes, DHCP lease events, and DNS volume split by result. The split is the point — a device at one query a minute where every query succeeded rules DNS out, which a total alone cannot do. Admin only. */
+        get: operations["get_api_devices_id_timeline"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/devices/{id}/zone": {
         parameters: {
             query?: never;
@@ -2337,7 +2354,7 @@ export interface components {
          *     than a silently inert entry.
          * @enum {string}
          */
-        AnomalyType: "tunnel_start_failed" | "tunnel_unhealthy" | "update_failed" | "dhcp_conflict" | "route_table_lost" | "blocklist_refresh_failing" | "dns_upstream_unreachable";
+        AnomalyType: "tunnel_start_failed" | "tunnel_unhealthy" | "update_failed" | "dhcp_conflict" | "route_table_lost" | "blocklist_refresh_failing" | "dns_upstream_unreachable" | "dhcp_renewal_storm" | "device_address_churn" | "egress_path_unreachable" | "egress_path_degraded";
         /**
          * @description An anomaly as served by the HTTP API.
          *
@@ -2386,6 +2403,46 @@ export interface components {
             subject_id: string | null;
             /** @description Stable machine-readable class identifier, e.g. `tunnel_start_failed`. */
             type: components["schemas"]["AnomalyType"];
+        };
+        /**
+         * @description One DHCP lease event on the timeline.
+         *
+         *     Kept separate from [`ApiDeviceTimelineEvent`] rather than folded into the
+         *     same list: DHCP events come from the lease audit trail, which has its own
+         *     retention and its own vocabulary, and merging them would make a renewal
+         *     indistinguishable from an observation Wardnet made itself.
+         */
+        ApiDeviceDhcpEvent: {
+            /** Format: date-time */
+            at: string;
+            details: string | null;
+            event_type: components["schemas"]["DhcpLeaseEventType"];
+        };
+        /**
+         * @description DNS activity for one time bucket, split by result.
+         *
+         *     The split is the point: during the outage that motivated this, the device
+         *     was at 1-2 queries a minute and *every one succeeded*, which is what ruled
+         *     DNS out. A total alone cannot say that.
+         */
+        ApiDeviceDnsBucket: {
+            /** Format: date-time */
+            at: string;
+            /** @description Result slug (`forwarded`, `blocked`, `cache_hit`, ...) to count. */
+            results: {
+                [key: string]: number;
+            };
+        };
+        /** @description One entry on a device's connectivity timeline. */
+        ApiDeviceTimelineEvent: {
+            /** Format: date-time */
+            at: string;
+            /**
+             * @description Kind-specific payload — the addresses of a change, the reason for a
+             *     conntrack flush.
+             */
+            details: Record<string, never> | null;
+            kind: components["schemas"]["DeviceEventKind"];
         };
         /** @description Standard API error response. */
         ApiError: {
@@ -3049,6 +3106,15 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description What happened to a device.
+         *
+         *     Deliberately observational: every variant is something we *saw*, never a
+         *     judgement about whether it was a problem. Judgement belongs to the anomaly
+         *     subsystem, which reads these rows.
+         * @enum {string}
+         */
+        DeviceEventKind: "discovered" | "returned" | "gone" | "ip_changed" | "zone_changed" | "routing_changed" | "conntrack_flushed";
         /** @description Response for GET /api/devices/me. */
         DeviceMeResponse: {
             admin_locked: boolean;
@@ -3118,6 +3184,28 @@ export interface components {
          * @enum {string}
          */
         DeviceSignalKind: "dhcp_hostname" | "dhcp_param_list" | "dhcp_vendor_class" | "mdns_service" | "probed_port";
+        /** @description Response for GET /api/devices/{id}/timeline. */
+        DeviceTimelineResponse: {
+            /**
+             * Format: int64
+             * @description How wide each [`ApiDeviceDnsBucket`] is. Minute buckets for short
+             *     windows, hour buckets for long ones, so the payload stays bounded
+             *     without a second pagination model.
+             */
+            bucket_secs: number;
+            dhcp: components["schemas"]["ApiDeviceDhcpEvent"][];
+            dns: components["schemas"]["ApiDeviceDnsBucket"][];
+            events: components["schemas"]["ApiDeviceTimelineEvent"][];
+            /** Format: date-time */
+            from: string;
+            /** Format: date-time */
+            to: string;
+        };
+        /**
+         * @description How far back a timeline request reaches.
+         * @enum {string}
+         */
+        DeviceTimelineWindow: "one_hour" | "six_hours" | "twenty_four_hours" | "seven_days";
         /**
          * @description The type/category of a network device.
          * @enum {string}
@@ -3186,6 +3274,11 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
         };
+        /**
+         * @description Types of events that can occur for a DHCP lease.
+         * @enum {string}
+         */
+        DhcpLeaseEventType: "assigned" | "renewed" | "released" | "expired" | "conflict";
         /**
          * @description The current status of a DHCP lease.
          * @enum {string}
@@ -7274,6 +7367,88 @@ export interface operations {
                         /** @description Request ID for correlation with server logs. */
                         request_id?: string | null;
                     };
+                };
+            };
+            /** @description Unauthenticated - session cookie or API key missing/invalid */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Forbidden - caller is not an admin */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        detail?: string | null;
+                        error: string;
+                        /** @description Request ID for correlation with server logs. */
+                        request_id?: string | null;
+                    };
+                };
+            };
+        };
+    };
+    get_api_devices_id_timeline: {
+        parameters: {
+            query?: {
+                /** @description How far back to look. Defaults to the last 24 hours. */
+                window?: null | components["schemas"]["DeviceTimelineWindow"];
+            };
+            header?: never;
+            path: {
+                /** @description Device id */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The device's timeline for the window */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeviceTimelineResponse"];
                 };
             };
             /** @description Unauthenticated - session cookie or API key missing/invalid */

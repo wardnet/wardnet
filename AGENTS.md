@@ -235,6 +235,23 @@ you're about to make, rather than the whole set.
   `wardnet-postupgrade-runner` trust-anchor shape), and an **armed mutation**
   disarms only on an *independent positive re-probe* of the changed path — never
   channel liveness — rolling back through the **database**, per ADR-0028.
+- **[Device and path diagnostics](docs/adr/0038-device-and-path-diagnostics.md)** —
+  why a path probe **completes a transfer, not just a connect** (a bare
+  `connect()` is three small packets, so an MTU/MSS asymmetry passes it while
+  every real connection stalls — the probe would report healthy throughout the
+  outage it exists to explain), and why that makes `EgressPathUnreachable` and
+  `EgressPathDegraded` two types rather than one with a `details` field. Covers
+  **egress path** vs **routing target** (`default` is a deferral and cannot be
+  probed), why `device_events` had to exist at all (three of the timeline's five
+  inputs were published as events and dropped) and why it is capped by **both**
+  age and per-device rows (steady state ~2.5 MB/month; the observed pathological
+  rate reaches ~155 MB), and why every detector threshold is derived from
+  measured data — including why `DhcpRenewalStorm` must scale with the
+  configured lease, since a constant tuned for a 24h lease fires for *every*
+  device on a 1h one. Invariants: **probing our own egress is not probing a
+  device** (ADR 0025), and **a failing path probe is an anomaly, never a
+  `HealthMonitor` input** (ADR 0030's rule — otherwise a flaky VPN restarts the
+  daemon).
 - **[Auth model](.agents/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with

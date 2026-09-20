@@ -50,9 +50,11 @@ use wardnetd_data::repository::{
 use crate::auth_context;
 use crate::dhcp::DhcpService;
 use crate::error::AppError;
+use crate::event::EventPublisher;
 use crate::routing::RoutingService;
 use crate::routing::firewall::{ExceptionAllow, FirewallManager, ZoneIsolationRules, ZoneRules};
 use crate::routing::policy_router::PolicyRouter;
+use wardnet_common::event::WardnetEvent;
 
 /// Applies and live-reloads per-device Network-Zone nftables enforcement.
 ///
@@ -129,6 +131,9 @@ pub struct ZoneEnforcementServiceImpl {
     /// DHCP service, used to release a moved device's lease so it re-IPs into
     /// its new zone subnet (issue #737 `handle_zone_change`).
     dhcp: Arc<dyn DhcpService>,
+    /// Publish-only: the timeline records a conntrack flush because the device
+    /// experiences it as connections dying with nothing wrong on its own side.
+    events: Arc<dyn EventPublisher>,
     /// WAN-facing egress interface, used for the direct-egress drop and (issue
     /// #737) the per-zone gateway aliases + host routes.
     lan_interface: String,
@@ -166,12 +171,14 @@ impl ZoneEnforcementServiceImpl {
         policy_router: Arc<dyn PolicyRouter>,
         routing: Arc<dyn RoutingService>,
         dhcp: Arc<dyn DhcpService>,
+        events: Arc<dyn EventPublisher>,
         lan_interface: String,
         lan_ip: Ipv4Addr,
     ) -> Self {
         Self {
             zones,
             devices,
+            events,
             system_config,
             exceptions,
             firewall,
@@ -250,6 +257,18 @@ impl ZoneEnforcementServiceImpl {
     /// device's conntrack is flushed so already-open flows re-evaluate at once;
     /// on bulk reconcile (`flush = false`) it is skipped — the table was just
     /// flushed and there are no meaningful flows to tear down.
+    /// Record a flush on the affected device's timeline.
+    ///
+    /// Publish-only and infallible by construction: a diagnostic record must
+    /// never be able to fail an enforcement path.
+    fn publish_flush(&self, device_ip: &str, reason: &str) {
+        self.events.publish(WardnetEvent::DeviceConntrackFlushed {
+            device_ip: device_ip.to_owned(),
+            reason: reason.to_owned(),
+            timestamp: chrono::Utc::now(),
+        });
+    }
+
     async fn apply_one(
         &self,
         device_ip: &str,
@@ -264,12 +283,16 @@ impl ZoneEnforcementServiceImpl {
             .apply_zone_rules(device_ip, rules, &self.lan_interface)
             .await
             .map_err(AppError::Internal)?;
-        if flush && let Err(e) = self.policy_router.flush_conntrack(device_ip).await {
-            tracing::warn!(
-                error = %e,
-                device_ip,
-                "zone enforcer: failed to flush conntrack after apply (live flows may lag)"
-            );
+        if flush {
+            if let Err(e) = self.policy_router.flush_conntrack(device_ip).await {
+                tracing::warn!(
+                    error = %e,
+                    device_ip,
+                    "zone enforcer: failed to flush conntrack after apply (live flows may lag)"
+                );
+            } else {
+                self.publish_flush(device_ip, "zone rules applied");
+            }
         }
         Ok(())
     }
@@ -1378,6 +1401,8 @@ impl ZoneEnforcementService for ZoneEnforcementServiceImpl {
             }
             if let Err(e) = self.policy_router.flush_conntrack(&device.last_ip).await {
                 tracing::warn!(error = %e, device_id = %device_id, "zone enforcer: failed to flush conntrack on zone change");
+            } else {
+                self.publish_flush(&device.last_ip, "zone changed");
             }
             // Re-apply the device's #736 packet rules for the new zone.
             self.apply_one(&device.last_ip, &zone, true).await?;

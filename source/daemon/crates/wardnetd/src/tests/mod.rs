@@ -2,6 +2,7 @@ mod access_request_listener;
 mod device_detector;
 mod device_snapshot_listener;
 mod dns_device_snapshot_listener;
+mod egress_path_prober;
 mod firewall_netlink;
 mod garp_learning;
 mod garp_pnet;
