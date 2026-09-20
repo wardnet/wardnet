@@ -86,6 +86,23 @@ export class DeviceService {
     return this.api.post("/devices/{id}/release", { path: { id } });
   }
 
+  /**
+   * Assign or clear the household user a device belongs to (admin only,
+   * ADR-0031 §4). Pass `null` to clear.
+   *
+   * **Attribution, never authentication.** The owner's role has no effect on
+   * what the device may do — a device caller resolves to the `Device`
+   * principal whoever owns it, including an admin. Device identity is derived
+   * from the source IP, so treating ownership as a credential would collapse
+   * admin access to IP spoofing.
+   */
+  async setOwner(id: string, ownerUserId: string | null): Promise<DeviceDetailResponse> {
+    return this.api.put("/devices/{id}/owner", {
+      path: { id },
+      body: { owner_user_id: ownerUserId },
+    });
+  }
+
   /** Get DNS capture settings and storage stats for a device (admin only). */
   async getDnsCaptureSettings(id: string): Promise<DnsCaptureSettingsResponse> {
     return this.api.get("/devices/{id}/dns-capture", { path: { id } });

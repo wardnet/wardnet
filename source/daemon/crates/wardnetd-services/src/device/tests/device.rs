@@ -24,6 +24,9 @@ struct MockDeviceRepo {
     rule: Option<RoutingRule>,
     /// Rules returned by the batched `find_all_rules` lookup.
     all_rules: Vec<RoutingRule>,
+    /// Make `set_owner` fail the way `SQLite` does when `owner_user_id` names
+    /// no user, so the service's typed mapping can be exercised.
+    owner_is_unknown: bool,
 }
 
 #[async_trait]
@@ -48,6 +51,11 @@ impl DeviceRepository for MockDeviceRepo {
         _device_id: &str,
         _owner_user_id: Option<&str>,
     ) -> anyhow::Result<bool> {
+        if self.owner_is_unknown {
+            return Err(anyhow::Error::new(
+                wardnetd_data::repository::device::UnknownOwnerError,
+            ));
+        }
         Ok(true)
     }
 
@@ -360,6 +368,7 @@ fn make_svc(locked: bool, rule: Option<RoutingRule>) -> DeviceServiceImpl {
             device: Some(sample_device(locked)),
             rule,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
@@ -374,6 +383,7 @@ fn make_svc_no_device() -> DeviceServiceImpl {
             device: None,
             rule: None,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
@@ -388,6 +398,7 @@ fn make_svc_with_rules(all_rules: Vec<RoutingRule>) -> DeviceServiceImpl {
             device: None,
             rule: None,
             all_rules,
+            owner_is_unknown: false,
         }),
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
@@ -855,6 +866,7 @@ async fn update_dns_capture_settings_publishes_event() {
             device: Some(sample_device(false)),
             rule: None,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
@@ -1044,6 +1056,7 @@ async fn update_dns_capture_settings_with_enabled_none_reads_db_value() {
             device: Some(sample_device(false)),
             rule: None,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
@@ -1145,6 +1158,7 @@ async fn fetch_pending_maps_rows_to_items() {
             device: Some(sample_device(false)),
             rule: None,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(RowsDnsEventsRepo { rows }),
         Arc::new(MockNetworkZoneRepo),
@@ -1173,6 +1187,7 @@ async fn ack_dns_events_delegates_to_repo() {
             device: Some(sample_device(false)),
             rule: None,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(RowsDnsEventsRepo { rows: vec![] }),
         Arc::new(MockNetworkZoneRepo),
@@ -1195,6 +1210,7 @@ async fn list_capture_enabled_device_ids_delegates_to_repo() {
             device: None,
             rule: None,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
@@ -1217,6 +1233,7 @@ async fn get_device_capture_settings_returns_settings_when_device_found() {
             device: Some(device),
             rule: None,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
@@ -1239,6 +1256,7 @@ async fn get_device_capture_settings_returns_none_for_unknown_device() {
             device: None,
             rule: None,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
@@ -1263,6 +1281,7 @@ fn svc_with_device() -> DeviceServiceImpl {
             device: Some(sample_device(false)),
             rule: None,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(RowsDnsEventsRepo { rows: vec![] }),
         Arc::new(MockNetworkZoneRepo),
@@ -1278,6 +1297,7 @@ fn svc_without_device() -> DeviceServiceImpl {
             device: None,
             rule: None,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(RowsDnsEventsRepo { rows: vec![] }),
         Arc::new(MockNetworkZoneRepo),
@@ -1399,6 +1419,7 @@ fn make_svc_recording(rule: Option<RoutingRule>) -> (DeviceServiceImpl, Arc<Mock
             device: Some(sample_device(false)),
             rule,
             all_rules: vec![],
+            owner_is_unknown: false,
         }),
         Arc::new(MockDnsEventsRepo),
         Arc::new(MockNetworkZoneRepo),
@@ -1523,4 +1544,49 @@ async fn clear_rule_rejects_a_malformed_device_id() {
         auth_context::with_context(admin_ctx(), svc.clear_rule("not-a-uuid")).await,
         Err(AppError::NotFound(_))
     ));
+}
+
+// ── Owner assignment (ADR-0031 §4) ──────────────────────────────────────────
+
+#[tokio::test]
+async fn set_device_owner_maps_an_unknown_user_to_a_bad_request() {
+    // Naming a user that does not exist is the caller's mistake, not an
+    // internal fault — and the route documents no 500. Without the typed
+    // mapping the foreign key would surface as one.
+    let svc = DeviceServiceImpl::new(
+        Arc::new(MockDeviceRepo {
+            device: Some(sample_device(false)),
+            rule: None,
+            all_rules: vec![],
+            owner_is_unknown: true,
+        }),
+        Arc::new(MockDnsEventsRepo),
+        Arc::new(MockNetworkZoneRepo),
+        Arc::new(MockSystemConfigRepo),
+        Arc::new(MockEventPublisher::default()),
+    );
+
+    let ctx = AuthContext::user(AuthenticatedUser::from_validated_session(
+        Uuid::new_v4(),
+        UserRole::Admin,
+    ));
+    let result =
+        auth_context::with_context(ctx, svc.set_device_owner("dev-1", Some(Uuid::new_v4()))).await;
+
+    assert!(
+        matches!(result, Err(AppError::BadRequest(_))),
+        "expected a 400, got {result:?}"
+    );
+}
+
+#[tokio::test]
+async fn set_device_owner_refuses_a_non_admin() {
+    let svc = make_svc(false, None);
+    let result = auth_context::with_context(
+        device_ctx("aa:bb:cc:dd:ee:01"),
+        svc.set_device_owner("dev-1", None),
+    )
+    .await;
+
+    assert!(matches!(result, Err(AppError::Forbidden(_))));
 }

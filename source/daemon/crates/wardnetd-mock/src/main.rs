@@ -165,6 +165,44 @@ async fn run(
             d = seeded.device_ids.len(),
             t = seeded.tunnel_ids.len(),
         );
+
+        // The household directory is seeded *after* the setup wizard creates
+        // the first admin, not here. `setup_admin` refuses with 409 once any
+        // user row exists, so seeding a directory now would silently switch
+        // off the wizard — the one flow this mock exists to let a developer
+        // replay on every launch. Waiting costs nothing and keeps both.
+        let user_repo = factory.user();
+        let enrolment_repo = factory.user_enrolment();
+        let device_repo = factory.device();
+        let household_device_ids = seeded.device_ids.clone();
+        tokio::spawn(async move {
+            // Polling, rather than an event: the wizard's admin creation
+            // publishes nothing to subscribe to, and a 1s existence check is
+            // far cheaper than adding an event to production code that has no
+            // other use for one.
+            loop {
+                tokio::time::sleep(Duration::from_secs(1)).await;
+                match user_repo.exists().await {
+                    Ok(false) => continue,
+                    Ok(true) => {}
+                    Err(err) => {
+                        tracing::warn!(error = %err, "household seed: existence check failed");
+                        return;
+                    }
+                }
+                if let Err(err) = seed::populate_household(
+                    user_repo.as_ref(),
+                    enrolment_repo.as_ref(),
+                    device_repo.as_ref(),
+                    &household_device_ids,
+                )
+                .await
+                {
+                    tracing::warn!(error = %err, "household seed failed");
+                }
+                return;
+            }
+        });
     }
 
     // Seed IDs are only needed by the event emitter; re-read tunnels from the
@@ -420,6 +458,7 @@ async fn run(
         mock_access_request.clone(),
         services.zone_exception.clone(),
     )
+    .with_user_service(services.user.clone())
     .with_push_service(services.push.clone())
     .with_anomaly_service(services.anomaly.clone())
     .with_device_identification_service(services.device_identification.clone())

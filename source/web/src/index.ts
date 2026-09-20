@@ -171,6 +171,30 @@ export {
 
 // Hooks — anomalies
 export { useAnomalies, useReevaluateAnomalies } from "./hooks/useAnomalies";
+
+// Household identity (ADR-0031)
+export {
+  useUsers,
+  useUser,
+  useCreateUser,
+  useUpdateUserProfile,
+  useSetUserEnabled,
+  useSetUserRole,
+  useDeleteUser,
+  useUserCredentials,
+  useUnlinkOauth,
+  useChangeOwnPassword,
+  useEnrolments,
+  useIssueEnrolment,
+  useRevokeEnrolment,
+  useAuthMethods,
+  useOauthProviders,
+  useRedeemEnrolment,
+  useStartOauth,
+  useConfigureOauthProvider,
+  useClearOauthProvider,
+  useSetDeviceOwner,
+} from "./hooks/useUsers";
 export { anomalySubjectLink } from "./lib/anomaly";
 export {
   blocklistFailureSummary,
@@ -402,6 +426,7 @@ export {
 export { PrivateDnsInstructions } from "./components/PrivateDnsInstructions";
 export type { PrivateDnsInstructionsVariant } from "./components/PrivateDnsInstructions";
 export { CopyButton } from "./components/CopyButton";
+export { OauthSignInButtons } from "./components/OauthSignInButtons";
 
 // Custom icons (composed marks not in lucide). Exported individually so
 // consumers only bundle the ones they import.

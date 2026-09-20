@@ -131,7 +131,10 @@ async fn every_admin_only_method_refuses_a_member() {
     refused!(f.svc.delete_user(admin()), "delete_user");
     refused!(f.svc.issue_enrolment(member()), "issue_enrolment");
     refused!(f.svc.list_enrolments(member()), "list_enrolments");
-    refused!(f.svc.revoke_enrolment(Uuid::new_v4()), "revoke_enrolment");
+    refused!(
+        f.svc.revoke_enrolment(Uuid::new_v4(), Uuid::new_v4()),
+        "revoke_enrolment"
+    );
     refused!(
         f.svc.cleanup_expired_enrolments(),
         "cleanup_expired_enrolments"
@@ -704,7 +707,7 @@ async fn revoke_enrolment_removes_an_outstanding_invitation() {
         .unwrap();
     let stored_id = Uuid::parse_str(&f.enrolments.rows.lock().unwrap()[0].id).unwrap();
 
-    auth_context::with_context(ctx, f.svc.revoke_enrolment(stored_id))
+    auth_context::with_context(ctx, f.svc.revoke_enrolment(member(), stored_id))
         .await
         .unwrap();
 
@@ -721,8 +724,28 @@ async fn revoke_enrolment_reports_not_found_for_an_unknown_id() {
     let f = household();
     let ctx = principal::admin_context(admin());
 
-    let result = auth_context::with_context(ctx, f.svc.revoke_enrolment(Uuid::new_v4())).await;
+    let result =
+        auth_context::with_context(ctx, f.svc.revoke_enrolment(member(), Uuid::new_v4())).await;
     assert!(matches!(result, Err(AppError::NotFound(_))));
+}
+
+/// The `{id}` segment is part of the identity of the thing being revoked, not
+/// decoration: a real invitation revoked through the *wrong* user's path must
+/// be refused, or a mistyped id silently cancels somebody else's onboarding.
+#[tokio::test]
+async fn revoke_enrolment_refuses_an_invitation_belonging_to_another_user() {
+    let f = household();
+    let ctx = principal::admin_context(admin());
+    auth_context::with_context(ctx.clone(), f.svc.issue_enrolment(member()))
+        .await
+        .unwrap();
+    let stored_id = Uuid::parse_str(&f.enrolments.rows.lock().unwrap()[0].id).unwrap();
+
+    // `admin()` is a real user; the invitation belongs to `member()`.
+    let result = auth_context::with_context(ctx, f.svc.revoke_enrolment(admin(), stored_id)).await;
+
+    assert!(matches!(result, Err(AppError::NotFound(_))));
+    assert_eq!(f.enrolments.count(), 1, "the invitation must survive");
 }
 
 #[tokio::test]
@@ -1119,7 +1142,11 @@ async fn starting_oauth_without_a_public_hostname_is_refused() {
 
     let err = auth_context::with_context(
         principal::admin_context(admin()),
-        f.svc.start_oauth(crate::user::OauthProvider::Google),
+        f.svc.start_oauth(
+            crate::user::OauthProvider::Google,
+            crate::user::ReturnTo::Admin,
+            false,
+        ),
     )
     .await
     .expect_err("federated sign-in cannot work without a public hostname");
@@ -1138,7 +1165,11 @@ async fn starting_oauth_on_an_unconfigured_box_says_so() {
 
     let err = auth_context::with_context(
         principal::admin_context(admin()),
-        f.svc.start_oauth(crate::user::OauthProvider::Google),
+        f.svc.start_oauth(
+            crate::user::OauthProvider::Google,
+            crate::user::ReturnTo::Admin,
+            false,
+        ),
     )
     .await
     .expect_err("an unconfigured provider must be refused");

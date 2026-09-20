@@ -6,6 +6,7 @@ import {
   Globe,
   GlobeLock,
   Inbox,
+  KeyRound,
   LayoutGrid,
   Monitor,
   Network,
@@ -14,6 +15,7 @@ import {
   Router,
   Settings as SettingsIcon,
   Split,
+  Users,
 } from "lucide-react";
 import { ShieldWifi, GlobeFilter } from "@wardnet/web";
 import { Logo } from "@wardnet/web";
@@ -103,6 +105,18 @@ const adminSections: NavSection[] = [
         label: "Access requests",
         icon: Inbox,
         testId: "nav-access-requests",
+      },
+    ],
+  },
+  {
+    heading: "Household",
+    items: [
+      { to: "/users", label: "Users", icon: Users, testId: "nav-users" },
+      {
+        to: "/sign-in-methods",
+        label: "Sign-in methods",
+        icon: KeyRound,
+        testId: "nav-sign-in-methods",
       },
     ],
   },

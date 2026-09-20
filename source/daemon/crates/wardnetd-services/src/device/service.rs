@@ -16,6 +16,7 @@ use wardnet_common::routing::{RoutingTarget, RuleCreator};
 use crate::auth_context;
 use crate::error::AppError;
 use crate::event::EventPublisher;
+use wardnetd_data::repository::device::UnknownOwnerError;
 use wardnetd_data::repository::{
     DeviceRepository, DnsEventsRepository, NetworkZoneRepository, SystemConfigRepository,
 };
@@ -547,10 +548,29 @@ impl DeviceService for DeviceServiceImpl {
             .devices
             .set_owner(device_id, owner.as_deref())
             .await
-            .map_err(AppError::Internal)?;
+            // Naming a user that does not exist is a bad request, not an
+            // internal fault. Without this the `REFERENCES users(id)`
+            // constraint would surface as a 500 the route never documented.
+            .map_err(|err| match err.downcast::<UnknownOwnerError>() {
+                Ok(known) => AppError::BadRequest(known.to_string()),
+                Err(other) => AppError::Internal(other),
+            })?;
 
         if !updated {
             return Err(AppError::NotFound("device not found".to_owned()));
+        }
+
+        // Assigning an owner is an admin configuration act, so it promotes —
+        // the same reasoning that makes *naming* a device promote, which is
+        // equally "just a label". Without this the retention runner would
+        // delete the row 30 days after the device went away, silently taking
+        // the assignment with it and breaking the invariant the prune relies
+        // on: `managed = 0` implies no admin artefacts exist (ADR-0032).
+        //
+        // Clearing an owner does not promote: that is de-configuration, and
+        // `release_device` calls it on its way to `clear_managed`.
+        if owner.is_some() {
+            self.mark_managed(device_id).await?;
         }
 
         tracing::info!(

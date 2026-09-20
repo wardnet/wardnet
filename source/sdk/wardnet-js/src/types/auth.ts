@@ -20,6 +20,25 @@ export interface LoginResponse {
 
 /** Response body for GET /api/users/me. */
 export interface MeResponse {
-  /** Username of the authenticated admin. */
+  /**
+   * The authenticated user's display name.
+   *
+   * Kept under the name `username` **additively** (ADR-0031 §8): callers
+   * written before household identity read this field, and for a backfilled
+   * local admin it is exactly the old `admins.username`. New code should
+   * prefer `displayName`, which is the same value under an honest name.
+   */
   username: string;
+  /** The authenticated user's id. */
+  id: string;
+  /** Same value as `username`. */
+  displayName: string;
+  /** `null` for a local admin created by the wizard, which asks for no email. */
+  email: string | null;
+  /**
+   * `admin` or `member`. Lets a UI hide admin-only surfaces without probing
+   * endpoints for 403s — a convenience, never the authorization itself, which
+   * the daemon enforces on every call regardless.
+   */
+  role: "admin" | "member";
 }

@@ -79,3 +79,86 @@ fn clone_shares_inner_state() {
         cloned.system_service().version()
     );
 }
+
+/// The default [`UserService`] refuses every call, including the reads.
+///
+/// The counterpart of `default_identification_service_is_a_silent_no_op`, and
+/// deliberately the opposite shape. Recording a device signal is advisory, so
+/// a no-op that succeeds is honest. A household directory is not: answering an
+/// empty list would render an admin screen showing a working household with
+/// nobody in it, indistinguishable from a real empty box and from a wiring
+/// bug. The credential paths must fail for a stronger reason still — a `Noop`
+/// returning `Ok` from `redeem_enrolment` or `complete_oauth_callback` would
+/// be an authentication bypass.
+#[tokio::test]
+async fn default_user_service_refuses_every_call() {
+    let state = test_app_state();
+    let svc = state.user_service();
+    let id = uuid::Uuid::nil();
+
+    // Reads fail rather than answering emptily.
+    assert!(
+        svc.list_users().await.is_err(),
+        "list_users must not report an empty household"
+    );
+    assert!(svc.get_user(id).await.is_err());
+    assert!(svc.list_credentials(id).await.is_err());
+    assert!(svc.list_enrolments(id).await.is_err());
+    assert!(svc.available_methods().await.is_err());
+
+    // Credential paths fail: an `Ok` here would be an authentication bypass.
+    assert!(svc.redeem_enrolment("token", "password").await.is_err());
+    assert!(svc.complete_oauth_callback("state", "code").await.is_err());
+    assert!(
+        svc.start_oauth(
+            wardnetd_services::user::OauthProvider::Google,
+            wardnetd_services::user::ReturnTo::Admin,
+            false,
+        )
+        .await
+        .is_err()
+    );
+
+    // Writes fail too, so a mis-wired state cannot silently discard changes.
+    assert!(
+        svc.create_user(wardnetd_services::user::NewUser {
+            display_name: "Ana".to_owned(),
+            email: None,
+            role: wardnet_common::auth::UserRole::Admin,
+        })
+        .await
+        .is_err()
+    );
+    assert!(svc.update_profile(id, "Ana", None).await.is_err());
+    assert!(svc.set_enabled(id, false).await.is_err());
+    assert!(
+        svc.set_role(id, wardnet_common::auth::UserRole::Member)
+            .await
+            .is_err()
+    );
+    assert!(svc.delete_user(id).await.is_err());
+    assert!(svc.change_own_password("a", "b").await.is_err());
+    assert!(svc.issue_enrolment(id).await.is_err());
+    assert!(svc.revoke_enrolment(id, id).await.is_err());
+    assert!(svc.cleanup_expired_enrolments().await.is_err());
+    assert!(
+        svc.configure_oauth_provider(
+            wardnetd_services::user::OauthProvider::Github,
+            "id",
+            Some("secret"),
+            true,
+        )
+        .await
+        .is_err()
+    );
+    assert!(
+        svc.clear_oauth_provider(wardnetd_services::user::OauthProvider::Github)
+            .await
+            .is_err()
+    );
+    assert!(
+        svc.unlink_oauth(id, wardnetd_services::user::OauthProvider::Google)
+            .await
+            .is_err()
+    );
+}

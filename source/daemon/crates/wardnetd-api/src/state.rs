@@ -8,12 +8,16 @@ use wardnetd_services::entitlement::Entitlement;
 use wardnetd_services::event::EventPublisher;
 use wardnetd_services::private_dns::PrivateDnsService;
 use wardnetd_services::tls::runner::TlsRetryNudge;
+use wardnetd_services::user::{
+    AuthMethods, EnrolmentInvite, EnrolmentSummary, NewUser, OauthOutcome, OauthProvider,
+    OauthRedirect, ProviderStatus, ReturnTo, UserProfile,
+};
 use wardnetd_services::{
     AccessRequestService, AuthService, BackupService, DdnsService, DeviceDiscoveryService,
     DeviceService, DhcpService, DnsFilterService, DnsLocalService, DnsService, HealthMonitor,
     InboundWgService, JobService, LogService, NetworkZoneService, PushService,
     RoutingProfileService, RoutingService, StatsService, SystemService, TlsService, TunnelService,
-    UpdateService, VpnProviderService, ZoneExceptionService,
+    UpdateService, UserService, VpnProviderService, ZoneExceptionService,
 };
 
 /// Shared application state, cheaply cloneable via `Arc`.
@@ -27,6 +31,7 @@ pub struct AppState {
 
 struct Inner {
     auth_service: Arc<dyn AuthService>,
+    user_service: Arc<dyn UserService>,
     backup_service: Arc<dyn BackupService>,
     device_service: Arc<dyn DeviceService>,
     dhcp_service: Arc<dyn DhcpService>,
@@ -129,6 +134,12 @@ impl AppState {
                 stats_service,
                 access_request_service,
                 // Defaults to a no-op; production and the mock inject the live
+                // service via `with_user_service` (#1147). The no-op refuses
+                // every call rather than answering emptily: a household
+                // directory that silently reports "no users" would render an
+                // admin screen that looks working and is not.
+                user_service: Arc::new(NoopUserService),
+                // Defaults to a no-op; production and the mock inject the live
                 // service via `with_inbound_wg_service`.
                 inbound_wg_service: Arc::new(NoopInboundWgService),
                 // Defaults to a no-op; production and the mock inject the live
@@ -156,6 +167,18 @@ impl AppState {
                 tls_nudge: TlsRetryNudge::default(),
             }),
         }
+    }
+
+    /// Inject the live [`UserService`] — the household directory, enrolment and
+    /// federated sign-in (issue #1147, ADR-0031). Defaults to a no-op in
+    /// [`Self::new`]; production and the mock wire the real one. Must be called
+    /// before the state is cloned or shared.
+    #[must_use]
+    pub fn with_user_service(mut self, user_service: Arc<dyn UserService>) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_user_service must be called before AppState is cloned")
+            .user_service = user_service;
+        self
     }
 
     /// Inject the live [`InboundWgService`] (issue #809). Defaults to a no-op in
@@ -485,6 +508,12 @@ impl AppState {
     #[must_use]
     pub fn anomaly_service(&self) -> &dyn AnomalyService {
         self.inner.anomaly_service.as_ref()
+    }
+
+    /// Access the household user service (ADR-0031).
+    #[must_use]
+    pub fn user_service(&self) -> &dyn UserService {
+        self.inner.user_service.as_ref()
     }
 
     /// Access the health monitor for the unauthenticated `GET /health`
@@ -916,4 +945,155 @@ fn not_configured() -> wardnetd_services::error::AppError {
     wardnetd_services::error::AppError::Internal(anyhow::anyhow!(
         "routing profile service not configured"
     ))
+}
+
+/// Placeholder [`UserService`] for states built without one.
+///
+/// Every method fails, including the list reads. A directory that answered an
+/// empty list would render an admin screen that looks like a working household
+/// with nobody in it — indistinguishable from a real empty box, and impossible
+/// to tell from a wiring bug. The auth-adjacent methods must fail for a
+/// stronger reason: a `Noop` that returned `Ok` from `redeem_enrolment` or
+/// `complete_oauth_callback` would be an authentication bypass.
+struct NoopUserService;
+
+fn user_not_configured() -> wardnetd_services::error::AppError {
+    wardnetd_services::error::AppError::Internal(anyhow::anyhow!("user service not configured"))
+}
+
+#[async_trait::async_trait]
+impl UserService for NoopUserService {
+    async fn list_users(&self) -> Result<Vec<UserProfile>, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn get_user(
+        &self,
+        _user_id: uuid::Uuid,
+    ) -> Result<UserProfile, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn create_user(
+        &self,
+        _new_user: NewUser,
+    ) -> Result<UserProfile, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn update_profile(
+        &self,
+        _user_id: uuid::Uuid,
+        _display_name: &str,
+        _email: Option<&str>,
+    ) -> Result<UserProfile, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn set_enabled(
+        &self,
+        _user_id: uuid::Uuid,
+        _enabled: bool,
+    ) -> Result<UserProfile, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn set_role(
+        &self,
+        _user_id: uuid::Uuid,
+        _role: wardnet_common::auth::UserRole,
+    ) -> Result<UserProfile, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn delete_user(
+        &self,
+        _user_id: uuid::Uuid,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn list_credentials(
+        &self,
+        _user_id: uuid::Uuid,
+    ) -> Result<
+        Vec<wardnetd_data::repository::user_credential::CredentialSummary>,
+        wardnetd_services::error::AppError,
+    > {
+        Err(user_not_configured())
+    }
+    async fn change_own_password(
+        &self,
+        _current_password: &str,
+        _new_password: &str,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn issue_enrolment(
+        &self,
+        _user_id: uuid::Uuid,
+    ) -> Result<EnrolmentInvite, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn list_enrolments(
+        &self,
+        _user_id: uuid::Uuid,
+    ) -> Result<Vec<EnrolmentSummary>, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn revoke_enrolment(
+        &self,
+        _user_id: uuid::Uuid,
+        _enrolment_id: uuid::Uuid,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn redeem_enrolment(
+        &self,
+        _token: &str,
+        _password: &str,
+    ) -> Result<UserProfile, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn cleanup_expired_enrolments(&self) -> Result<u64, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn available_methods(&self) -> Result<AuthMethods, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn configure_oauth_provider(
+        &self,
+        _provider: OauthProvider,
+        _client_id: &str,
+        _client_secret: Option<&str>,
+        _enabled: bool,
+    ) -> Result<ProviderStatus, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn list_oauth_providers(
+        &self,
+    ) -> Result<Vec<ProviderStatus>, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn clear_oauth_provider(
+        &self,
+        _provider: OauthProvider,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn start_oauth(
+        &self,
+        _provider: OauthProvider,
+        _return_to: ReturnTo,
+        _remember_me: bool,
+    ) -> Result<OauthRedirect, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn complete_oauth_callback(
+        &self,
+        _state: &str,
+        _code: &str,
+    ) -> Result<OauthOutcome, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
+    async fn unlink_oauth(
+        &self,
+        _user_id: uuid::Uuid,
+        _provider: OauthProvider,
+    ) -> Result<u64, wardnetd_services::error::AppError> {
+        Err(user_not_configured())
+    }
 }

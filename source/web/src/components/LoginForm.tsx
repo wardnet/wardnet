@@ -22,6 +22,16 @@ interface LoginFormProps {
   rememberMe?: boolean | "checkbox";
   /** Called with the username after a successful login. Navigation is the caller's responsibility. */
   onSuccess?: (username: string) => void;
+  /**
+   * Called when the "Remember me" checkbox changes.
+   *
+   * Exists so a caller can apply the *same* intent to a federated sign-in
+   * started next to this form. `remember_me` is parked on the OAuth ceremony
+   * at its start and cannot be raised afterwards, so a checkbox whose value
+   * never left this component would silently give federated users a short
+   * session they could not upgrade.
+   */
+  onRememberMeChange?: (rememberMe: boolean) => void;
 }
 
 /**
@@ -34,6 +44,7 @@ export function LoginForm({
   login,
   rememberMe = false,
   onSuccess,
+  onRememberMeChange,
 }: LoginFormProps) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -105,7 +116,10 @@ export function LoginForm({
           <input
             type="checkbox"
             checked={rememberMeChecked}
-            onChange={(e) => setRememberMeChecked(e.target.checked)}
+            onChange={(e) => {
+              setRememberMeChecked(e.target.checked);
+              onRememberMeChange?.(e.target.checked);
+            }}
             className="login-form__checkbox"
           />
           Remember me for 30 days

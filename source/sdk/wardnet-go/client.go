@@ -50,6 +50,10 @@ type Client struct {
 	Auth *AuthService
 	// Anomalies reads the daemon's open and resolved anomalies.
 	Anomalies *AnomaliesService
+
+	// Users manages the household user directory, enrolment invitations, and
+	// federated sign-in configuration (ADR-0031).
+	Users *UsersService
 }
 
 type options struct {
@@ -141,6 +145,7 @@ func New(baseURL string, opts ...Option) (*Client, error) {
 	c.Backup = &BackupService{c: c}
 	c.Auth = &AuthService{c: c}
 	c.Anomalies = &AnomaliesService{c: c}
+	c.Users = &UsersService{c: c}
 	return c, nil
 }
 

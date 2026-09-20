@@ -60,8 +60,15 @@ export class AuthService {
     }
   }
 
-  /** Return the authenticated admin's identity. */
+  /** Return the authenticated household user's identity. */
   async me(): Promise<MeResponse> {
-    return this.api.get("/users/me");
+    const res = await this.api.get("/users/me");
+    return {
+      username: res.username,
+      id: res.id,
+      displayName: res.display_name,
+      email: res.email,
+      role: res.role,
+    };
   }
 }

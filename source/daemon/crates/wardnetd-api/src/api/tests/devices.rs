@@ -42,6 +42,14 @@ struct MockAuthService;
 
 #[async_trait]
 impl AuthService for MockAuthService {
+    async fn issue_verified_session(
+        &self,
+        _user_id: uuid::Uuid,
+        _remember_me: bool,
+        _user_agent: Option<&str>,
+    ) -> Result<LoginResult, AppError> {
+        unimplemented!()
+    }
     async fn current_user(&self) -> Result<CurrentUser, AppError> {
         Ok(CurrentUser {
             user_id: Uuid::nil(),
@@ -268,7 +276,7 @@ impl DeviceService for MockDeviceService {
         _device_id: &str,
         _owner_user_id: Option<uuid::Uuid>,
     ) -> Result<(), AppError> {
-        unimplemented!()
+        Ok(())
     }
 
     async fn get_device(
@@ -812,6 +820,10 @@ fn device_router(state: AppState) -> Router {
         .route(
             "/api/devices/{id}/zone",
             put(crate::api::devices::assign_device_zone),
+        )
+        .route(
+            "/api/devices/{id}/owner",
+            put(crate::api::devices::set_device_owner),
         )
         .route(
             "/api/devices/{id}/release",
@@ -2259,5 +2271,53 @@ async fn identify_rejects_a_malformed_device_id() {
 
     let (status, _) = post_json(app, "/api/devices/not-a-uuid/identify").await;
 
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn set_device_owner_assigns_and_clears() {
+    // Both directions matter: `null` is the documented way to unassign, and a
+    // handler that only understood a present id would make ownership one-way.
+    for body in [
+        r#"{"owner_user_id":"00000000-0000-0000-0000-0000000000aa"}"#,
+        r#"{"owner_user_id":null}"#,
+    ] {
+        let device = sample_device();
+        let state = build_state_with_dhcp(
+            MockDeviceService::found(device.clone(), Some(RoutingTarget::Direct)),
+            MockDiscoveryService {
+                devices: vec![device],
+                audit: AuditLog::default(),
+            },
+            MockDhcpService::empty(),
+        );
+        let (status, json) = put_json(
+            device_router(state),
+            "/api/devices/00000000-0000-0000-0000-000000000001/owner",
+            body,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert_eq!(json["device"]["mac"], "aa:bb:cc:dd:ee:01");
+    }
+}
+
+#[tokio::test]
+async fn set_device_owner_rejects_a_malformed_device_id() {
+    let device = sample_device();
+    let state = build_state_with_dhcp(
+        MockDeviceService::found(device.clone(), None),
+        MockDiscoveryService {
+            devices: vec![device],
+            audit: AuditLog::default(),
+        },
+        MockDhcpService::empty(),
+    );
+    let (status, _) = put_json(
+        device_router(state),
+        "/api/devices/not-a-uuid/owner",
+        r#"{"owner_user_id":null}"#,
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }

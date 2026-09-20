@@ -27,8 +27,12 @@ import DnsFilter from "@/pages/DnsFilter";
 import DnsFilterProfile from "@/pages/DnsFilterProfile";
 import DnsFilterProfileNew from "@/pages/DnsFilterProfileNew";
 import AccessRequests from "@/pages/AccessRequests";
+import Users from "@/pages/Users";
+import UserDetail from "@/pages/UserDetail";
+import SignInMethods from "@/pages/SignInMethods";
 import Login from "@/pages/Login";
 import Setup from "@/pages/Setup";
+import Redeem from "@/pages/Redeem";
 import NotFound from "@/pages/NotFound";
 
 /** Route guard that redirects to /login if not admin. */
@@ -41,7 +45,11 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
     // Preserve the attempted target so Login can return here after a
     // successful sign-in (deep-link redirect).
     const from = `${location.pathname}${location.search}`;
-    return <Navigate to="/login" replace state={{ from }} />;
+    // Carries an OAuth failure code across, same as the index route does —
+    // see `loginTarget`.
+    return (
+      <Navigate to={loginTarget(location.search)} replace state={{ from }} />
+    );
   }
   return <>{children}</>;
 }
@@ -80,15 +88,35 @@ function SetupGuard({ children }: { children: React.ReactNode }) {
 }
 
 /**
+ * The `/login` target, carrying an OAuth failure code across the bounce.
+ *
+ * The daemon's callback redirects to `ReturnTo::Admin.path()` — `/admin/`,
+ * which under this router's basename is the **index** route, not a guarded
+ * one. Both bounces to login must therefore preserve `oauth_error`, or a
+ * declined consent arrives as a silent redirect indistinguishable from a
+ * broken box. Nothing else in the query belongs on the sign-in screen.
+ */
+function loginTarget(search: string): string {
+  const oauthError = new URLSearchParams(search).get("oauth_error");
+  return oauthError
+    ? `/login?oauth_error=${encodeURIComponent(oauthError)}`
+    : "/login";
+}
+
+/**
  * Admin-site index. The admin site is an admin-only surface — non-admins are
  * served by the User PWA at the origin root (`/`), not here — so anyone without
  * an admin session is sent to login.
+ *
+ * This is also where a **failed** OAuth callback lands, since the daemon
+ * redirects to `/admin/` with no session to show for it.
  */
 function Home() {
   const { isAdmin, isChecking } = useAuth();
+  const location = useLocation();
 
   if (isChecking) return null;
-  if (!isAdmin) return <Navigate to="/login" replace />;
+  if (!isAdmin) return <Navigate to={loginTarget(location.search)} replace />;
   return <Dashboard />;
 }
 
@@ -110,6 +138,19 @@ export default function App() {
           element={
             <SetupGuard>
               <Login />
+            </SetupGuard>
+          }
+        />
+        {/*
+          Unauthenticated by necessity — an invited member has no credential
+          yet. Behind `SetupGuard` all the same: there is nobody to invite
+          until the first admin exists.
+        */}
+        <Route
+          path="redeem"
+          element={
+            <SetupGuard>
+              <Redeem />
             </SetupGuard>
           }
         />
@@ -225,6 +266,30 @@ export default function App() {
           element={
             <AdminRoute>
               <AccessRequests />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="users"
+          element={
+            <AdminRoute>
+              <Users />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="users/:id"
+          element={
+            <AdminRoute>
+              <UserDetail />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="sign-in-methods"
+          element={
+            <AdminRoute>
+              <SignInMethods />
             </AdminRoute>
           }
         />

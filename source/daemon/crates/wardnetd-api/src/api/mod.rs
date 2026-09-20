@@ -30,6 +30,7 @@ pub mod system;
 pub mod tls;
 pub mod tunnels;
 pub mod update;
+pub mod user_auth;
 pub mod users;
 pub mod zone_exception;
 
@@ -115,6 +116,7 @@ pub(crate) fn build_openapi_router() -> OpenApiRouter<AppState> {
     r = anomalies::register(r);
     r = auth::register(r);
     r = users::register(r);
+    r = user_auth::register(r);
     r = setup::register(r);
     r = info::register(r);
     r = health::register(r);

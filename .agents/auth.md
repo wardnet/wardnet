@@ -61,6 +61,27 @@ If you are about to add a file to that allow-list, the question to answer
 in the PR is: *what credential did this code just verify?* If there isn't
 one, the answer is no.
 
+### The two policed symbols
+
+`check-auth-constructors.sh` polices **two** symbols, each with its own
+allow-list, because there are two ways to conjure a principal from a bare
+id:
+
+| Symbol | What it makes | Why it must exist anyway |
+|---|---|---|
+| `AuthenticatedUser::from_validated_session` | A principal, in-process | Credential verification lives in a different crate from the type, and Rust cannot say "only this one function may call you" |
+| `AuthService::issue_verified_session` | A **session**, persisted | `UserService::complete_oauth_callback` proves who somebody is, but session policy lives in `AuthService`; duplicating it would let the two drift |
+
+`issue_verified_session` is the more dangerous of the two — it mints a
+credential a browser can replay later, not just a value in memory — so it
+gets the same treatment. Both `login` and `issue_verified_session` funnel
+through one private `mint_session`, so there is a single place where
+session lifetime and `remember_me` are decided.
+
+Its only sanctioned caller is the OAuth callback in
+`wardnetd-api/src/api/user_auth.rs`, which is allow-listed for exactly
+that reason: the line above it has just verified a provider identity.
+
 ## Setup flow
 
 - On first run, no user exists. `GET /api/setup/status` returns
@@ -85,14 +106,31 @@ set, grep `security(())` in `wardnetd-api/src/api`.
 - `wardnetd-api/src/api/auth.rs` — `POST /api/auth/login`, `logout`,
   `refresh`. These *establish* identity and so cannot require it.
 
-The household-identity credential paths — `available_methods`, the OAuth
-start/callback pair, and enrolment redemption — are
-implemented on `UserService` and carry the same
-category-(b) exception, documented per method. They have **no HTTP surface
-yet**: the API layer for them is step 10 of #1147 and is not in the tree.
-When it lands it will live in `wardnetd-api/src/api/user_auth.rs` and each
-route needs `security(())`, because the document-level default would
-otherwise mark them authenticated.
+- `wardnetd-api/src/api/user_auth.rs` — the household-identity credential
+  paths (#1147). Each carries `security(())`, because the document-level
+  default would otherwise mark them authenticated, and the underlying
+  `UserService` methods carry the matching category-(b) exception:
+  - `GET /api/auth/methods` — what a sign-in surface may render. Reports
+    availability only: never a credential, a client secret, or whether
+    any particular account exists.
+  - `GET /api/auth/oauth/{provider}/start` — begins a ceremony. Returns
+    JSON `{ url }` rather than a redirect.
+  - `GET /api/auth/oauth/{provider}/callback` — the **only** callback
+    entry point, and the one URL every household registers by hand with
+    the provider. Always answers 303 back to the ceremony's `ReturnTo`,
+    with a session cookie on success or a stable `oauth_error` code on
+    failure. It never reflects an `AppError` into the redirect: that text
+    can name a provider, a user, or an internal failure, and the query
+    parameter is a closed set of constants instead.
+  - `POST /api/auth/enrolments/redeem` — the person redeeming has no
+    credential yet, so the token *is* the authorization. **Deliberately
+    not rate-limited**, unlike `login`: the token is 32 bytes of CSPRNG
+    output rather than a human-chosen password, Argon2id runs only after
+    the token matches, and a lockout here would DoS the only onboarding
+    path a household has — from an unauthenticated endpoint.
+
+`PUT`/`DELETE /api/auth/providers/{provider}` live in the same file but
+are **admin** routes, guarded in `UserService` like everything else.
 
 ## Admin endpoints
 
@@ -103,6 +141,20 @@ either a session cookie (set by `POST /api/auth/login`) or an API key
 `resolve_auth_context` tries the **session before** the device-by-IP
 lookup: a signed-in person sitting at a known device is a person, not a
 device.
+
+Two of these are **not** plain `require_admin()`, and the difference is
+in `UserService`, not the handler:
+
+- `GET /api/users/{id}` and `PATCH /api/users/{id}` allow "an admin, **or**
+  that user about themselves". A member must not be able to enumerate the
+  household by walking ids, but must be able to read and edit their own
+  profile. That ownership check runs **after** the guard, never instead
+  of it.
+- `POST /api/users/me/password` is admin-free in both directions: a member
+  changing their own password needs no admin, and an admin cannot set
+  anybody else's — they would then know it. There is no endpoint that
+  writes another user's password, only the enrolment path that lets the
+  person set their own.
 
 ## Authentication context in services (HARD REQUIREMENT)
 

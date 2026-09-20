@@ -38,6 +38,22 @@ pub struct PrunedDevice {
     pub last_seen: String,
 }
 
+/// `devices.owner_user_id` referenced a user that does not exist.
+///
+/// A typed error rather than a bare foreign-key failure, mirroring
+/// `DuplicateUserEmailError`: the caller turns it into a `400`, because naming
+/// a missing user is a bad request, not an internal fault.
+#[derive(Debug)]
+pub struct UnknownOwnerError;
+
+impl std::fmt::Display for UnknownOwnerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("no such household user")
+    }
+}
+
+impl std::error::Error for UnknownOwnerError {}
+
 /// Data access for devices and their routing rules.
 ///
 /// Provides lookups by IP and ID, routing rule queries, and upserts.
@@ -205,6 +221,9 @@ pub trait DeviceRepository: Send + Sync {
     /// This is **attribution, not authorization** (ADR-0031 §4): nothing about
     /// the owner's role affects what the device may do. See
     /// `build-support/check-auth-constructors.sh`.
+    /// On an owner id that names no user, the error downcasts to
+    /// [`UnknownOwnerError`] so the caller can surface a clean `400` instead
+    /// of letting the foreign key arrive as an opaque `500`.
     async fn set_owner(&self, device_id: &str, owner_user_id: Option<&str>)
     -> anyhow::Result<bool>;
 
