@@ -175,7 +175,11 @@ describe("DeviceTimelineCard", () => {
           { at: "2026-09-06T14:00:00Z", kind: "discovered", details: null },
           { at: "2026-09-06T13:00:00Z", kind: "returned", details: null },
           { at: "2026-09-06T12:00:00Z", kind: "zone_changed", details: null },
-          { at: "2026-09-06T11:00:00Z", kind: "routing_changed", details: null },
+          {
+            at: "2026-09-06T11:00:00Z",
+            kind: "routing_changed",
+            details: null,
+          },
         ],
       }),
     );
@@ -195,7 +199,9 @@ describe("DeviceTimelineCard", () => {
   it("falls back to the raw kind for an unknown event", () => {
     renderCard(
       makeTimeline({
-        events: [{ at: "2026-09-06T10:00:00Z", kind: "teleported", details: null }],
+        events: [
+          { at: "2026-09-06T10:00:00Z", kind: "teleported", details: null },
+        ],
       }),
     );
 
