@@ -1,0 +1,29 @@
+# wardnet's licence policy. Absent this, the licence gate reports "not
+# configured" and gates nothing (see ADR 0038).
+#
+# GPL-3.0-or-later is not a third-party dependency to scrutinize: it is the
+# daemon workspace's own declared licence ([workspace.package].license in
+# source/daemon/Cargo.toml). The daemon links `rustables` (GPL-3.0-or-later,
+# never published under any other licence) and Rust links statically, so the
+# compiled binary is a combined work GPL-3.0's terms extend to — deliberate,
+# documented in LICENSING.md at the repository root. The SDK and web UI stay
+# MIT; only the daemon carries GPL.
+#
+# Zlib (adler32, foldhash), CDLA-Permissive-2.0 (webpki-root-certs,
+# webpki-roots) and LGPL-2.1-or-later (wireguard-control) are what
+# `lydite scan` names as the daemon's dependency tree's own non-conforming
+# licences beyond the default six — all added because the tree actually
+# carries them, not on principle.
+licence:
+  policy:
+    allow:
+      - Apache-2.0
+      - BSD-2-Clause
+      - BSD-3-Clause
+      - ISC
+      - MIT
+      - Unicode-3.0
+      - GPL-3.0-or-later
+      - Zlib
+      - CDLA-Permissive-2.0
+      - LGPL-2.1-or-later

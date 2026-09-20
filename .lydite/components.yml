@@ -1,0 +1,119 @@
+# What lydite builds, tests, scans and gates in wardnet/wardnet.
+#
+# source/daemon/ is one Cargo workspace (resolver = "3") behind one
+# `cargo --workspace` invocation, same reasoning as wardnet-cloud's
+# cloud-services: ten member crates share one dependency graph and one
+# Cargo.lock, and running them apart would pay for that graph ten times.
+# Its `exclude = ["fuzz"]` keeps the libfuzzer-sys/nightly-sanitizer fuzz
+# workspace out of member resolution, so `fuzz/` is excluded below too — it
+# is a separate workspace lydite never reaches from this `dir`, not code
+# this component happens not to run.
+#
+# The daemon is Linux-only: it drives netlink (rtnetlink, netlink-sys,
+# rustables' nftables bindings), kernel WireGuard and other OS integration
+# a macOS host has no kernel support for. `netlink-sys` fails to *compile*
+# on Darwin (libc there carries no sockaddr_nl), not merely to run, and the
+# repository's own Makefile already routes `check-daemon`/`coverage-daemon`
+# through a Linux container on any non-Linux host — see `coverage-daemon`
+# and `check-daemon` in the root Makefile. Declared as an ordinary
+# cargo-nextest component regardless: lydite's own toolchain provisioning
+# runs in Linux CI, where this compiles and tests the same as any other
+# workspace.
+#
+# source/wctl and source/sdk/wardnet-go are two separate Go modules (their
+# own go.mod, no shared go.work) — wctl's replace directive points at
+# ../sdk/wardnet-go by path, so `go build`/`go test` compiles wardnet-go's
+# current source directly with no build step of its own first.
+#
+# source/ is a yarn (Berry) workspace (one source/yarn.lock, one
+# source/package.json workspaces list) with no single vitest entrypoint —
+# turbo's `test` task (`dependsOn: ["^build"]`) fans out to each package's
+# own `vitest run`, so a component is one workspace package, the same
+# pattern established for hatua and tandiko-design.
+#
+# admin-app, admin-site and user-app each import `@wardnet/js` (this
+# workspace's own sdk/wardnet-js) through its package.json `exports`, which
+# point at dist/ — turbo's `^build` ordering builds it first in CI, but
+# lydite's vitest runner has no such graph, so each depends on sdk-js and
+# builds it in `setup`. They also import `@wardnet/web`, but web ships as
+# source (its own `exports` point straight at src/index.ts — see its
+# vite.config.ts) and needs no build step.
+#
+# marketing-site's own `test` script chains `yarn generate:release-manifests`
+# before `vitest run` — it fetches GitHub Releases to generate a typed
+# module a real page (LatestReleaseBadge) imports, falling back to
+# placeholder manifests and a warning when the network is unreachable
+# (see its own doc comment), so it is safe to run unauthenticated in CI.
+# lydite's vitest runner is bare `vitest run`, so the generation step moves
+# to `setup` the same way sdk-js's build does for the three apps above.
+components:
+  - name: daemon
+    dir: source/daemon
+    runner: cargo-nextest
+    args: ["--workspace"]
+
+  - name: wctl
+    dir: source/wctl
+    runner: go-test
+    # -race matches the repository's own check-go/check-sdk Makefile targets.
+    args: ["-race", "./..."]
+
+  - name: sdk-go
+    dir: source/sdk/wardnet-go
+    runner: go-test
+    args: ["-race", "./..."]
+
+  - name: sdk-js
+    dir: source/sdk/wardnet-js
+    runner: vitest
+
+  - name: web
+    dir: source/web
+    runner: vitest
+
+  - name: admin-app
+    dir: source/admin-app
+    runner: vitest
+    depends_on: [sdk-js]
+    setup:
+      - yarn workspace @wardnet/js run build
+
+  - name: admin-site
+    dir: source/admin-site
+    runner: vitest
+    depends_on: [sdk-js]
+    setup:
+      - yarn workspace @wardnet/js run build
+
+  - name: user-app
+    dir: source/user-app
+    runner: vitest
+    depends_on: [sdk-js]
+    setup:
+      - yarn workspace @wardnet/js run build
+
+  - name: marketing-site
+    dir: source/marketing-site
+    runner: vitest
+    setup:
+      - yarn generate:release-manifests
+
+# fuzz/: source/daemon/Cargo.toml's own `exclude` — a separate workspace
+# (libfuzzer-sys + nightly sanitizer rustflags must not leak into the
+# normal daemon build), so `dir: source/daemon` never reaches it.
+#
+# end2end-tests/: a full end-to-end harness (daemon + web-ui suites) driven
+# by source/docker-compose.yaml — a privileged network-simulation stack
+# (custom routing tables, CAP_ADD: NET_ADMIN, a wardnet_test bridge with
+# static IPAM, an LGTM observability stack, traffic routed through a
+# "Wardnet Pi" gateway) that belongs to the end-to-end harness alone, same
+# reasoning as wardnet-cloud's end2end-tests/mesh. Out of scope here; no
+# component's `compose:` points at it.
+#
+# .agents/: AI agent review-workflow scripts (full-repo-review, docs-accuracy)
+# outside source/ entirely — tooling for a human/agent workflow, not code any
+# component builds or tests.
+excludes:
+  - "source/daemon/fuzz/**"
+  - "source/end2end-tests/**"
+  - ".agents/**"
