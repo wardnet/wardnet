@@ -251,4 +251,40 @@ describe("DeviceTimelineCard", () => {
     expect(screen.getByText("192.168.100.23")).toBeInTheDocument();
     expect(screen.getByText("192.168.100.41")).toBeInTheDocument();
   });
+
+  /** A lease event kind from a newer daemon renders as itself rather than
+   *  blanking the row. */
+  it("falls back to the raw type for an unknown DHCP event", () => {
+    renderCard(
+      makeTimeline({
+        dhcp: [
+          {
+            at: "2026-09-06T10:00:00Z",
+            event_type: "decorated" as never,
+            details: null,
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("decorated")).toBeInTheDocument();
+  });
+
+  /** An event whose payload carries nothing the card knows how to show still
+   *  renders its row — the entry itself is the information. */
+  it("renders an event whose details have no recognised field", () => {
+    renderCard(
+      makeTimeline({
+        events: [
+          {
+            at: "2026-09-06T10:00:00Z",
+            kind: "zone_changed",
+            details: { old_zone_id: "a", new_zone_id: "b" },
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("Moved zone")).toBeInTheDocument();
+  });
 });
