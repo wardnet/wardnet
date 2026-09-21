@@ -300,7 +300,7 @@ der = { version = "0.7", features = ["oid"] }
 const-oid = "0.9"
 # https://crates.io/crates/spki — the SHA-256 AlgorithmIdentifier for the CMS
 # digest algorithms set.
-spki = "0.7"
+spki = "0.8"
 # https://crates.io/crates/rustls — install the aws-lc-rs crypto provider as the
 # process default for :443 TLS (both ring + aws-lc-rs are in the tree, so rustls
 # 0.23 can't auto-pick).
