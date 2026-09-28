@@ -248,7 +248,7 @@ netlink-sys = "0.9"
 rustables = "0.8.8"
 
 # https://crates.io/crates/opentelemetry
-opentelemetry = "0.32"
+opentelemetry = "0.33"
 # https://crates.io/crates/opentelemetry_sdk
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
 # https://crates.io/crates/opentelemetry-otlp
