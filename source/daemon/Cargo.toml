@@ -250,7 +250,7 @@ rustables = "0.8.8"
 # https://crates.io/crates/opentelemetry
 opentelemetry = "0.32"
 # https://crates.io/crates/opentelemetry_sdk
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 # https://crates.io/crates/opentelemetry-otlp
 opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "trace", "logs", "metrics"] }
 # https://crates.io/crates/tracing-opentelemetry
