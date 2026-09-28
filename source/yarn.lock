@@ -5483,7 +5483,7 @@ __metadata:
     class-variance-authority: "npm:0.7.1"
     clsx: "npm:2.1.1"
     consola: "npm:^3.4.2"
-    cronstrue: "npm:3.24.0"
+    cronstrue: "npm:3.27.0"
     eslint: "npm:10.9.1"
     eslint-config-prettier: "npm:10.1.8"
     eslint-plugin-prettier: "npm:5.5.6"
@@ -5684,7 +5684,7 @@ __metadata:
     "@wardnet/ui": "npm:^0.3.0"
     clsx: "npm:2.1.1"
     consola: "npm:^3.4.2"
-    cronstrue: "npm:3.24.0"
+    cronstrue: "npm:3.27.0"
     eslint: "npm:10.9.1"
     eslint-config-prettier: "npm:10.1.8"
     eslint-plugin-prettier: "npm:5.5.6"
@@ -6310,12 +6310,12 @@ __metadata:
   languageName: node
   linkType: hard
 
-"cronstrue@npm:3.24.0":
-  version: 3.24.0
-  resolution: "cronstrue@npm:3.24.0"
+"cronstrue@npm:3.27.0":
+  version: 3.27.0
+  resolution: "cronstrue@npm:3.27.0"
   bin:
     cronstrue: bin/cli.js
-  checksum: 10c0/7e723c2f798fea2a8c67b018670c8128e71d6bd02e9a835b070f039a62985a32ab05b70410b178da1bd40709103a1b938a3565f53b0070ace6c453ee90dfd36e
+  checksum: 10c0/87dbcc9dae9fcdf7d335a8b11f6ab8d60f12089e59fcf67424b2f9134499f25b3f646d0743c3303325f112c97522bd183063538b2b996089f6d884a3343d0989
   languageName: node
   linkType: hard
 
