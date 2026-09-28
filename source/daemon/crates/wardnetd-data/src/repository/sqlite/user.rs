@@ -41,7 +41,7 @@ impl DbUserRow {
 /// Column list shared by every `SELECT` so the mapping stays in one place.
 /// Spelled out inside each `const` query rather than interpolated: if every
 /// component is constant, the whole statement should be constant
-/// (`.agents/code-conventions.md`).
+/// (`agentic/code-conventions.md`).
 const FIND_BY_ID: &str = "SELECT id, display_name, email, role, enabled, created_at, updated_at \
      FROM users WHERE id = ?";
 

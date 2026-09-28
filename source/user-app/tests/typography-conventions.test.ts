@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * Regression guard for the design-system typography convention
- * (`.agents/code-conventions.md`, "Typography"; ADR 0012). New markup must
+ * (`agentic/code-conventions.md`, "Typography"; ADR 0012). New markup must
  * express size and weight through the `<Text>` / `<Heading>` primitives'
  * `size` / `weight` props, not raw Tailwind `text-*` / `font-*` utilities —
  * the type scale is tokenised so a central change propagates everywhere.

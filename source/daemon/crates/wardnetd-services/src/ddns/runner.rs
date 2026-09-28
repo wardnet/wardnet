@@ -3,7 +3,7 @@
 //! Ticks on a fixed interval (and once immediately at startup), calling
 //! [`DdnsService::refresh_public_ip`] under an admin auth context. It holds only
 //! `Arc<dyn DdnsService>` (plus the shared [`Entitlement`] handle) — never a
-//! repository or provider — per the runner contract in `.agents/architecture.md`.
+//! repository or provider — per the runner contract in `agentic/architecture.md`.
 //! When DDNS is unconfigured the service short-circuits before any network call,
 //! so the runner is fully inert until a provider is registered.
 //!

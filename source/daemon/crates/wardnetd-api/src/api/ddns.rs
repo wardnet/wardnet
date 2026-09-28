@@ -66,7 +66,7 @@ fn spawn_provisioning(state: &AppState, caller: AuthenticatedUser) {
     // whether they get this far.
     let ctx = AuthContext::user(caller);
     // Spawned tasks do not inherit the request's span, so attach our own child
-    // span (rooted at the current request span) — see `.agents/observability.md`.
+    // span (rooted at the current request span) — see `agentic/observability.md`.
     let span = tracing::info_span!("remote_access_provisioning");
     tokio::spawn(
         async move {

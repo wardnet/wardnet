@@ -292,6 +292,15 @@ check-daemon-native:
 	fi
 	cd $(DAEMON_DIR) && cargo test --workspace
 
+# Parallel rustc jobs inside the container. The VM this runs in is far
+# smaller than the host, and the daemon workspace at default parallelism
+# exhausts it: rustc is SIGKILLed compiling wardnetd-services, and even
+# past that the link of wardnetd's test binary dies as
+# `collect2: fatal error: ld terminated with signal 9`. An OOM kill names
+# neither memory nor the job count, so it reads as a broken build rather
+# than an over-subscribed one. Override on a larger machine.
+CONTAINER_BUILD_JOBS ?= 2
+
 check-daemon-container:
 	@test -n "$(CONTAINER_RT)" || { echo "Error: podman or docker is required for non-Linux daemon checks"; exit 1; }
 	@echo "Using $(CONTAINER_RT_NAME) to run daemon checks in Linux container..."
@@ -301,6 +310,7 @@ check-daemon-container:
 		-v wardnet-cargo-cache:/usr/local/cargo/registry \
 		-w /workspace/$(DAEMON_DIR) \
 		-e CARGO_TARGET_DIR=/workspace/.target-linux \
+		-e CARGO_BUILD_JOBS=$(CONTAINER_BUILD_JOBS) \
 		$(RUST_IMAGE) \
 		sh -c '$(BINDGEN_APT) && rustup component add clippy rustfmt 2>/dev/null; ./build-support/check-inline-tests.sh && ./build-support/check-auth-constructors.sh && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --workspace'
 

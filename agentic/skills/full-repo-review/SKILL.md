@@ -32,7 +32,7 @@ start, so a freshly-synced script is not resolvable by `name`).
 ### Run A — `workflows/docs-accuracy.js` (ALWAYS first)
 
 The review builds a **house-rules digest** from `AGENTS.md` / `CONTEXT.md` /
-`.agents/*.md` and injects it into every reviewer. If those docs are stale, every
+`agentic/*.md` and injects it into every reviewer. If those docs are stale, every
 reviewer inherits the drift and files bogus findings. So Run A verifies the docs
 against the real tree **first** and reports drift — it changes nothing.
 

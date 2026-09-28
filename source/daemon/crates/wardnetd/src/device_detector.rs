@@ -19,7 +19,7 @@ use crate::garp_learning;
 /// Auth context every device-detector background call establishes before
 /// reaching the discovery service. These tasks run outside the HTTP middleware,
 /// so no `AuthContext` is set by default; `Uuid::nil()` marks the work as
-/// system-initiated in audit logs (see `.agents/auth.md`).
+/// system-initiated in audit logs (see `agentic/auth.md`).
 fn system_ctx() -> AuthContext {
     AuthContext::system()
 }

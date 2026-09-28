@@ -11,7 +11,7 @@
 //! The [`TlsRenewalRunner`](runner::TlsRenewalRunner) holds only
 //! `Arc<dyn TlsService>` and calls it under an admin context — it never touches
 //! a provider, repository, or the ACME client directly (see
-//! `.agents/architecture.md`). [`TlsService`] is the auth-and-persistence
+//! `agentic/architecture.md`). [`TlsService`] is the auth-and-persistence
 //! chokepoint: every method opens with [`auth_context::require_admin`].
 //!
 //! TLS-01 / DNS-01 challenge TXT records are published through

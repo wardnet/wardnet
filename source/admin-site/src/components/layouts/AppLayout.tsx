@@ -21,7 +21,7 @@ import {
  *
  * The shell chrome lives above every route and has no owning page, so this
  * layout wires the shell-wide auth/status hooks itself (the documented
- * layouts carve-out in `.agents/code-conventions.md`) and passes data +
+ * layouts carve-out in `agentic/code-conventions.md`) and passes data +
  * callbacks down so the shell compounds stay pure presentation.
  */
 export function AppLayout() {

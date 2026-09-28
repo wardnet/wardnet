@@ -943,7 +943,7 @@ async fn run(
     // the binary now serving the request. A failure here is not fatal — it
     // only affects reporting, so log and carry on rather than refusing to boot.
     // Runs under an explicit admin context: the service method is auth-guarded
-    // like every other (`.agents/auth.md`), so the startup caller supplies the
+    // like every other (`agentic/auth.md`), so the startup caller supplies the
     // identity rather than the method opting out of the check.
     let reconcile = auth_context::with_context(
         AuthContext::system(),

@@ -1,6 +1,6 @@
 export const meta = {
   name: 'docs-accuracy',
-  description: 'Verify AGENTS.md / CONTEXT.md / .agents/*.md against the real tree; report drift, change nothing',
+  description: 'Verify AGENTS.md / CONTEXT.md / agentic/*.md against the real tree; report drift, change nothing',
   whenToUse:
     'Run BEFORE full-repo-review. The code review builds a conventions digest from these docs and injects it into every reviewer — if the docs are stale, every reviewer inherits the drift. Reports only; a human decides the fixes.',
   phases: [
@@ -25,19 +25,19 @@ const OUT = `${TARGET}/.reviews/${DATE}`
 
 // Every doc that feeds the conventions digest. One agent each.
 const ALL_DOCS = [
-  { path: 'AGENTS.md', role: 'Root index. Points at .agents/* and CONTEXT.md. Also states the agent-memory path rule.' },
+  { path: 'AGENTS.md', role: 'Root index. Points at agentic/* and CONTEXT.md. Also states the agent-memory path rule.' },
   { path: 'CONTEXT.md', role: 'Canonical domain glossary — app surfaces, identity model, infrastructure, planned features.' },
-  { path: '.agents/architecture.md', role: 'Layered design, trait boundaries, and every subsystem deep-dive (stats, local-DNS, DDNS, watchdog, zone enforcement).' },
-  { path: '.agents/project-structure.md', role: 'Full source tree with a one-line purpose per module. KNOWN SUSPECT: describes source/ui and source/styles as in-repo packages.' },
-  { path: '.agents/technical-stack.md', role: 'Versions and key dependencies per app.' },
-  { path: '.agents/code-conventions.md', role: 'Rust / SDK / web style rules, OpenAPI annotation pattern, dependency-doc format.' },
-  { path: '.agents/auth.md', role: 'The auth model and the HARD REQUIREMENT that every service method opens with require_admin()/require_authenticated().' },
-  { path: '.agents/testing.md', role: 'Test layout rules (tests in separate files) and mock/real-resource patterns.' },
-  { path: '.agents/workflow.md', role: 'Git conventions, mandatory pre-push checklist, coverage rules, always/ask/never boundaries.' },
-  { path: '.agents/commands.md', role: 'make targets and the direct cargo/yarn equivalents, per area.' },
-  { path: '.agents/observability.md', role: 'Tracing span hierarchy for background components, OUI database, versioning.' },
-  { path: '.agents/logging.md', role: 'How to write a log line that is queryable in Loki and readable in stderr.' },
-  { path: '.agents/backup.md', role: 'BackupArchiver / DatabaseDumper / SecretStore composition, two-phase apply, cleanup runner.' },
+  { path: 'agentic/architecture.md', role: 'Layered design, trait boundaries, and every subsystem deep-dive (stats, local-DNS, DDNS, watchdog, zone enforcement).' },
+  { path: 'agentic/project-structure.md', role: 'Full source tree with a one-line purpose per module. KNOWN SUSPECT: describes source/ui and source/styles as in-repo packages.' },
+  { path: 'agentic/technical-stack.md', role: 'Versions and key dependencies per app.' },
+  { path: 'agentic/code-conventions.md', role: 'Rust / SDK / web style rules, OpenAPI annotation pattern, dependency-doc format.' },
+  { path: 'agentic/auth.md', role: 'The auth model and the HARD REQUIREMENT that every service method opens with require_admin()/require_authenticated().' },
+  { path: 'agentic/testing.md', role: 'Test layout rules (tests in separate files) and mock/real-resource patterns.' },
+  { path: 'agentic/workflow.md', role: 'Git conventions, mandatory pre-push checklist, coverage rules, always/ask/never boundaries.' },
+  { path: 'agentic/commands.md', role: 'make targets and the direct cargo/yarn equivalents, per area.' },
+  { path: 'agentic/observability.md', role: 'Tracing span hierarchy for background components, OUI database, versioning.' },
+  { path: 'agentic/logging.md', role: 'How to write a log line that is queryable in Loki and readable in stderr.' },
+  { path: 'agentic/backup.md', role: 'BackupArchiver / DatabaseDumper / SecretStore composition, two-phase apply, cleanup runner.' },
 ]
 
 const DOCS = A.docs && A.docs.length ? ALL_DOCS.filter((d) => A.docs.includes(d.path)) : ALL_DOCS
@@ -171,7 +171,7 @@ CLASSIFY each drift you find — this is the most important judgment you make:
 - ambiguous: the doc describes an intent the code never implemented, and deciding who is wrong requires a human. DO NOT GUESS. Rewriting a doc to match reality is correct when reality is correct — and it is whitewashing when the code is the thing that drifted. When you cannot tell, say so.
 
 A worked example of the distinction, from this repo:
-- ".agents/project-structure.md says source/ui/ is an in-repo package, but it isn't in the tree — it's an npm dep now" → doc-stale. The move to a published package was deliberate; the doc just didn't keep up.
+- "agentic/project-structure.md says source/ui/ is an in-repo package, but it isn't in the tree — it's an npm dep now" → doc-stale. The move to a published package was deliberate; the doc just didn't keep up.
 - "auth.md says EVERY service method opens with require_admin()?, and ServiceX::foo() doesn't" → code-drifted. The rule is load-bearing and still meant. The code is wrong, not the doc.
 
 HONESTY REQUIREMENTS:

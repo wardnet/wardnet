@@ -1265,7 +1265,7 @@ impl TunnelService for TunnelServiceImpl {
     }
 
     async fn restore_tunnels(&self) -> Result<(), AppError> {
-        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // Documented exception to the auth-guard rule (agentic/auth.md §Rules #2,
         // category (a): startup/restore): runs during boot, before any admin
         // session can exist, to rehydrate tunnel state from the database.
         let tunnels = self.tunnels.find_all().await.map_err(AppError::Internal)?;

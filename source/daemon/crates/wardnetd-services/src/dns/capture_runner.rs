@@ -124,7 +124,7 @@ async fn runner_loop(
 ) {
     // This runner lives outside the HTTP middleware, so it establishes its own
     // system/admin context (`Uuid::nil()`) around every service call, per
-    // `.agents/auth.md`.
+    // `agentic/auth.md`.
     let admin_ctx = AuthContext::system();
 
     // Populate the hot-path cache from DB on startup.

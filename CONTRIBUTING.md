@@ -34,7 +34,7 @@ PR flow as code, minus the test requirements.
 
 For anything beyond a small fix, **open an issue first** and get
 agreement on the approach. This project has opinionated architectural
-boundaries (see [Architecture](.agents/architecture.md)), and it is
+boundaries (see [Architecture](agentic/architecture.md)), and it is
 genuinely unpleasant to have a finished PR turned away because it put
 business logic in a handler. A short design conversation up front avoids
 that entirely.
@@ -74,11 +74,11 @@ you're touching rather than all of them:
 
 | Area | Read |
 | --- | --- |
-| Anything | [Architecture](.agents/architecture.md), [Code conventions](.agents/code-conventions.md) |
-| Rust daemon | [Testing](.agents/testing.md), [Logging](.agents/logging.md), [Observability](.agents/observability.md) |
-| Any service method | [Auth model](.agents/auth.md) — every method opens with an auth guard, no exceptions |
+| Anything | [Architecture](agentic/architecture.md), [Code conventions](agentic/code-conventions.md) |
+| Rust daemon | [Testing](agentic/testing.md), [Logging](agentic/logging.md), [Observability](agentic/observability.md) |
+| Any service method | [Auth model](agentic/auth.md) — every method opens with an auth guard, no exceptions |
 | HTTP handlers / DTOs | Run `make openapi` and commit `docs/openapi.json`; CI gates on it |
-| Build commands | [Commands](.agents/commands.md) |
+| Build commands | [Commands](agentic/commands.md) |
 
 Domain terms have canonical meanings in [CONTEXT.md](CONTEXT.md) — worth
 a skim so your naming matches the rest of the codebase.

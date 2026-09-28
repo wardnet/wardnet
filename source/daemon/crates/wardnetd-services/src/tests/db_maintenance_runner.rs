@@ -210,7 +210,7 @@ async fn run_vacuum_reports_when_nothing_reclaimed() {
 ///
 /// Asserted on the *rendered message*, not just the call count. This line is
 /// the whole point of the change — it is what an operator greps for, and the
-/// numbers have to survive into the text per `.agents/logging.md`, not sit
+/// numbers have to survive into the text per `agentic/logging.md`, not sit
 /// only in the structured fields. The figures are the ones from the field
 /// report: a freelist of 100,300 pages that would not come back.
 #[tokio::test]

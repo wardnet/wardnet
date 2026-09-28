@@ -144,7 +144,7 @@ pub trait AuthService: Send + Sync {
     /// Unauthenticated — `GET /api/setup/status` is exposed without a session
     /// so the web UI's `SetupGuard` can decide whether to redirect a fresh
     /// browser to the wizard. Documented exception to the
-    /// `auth_context::require_admin()?` rule (see `.agents/auth.md`).
+    /// `auth_context::require_admin()?` rule (see `agentic/auth.md`).
     async fn wizard_state(&self) -> Result<WizardState, AppError>;
 
     /// Return the calling household user's identity.
@@ -245,7 +245,7 @@ impl AuthServiceImpl {
 #[async_trait]
 impl AuthService for AuthServiceImpl {
     async fn login(&self, request: LoginAttempt<'_>) -> Result<LoginResult, AppError> {
-        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // Documented exception to the auth-guard rule (agentic/auth.md §Rules #2,
         // category (b): auth bootstrap): this IS the credential-verification
         // endpoint — by definition the caller has no session yet, so there is no
         // context to authenticate.
@@ -439,7 +439,7 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn validate_session(&self, token: &str) -> Result<Option<AuthenticatedUser>, AppError> {
-        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // Documented exception to the auth-guard rule (agentic/auth.md §Rules #2,
         // category (b): auth bootstrap): this resolves a session token into an
         // identity, so it necessarily runs before any identity exists to
         // require.
@@ -479,7 +479,7 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn validate_api_key(&self, key: &str) -> Result<Option<AuthenticatedUser>, AppError> {
-        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // Documented exception to the auth-guard rule (agentic/auth.md §Rules #2,
         // category (b): auth bootstrap): this resolves an API key into an
         // identity, so it necessarily runs before any identity exists to
         // require.
@@ -533,7 +533,7 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn setup_admin(&self, username: &str, password: &str) -> Result<(), AppError> {
-        // Documented exception to the auth-guard rule (`.agents/auth.md`):
+        // Documented exception to the auth-guard rule (`agentic/auth.md`):
         // by definition no user exists when this is called, so there is no
         // session to authenticate. The 409 guard below is the actual gate
         // — we read `users.exists()` directly rather than the legacy
@@ -634,7 +634,7 @@ impl AuthService for AuthServiceImpl {
     }
 
     async fn is_setup_completed(&self) -> Result<bool, AppError> {
-        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // Documented exception to the auth-guard rule (agentic/auth.md §Rules #2,
         // category (b): auth bootstrap): backs the unauthenticated
         // `GET /api/setup/status` surface and delegates to the equally-unguarded
         // `wizard_state`, so there is no session to require here.

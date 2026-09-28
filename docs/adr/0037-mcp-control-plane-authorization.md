@@ -242,7 +242,7 @@ another verb.
   single largest new attack surface in the epic and should be reviewed as such.
 - **Go gains a real dependency footprint** (MCP SDK, JOSE/OAuth libraries) in a
   module that until now was a thin cobra CLI over the generated SDK. Per
-  `.agents/workflow.md` those additions are an *ask first*, not a default.
+  `agentic/workflow.md` those additions are an *ask first*, not a default.
 - **The skill's MCP-driven path (#1218) can now be written**, because the
   credential story it has to describe to an operator — pre-provision this token
   now, before you need it — is settled here rather than left to the

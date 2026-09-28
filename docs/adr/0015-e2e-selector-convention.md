@@ -56,7 +56,7 @@ is meaningful. This reverses the role/label-first approach.
 
 The full, operational version of these rules lives in the suite's
 [`README.md`](../source/end2end-tests/web-ui/README.md) ("Selector
-convention"); `.agents/testing.md` links to it.
+convention"); `agentic/testing.md` links to it.
 
 ---
 
