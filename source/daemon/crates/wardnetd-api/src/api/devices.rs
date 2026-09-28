@@ -1,14 +1,16 @@
 use std::collections::HashMap;
 
 use axum::Json;
+use axum::extract::Query;
 use axum::extract::{Path, State};
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 use uuid::Uuid;
 use wardnet_common::api::{
-    ApiError, AssignDeviceZoneRequest, DeviceDetailResponse, DeviceMeResponse, DeviceProbeResponse,
-    DeviceWithStatus, ListDevicesResponse, RoutingProfileSummary, SetMyRuleRequest,
-    SetMyRuleResponse, UpdateDeviceRequest, ZoneSummary,
+    ApiDeviceDhcpEvent, ApiDeviceDnsBucket, ApiDeviceTimelineEvent, ApiError,
+    AssignDeviceZoneRequest, DeviceDetailResponse, DeviceMeResponse, DeviceProbeResponse,
+    DeviceTimelineParams, DeviceTimelineResponse, DeviceWithStatus, ListDevicesResponse,
+    RoutingProfileSummary, SetMyRuleRequest, SetMyRuleResponse, UpdateDeviceRequest, ZoneSummary,
 };
 use wardnet_common::device::DhcpStatus;
 use wardnet_common::routing::RoutingTarget;
@@ -28,6 +30,7 @@ pub fn register(router: OpenApiRouter<AppState>) -> OpenApiRouter<AppState> {
         .routes(routes!(assign_device_zone))
         .routes(routes!(identify_device))
         .routes(routes!(release_device))
+        .routes(routes!(device_timeline))
 }
 
 const TAG: &str = "devices";
@@ -35,6 +38,7 @@ const PATH_ME: &str = "/api/devices/me";
 const PATH_ME_RULE: &str = "/api/devices/me/rule";
 const PATH_LIST: &str = "/api/devices";
 const PATH_ITEM: &str = "/api/devices/{id}";
+const PATH_TIMELINE: &str = "/api/devices/{id}/timeline";
 
 #[utoipa::path(
     operation_id = "devices_get_me",
@@ -694,4 +698,113 @@ pub async fn release_device(
     let device = state.discovery_service().get_device_by_id(uuid).await?;
     // Mutation path — see `device_detail`.
     Ok(Json(device_detail(&state, device, false).await?))
+}
+
+#[utoipa::path(
+    operation_id = "devices_timeline",
+    get,
+    path = PATH_TIMELINE,
+    tag = TAG,
+    description = "A device's connectivity timeline: what it *did*, as opposed to how \
+                   it is configured. Merges presence and address transitions, zone and \
+                   routing rebinds, conntrack flushes, DHCP lease events, and DNS volume \
+                   split by result. The split is the point — a device at one query a \
+                   minute where every query succeeded rules DNS out, which a total \
+                   alone cannot do. Admin only.",
+    params(("id" = Uuid, Path, description = "Device id"), DeviceTimelineParams),
+    responses(
+        (status = 200, description = "The device's timeline for the window", body = DeviceTimelineResponse),
+        NotFound,
+        AuthErrors,
+    ),
+)]
+pub async fn device_timeline(
+    State(state): State<AppState>,
+    _auth: SessionAuth,
+    Path(id): Path<Uuid>,
+    Query(params): Query<DeviceTimelineParams>,
+) -> Result<Json<DeviceTimelineResponse>, AppError> {
+    let window = params.window.unwrap_or_default();
+    let to = chrono::Utc::now();
+    let from = to - chrono::Duration::seconds(window.duration_secs());
+    let bucket_secs = window.bucket_secs();
+
+    // The device is looked up first because the DHCP audit trail is mac-keyed,
+    // and because a timeline for a device that does not exist is a 404 rather
+    // than three empty lists.
+    let device = state
+        .device_service()
+        .get_device(&id.to_string())
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("device {id} not found")))?;
+
+    // Composed here rather than behind one service: the three sources are owned
+    // by three different services, and a `DeviceTimelineService` holding all of
+    // them would only move the composition without removing it.
+    let events = state
+        .device_event_service()
+        .list_for_device(id, from, to)
+        .await?
+        .into_iter()
+        .map(|e| ApiDeviceTimelineEvent {
+            at: e.created_at,
+            kind: e.kind,
+            details: e
+                .details
+                .as_deref()
+                .and_then(|d| serde_json::from_str(d).ok()),
+        })
+        .collect();
+
+    let dhcp = state
+        .dhcp_service()
+        .lease_logs_for_mac_between(&device.mac, from, to)
+        .await?
+        .into_iter()
+        .map(|l| ApiDeviceDhcpEvent {
+            at: l.created_at,
+            event_type: l.event_type,
+            details: l.details,
+        })
+        .collect();
+
+    let dns = fold_dns_buckets(
+        state
+            .dns_service()
+            .device_result_mix(&id.to_string(), from, to, bucket_secs)
+            .await?,
+    );
+
+    Ok(Json(DeviceTimelineResponse {
+        from,
+        to,
+        bucket_secs,
+        events,
+        dhcp,
+        dns,
+    }))
+}
+
+/// Collapse `(bucket, result, count)` rows into one entry per bucket.
+///
+/// The repository returns one row per `(bucket, result)` because that is what
+/// `GROUP BY` produces; the client wants one object per bucket carrying every
+/// result, so a bucket with no blocked queries reads as an absent key rather
+/// than a separate row.
+fn fold_dns_buckets(rows: Vec<(i64, String, i64)>) -> Vec<ApiDeviceDnsBucket> {
+    let mut buckets: Vec<ApiDeviceDnsBucket> = Vec::new();
+    for (bucket_ts, result, count) in rows {
+        let at = chrono::DateTime::from_timestamp(bucket_ts, 0).unwrap_or_default();
+        match buckets.last_mut() {
+            Some(last) if last.at == at => {
+                last.results.insert(result, count);
+            }
+            _ => {
+                let mut results = std::collections::BTreeMap::new();
+                results.insert(result, count);
+                buckets.push(ApiDeviceDnsBucket { at, results });
+            }
+        }
+    }
+    buckets
 }

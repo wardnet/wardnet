@@ -12,37 +12,37 @@ agent memory, always use the repo root path, NOT a subdirectory like
 ## Documentation map
 
 This file is an index. Detailed agent-facing conventions live in
-focused documents under [`.agents/`](.agents/). Each file is
+focused documents under [`agentic/`](agentic/). Each file is
 self-contained — read the one that matches the kind of change
 you're about to make, rather than the whole set.
 
-- **[Commands](.agents/commands.md)** — `make` targets (preferred)
+- **[Commands](agentic/commands.md)** — `make` targets (preferred)
   and the direct `cargo` / `yarn` equivalents, per area.
-- **[Project structure](.agents/project-structure.md)** — the
+- **[Project structure](agentic/project-structure.md)** — the
   full source tree with a one-line purpose per module.
-- **[Technical stack](.agents/technical-stack.md)** — versions
+- **[Technical stack](agentic/technical-stack.md)** — versions
   and key dependencies for the daemon, SDK, web UI, and public site.
-- **[Architecture](.agents/architecture.md)** — the layered
+- **[Architecture](agentic/architecture.md)** — the layered
   design, trait-based boundaries, where each crate sits in the
   stack, and why database-provider concerns live next to the
   repositories rather than in the backup service.
-- **[Backup subsystem](.agents/backup.md)** — how
+- **[Backup subsystem](agentic/backup.md)** — how
   `BackupArchiver`, `DatabaseDumper`, and `SecretStore` compose
   into the export/import flow, plus the two-phase apply and the
   background cleanup runner.
-- **[Stats subsystem](.agents/architecture.md#stats-subsystem-issue-409)** —
+- **[Stats subsystem](agentic/architecture.md#stats-subsystem-issue-409)** —
   generic pre-aggregating metrics pipeline: `StatsBuffer` → `StatsFlushRunner`
   → `stats_intraday` / `stats_daily`; `Meter` / `Counter` / `Gauge` instruments;
   `StatsService` with time-series and top-N queries; `/api/stats` and
   `/api/stats/top` endpoints. Also covers the DNS stats migration away from
   `DnsRepository`.
-- **[Local-DNS subsystem](.agents/architecture.md#local-dns-subsystem-issue-217)** —
+- **[Local-DNS subsystem](agentic/architecture.md#local-dns-subsystem-issue-217)** —
   `AuthoritativeView` (ArcSwap-backed, lock-free), resolution pipeline order
   (authoritative → cache → filter → conditional/tunnel upstream),
   event-driven rebuild on `DnsLocalChanged`, and why background runners
   (including `DnsRunner`) call `DnsLocalService` rather than holding
   `dns_local_repo` directly.
-- **[DNS forwarding ladder](.agents/architecture.md#dns-forwarding-ladder-issue-1199)** —
+- **[DNS forwarding ladder](agentic/architecture.md#dns-forwarding-ladder-issue-1199)** —
   why the default forwarder walks its own ladder of single-server resolvers
   instead of one multi-server hickory resolver (which races
   `num_concurrent_reqs = 2` servers regardless of `ServerOrderingStrategy`, so
@@ -54,18 +54,18 @@ you're about to make, rather than the whole set.
   Invariants: **a negative answer is terminal** (never fail over on
   NXDOMAIN/NODATA), an **unmeasured** upstream is not a down one, and an
   exhausted ladder blames **no** upstream.
-- **[DDNS subsystem](.agents/architecture.md#ddns-subsystem-issue-527--521-umbrella)** —
+- **[DDNS subsystem](agentic/architecture.md#ddns-subsystem-issue-527--521-umbrella)** —
   `DnsProvider` trait (bridge + Cloudflare impls), `DdnsService` (auth-gated, stores config in
   `system_config` and secrets in `SecretStore`), `DdnsUpdateRunner` (idle-until-configured 5-min
   tick), region catalog with concurrent latency probing, and WAN IP discovery.
-- **[Watchdog + health subsystem](.agents/architecture.md#watchdog--health-subsystem-issue-214)** —
+- **[Watchdog + health subsystem](agentic/architecture.md#watchdog--health-subsystem-issue-214)** —
   three-layer recovery: `HealthMonitor` (`HealthCheck` trait, `ArcSwap` snapshot,
   concurrent refresh with per-check timeout + Y-consecutive debounce) → health-gated
   **soft** watchdog (`sd_notify(WATCHDOG=1)` ⇒ systemd `WatchdogSec=15` service
   restart) → **ungated** hard watchdog (`/dev/watchdog` ⇒ kernel host reboot). Plus
   unauthenticated `GET /health`, `Type=notify` + `READY=1`, and the `WatchdogOps`
   trait. Invariant: the hardware pet is never health-gated.
-- **[Network-Zone enforcement subsystem](.agents/architecture.md#network-zone-enforcement-subsystem-issue-736)** —
+- **[Network-Zone enforcement subsystem](agentic/architecture.md#network-zone-enforcement-subsystem-issue-736)** —
   per-zone nftables **egress gate** (forward-chain drop of `wg_ward*`/WAN egress a
   zone forbids) + **admin-UI gate** (input-chain TCP-reset of device→Pi :443/:7411
   when a zone is not admin-reachable; DNS/DHCP pass). A dedicated
@@ -135,7 +135,7 @@ you're about to make, rather than the whole set.
   session**; the **Admin role** + **Local admin** break-glass pair; and why
   a forward-auth gate breaks native mobile clients while app-native OIDC
   does not.
-- **[Anomaly subsystem](.agents/architecture.md#anomaly-subsystem-issues-1097--225)** —
+- **[Anomaly subsystem](agentic/architecture.md#anomaly-subsystem-issues-1097--225)** —
   the hardcoded `AnomalyType` catalog, the `AnomalyDetector` registry (one
   detector per type), and `AnomaliesDetectionEngine`'s two modes: a
   **preventive** per-detector sweep schedule and a **reactive** event-bus
@@ -146,7 +146,7 @@ you're about to make, rather than the whole set.
   Also why **per-entity errors are anomalies, not columns**: an open anomaly
   whose `subject_id` is a tunnel *is* that tunnel's current error, so there is
   no `tunnels.last_error`.
-- **[Managed devices + retention](.agents/architecture.md#managed-devices--retention-subsystem-issue-1181)** —
+- **[Managed devices + retention](agentic/architecture.md#managed-devices--retention-subsystem-issue-1181)** —
   `devices.managed` as an explicit **latching** column (never derived from
   `name`), promoted by any *admin* configuration act and cleared only by an
   explicit **release**; the `DeviceRetentionRunner` that deletes unmanaged
@@ -235,22 +235,39 @@ you're about to make, rather than the whole set.
   `wardnet-postupgrade-runner` trust-anchor shape), and an **armed mutation**
   disarms only on an *independent positive re-probe* of the changed path — never
   channel liveness — rolling back through the **database**, per ADR-0028.
-- **[Auth model](.agents/auth.md)** — setup wizard,
+- **[Device and path diagnostics](docs/adr/0038-device-and-path-diagnostics.md)** —
+  why a path probe **completes a transfer, not just a connect** (a bare
+  `connect()` is three small packets, so an MTU/MSS asymmetry passes it while
+  every real connection stalls — the probe would report healthy throughout the
+  outage it exists to explain), and why that makes `EgressPathUnreachable` and
+  `EgressPathDegraded` two types rather than one with a `details` field. Covers
+  **egress path** vs **routing target** (`default` is a deferral and cannot be
+  probed), why `device_events` had to exist at all (three of the timeline's five
+  inputs were published as events and dropped) and why it is capped by **both**
+  age and per-device rows (steady state ~2.5 MB/month; the observed pathological
+  rate reaches ~155 MB), and why every detector threshold is derived from
+  measured data — including why `DhcpRenewalStorm` must scale with the
+  configured lease, since a constant tuned for a 24h lease fires for *every*
+  device on a 1h one. Invariants: **probing our own egress is not probing a
+  device** (ADR 0025), and **a failing path probe is an anomaly, never a
+  `HealthMonitor` input** (ADR 0030's rule — otherwise a flaky VPN restarts the
+  daemon).
+- **[Auth model](agentic/auth.md)** — setup wizard,
   unauthenticated vs admin endpoints, and the HARD REQUIREMENT
   that every service method opens with
   `auth_context::require_admin()?` or `require_authenticated()?`.
-- **[Observability](.agents/observability.md)** — the tracing
+- **[Observability](agentic/observability.md)** — the tracing
   span hierarchy every background component must follow, plus
   OUI database and versioning notes.
-- **[Logging guidelines](.agents/logging.md)** — how to write a
+- **[Logging guidelines](agentic/logging.md)** — how to write a
   log line that's queryable in Loki and readable in stderr.
-- **[Code conventions](.agents/code-conventions.md)** — Rust,
+- **[Code conventions](agentic/code-conventions.md)** — Rust,
   SDK, and web UI style rules; OpenAPI annotation pattern;
   dependency-documentation format.
-- **[Testing](.agents/testing.md)** — running tests and the
+- **[Testing](agentic/testing.md)** — running tests and the
   mock/real-resource patterns for service, repository, and
   infrastructure tests.
-- **[Workflow](.agents/workflow.md)** — git conventions,
+- **[Workflow](agentic/workflow.md)** — git conventions,
   mandatory pre-push checklist, coverage rules, and the
   always/ask/never boundaries.
 

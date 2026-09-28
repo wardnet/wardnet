@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Fail on inline test code in daemon source files.
 #
-# `.agents/testing.md` ("Test file layout — STRICT RULE") mandates that Rust
+# `agentic/testing.md` ("Test file layout — STRICT RULE") mandates that Rust
 # tests live in separate files under a `tests/` directory, wired via
 # `#[cfg(test)] mod tests;`. This gate keeps new inline test code from
 # landing after the issue #847 migration. It flags, in any `crates/*/src`
@@ -47,7 +47,7 @@ case "$rc" in
     printf '%s\n' "$offenders" | sed 's/^/error: inline test code in /' >&2
     echo >&2
     echo "Tests must live in separate files under a tests/ directory —" >&2
-    echo "see .agents/testing.md, 'Test file layout — STRICT RULE'." >&2
+    echo "see agentic/testing.md, 'Test file layout — STRICT RULE'." >&2
     exit 1
     ;;
 1)

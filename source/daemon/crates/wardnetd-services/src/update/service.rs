@@ -67,7 +67,7 @@ pub trait UpdateService: Send + Sync {
     /// actually came back up. Called once at daemon startup, before the HTTP
     /// server accepts requests.
     ///
-    /// Admin-guarded like every other service method (`.agents/auth.md`): the
+    /// Admin-guarded like every other service method (`agentic/auth.md`): the
     /// startup caller supplies an admin context explicitly rather than the
     /// method opting out of the check.
     async fn reconcile_pending_install(&self) -> Result<(), AppError>;

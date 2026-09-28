@@ -112,7 +112,7 @@ impl AuthenticatedUser {
 /// and let everything else fall through to the *admin* path. For the same
 /// reason, an `Anonymous` arm that "cannot happen" returns
 /// `Forbidden` rather than `unreachable!()`: an authorization bug must not
-/// become a remotely-triggerable panic. See `.agents/auth.md`.
+/// become a remotely-triggerable panic. See `agentic/auth.md`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthContext {
     /// An authenticated household user. Replaces the former `Admin` variant:

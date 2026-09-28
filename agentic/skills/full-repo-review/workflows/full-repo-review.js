@@ -92,7 +92,7 @@ const UNITS = [
     paths: [`${S}/dns`, `${S}/dns_filter`, `${S}/dns_local`, `${S}/dhcp`, `${S}/ddns`, `${S}/tls`],
     component: ['component:daemon', 'component:dns', 'component:dhcp'],
     role: 'DNS resolution + filtering + local authoritative view, DHCP leases, DDNS, ACME/TLS. This is the code that touches untrusted packets from the LAN.',
-    context: 'Read the Local-DNS and DDNS subsystem sections of .agents/architecture.md first — resolution pipeline order and the ArcSwap AuthoritativeView are load-bearing.',
+    context: 'Read the Local-DNS and DDNS subsystem sections of agentic/architecture.md first — resolution pipeline order and the ArcSwap AuthoritativeView are load-bearing.',
   },
   {
     key: 'daemon-svc-tunnel-routing',
@@ -101,7 +101,7 @@ const UNITS = [
     paths: [`${S}/tunnel`, `${S}/routing`, `${S}/vpn`, `${S}/network_zone`, `${S}/zone_enforcement`, `${S}/zone_exception`, `${S}/rule_request`, `${S}/stats`, `${S}/subnet`, `${S}/garp`],
     component: ['component:daemon', 'component:tunnel', 'component:nftables'],
     role: 'WireGuard tunnels, policy routing, network zones and their enforcement. A bug here means traffic leaks outside the tunnel a user believes they are on — treat leaks as severe.',
-    context: 'Read the Network-Zone enforcement section of .agents/architecture.md. The egress gate and admin-UI gate are separate; same-subnet peer traffic is a KNOWN, documented limit — do not report it as a novel finding.',
+    context: 'Read the Network-Zone enforcement section of agentic/architecture.md. The egress gate and admin-UI gate are separate; same-subnet peer traffic is a KNOWN, documented limit — do not report it as a novel finding.',
   },
   {
     key: 'daemon-svc-platform',
@@ -110,7 +110,7 @@ const UNITS = [
     paths: [`${S}/auth`, `${S}/backup`, `${S}/update`, `${S}/system`, `${S}/logging`, `${S}/push`, `${S}/cloud`, `${S}/device`, `${S}/health`, `${S}/jobs`, `${S}/entitlement`, `${S}/event`, `${S}/command`, `${S}/lib.rs`],
     component: ['component:daemon', 'component:devices'],
     role: 'Auth (argon2 sessions), backup/restore, updates, health + watchdog, push (VAPID), device discovery, entitlements. Auth and backup are the two highest-stakes modules in the repo.',
-    context: 'Read .agents/auth.md and .agents/backup.md. The watchdog invariant (the hardware pet is NEVER health-gated) is in architecture.md and is deliberate.',
+    context: 'Read agentic/auth.md and agentic/backup.md. The watchdog invariant (the hardware pet is NEVER health-gated) is in architecture.md and is deliberate.',
   },
   {
     key: 'daemon-api',
@@ -278,7 +278,7 @@ const SEEDS = [
     issue: 'LogServiceImpl has no auth_context guard on any method; every other service file has at least one.',
     evidence: 'No auth_context::require_admin()? / require_authenticated()? anywhere in logging/service.rs. Reachable from wardnetd-api/src/api/system.rs:79 (behind AdminAuth middleware).',
     failure_scenario: 'Defense-in-depth gap: the service trusts its caller. Any future caller that is not behind AdminAuth — a background runner, a new handler, a test harness — reaches log listing and log download with no identity check. Log files can contain sensitive network data.',
-    proposed_action: 'Add require_admin()? as the first statement of both methods, per .agents/auth.md rule 1.',
+    proposed_action: 'Add require_admin()? as the first statement of both methods, per agentic/auth.md rule 1.',
     confidence: 'high',
     unit: 'daemon-svc-platform',
     axis: 'security',
@@ -293,7 +293,7 @@ const SEEDS = [
     issue: 'StatsFlushRunner calls StatsService::run_flush/run_maintenance with no with_context wrapper, and the callees carry no guard — the path has no auth check at all.',
     evidence: 'flush_runner.rs:153,169 call the service directly. stats/service.rs:101-120 has no require_* guard. Contrast tunnel_idle.rs:143-254, which wraps its calls in auth_context::with_context(AuthContext::Admin { admin_id: Uuid::nil() }, ...).',
     failure_scenario: 'Background task runs outside HTTP middleware, so no AuthContext is set. Neither the caller nor the callee establishes or checks one, so the auth model has a hole on this path — and if a guard is ever added to StatsService, the runner breaks at runtime instead of failing at compile time.',
-    proposed_action: 'Wrap both calls in auth_context::with_context(AuthContext::Admin { admin_id: Uuid::nil() }, ...) per .agents/auth.md rule 3, and add the guard to the StatsService methods per rule 1.',
+    proposed_action: 'Wrap both calls in auth_context::with_context(AuthContext::Admin { admin_id: Uuid::nil() }, ...) per agentic/auth.md rule 3, and add the guard to the StatsService methods per rule 1.',
     confidence: 'high',
     unit: 'daemon-svc-platform',
     axis: 'security',
@@ -307,7 +307,7 @@ const SEEDS = [
     line: '84,93,106,115,194 (+ network_zone.rs:83,91,100,109; zone_exception.rs:104,112)',
     issue: 'Eleven sites format!() a const column list into an otherwise-fixed SELECT instead of hoisting the whole statement to a const.',
     evidence: 'e.g. `let query = format!("SELECT {SELECT_COLS} FROM devices WHERE last_ip = ?");` — SELECT_COLS is itself a const, so the entire query is constant.',
-    failure_scenario: 'Not an injection risk (every component is constant), but it pays a heap allocation per call on repository hot paths, and .agents/code-conventions.md requires const query strings for fixed SQL.',
+    failure_scenario: 'Not an injection risk (every component is constant), but it pays a heap allocation per call on repository hot paths, and agentic/code-conventions.md requires const query strings for fixed SQL.',
     proposed_action: 'Hoist each to a `const` query string.',
     confidence: 'high',
     unit: 'daemon-data',
@@ -320,9 +320,9 @@ const SEEDS = [
     category: 'conventions:test-layout',
     file: 'source/daemon/crates/wardnetd-services/src/entitlement.rs',
     line: 'and ~13 other files',
-    issue: '~14 daemon source files carry an inline #[cfg(test)] mod tests block, which .agents/testing.md forbids without exception.',
+    issue: '~14 daemon source files carry an inline #[cfg(test)] mod tests block, which agentic/testing.md forbids without exception.',
     evidence: 'Inline test modules in wardnetd-services/src/{entitlement.rs, subnet.rs, update/service.rs, tunnel/service.rs, push/sender.rs, dns/service.rs, dns/log_sink.rs}; wardnetd/src/{garp_pnet.rs, tunnel_exit_probe.rs, system/pnet_network_probe.rs, system/proc_net_inspector.rs, dns/rate_limit.rs}; wardnetd-mock/src/backends/noop_exit_probe.rs; wardnet-test-agent/src/client/ping.rs.',
-    failure_scenario: 'Convention violation. .agents/testing.md: "Tests must live in separate files. Never put #[test] or #[tokio::test] blocks inline in source files." The rule was deliberately kept strict; these files are debt.',
+    failure_scenario: 'Convention violation. agentic/testing.md: "Tests must live in separate files. Never put #[test] or #[tokio::test] blocks inline in source files." The rule was deliberately kept strict; these files are debt.',
     proposed_action: 'Move each inline test module to src/<layer>/tests/<module>.rs with a #[cfg(test)] mod tests; declaration in the layer mod.rs.',
     confidence: 'high',
     unit: 'daemon-svc-platform',
@@ -506,7 +506,7 @@ const reviewPrompt = (unit, axis, digest) => {
 - Leaky abstractions: a trait whose impls cannot honour its contract; an interface that forces callers to know the impl.
 - Dead code, dead flags, abandoned half-migrations.
 Do NOT propose a rewrite. Do not report "this could be more elegant". Report what will actually bite.`,
-    conventions: `Hunt violations of THIS REPO'S DOCUMENTED RULES. Not generic best practice — the rules in the digest above, which come from the repo's own .agents/ docs.
+    conventions: `Hunt violations of THIS REPO'S DOCUMENTED RULES. Not generic best practice — the rules in the digest above, which come from the repo's own agentic/ docs.
 The high-value ones:
 - Tests must live in separate files. NO \`#[test]\` / \`#[tokio::test]\` inline in a source file — layout is \`src/<layer>/tests/<module>.rs\`.
 - SQL is \`const\` query strings + \`.bind()\`. \`format!()\` only for PRAGMA with numeric constants.
@@ -536,7 +536,7 @@ ${unit.context ? `\nSUBSYSTEM CONTEXT (read this first): ${unit.context}\n` : ''
 IGNORE these paths entirely — generated, vendored, or checked-in build output:
 ${EXCLUDES.map((e) => `  - ${e}`).join('\n')}
 
-=== THIS REPO'S HOUSE RULES (distilled from its own .agents/ docs) ===
+=== THIS REPO'S HOUSE RULES (distilled from its own agentic/ docs) ===
 ${digest}
 === END HOUSE RULES ===
 
@@ -582,10 +582,10 @@ const SWEEPS = [
     key: 'auth-guard',
     name: 'The auth-guard HARD REQUIREMENT',
     axis: 'security',
-    brief: `.agents/auth.md: "Every service method MUST validate the authentication context as its FIRST operation using auth_context::require_admin()?; or auth_context::require_authenticated()?;. Services never trust their caller."
+    brief: `agentic/auth.md: "Every service method MUST validate the authentication context as its FIRST operation using auth_context::require_admin()?; or auth_context::require_authenticated()?;. Services never trust their caller."
 Enumerate EVERY service trait method impl in source/daemon/crates/wardnetd-services/. For each, read the first statement of the body.
 Violation = the guard is absent, or is not first, or the method is reachable from an HTTP handler without one.
-The ONE permitted exception: startup/restore methods that run before the system is ready (e.g. restore_tunnels) — and .agents/auth.md requires those to carry a COMMENT explaining why the guard is skipped. An undocumented exception is still a violation; report it as one.
+The ONE permitted exception: startup/restore methods that run before the system is ready (e.g. restore_tunnels) — and agentic/auth.md requires those to carry a COMMENT explaining why the guard is skipped. An undocumented exception is still a violation; report it as one.
 For each violation, establish REACHABILITY: trace whether an HTTP handler can reach it. A reachable unguarded method is RED and likely a release blocker. An unreachable one is still AMBER.
 This is the single highest-value sweep in the review. Be exhaustive.`,
   },
@@ -593,7 +593,7 @@ This is the single highest-value sweep in the review. Be exhaustive.`,
     key: 'test-layout',
     name: 'Tests must live in separate files',
     axis: 'conventions',
-    brief: `.agents/testing.md: tests MUST live in separate files — "Never put #[test] or #[tokio::test] blocks inline in source files". Layout is src/<layer>/tests/<module>.rs with #[cfg(test)] mod tests; in the layer's mod.rs. "This rule is enforced by clippy and code review — no exceptions."
+    brief: `agentic/testing.md: tests MUST live in separate files — "Never put #[test] or #[tokio::test] blocks inline in source files". Layout is src/<layer>/tests/<module>.rs with #[cfg(test)] mod tests; in the layer's mod.rs. "This rule is enforced by clippy and code review — no exceptions."
 Find every #[test] / #[tokio::test] that sits OUTSIDE a **/tests/** path. Report each file. Severity GREEN unless it is widespread, in which case one AMBER for the pattern.`,
   },
   {
@@ -622,14 +622,14 @@ For each, ask: can a LAN device or a network response drive it? TRACE IT. Report
     key: 'dep-docs',
     name: 'Dependency URL comments',
     axis: 'conventions',
-    brief: `Rule (.agents/code-conventions.md): "Always add a comment with the crates.io or npmjs URL before each dependency."
+    brief: `Rule (agentic/code-conventions.md): "Always add a comment with the crates.io or npmjs URL before each dependency."
 Check every dependency in source/daemon/**/Cargo.toml and every package.json in source/. Report the ones missing the URL comment. This is GREEN — aggregate them into ONE finding per manifest, not one per dependency. Do not turn 80 crates into 80 findings.`,
   },
   {
     key: 'web-layering',
     name: 'Web-UI layering and typography rules',
     axis: 'conventions',
-    brief: `Rules (.agents/code-conventions.md): component layers core/ui → compound → features → layouts → pages, and ONLY pages may call the API; typography ONLY via <Text>/<Heading> variant props — no raw text-*/font-* Tailwind classes; import from react-router, NEVER react-router-dom; shared hooks belong in @wardnet/web, not app-local hooks/ dirs; detail views are routed pages, not sheets.
+    brief: `Rules (agentic/code-conventions.md): component layers core/ui → compound → features → layouts → pages, and ONLY pages may call the API; typography ONLY via <Text>/<Heading> variant props — no raw text-*/font-* Tailwind classes; import from react-router, NEVER react-router-dom; shared hooks belong in @wardnet/web, not app-local hooks/ dirs; detail views are routed pages, not sheets.
 Sweep source/admin-site/src, source/web/src, source/admin-app/src, source/user-app/src. Report each class of violation. Aggregate repetitive ones (e.g. raw text-* classes) into one finding per app with a representative file list and a count — not one finding per line.`,
   },
 ]
@@ -722,7 +722,7 @@ Every item carries a real file:line. A developer must be able to jump straight t
 The concrete approach for the cluster as a whole. Where findings need different fixes, say so per finding. Do not hand-wave, and do not write the patch — this is a brief, not a PR.
 
 ## Acceptance criteria
-Checkboxes a reviewer can objectively verify. Include the test that must exist: this repo mandates that new code has tests and that coverage never decreases (.agents/workflow.md).
+Checkboxes a reviewer can objectively verify. Include the test that must exist: this repo mandates that new code has tests and that coverage never decreases (agentic/workflow.md).
 
 ## Notes
 Anything the fixer needs: the repo rule being violated and where it is documented, the subsystem doc to read first, any adjacent code that must not regress.
@@ -749,7 +749,7 @@ const digest = await agent(
   `Read this repo's agent-facing convention docs and distil them into a HOUSE RULES digest that will be injected into ~90 code-reviewer agents.
 
 READ THE DOCS FROM: ${DOCS_FROM}
-(Read AGENTS.md, CONTEXT.md, and every file in .agents/ from THAT path — especially auth.md, code-conventions.md, testing.md, workflow.md, architecture.md. These docs were just audited and corrected; the copies in the code worktree may still be stale, so do not read them from anywhere else.)
+(Read AGENTS.md, CONTEXT.md, and every file in agentic/ from THAT path — especially auth.md, code-conventions.md, testing.md, workflow.md, architecture.md. These docs were just audited and corrected; the copies in the code worktree may still be stale, so do not read them from anywhere else.)
 
 The CODE being reviewed lives at ${TARGET}. You do not need to read it — your job is only the rules.
 

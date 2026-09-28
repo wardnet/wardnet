@@ -89,7 +89,7 @@ pub struct SecureTransport;
 /// implies anything about *role*: a `member` satisfies it exactly as an `admin`
 /// does.
 /// Authorization is the service layer's job, via
-/// `auth_context::require_admin()` (see `.agents/auth.md`). The old name
+/// `auth_context::require_admin()` (see `agentic/auth.md`). The old name
 /// promised a check this extractor never performed, which with only one
 /// principal was harmless and with two would be an escalation waiting for a
 /// reader to trust the type name.

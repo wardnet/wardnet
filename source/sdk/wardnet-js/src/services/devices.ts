@@ -1,6 +1,7 @@
 import type { WardnetClient } from "../client.js";
 import { apiClient, type ApiClient } from "../internal/client.js";
 import type { RoutingTarget } from "../types/device.js";
+import type { DeviceTimelineResponse, DeviceTimelineWindow } from "../types/device-timeline.js";
 import type {
   DeviceDetailResponse,
   DeviceMeResponse,
@@ -28,6 +29,19 @@ export class DeviceService {
   /** Get a device by ID with its current routing rule (admin only). */
   async getById(id: string): Promise<DeviceDetailResponse> {
     return this.api.get("/devices/{id}", { path: { id } });
+  }
+
+  /**
+   * Get a device's connectivity timeline (admin only).
+   *
+   * Defaults to the last 24 hours in hour buckets; shorter windows keep minute
+   * resolution, which is what makes a per-minute retry pattern visible.
+   */
+  async timeline(id: string, window?: DeviceTimelineWindow): Promise<DeviceTimelineResponse> {
+    return this.api.get("/devices/{id}/timeline", {
+      path: { id },
+      query: window ? { window } : undefined,
+    });
   }
 
   /** Get the calling device's info based on source IP (no auth required). */

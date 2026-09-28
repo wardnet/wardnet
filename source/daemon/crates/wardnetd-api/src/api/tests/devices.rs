@@ -425,6 +425,30 @@ impl MockDhcpService {
 
 #[async_trait]
 impl DhcpService for MockDhcpService {
+    async fn renewal_counts_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, i64)>, AppError> {
+        unimplemented!()
+    }
+
+    async fn renewal_count_for_mac_since(
+        &self,
+        _mac: &str,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, AppError> {
+        unimplemented!()
+    }
+
+    async fn lease_logs_for_mac_between(
+        &self,
+        _mac: &str,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+        Ok(Vec::new())
+    }
+
     async fn get_config(&self) -> Result<wardnet_common::api::DhcpConfigResponse, AppError> {
         unimplemented!()
     }
@@ -820,6 +844,10 @@ fn device_router(state: AppState) -> Router {
         .route(
             "/api/devices/{id}/identify",
             axum::routing::post(crate::api::devices::identify_device),
+        )
+        .route(
+            "/api/devices/{id}/timeline",
+            get(crate::api::devices::device_timeline),
         )
         .with_state(state)
 }
@@ -2260,4 +2288,97 @@ async fn identify_rejects_a_malformed_device_id() {
     let (status, _) = post_json(app, "/api/devices/not-a-uuid/identify").await;
 
     assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/devices/{id}/timeline (issue #1338)
+// ---------------------------------------------------------------------------
+
+/// A timeline for a device that does not exist is a 404, not three empty lists:
+/// an empty timeline for a real device and one for a typo'd id mean opposite
+/// things to whoever is reading it.
+#[tokio::test]
+async fn timeline_for_an_unknown_device_is_not_found() {
+    let state = build_state(
+        MockDeviceService::not_found(),
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
+    );
+    let app = device_router(state);
+
+    let (status, _) = get_json(app, &format!("/api/devices/{}/timeline", Uuid::new_v4())).await;
+
+    assert_eq!(status, StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn timeline_defaults_to_the_last_day_in_hour_buckets() {
+    let state = build_state(
+        MockDeviceService::found(sample_device(), Some(RoutingTarget::Direct)),
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
+    );
+    let app = device_router(state);
+
+    let (status, json) = get_json(
+        app,
+        &format!("/api/devices/{}/timeline", sample_device().id),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["bucket_secs"], 3_600);
+    let from = json["from"]
+        .as_str()
+        .unwrap()
+        .parse::<chrono::DateTime<chrono::Utc>>()
+        .unwrap();
+    let to = json["to"]
+        .as_str()
+        .unwrap()
+        .parse::<chrono::DateTime<chrono::Utc>>()
+        .unwrap();
+    assert_eq!((to - from).num_hours(), 24);
+}
+
+/// Short windows keep minute resolution — a per-minute retry pattern is exactly
+/// what the timeline exists to make visible — while long ones step up to hours
+/// so the payload stays bounded without a second pagination model.
+#[tokio::test]
+async fn a_short_window_keeps_minute_resolution() {
+    let state = build_state(
+        MockDeviceService::found(sample_device(), Some(RoutingTarget::Direct)),
+        MockDiscoveryService {
+            devices: vec![],
+            audit: AuditLog::default(),
+        },
+    );
+    let app = device_router(state);
+
+    let (status, json) = get_json(
+        app,
+        &format!(
+            "/api/devices/{}/timeline?window=one_hour",
+            sample_device().id
+        ),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(json["bucket_secs"], 60);
+    let from = json["from"]
+        .as_str()
+        .unwrap()
+        .parse::<chrono::DateTime<chrono::Utc>>()
+        .unwrap();
+    let to = json["to"]
+        .as_str()
+        .unwrap()
+        .parse::<chrono::DateTime<chrono::Utc>>()
+        .unwrap();
+    assert_eq!((to - from).num_minutes(), 60);
 }

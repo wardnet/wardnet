@@ -809,7 +809,7 @@ impl DnsFilterService for DnsFilterServiceImpl {
     // not allocate or take heavy locks. They expose no admin data and mutate
     // nothing; the filter *management* methods below are all guarded. This is
     // the same unguarded shape the pre-existing `check` has always had; the
-    // guard-or-documented-exception rule in `.agents/auth.md` is satisfied by
+    // guard-or-documented-exception rule in `agentic/auth.md` is satisfied by
     // this note rather than by fitting one of the three named categories.
     async fn check(&self, domain: &str, qtype: RecordType, client: IpAddr) -> CheckOutcome {
         let context = {

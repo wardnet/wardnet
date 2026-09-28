@@ -79,6 +79,29 @@ impl MockRunnerDhcpService {
 
 #[async_trait]
 impl DhcpService for MockRunnerDhcpService {
+    async fn lease_logs_for_mac_between(
+        &self,
+        _mac: &str,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+        unimplemented!()
+    }
+
+    async fn renewal_counts_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, i64)>, crate::error::AppError> {
+        unimplemented!()
+    }
+
+    async fn renewal_count_for_mac_since(
+        &self,
+        _mac: &str,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, crate::error::AppError> {
+        unimplemented!()
+    }
     async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
         unimplemented!()
     }
@@ -383,88 +406,108 @@ async fn runner_handles_start_failure_gracefully() {
     assert_eq!(server.stop_count.load(Ordering::SeqCst), 1);
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn runner_handles_config_load_failure() {
-    /// Mock service that fails on `get_dhcp_config`.
-    struct FailConfigService;
+/// Mock service that fails on `get_dhcp_config`.
+struct FailConfigService;
 
-    #[async_trait]
-    impl DhcpService for FailConfigService {
-        async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
-            unimplemented!()
-        }
-        async fn update_config(
-            &self,
-            _r: UpdateDhcpConfigRequest,
-        ) -> Result<DhcpConfigResponse, AppError> {
-            unimplemented!()
-        }
-        async fn preview_config(
-            &self,
-            _req: PreviewDhcpConfigRequest,
-        ) -> Result<PreviewDhcpConfigResponse, AppError> {
-            Ok(PreviewDhcpConfigResponse {
-                affected: Vec::new(),
-            })
-        }
-        async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
-            unimplemented!()
-        }
-        async fn list_leases(&self) -> Result<ListDhcpLeasesResponse, AppError> {
-            unimplemented!()
-        }
-        async fn revoke_lease(&self, _id: Uuid) -> Result<RevokeDhcpLeaseResponse, AppError> {
-            unimplemented!()
-        }
-        async fn list_reservations(&self) -> Result<ListDhcpReservationsResponse, AppError> {
-            unimplemented!()
-        }
-        async fn create_reservation(
-            &self,
-            _r: CreateDhcpReservationRequest,
-        ) -> Result<CreateDhcpReservationResponse, AppError> {
-            unimplemented!()
-        }
-        async fn delete_reservation(
-            &self,
-            _id: Uuid,
-        ) -> Result<DeleteDhcpReservationResponse, AppError> {
-            unimplemented!()
-        }
-        async fn status(&self) -> Result<DhcpStatusResponse, AppError> {
-            unimplemented!()
-        }
-        async fn assign_lease(
-            &self,
-            _mac: &str,
-            _hostname: Option<&str>,
-        ) -> Result<DhcpLease, AppError> {
-            unimplemented!()
-        }
-        async fn renew_lease(
-            &self,
-            _mac: &str,
-            _hostname: Option<&str>,
-        ) -> Result<DhcpLease, AppError> {
-            unimplemented!()
-        }
-        async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
-            unimplemented!()
-        }
-        async fn cleanup_expired(&self) -> Result<u64, AppError> {
-            Ok(0)
-        }
-        async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
-            Err(AppError::Internal(anyhow::anyhow!("db error")))
-        }
-        async fn scope_for_mac(
-            &self,
-            _mac: &str,
-        ) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
-            unimplemented!()
-        }
+#[async_trait]
+impl DhcpService for FailConfigService {
+    async fn lease_logs_for_mac_between(
+        &self,
+        _mac: &str,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+        unimplemented!()
     }
 
+    async fn renewal_counts_since(
+        &self,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, i64)>, crate::error::AppError> {
+        unimplemented!()
+    }
+
+    async fn renewal_count_for_mac_since(
+        &self,
+        _mac: &str,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, crate::error::AppError> {
+        unimplemented!()
+    }
+    async fn get_config(&self) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn update_config(
+        &self,
+        _r: UpdateDhcpConfigRequest,
+    ) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn preview_config(
+        &self,
+        _req: PreviewDhcpConfigRequest,
+    ) -> Result<PreviewDhcpConfigResponse, AppError> {
+        Ok(PreviewDhcpConfigResponse {
+            affected: Vec::new(),
+        })
+    }
+    async fn toggle(&self, _r: ToggleDhcpRequest) -> Result<DhcpConfigResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_leases(&self) -> Result<ListDhcpLeasesResponse, AppError> {
+        unimplemented!()
+    }
+    async fn revoke_lease(&self, _id: Uuid) -> Result<RevokeDhcpLeaseResponse, AppError> {
+        unimplemented!()
+    }
+    async fn list_reservations(&self) -> Result<ListDhcpReservationsResponse, AppError> {
+        unimplemented!()
+    }
+    async fn create_reservation(
+        &self,
+        _r: CreateDhcpReservationRequest,
+    ) -> Result<CreateDhcpReservationResponse, AppError> {
+        unimplemented!()
+    }
+    async fn delete_reservation(
+        &self,
+        _id: Uuid,
+    ) -> Result<DeleteDhcpReservationResponse, AppError> {
+        unimplemented!()
+    }
+    async fn status(&self) -> Result<DhcpStatusResponse, AppError> {
+        unimplemented!()
+    }
+    async fn assign_lease(
+        &self,
+        _mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<DhcpLease, AppError> {
+        unimplemented!()
+    }
+    async fn renew_lease(
+        &self,
+        _mac: &str,
+        _hostname: Option<&str>,
+    ) -> Result<DhcpLease, AppError> {
+        unimplemented!()
+    }
+    async fn release_lease(&self, _mac: &str) -> Result<(), AppError> {
+        unimplemented!()
+    }
+    async fn cleanup_expired(&self) -> Result<u64, AppError> {
+        Ok(0)
+    }
+    async fn get_dhcp_config(&self) -> Result<DhcpConfig, AppError> {
+        Err(AppError::Internal(anyhow::anyhow!("db error")))
+    }
+    async fn scope_for_mac(&self, _mac: &str) -> Result<wardnet_common::dhcp::DhcpScope, AppError> {
+        unimplemented!()
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn runner_handles_config_load_failure() {
     let service: Arc<dyn DhcpService> = Arc::new(FailConfigService);
     let server = Arc::new(MockDhcpServer::new());
     let events: Arc<dyn EventPublisher> = Arc::new(BroadcastEventBus::new(16));

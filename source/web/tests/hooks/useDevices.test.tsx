@@ -17,6 +17,7 @@ const { deviceService } = vi.hoisted(() => ({
     getDnsCaptureSettings: vi.fn(),
     updateDnsCaptureSettings: vi.fn(),
     identify: vi.fn(),
+    timeline: vi.fn(),
   },
 }));
 vi.mock("../../src/lib/sdk", () => ({ deviceService }));
@@ -42,6 +43,7 @@ import {
   useReleaseDevice,
   useDnsCaptureSettings,
   useUpdateDnsCaptureSettings,
+  useDeviceTimeline,
 } from "../../src/hooks/useDevices";
 
 describe("useDevices", () => {
@@ -265,5 +267,66 @@ describe("useDevices", () => {
 
     expect(toast.error).toHaveBeenCalledWith("Failed to release device");
     expect(toast.success).not.toHaveBeenCalled();
+  });
+});
+
+describe("useDeviceTimeline", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("fetches the timeline for the requested window", async () => {
+    const timeline = {
+      from: "2026-09-06T00:00:00Z",
+      to: "2026-09-07T00:00:00Z",
+      bucket_secs: 3600,
+      events: [],
+      dhcp: [],
+      dns: [],
+    };
+    deviceService.timeline.mockResolvedValue(timeline);
+
+    const { result } = renderHook(
+      () => useDeviceTimeline("device-1", "twenty_four_hours"),
+      { wrapper: createQueryWrapper() },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(deviceService.timeline).toHaveBeenCalledWith(
+      "device-1",
+      "twenty_four_hours",
+    );
+    expect(result.current.data).toEqual(timeline);
+  });
+
+  /** The query is keyed by window, so switching windows refetches rather than
+   *  showing the previous window's buckets. */
+  it("keys the query by window", async () => {
+    deviceService.timeline.mockResolvedValue({
+      from: "2026-09-06T09:00:00Z",
+      to: "2026-09-06T10:00:00Z",
+      bucket_secs: 60,
+      events: [],
+      dhcp: [],
+      dns: [],
+    });
+
+    const { result } = renderHook(
+      () => useDeviceTimeline("device-1", "one_hour"),
+      { wrapper: createQueryWrapper() },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.bucket_secs).toBe(60);
+  });
+
+  /** Without an id there is nothing to ask for; the query must stay idle
+   *  rather than firing a request for an empty path segment. */
+  it("does not fetch without a device id", () => {
+    renderHook(() => useDeviceTimeline("", "twenty_four_hours"), {
+      wrapper: createQueryWrapper(),
+    });
+
+    expect(deviceService.timeline).not.toHaveBeenCalled();
   });
 });

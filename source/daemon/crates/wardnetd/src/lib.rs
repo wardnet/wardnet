@@ -3,6 +3,7 @@ pub mod pidfile;
 
 // Real backend implementations (Linux-specific).
 pub mod command;
+pub mod egress_path_prober;
 pub mod firewall_netlink;
 pub mod garp_pnet;
 pub mod hostname_resolver;

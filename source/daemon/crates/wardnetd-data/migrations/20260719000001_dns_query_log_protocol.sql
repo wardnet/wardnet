@@ -9,5 +9,5 @@
 -- amplification on the daemon's busiest insert path — and a bare index on a
 -- two-value column is near-useless to the planner anyway. When #914 adds a
 -- protocol filter, add the index there (likely composite with timestamp /
--- device_id), per the append-only-table checklist in .agents/observability.md.
+-- device_id), per the append-only-table checklist in agentic/observability.md.
 ALTER TABLE dns_query_log ADD COLUMN protocol TEXT NOT NULL DEFAULT 'udp';

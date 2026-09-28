@@ -19,6 +19,36 @@ All builds are driven by the root **Makefile**. Use `make help` to see all targe
 - **`make run-dev-admin-app`** — run just the admin-app Vite server on :7414/admin-app/.
 - **`make clean`** — clean all build artifacts
 
+## The container the daemon checks run in
+
+On a non-Linux host `make check-daemon` and `make coverage-daemon` run inside a
+Linux VM, and the daemon workspace needs that VM to be sized for it. Podman's
+default is far too small, so a fresh machine must be created with:
+
+```bash
+podman machine init --cpus 4 --memory 20480 --disk-size 40
+podman machine start
+podman machine inspect --format '{{.Resources.Memory}} MiB, {{.Resources.CPUs}} CPUs'
+```
+
+**Verify with that last line.** `--memory` can be accepted and not applied,
+leaving a 6 GiB machine that reports success at every step. Fix an existing
+machine with `podman machine set --memory 20480` while it is stopped.
+
+An undersized VM does not report itself as undersized. It fails as an OOM kill
+somewhere in the build, and the two it produces name neither memory nor the VM:
+
+| Symptom | Where |
+|---------|-------|
+| `rustc` exits `(signal: 9, SIGKILL: kill)` | compiling `wardnetd-services` |
+| `collect2: fatal error: ld terminated with signal 9` | linking `wardnetd`'s test binary |
+
+The second survives lowering the job count, because one link step is the peak —
+which is the tell that the VM is too small rather than over-subscribed.
+
+`CONTAINER_BUILD_JOBS` (default 2) caps parallel `rustc` jobs inside the
+container; raise it on a larger machine.
+
 ## Direct commands (fast iteration only — NOT a substitute for Make before push)
 
 > **DO NOT PUSH WITHOUT RUNNING THE MAKE TARGET FIRST. NO EXCEPTIONS.**

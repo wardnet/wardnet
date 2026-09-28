@@ -58,7 +58,7 @@ desktop admin benefits too.
 - **It is a whole architectural layer** — view-shaped DTOs, their own
   auth/versioning, and ongoing coupling of the daemon to mobile *view*
   concerns — which cuts against the layered/trait architecture
-  (`.agents/architecture.md`) and the project's "no speculative primitives"
+  (`agentic/architecture.md`) and the project's "no speculative primitives"
   principle. There is no mobile-latency evidence justifying it yet.
 - **The precedent already works**: the desktop admin dashboard composes
   multiple calls successfully.

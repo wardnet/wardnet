@@ -6,7 +6,7 @@
 //! apply. Three profiles are seeded as `builtin`: "Ad Blocking",
 //! "Parental Controls", and "Malware & Phishing".
 //!
-//! See `.agents/architecture.md` for the layered design and
+//! See `agentic/architecture.md` for the layered design and
 //! `docs/issues/221.md` for the full plan that motivates this module.
 
 use chrono::{DateTime, Utc};

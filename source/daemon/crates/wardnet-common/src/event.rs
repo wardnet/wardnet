@@ -39,6 +39,20 @@ pub enum WardnetEvent {
         last_ip: String,
         timestamp: DateTime<Utc>,
     },
+    /// A device's conntrack entries were flushed, tearing down its
+    /// established flows.
+    ///
+    /// Carries the IP rather than a device id because the flush sites work in
+    /// terms of an address; the device-event listener resolves it. Recorded on
+    /// the device timeline because the device experiences this as connections
+    /// dying mid-stream with nothing wrong on its own side, which is otherwise
+    /// an unexplained gap in its traffic.
+    DeviceConntrackFlushed {
+        device_ip: String,
+        /// Why the flush happened, for the timeline entry.
+        reason: String,
+        timestamp: DateTime<Utc>,
+    },
     /// An admin toggled a device's `admin_locked` flag. Drives the user-PWA
     /// "routing locked/unlocked" push to that device's subscriptions.
     DeviceAdminLocked {

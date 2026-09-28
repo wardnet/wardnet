@@ -216,7 +216,7 @@ impl TunnelerConnector {
     ///
     /// The reads target `system_config`/`SecretStore` directly (the same
     /// `ddns_region` slug + signing seed the DDNS client uses) rather than routing
-    /// through `DdnsService`. Per `.agents/auth.md` rule 3, a background task must
+    /// through `DdnsService`. Per `agentic/auth.md` rule 3, a background task must
     /// still establish an admin [`AuthContext`] around its service/repository work,
     /// so the whole body runs under `AuthContext::system()` —
     /// mirroring `ddns::runner`/`tls::runner`.

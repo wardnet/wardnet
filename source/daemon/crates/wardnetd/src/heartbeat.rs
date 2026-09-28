@@ -33,7 +33,7 @@ pub struct HeartbeatRunner {
 impl HeartbeatRunner {
     /// Start the runner. Logs land under a child of `parent` named
     /// `heartbeat`, matching the span hierarchy described in
-    /// `.agents/observability.md`.
+    /// `agentic/observability.md`.
     pub fn start(system: Arc<dyn SystemService>, parent: &tracing::Span) -> Self {
         Self::start_with_interval(system, HEARTBEAT_INTERVAL, parent)
     }

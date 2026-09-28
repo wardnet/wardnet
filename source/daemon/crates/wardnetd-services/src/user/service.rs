@@ -97,7 +97,7 @@ pub struct EnrolmentSummary {
 ///
 /// Every method opens with an `auth_context::require_*()` guard, with the one
 /// documented exception noted on [`redeem_enrolment`](UserService::redeem_enrolment)
-/// — see `.agents/auth.md`.
+/// — see `agentic/auth.md`.
 #[async_trait]
 pub trait UserService: Send + Sync {
     /// Every household user, for the admin directory.
@@ -168,7 +168,7 @@ pub trait UserService: Send + Sync {
 
     /// Redeem an enrolment token, setting the member's first password.
     ///
-    /// **Documented exception** to the auth-guard rule (`.agents/auth.md`
+    /// **Documented exception** to the auth-guard rule (`agentic/auth.md`
     /// category (b), auth bootstrap): the caller is a household member who has
     /// no credential yet and therefore cannot have a session. The token *is*
     /// the authorization, which is why it is single-use, expiring, and checked
@@ -180,7 +180,7 @@ pub trait UserService: Send + Sync {
 
     /// Which sign-in methods this box can actually offer right now.
     ///
-    /// **Unauthenticated** — a documented exception (`.agents/auth.md`
+    /// **Unauthenticated** — a documented exception (`agentic/auth.md`
     /// category (b)): it backs the sign-in surface, whose whole job is to be
     /// reachable before anybody has a session. It reports only whether a method
     /// is available, never any credential or client secret.
@@ -878,7 +878,7 @@ impl UserService for UserServiceImpl {
     }
 
     async fn redeem_enrolment(&self, token: &str, password: &str) -> Result<UserProfile, AppError> {
-        // Documented exception to the auth-guard rule (`.agents/auth.md`
+        // Documented exception to the auth-guard rule (`agentic/auth.md`
         // category (b), auth bootstrap): the caller has no credential yet, so
         // there is no session to require. The token is the authorization.
         validate_password(password)?;
@@ -994,7 +994,7 @@ impl UserService for UserServiceImpl {
     }
 
     async fn available_methods(&self) -> Result<AuthMethods, AppError> {
-        // Documented exception to the auth-guard rule (`.agents/auth.md`
+        // Documented exception to the auth-guard rule (`agentic/auth.md`
         // category (b)): this backs the sign-in surface, which by definition is
         // reached before anybody has a session. It returns availability only.
         Ok(AuthMethods {

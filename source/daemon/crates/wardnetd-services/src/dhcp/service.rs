@@ -3,6 +3,7 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use ipnetwork::Ipv4Network;
 use uuid::Uuid;
 use wardnet_common::api::{
@@ -20,6 +21,7 @@ use crate::event::EventPublisher;
 use wardnet_common::event::WardnetEvent;
 
 use wardnetd_data::repository::SystemConfigRepository;
+use wardnetd_data::repository::sqlite::format_ts;
 use wardnetd_data::repository::{
     DeviceRepository, DhcpLeaseLogRow, DhcpLeaseRow, DhcpRepository, DhcpReservationRow,
     NetworkZoneRepository,
@@ -140,6 +142,34 @@ pub trait DhcpService: Send + Sync {
     /// falling back to the base pool when the zone has no subnet or when Wardnet
     /// is not authoritative. Requires admin auth context.
     async fn scope_for_mac(&self, mac: &str) -> Result<DhcpScope, AppError>;
+
+    /// Renewal counts per MAC since `since`, newest window first.
+    ///
+    /// Backs the renewal-storm detector, which compares each count against the
+    /// rate the configured lease implies. Requires admin auth context.
+    async fn renewal_counts_since(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<(String, i64)>, AppError>;
+
+    /// Renewal count for a single MAC since `since`.
+    ///
+    /// Used to re-evaluate an open renewal-storm anomaly without re-scanning
+    /// every MAC. Requires admin auth context.
+    async fn renewal_count_for_mac_since(
+        &self,
+        mac: &str,
+        since: DateTime<Utc>,
+    ) -> Result<i64, AppError>;
+
+    /// Lease-log rows for one MAC inside `[from, to]`, oldest first, for the
+    /// device timeline. Requires admin auth context.
+    async fn lease_logs_for_mac_between(
+        &self,
+        mac: &str,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError>;
 }
 
 /// Default implementation of [`DhcpService`].
@@ -1369,5 +1399,39 @@ impl DhcpService for DhcpServiceImpl {
     async fn scope_for_mac(&self, mac: &str) -> Result<DhcpScope, AppError> {
         auth_context::require_admin()?;
         self.resolve_scope(mac).await
+    }
+    async fn renewal_counts_since(
+        &self,
+        since: DateTime<Utc>,
+    ) -> Result<Vec<(String, i64)>, AppError> {
+        auth_context::require_admin()?;
+        self.dhcp
+            .count_renewals_by_mac_since(&format_ts(since))
+            .await
+            .map_err(AppError::Internal)
+    }
+
+    async fn renewal_count_for_mac_since(
+        &self,
+        mac: &str,
+        since: DateTime<Utc>,
+    ) -> Result<i64, AppError> {
+        auth_context::require_admin()?;
+        self.dhcp
+            .count_renewals_for_mac_since(mac, &format_ts(since))
+            .await
+            .map_err(AppError::Internal)
+    }
+    async fn lease_logs_for_mac_between(
+        &self,
+        mac: &str,
+        from: DateTime<Utc>,
+        to: DateTime<Utc>,
+    ) -> Result<Vec<wardnet_common::dhcp::DhcpLeaseLog>, AppError> {
+        auth_context::require_admin()?;
+        self.dhcp
+            .lease_logs_for_mac_between(mac, &format_ts(from), &format_ts(to))
+            .await
+            .map_err(AppError::Internal)
     }
 }

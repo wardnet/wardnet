@@ -16,7 +16,7 @@ export default function NotFound() {
         weight="semibold"
         /* ds-typography-allow: hero 404 numeral — this display size sits above
            the <Text> `size` scale's 4xl cap; documented exception in
-           .agents/code-conventions.md (Typography) */
+           agentic/code-conventions.md (Typography) */
         className="text-6xl tracking-tight text-ink"
       >
         404

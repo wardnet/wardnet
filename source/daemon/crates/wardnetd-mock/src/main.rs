@@ -422,6 +422,7 @@ async fn run(
     )
     .with_push_service(services.push.clone())
     .with_anomaly_service(services.anomaly.clone())
+    .with_device_event_service(services.device_event.clone())
     .with_device_identification_service(services.device_identification.clone())
     .with_routing_profile_service(services.routing_profile.clone())
     .with_inbound_wg_service(services.inbound_wg.clone())

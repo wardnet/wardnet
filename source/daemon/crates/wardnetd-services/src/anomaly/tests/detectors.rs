@@ -6,13 +6,19 @@ use uuid::Uuid;
 use wardnet_common::anomaly::{Anomaly, AnomalyStatus, AnomalyType};
 use wardnet_common::tunnel::TunnelStatus;
 
-use super::support::{DnsFilterProfileStub, FakeDnsFilter, FakeTunnels, blocklist, tunnel};
+use super::support::{
+    DnsFilterProfileStub, FakeDeviceEvents, FakeDhcpService, FakeDnsFilter, FakeTunnels, blocklist,
+    tunnel,
+};
 use crate::anomaly::detector::AnomalyDetector;
 use crate::anomaly::detectors::{
-    BlocklistRefreshFailingDetector, DnsUpstreamUnreachableDetector, TransientDetector,
+    BlocklistRefreshFailingDetector, DeviceAddressChurnDetector, DhcpRenewalStormDetector,
+    DnsUpstreamUnreachableDetector, EgressPathDetector, TransientDetector,
     TunnelStartFailedDetector, TunnelUnhealthyDetector, UpdateFailedDetector,
 };
 use crate::dns::UpstreamHealth;
+use crate::egress_path::EgressPathHealth;
+use wardnet_common::egress_path::{PathHealth, PathProbeOutcome, StageOutcome};
 
 fn anomaly(anomaly_type: AnomalyType, subject: Option<&str>) -> Anomaly {
     Anomaly {
@@ -583,4 +589,449 @@ async fn a_subjectless_anomaly_resolves_rather_than_lingering() {
         .await
         .unwrap();
     assert_eq!(status, AnomalyStatus::Resolved);
+}
+
+// ---------------------------------------------------------------------------
+// DhcpRenewalStormDetector (#1338)
+//
+// The threshold is derived from the configured lease rather than hardcoded,
+// so the tests pin both the derivation and the boundary: a constant tuned for
+// a 24h lease fires for every healthy device on a 1h one.
+// ---------------------------------------------------------------------------
+
+fn renewal_detector(lease_duration_secs: u32, counts: &[(&str, i64)]) -> DhcpRenewalStormDetector {
+    DhcpRenewalStormDetector::new(Arc::new(FakeDhcpService::new(lease_duration_secs, counts)))
+}
+
+#[tokio::test]
+async fn a_client_renewing_far_above_the_lease_rate_is_reported() {
+    // 24h lease => T1 12h => 2 renewals/day expected => threshold 40.
+    let detector = renewal_detector(86_400, &[("8c:86:dd:3d:0f:96", 2_567)]);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].anomaly_type, AnomalyType::DhcpRenewalStorm);
+    assert_eq!(reports[0].subject_id.as_deref(), Some("8c:86:dd:3d:0f:96"));
+    let details = reports[0].details.as_ref().unwrap();
+    assert_eq!(details["renewals"], 2_567);
+    assert_eq!(details["threshold"], 40);
+}
+
+#[tokio::test]
+async fn a_client_renewing_at_the_expected_rate_is_not_reported() {
+    let detector = renewal_detector(86_400, &[("d8:ec:5e:8f:3c:a4", 2)]);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert!(reports.is_empty());
+}
+
+/// The boundary is exclusive: exactly at the threshold is not yet a storm.
+#[tokio::test]
+async fn the_threshold_itself_does_not_raise_an_anomaly() {
+    let detector = renewal_detector(86_400, &[("aa:bb:cc:dd:ee:ff", 40)]);
+    assert!(detector.detect().await.unwrap().is_empty());
+
+    let detector = renewal_detector(86_400, &[("aa:bb:cc:dd:ee:ff", 41)]);
+    assert_eq!(detector.detect().await.unwrap().len(), 1);
+}
+
+/// The regression this whole derivation exists to prevent. With a 1h lease a
+/// healthy client renews ~48 times a day; a threshold hardcoded for a 24h
+/// lease (40) would fire for every device on the network.
+#[tokio::test]
+async fn a_short_lease_raises_the_threshold_instead_of_flagging_healthy_clients() {
+    // 1h lease => T1 30min => 48 renewals/day expected => threshold 960.
+    let detector = renewal_detector(3_600, &[("d8:ec:5e:8f:3c:a4", 48)]);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert!(
+        reports.is_empty(),
+        "a client renewing at the rate a 1h lease implies is healthy, not a storm"
+    );
+}
+
+#[tokio::test]
+async fn a_short_lease_still_reports_a_genuine_storm() {
+    let detector = renewal_detector(3_600, &[("8c:86:dd:3d:0f:96", 2_000)]);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].details.as_ref().unwrap()["threshold"], 960);
+}
+
+/// A very long lease drives the derived threshold below a handful, where a
+/// single retry pair would otherwise raise an anomaly.
+#[tokio::test]
+async fn a_very_long_lease_falls_back_to_the_absolute_floor() {
+    // 30 day lease => T1 15 days => 0.067 renewals/day => derived threshold 2.
+    let detector = renewal_detector(2_592_000, &[("aa:bb:cc:dd:ee:ff", 5)]);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert!(
+        reports.is_empty(),
+        "five renewals must not be a storm however long the lease is"
+    );
+}
+
+#[tokio::test]
+async fn each_offending_client_gets_its_own_report() {
+    let detector = renewal_detector(
+        86_400,
+        &[
+            ("8c:86:dd:3d:0f:96", 2_567),
+            ("80:69:1a:75:e1:58", 150),
+            ("d8:ec:5e:8f:3c:a4", 26),
+        ],
+    );
+
+    let reports = detector.detect().await.unwrap();
+
+    let mut subjects: Vec<_> = reports
+        .iter()
+        .map(|r| r.subject_id.clone().unwrap())
+        .collect();
+    subjects.sort();
+    assert_eq!(subjects, vec!["80:69:1a:75:e1:58", "8c:86:dd:3d:0f:96"]);
+}
+
+#[tokio::test]
+async fn an_open_storm_stays_open_while_the_client_still_storms() {
+    let detector = renewal_detector(86_400, &[("8c:86:dd:3d:0f:96", 2_567)]);
+    let open = anomaly(AnomalyType::DhcpRenewalStorm, Some("8c:86:dd:3d:0f:96"));
+
+    let status = detector.reevaluate(&open).await.unwrap();
+
+    assert_eq!(status, AnomalyStatus::Open);
+}
+
+#[tokio::test]
+async fn a_storm_resolves_once_the_client_settles() {
+    let detector = renewal_detector(86_400, &[("8c:86:dd:3d:0f:96", 3)]);
+    let open = anomaly(AnomalyType::DhcpRenewalStorm, Some("8c:86:dd:3d:0f:96"));
+
+    let status = detector.reevaluate(&open).await.unwrap();
+
+    assert_eq!(status, AnomalyStatus::Resolved);
+}
+
+/// A client that has not renewed at all since the anomaly opened is absent
+/// from the counts entirely, which must resolve rather than hang open.
+#[tokio::test]
+async fn a_storm_resolves_when_the_client_stops_renewing_altogether() {
+    let detector = renewal_detector(86_400, &[]);
+    let open = anomaly(AnomalyType::DhcpRenewalStorm, Some("8c:86:dd:3d:0f:96"));
+
+    let status = detector.reevaluate(&open).await.unwrap();
+
+    assert_eq!(status, AnomalyStatus::Resolved);
+}
+
+#[tokio::test]
+async fn a_storm_without_a_subject_resolves_rather_than_lingering() {
+    let detector = renewal_detector(86_400, &[("8c:86:dd:3d:0f:96", 2_567)]);
+    let open = anomaly(AnomalyType::DhcpRenewalStorm, None);
+
+    let status = detector.reevaluate(&open).await.unwrap();
+
+    assert_eq!(status, AnomalyStatus::Resolved);
+}
+
+// ---------------------------------------------------------------------------
+// DeviceAddressChurnDetector (#1338)
+//
+// The threshold sits inside a measured empty band (nothing on a live box falls
+// between 21 and 100 changes/day), so these cases pin the boundary and — the
+// part that distinguishes this from the #886 flap guard — that a MAC alternating
+// between only two addresses is still caught.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn a_mac_changing_address_constantly_is_reported() {
+    let detector =
+        DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("192.168.100.1-router", 673)]));
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].anomaly_type, AnomalyType::DeviceAddressChurn);
+    assert_eq!(reports[0].details.as_ref().unwrap()["changes"], 673);
+    assert_eq!(reports[0].details.as_ref().unwrap()["threshold"], 50);
+}
+
+#[tokio::test]
+async fn a_device_moving_occasionally_is_not_reported() {
+    let detector =
+        DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("d8:ec:5e:8f:3c:a4", 11)]));
+
+    assert!(detector.detect().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn the_churn_threshold_itself_does_not_raise_an_anomaly() {
+    let detector =
+        DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("aa:bb:cc:00:00:01", 50)]));
+    assert!(detector.detect().await.unwrap().is_empty());
+
+    let detector =
+        DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("aa:bb:cc:00:00:01", 51)]));
+    assert_eq!(detector.detect().await.unwrap().len(), 1);
+}
+
+/// The gap the #886 flap guard cannot see: that guard counts *distinct*
+/// addresses in a 60-second window and tolerates up to three, so a MAC
+/// alternating between exactly two never trips it however often it does so.
+#[tokio::test]
+async fn a_mac_alternating_between_two_addresses_is_still_caught() {
+    let detector =
+        DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("8c:86:dd:3d:0f:96", 238)]));
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].subject_id.as_deref(), Some("8c:86:dd:3d:0f:96"));
+}
+
+#[tokio::test]
+async fn each_churning_mac_gets_its_own_report() {
+    let detector = DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[
+        ("mac-a", 673),
+        ("mac-b", 358),
+        ("mac-c", 11),
+    ]));
+
+    let mut subjects: Vec<_> = detector
+        .detect()
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.subject_id.clone().unwrap())
+        .collect();
+    subjects.sort();
+
+    assert_eq!(subjects, vec!["mac-a", "mac-b"]);
+}
+
+#[tokio::test]
+async fn churn_stays_open_while_the_mac_keeps_changing() {
+    let detector = DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("mac-a", 673)]));
+    let open = anomaly(AnomalyType::DeviceAddressChurn, Some("mac-a"));
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Open
+    );
+}
+
+#[tokio::test]
+async fn churn_resolves_once_the_mac_settles() {
+    let detector = DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("mac-a", 2)]));
+    let open = anomaly(AnomalyType::DeviceAddressChurn, Some("mac-a"));
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Resolved
+    );
+}
+
+#[tokio::test]
+async fn churn_without_a_subject_resolves_rather_than_lingering() {
+    let detector = DeviceAddressChurnDetector::new(FakeDeviceEvents::new(&[("mac-a", 673)]));
+    let open = anomaly(AnomalyType::DeviceAddressChurn, None);
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Resolved
+    );
+}
+
+// ---------------------------------------------------------------------------
+// EgressPathDetector (#1338)
+//
+// The two stages are separate types, and the split is the whole diagnostic:
+// connect-ok + transfer-fail is the MSS/MTU signature a connect-only probe
+// reports as healthy.
+// ---------------------------------------------------------------------------
+
+fn path_health(path: &str, connect_ok: bool, transfer_ok: Option<bool>) -> PathHealth {
+    PathHealth {
+        path: path.to_owned(),
+        label: format!("Tunnel {path}"),
+        outcome: PathProbeOutcome {
+            connect: if connect_ok {
+                StageOutcome::succeeded(12)
+            } else {
+                StageOutcome::failed("connection refused")
+            },
+            transfer: transfer_ok.map(|ok| {
+                if ok {
+                    StageOutcome::succeeded(48)
+                } else {
+                    StageOutcome::failed("timed out mid-handshake")
+                }
+            }),
+        },
+    }
+}
+
+fn path_health_snapshot(entries: Vec<PathHealth>) -> Arc<EgressPathHealth> {
+    let health = Arc::new(EgressPathHealth::new());
+    health.publish(entries);
+    health
+}
+
+#[tokio::test]
+async fn a_path_that_cannot_connect_is_reported_unreachable() {
+    let health = path_health_snapshot(vec![path_health("wg-1", false, None)]);
+    let detector = EgressPathDetector::unreachable(health);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].anomaly_type, AnomalyType::EgressPathUnreachable);
+    assert_eq!(reports[0].subject_id.as_deref(), Some("wg-1"));
+}
+
+/// The case the whole two-stage design exists for: the handshake completes, so
+/// a connect-only probe would call this healthy, and every real connection
+/// still stalls.
+#[tokio::test]
+async fn a_path_that_connects_but_cannot_transfer_is_reported_degraded() {
+    let health = path_health_snapshot(vec![path_health("wg-1", true, Some(false))]);
+    let detector = EgressPathDetector::degraded(health);
+
+    let reports = detector.detect().await.unwrap();
+
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].anomaly_type, AnomalyType::EgressPathDegraded);
+    assert_eq!(reports[0].details.as_ref().unwrap()["stage"], "transfer");
+}
+
+/// One fault must raise one anomaly. A dead path has no transfer stage to
+/// judge, so it must not also read as degraded.
+#[tokio::test]
+async fn a_dead_path_raises_only_the_unreachable_anomaly() {
+    let health = path_health_snapshot(vec![path_health("wg-1", false, None)]);
+
+    assert_eq!(
+        EgressPathDetector::unreachable(health.clone())
+            .detect()
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(
+        EgressPathDetector::degraded(health)
+            .detect()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn a_healthy_path_raises_nothing() {
+    let health = path_health_snapshot(vec![path_health("wg-1", true, Some(true))]);
+
+    assert!(
+        EgressPathDetector::unreachable(health.clone())
+            .detect()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        EgressPathDetector::degraded(health)
+            .detect()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+/// Nothing measured is not the same as everything down. The first sweep can run
+/// before the first probe round completes, and an empty snapshot must not put
+/// every path on the dashboard.
+#[tokio::test]
+async fn an_unmeasured_snapshot_raises_nothing() {
+    let health = Arc::new(EgressPathHealth::new());
+
+    assert!(
+        EgressPathDetector::unreachable(health.clone())
+            .detect()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        EgressPathDetector::degraded(health)
+            .detect()
+            .await
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn each_failing_path_gets_its_own_report() {
+    let health = path_health_snapshot(vec![
+        path_health("wg-1", false, None),
+        path_health("direct", false, None),
+        path_health("wg-2", true, Some(true)),
+    ]);
+
+    let mut subjects: Vec<_> = EgressPathDetector::unreachable(health)
+        .detect()
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.subject_id.clone().unwrap())
+        .collect();
+    subjects.sort();
+
+    assert_eq!(subjects, vec!["direct", "wg-1"]);
+}
+
+#[tokio::test]
+async fn a_path_anomaly_resolves_once_the_path_recovers() {
+    let health = path_health_snapshot(vec![path_health("wg-1", true, Some(true))]);
+    let detector = EgressPathDetector::unreachable(health);
+    let open = anomaly(AnomalyType::EgressPathUnreachable, Some("wg-1"));
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Resolved
+    );
+}
+
+/// A path that has left the probe set — its tunnel was deleted, or is no longer
+/// up and so belongs to `TunnelUnhealthy` — must not keep an anomaly open that
+/// nothing will ever close.
+#[tokio::test]
+async fn a_path_that_left_the_probe_set_resolves() {
+    let health = path_health_snapshot(vec![path_health("wg-2", true, Some(true))]);
+    let detector = EgressPathDetector::unreachable(health);
+    let open = anomaly(AnomalyType::EgressPathUnreachable, Some("wg-1"));
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Resolved
+    );
+}
+
+#[tokio::test]
+async fn a_path_anomaly_stays_open_while_the_path_is_still_broken() {
+    let health = path_health_snapshot(vec![path_health("wg-1", true, Some(false))]);
+    let detector = EgressPathDetector::degraded(health);
+    let open = anomaly(AnomalyType::EgressPathDegraded, Some("wg-1"));
+
+    assert_eq!(
+        detector.reevaluate(&open).await.unwrap(),
+        AnomalyStatus::Open
+    );
 }

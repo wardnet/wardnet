@@ -17,7 +17,7 @@ pub const DEFAULT_HEALTH_INTERVAL: Duration = Duration::from_secs(5);
 /// tick (issue #214).
 ///
 /// Modeled on [`crate::heartbeat::HeartbeatRunner`]: logs land under a child
-/// span named `health` (see `.agents/observability.md`), and a
+/// span named `health` (see `agentic/observability.md`), and a
 /// [`CancellationToken`] drives a clean shutdown. Failures never escalate —
 /// `refresh()` swallows per-check errors into the snapshot, so the loop itself
 /// cannot fail.

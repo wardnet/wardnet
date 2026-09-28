@@ -62,7 +62,7 @@ The term **"master account" is deliberately not used** — it is vague about wha
 
 ## Consequences
 
-- **`AuthContext` grows a `User` principal**, and `.agents/auth.md`'s HARD REQUIREMENT means every service method's guard must be audited against the new principal rather than defaulting through. This is a cross-cutting change, not an additive one — hence its own child epic (#1147) and a follow-on for the three surfaces (#1148).
+- **`AuthContext` grows a `User` principal**, and `agentic/auth.md`'s HARD REQUIREMENT means every service method's guard must be audited against the new principal rather than defaulting through. This is a cross-cutting change, not an additive one — hence its own child epic (#1147) and a follow-on for the three surfaces (#1148).
 - **Wardnet's own login is reworked before the IdP ships** (#1148 before #1149): an identity provider must issue tokens against a settled model.
 - **The user PWA stays device-keyed with no login.** Invariant: affinity alone must never unlock anything a stranger on the LAN should not have; a surface that becomes sensitive asks for a real sign-in instead.
 - **Being an IdP is worth it for a reason unrelated to protocol support.** Authelia and Pocket ID implement OIDC fine; what they cannot obtain on a home network is a stable public FQDN with a trusted certificate and knowledge of which device is asking. Wardnet has both already.

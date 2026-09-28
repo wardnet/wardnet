@@ -139,7 +139,7 @@ fn install_global_subscriber() {
 /// Install an in-memory log capture on the current thread up to `max_level`.
 ///
 /// Lets a test assert on the *rendered message text* a log line produces — the
-/// part that must carry interpolated field values per `.agents/logging.md`,
+/// part that must carry interpolated field values per `agentic/logging.md`,
 /// not just the structured span fields.
 ///
 /// Captures nest: dropping the returned guard restores whatever capture was

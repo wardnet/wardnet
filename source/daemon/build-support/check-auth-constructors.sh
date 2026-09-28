@@ -54,7 +54,7 @@ if [ -n "$violations" ]; then
     echo >&2
     echo "This function mints an authenticated principal from a bare UUID." >&2
     echo "Only code that has just verified a credential may call it — see" >&2
-    echo "docs/adr/0031-household-identity.md and .agents/auth.md." >&2
+    echo "docs/adr/0031-household-identity.md and agentic/auth.md." >&2
     echo >&2
     echo "If the new call site really does verify a credential, add it to" >&2
     echo "ALLOWED_RE in build-support/check-auth-constructors.sh and say so in" >&2

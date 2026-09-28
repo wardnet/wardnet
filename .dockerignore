@@ -16,7 +16,7 @@ source/end2end-tests/
 .github/
 
 # Editor / dev tool noise.
-.agents/
+agentic/
 .claude/
 .vscode/
 .idea/

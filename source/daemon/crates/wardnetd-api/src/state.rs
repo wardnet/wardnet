@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use wardnetd_services::anomaly::AnomalyService;
 use wardnetd_services::device::identification::DeviceIdentificationService;
+use wardnetd_services::device_event::DeviceEventService;
 use wardnetd_services::dhcp::server::DhcpServer;
 use wardnetd_services::dns::server::DnsServer;
 use wardnetd_services::entitlement::Entitlement;
@@ -56,6 +57,7 @@ struct Inner {
     access_request_service: Arc<dyn AccessRequestService>,
     push_service: Arc<dyn PushService>,
     anomaly_service: Arc<dyn AnomalyService>,
+    device_event_service: Arc<dyn DeviceEventService>,
     health_monitor: Arc<HealthMonitor>,
     /// Process-wide entitlement state. Read by the serving layer to gate the
     /// premium app surfaces (user PWA + admin mobile app) while suspended, and
@@ -144,6 +146,9 @@ impl AppState {
                 // service via `with_anomaly_service`.
                 anomaly_service: Arc::new(NoopAnomalyService),
                 // Defaults to a no-op; production and the mock inject the live
+                // service via `with_device_event_service` (issue #1338).
+                device_event_service: Arc::new(NoopDeviceEventService),
+                // Defaults to a no-op; production and the mock inject the live
                 // service via `with_routing_profile_service` (issue #241).
                 routing_profile_service: Arc::new(NoopRoutingProfileService),
                 // Defaults to an empty monitor (initial snapshot is UP with no
@@ -219,6 +224,20 @@ impl AppState {
         Arc::get_mut(&mut self.inner)
             .expect("with_anomaly_service must be called before AppState is cloned")
             .anomaly_service = anomaly_service;
+        self
+    }
+
+    /// Inject the live [`DeviceEventService`] (issue #1338). Defaults to a
+    /// no-op in [`Self::new`]; production and the mock wire the real one. Must
+    /// be called before the state is cloned or shared.
+    #[must_use]
+    pub fn with_device_event_service(
+        mut self,
+        device_event_service: Arc<dyn DeviceEventService>,
+    ) -> Self {
+        Arc::get_mut(&mut self.inner)
+            .expect("with_device_event_service must be called before AppState is cloned")
+            .device_event_service = device_event_service;
         self
     }
 
@@ -299,6 +318,12 @@ impl AppState {
     #[must_use]
     pub fn device_service(&self) -> &dyn DeviceService {
         self.inner.device_service.as_ref()
+    }
+
+    /// Access the device event log behind the connectivity timeline.
+    #[must_use]
+    pub fn device_event_service(&self) -> &dyn DeviceEventService {
+        self.inner.device_event_service.as_ref()
     }
 
     /// Access the DHCP service.
@@ -916,4 +941,52 @@ fn not_configured() -> wardnetd_services::error::AppError {
     wardnetd_services::error::AppError::Internal(anyhow::anyhow!(
         "routing profile service not configured"
     ))
+}
+
+/// No-op [`DeviceEventService`] used until the live one is injected.
+///
+/// Reads are empty and writes are dropped: a surface built against a state that
+/// was never given the real service shows an empty timeline rather than failing,
+/// which is the same choice every other optional service here makes.
+struct NoopDeviceEventService;
+
+#[async_trait::async_trait]
+impl DeviceEventService for NoopDeviceEventService {
+    async fn record(
+        &self,
+        _intent: wardnetd_services::device_event::DeviceEventIntent,
+    ) -> Result<(), wardnetd_services::error::AppError> {
+        Ok(())
+    }
+
+    async fn list_for_device(
+        &self,
+        _device_id: uuid::Uuid,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<wardnet_common::device_event::DeviceEvent>, wardnetd_services::error::AppError>
+    {
+        Ok(Vec::new())
+    }
+
+    async fn count_for_mac_since(
+        &self,
+        _mac: &str,
+        _kind: wardnet_common::device_event::DeviceEventKind,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<i64, wardnetd_services::error::AppError> {
+        Ok(0)
+    }
+
+    async fn count_by_mac_since(
+        &self,
+        _kind: wardnet_common::device_event::DeviceEventKind,
+        _since: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<(String, i64)>, wardnetd_services::error::AppError> {
+        Ok(Vec::new())
+    }
+
+    async fn prune(&self) -> Result<u64, wardnetd_services::error::AppError> {
+        Ok(0)
+    }
 }

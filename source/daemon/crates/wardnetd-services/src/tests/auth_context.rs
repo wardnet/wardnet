@@ -6,7 +6,7 @@
 //! adding a principal or changing what a guard admits forces an edit here, and
 //! that edit shows up in review next to the code that motivated it.
 //!
-//! `.agents/auth.md` points at this file as the tripwire. It is deliberately
+//! `agentic/auth.md` points at this file as the tripwire. It is deliberately
 //! exhaustive rather than sampled — a table with a missing row is exactly the
 //! shape of the bug it exists to catch, because the interesting cells are the
 //! ones nobody thought about.

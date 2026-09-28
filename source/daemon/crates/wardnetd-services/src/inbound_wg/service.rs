@@ -139,7 +139,7 @@ pub trait InboundWgService: Send + Sync {
 
     /// Startup reconciliation: if the server is enabled, stand the interface up
     /// and re-add every enabled peer. Runs before the system is ready, so it is
-    /// intentionally exempt from the `require_admin` guard (see `.agents/auth.md`).
+    /// intentionally exempt from the `require_admin` guard (see `agentic/auth.md`).
     async fn reconcile(&self) -> Result<(), AppError>;
 }
 
@@ -812,7 +812,7 @@ impl InboundWgService for InboundWgServiceImpl {
 
     async fn reconcile(&self) -> Result<(), AppError> {
         // Startup/restore method — runs before the system is ready, so it is
-        // exempt from `require_admin` per `.agents/auth.md` rule 2.
+        // exempt from `require_admin` per `agentic/auth.md` rule 2.
         if !self
             .system_config
             .inbound_wg_enabled()

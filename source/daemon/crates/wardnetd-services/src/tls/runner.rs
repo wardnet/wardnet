@@ -3,7 +3,7 @@
 //! Ticks every 12 hours (and once immediately at startup), calling
 //! [`TlsService::ensure_certificate`] under an admin auth context. It holds only
 //! `Arc<dyn TlsService>` — never a repository, provider, or ACME client — per
-//! the runner contract in `.agents/architecture.md`. When DDNS is unconfigured
+//! the runner contract in `agentic/architecture.md`. When DDNS is unconfigured
 //! the service returns [`TlsStatus::NotConfigured`] before any ACME call, so the
 //! runner is fully inert until a provider is registered.
 //!

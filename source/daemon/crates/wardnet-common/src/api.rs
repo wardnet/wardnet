@@ -5,7 +5,8 @@ use crate::anomaly::{Anomaly, AnomalyQueryStatus, AnomalySeverity, AnomalyType};
 use crate::auth::UserRole;
 use crate::backup::{BackupStatus, BundleManifest, LocalSnapshot};
 use crate::device::{Device, DeviceSignal, DeviceType, DhcpStatus};
-use crate::dhcp::{DhcpConfig, DhcpLease, DhcpReservation};
+use crate::device_event::DeviceEventKind;
+use crate::dhcp::{DhcpConfig, DhcpLease, DhcpLeaseEventType, DhcpReservation};
 use crate::dns::{
     AllowlistEntry, Blocklist, ConditionalForwardingRule, CustomDnsRecord, CustomFilterRule,
     DnsConfig, DnsProtocol, DnsQueryLogEntry, DnsQueryResult, DnsRecordSource, DnsRecordType,
@@ -1684,6 +1685,106 @@ pub struct ListAnomaliesParams {
     pub subject_id: Option<String>,
     /// Maximum rows, clamped to 1..=200. Defaults to 50.
     pub limit: Option<u32>,
+}
+
+// ---------------------------------------------------------------------------
+// Device timeline API types (issue #1338)
+// ---------------------------------------------------------------------------
+
+/// One entry on a device's connectivity timeline.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ApiDeviceTimelineEvent {
+    pub at: DateTime<Utc>,
+    pub kind: DeviceEventKind,
+    /// Kind-specific payload — the addresses of a change, the reason for a
+    /// conntrack flush.
+    #[schema(required, value_type = Option<Object>)]
+    pub details: Option<serde_json::Value>,
+}
+
+/// One DHCP lease event on the timeline.
+///
+/// Kept separate from [`ApiDeviceTimelineEvent`] rather than folded into the
+/// same list: DHCP events come from the lease audit trail, which has its own
+/// retention and its own vocabulary, and merging them would make a renewal
+/// indistinguishable from an observation Wardnet made itself.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ApiDeviceDhcpEvent {
+    pub at: DateTime<Utc>,
+    pub event_type: DhcpLeaseEventType,
+    #[schema(required)]
+    pub details: Option<String>,
+}
+
+/// DNS activity for one time bucket, split by result.
+///
+/// The split is the point: during the outage that motivated this, the device
+/// was at 1-2 queries a minute and *every one succeeded*, which is what ruled
+/// DNS out. A total alone cannot say that.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct ApiDeviceDnsBucket {
+    pub at: DateTime<Utc>,
+    /// Result slug (`forwarded`, `blocked`, `cache_hit`, ...) to count.
+    pub results: std::collections::BTreeMap<String, i64>,
+}
+
+/// Response for GET /api/devices/{id}/timeline.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct DeviceTimelineResponse {
+    pub from: DateTime<Utc>,
+    pub to: DateTime<Utc>,
+    /// How wide each [`ApiDeviceDnsBucket`] is. Minute buckets for short
+    /// windows, hour buckets for long ones, so the payload stays bounded
+    /// without a second pagination model.
+    pub bucket_secs: i64,
+    pub events: Vec<ApiDeviceTimelineEvent>,
+    pub dhcp: Vec<ApiDeviceDhcpEvent>,
+    pub dns: Vec<ApiDeviceDnsBucket>,
+}
+
+/// How far back a timeline request reaches.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeviceTimelineWindow {
+    OneHour,
+    SixHours,
+    #[default]
+    TwentyFourHours,
+    SevenDays,
+}
+
+impl DeviceTimelineWindow {
+    /// How far back this window reaches.
+    #[must_use]
+    pub const fn duration_secs(self) -> i64 {
+        match self {
+            Self::OneHour => 3_600,
+            Self::SixHours => 21_600,
+            Self::TwentyFourHours => 86_400,
+            Self::SevenDays => 604_800,
+        }
+    }
+
+    /// Bucket width for this window.
+    ///
+    /// Minute resolution is what makes a per-minute retry pattern visible, but
+    /// a day at minute resolution is ~1,440 buckets and a week is ~10,000 — so
+    /// the longer windows step up to hours. The window is the bound, which is
+    /// why this endpoint needs no cursor.
+    #[must_use]
+    pub const fn bucket_secs(self) -> i64 {
+        match self {
+            Self::OneHour | Self::SixHours => 60,
+            Self::TwentyFourHours | Self::SevenDays => 3_600,
+        }
+    }
+}
+
+/// Query parameters for GET /api/devices/{id}/timeline.
+#[derive(Debug, Clone, Default, Deserialize, utoipa::IntoParams)]
+pub struct DeviceTimelineParams {
+    /// How far back to look. Defaults to the last 24 hours.
+    pub window: Option<DeviceTimelineWindow>,
 }
 
 // ---------------------------------------------------------------------------

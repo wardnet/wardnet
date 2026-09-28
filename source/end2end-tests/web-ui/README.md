@@ -225,7 +225,7 @@ compares in, so they're valid baselines. Commit them and the job goes green.
 ## Selector convention
 
 This is the **authoritative** selector convention for the whole web-ui
-Playwright suite. `.agents/testing.md` links here; the rationale is
+Playwright suite. `agentic/testing.md` links here; the rationale is
 recorded in
 [`docs/adr/0015-e2e-selector-convention.md`](../../../docs/adr/0015-e2e-selector-convention.md).
 

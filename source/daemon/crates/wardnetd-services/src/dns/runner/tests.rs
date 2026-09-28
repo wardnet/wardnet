@@ -64,6 +64,16 @@ struct MockDnsService {
 
 #[async_trait]
 impl DnsService for MockDnsService {
+    async fn device_result_mix(
+        &self,
+        _device_id: &str,
+        _from: chrono::DateTime<chrono::Utc>,
+        _to: chrono::DateTime<chrono::Utc>,
+        _bucket_secs: i64,
+    ) -> Result<Vec<(i64, String, i64)>, AppError> {
+        Ok(Vec::new())
+    }
+
     async fn get_dns_config(&self) -> Result<DnsConfig, AppError> {
         Ok(DnsConfig {
             enabled: self.enabled,

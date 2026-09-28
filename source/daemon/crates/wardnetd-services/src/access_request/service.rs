@@ -56,7 +56,7 @@ pub trait AccessRequestService: Send + Sync {
     /// Resolve a device's pending request of `kind`, for reconciliation driven
     /// by the event bus rather than by an admin acting on the inbox.
     ///
-    /// Admin-gated like every other write here, per `.agents/auth.md`'s hard
+    /// Admin-gated like every other write here, per `agentic/auth.md`'s hard
     /// requirement. The caller is `AccessRequestListener`, which has no request
     /// context of its own and therefore runs this under
     /// [`AuthContext::system`] — the same wrapper the other bus listeners use.

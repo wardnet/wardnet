@@ -34,7 +34,7 @@ const ZONE: &str = "00000000-0000-0000-0000-000000000201";
 const DEPARTURE_TIMEOUT: Duration = Duration::from_mins(5);
 
 /// Hand-written [`DeviceProber`] recording what it was asked to contact, per
-/// `.agents/code-conventions.md` (no mocking libraries).
+/// `agentic/code-conventions.md` (no mocking libraries).
 #[derive(Default)]
 struct MockDeviceProber {
     /// Ports this prober claims answered, whatever it was asked to probe.

@@ -24,7 +24,7 @@
 //! which is exactly the failure mode issue #1099 was filed about.
 //!
 //! The observer is a background component, so it calls the *service*, never the
-//! repository (`.agents/architecture.md`), under an explicit admin context (the
+//! repository (`agentic/architecture.md`), under an explicit admin context (the
 //! browse loop has no ambient one), mirroring the DHCP identification producer.
 //!
 //! Like the advertiser, the observer is a Linux-production concern: the mock

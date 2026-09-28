@@ -11,7 +11,7 @@
 //!
 //! The [`DdnsUpdateRunner`](runner::DdnsUpdateRunner) holds only
 //! `Arc<dyn DdnsService>` and calls it under an admin context — it never touches
-//! repositories or providers directly (see `.agents/architecture.md`). The
+//! repositories or providers directly (see `agentic/architecture.md`). The
 //! [`DdnsService`] is the auth-and-persistence chokepoint: every method opens
 //! with [`auth_context::require_admin`]. Providers ([`DnsProvider`]) are pure
 //! HTTP clients, **bound to their target at construction**, rebuilt by the
@@ -173,7 +173,7 @@ pub trait DdnsService: Send + Sync {
     /// default `premium = false` for an already-premium box. A startup-only
     /// method that runs before the system is ready to authenticate anything,
     /// so it skips `require_admin()?` under the documented exception in
-    /// `.agents/auth.md` (same category as `restore_tunnels`) — unlike
+    /// `agentic/auth.md` (same category as `restore_tunnels`) — unlike
     /// [`probe_entitlement`](Self::probe_entitlement), which *does* require
     /// admin and is called under an explicit admin context by its runner.
     /// The default impl is a no-op so mocks need not override it; only
@@ -879,7 +879,7 @@ impl DdnsService for DdnsServiceImpl {
     }
 
     async fn sync_premium(&self) -> Result<(), AppError> {
-        // Documented exception to the auth-guard rule (.agents/auth.md §Rules #2,
+        // Documented exception to the auth-guard rule (agentic/auth.md §Rules #2,
         // category (a): startup/restore): reconciles the cached premium flag with
         // the configured provider on startup and after provider changes, outside
         // any admin session.

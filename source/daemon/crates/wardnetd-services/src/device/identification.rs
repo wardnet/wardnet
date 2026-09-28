@@ -5,7 +5,7 @@
 //! server (options 12/55/60), the mDNS observer (advertised service types) and
 //! the admin-triggered prober (answering ports). The service is the only thing
 //! that talks to [`DeviceIdentificationRepository`], so background components follow
-//! the "runners call services, not repositories" rule in `.agents/architecture.md`.
+//! the "runners call services, not repositories" rule in `agentic/architecture.md`.
 
 use std::net::IpAddr;
 use std::sync::Arc;

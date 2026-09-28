@@ -3,6 +3,7 @@ mod access_request_migration;
 mod anomaly;
 mod api_key;
 mod device;
+mod device_event;
 mod device_identification;
 mod dhcp;
 mod dns;

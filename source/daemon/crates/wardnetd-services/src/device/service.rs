@@ -355,7 +355,7 @@ impl DeviceService for DeviceServiceImpl {
         ip: &str,
         target: RoutingTarget,
     ) -> Result<SetMyRuleResponse, AppError> {
-        // Category-(c) guard-not-first (.agents/auth.md §Rules #2): the device's MAC
+        // Category-(c) guard-not-first (agentic/auth.md §Rules #2): the device's MAC
         // is the subject of the `check_device_mutation_auth` check below, so the
         // device is resolved first. This deviation from "guard must be first" is
         // deliberate, not an oversight — the lookup only materializes the subject,
@@ -408,7 +408,7 @@ impl DeviceService for DeviceServiceImpl {
     }
 
     async fn set_rule(&self, device_id: &str, target: RoutingTarget) -> Result<(), AppError> {
-        // Category-(c) guard-not-first (.agents/auth.md §Rules #2): the device's MAC
+        // Category-(c) guard-not-first (agentic/auth.md §Rules #2): the device's MAC
         // is the subject of the `check_device_mutation_auth` check below, so the
         // device is resolved first. This deviation from "guard must be first" is
         // deliberate, not an oversight — the lookup only materializes the subject,
@@ -655,7 +655,7 @@ impl DeviceService for DeviceServiceImpl {
         ip: &str,
         enabled: bool,
     ) -> Result<DnsCaptureSettingsResponse, AppError> {
-        // Category-(c) guard-not-first (.agents/auth.md §Rules #2): the device's MAC
+        // Category-(c) guard-not-first (agentic/auth.md §Rules #2): the device's MAC
         // is the subject of the `check_device_mutation_auth` check below, so the
         // device is resolved first. This deviation from "guard must be first" is
         // deliberate, not an oversight — the lookup only materializes the subject,
@@ -712,7 +712,7 @@ impl DeviceService for DeviceServiceImpl {
         after_id: i64,
         limit: i64,
     ) -> Result<Vec<DnsEventItem>, AppError> {
-        // Self-service (category c, `.agents/auth.md`): the DNS-events stream is
+        // Self-service (category c, `agentic/auth.md`): the DNS-events stream is
         // reached by the device itself (resolved by source IP) or an admin.
         // Match the current context against the device's MAC before returning
         // its captured events. Capture is independent of the routing
@@ -743,7 +743,7 @@ impl DeviceService for DeviceServiceImpl {
     }
 
     async fn ack_dns_events(&self, device_id: &str, up_to_id: i64) -> Result<(), AppError> {
-        // Self-service (category c, `.agents/auth.md`): the ack route is reached
+        // Self-service (category c, `agentic/auth.md`): the ack route is reached
         // by the device itself (resolved by source IP) or an admin. Match the
         // current context against the device's MAC before deleting its captured
         // events. Capture is independent of the routing admin-lock, so pass

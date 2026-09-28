@@ -38,8 +38,8 @@ One edit each. The final `grep -rn "1\.<OLD>" --include="*.md"
 | `.github/workflows/security.yml`           | `toolchain: "<NEW>"`                      |
 | `Makefile`                                 | `RUST_IMAGE := docker.io/library/rust:<NEW>` |
 | `README.md`                                | `[![Rust](...rust-<NEW>-orange...)]`      |
-| `.agents/technical-stack.md`               | `Rust <NEW> (pinned in ...)`              |
-| `.agents/commands.md`                      | `rust:<NEW>` in the check-daemon entry    |
+| `agentic/technical-stack.md`               | `Rust <NEW> (pinned in ...)`              |
+| `agentic/commands.md`                      | `rust:<NEW>` in the check-daemon entry    |
 | `docs/DEVELOPMENT.md`                      | tech-stack table row + prerequisites line |
 
 Do **not** re-introduce `edition 2024` alongside the version. Editions

@@ -24,6 +24,18 @@ on:
   # On the default branch an already-validated tree skips every stage.
   push:
     branches: [main]
+  # Unconditional, and load-bearing. A queued pull request reports its required
+  # check from this event and no other, so a repository whose orchestrator lacks
+  # it would sit in the queue forever waiting on a check nothing can report —
+  # and the governance stage that would have said so is inside that same check.
+  #
+  # Rendered even where there is no queue — most repositories cannot have one,
+  # since GitHub offers them only on organization-owned public repositories —
+  # so the file is ready before the rule that needs it. `gt repo settings apply`
+  # withholds the queue rule until this trigger is on the default branch, which
+  # is what makes that ordering a guarantee rather than a habit. An unused
+  # trigger costs nothing.
+  merge_group:
   workflow_dispatch:
 
 # Superseded pushes to the same PR are cancelled; runs on the default branch and

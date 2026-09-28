@@ -47,12 +47,14 @@ use wardnetd_services::version::RELEASE_VERSION;
     modifiers(&SecurityAddon),
     // Schemas reached *only* through an `IntoParams` query parameter:
     // `StatsBucket` via `StatsQuery`, `AnomalyQueryStatus` via
-    // `ListAnomaliesParams`. utoipa does not auto-collect those, so without
+    // `ListAnomaliesParams`, `DeviceTimelineWindow` via
+    // `DeviceTimelineParams`. utoipa does not auto-collect those, so without
     // registering them here the generated spec carries a dangling `$ref` —
     // which both SDK generators then refuse to build from.
     components(schemas(
         wardnet_common::stats::StatsBucket,
         wardnet_common::anomaly::AnomalyQueryStatus,
+        wardnet_common::api::DeviceTimelineWindow,
     )),
     security(
         ("session_cookie" = []),

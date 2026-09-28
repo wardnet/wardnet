@@ -64,7 +64,7 @@ source/sdk/wardnet-js/dist/
 .DS_Store
 .vscode/
 .idea/
-# Agentic-toolkit generated outputs — synced from .agents/ (+ the extended
+# Agentic-toolkit generated outputs — synced from agentic/ (+ the extended
 # stacks) on every toolkit sync. The sources are committed; these regenerate,
 # so they are never committed. Anchored to the repo root so intentionally
 # tracked CLAUDE.md/AGENTS.md files in subdirectories are unaffected.

@@ -18,7 +18,7 @@ Project tag: **[AIP]** — AI Project.
 | **Design** | Assisted | Architecture, subsystem boundaries, and the [ADRs](docs/adr/) are human-driven. AI is used to pressure-test designs, surface alternatives, and draft sections — the decisions, and the trade-offs recorded in each ADR, are mine. |
 | **Implementation** | Pair | Roughly an even split between hand-written and generated code across the Rust daemon, the web surfaces, and the SDK. Everything is human-reviewed before it lands. |
 | **Testing** | Generated | Unit, service, and end-to-end suites are largely AI-generated from human-specified intent. Coverage gates and the cases that matter are human-chosen. |
-| **Documentation** | Generated | The user docs, release notes, and the agent-facing conventions under [`.agents/`](.agents/) are largely AI-generated, then human-reviewed for accuracy. |
+| **Documentation** | Generated | The user docs, release notes, and the agent-facing conventions under [`agentic/`](agentic/) are largely AI-generated, then human-reviewed for accuracy. |
 | **Review** | Assisted | AI reviews changes and surfaces findings before merge; the substantive review and every merge decision are mine. |
 | **Deployment** | Generated | CI workflows, the release and signing pipeline, and the installer are largely AI-generated against human-specified requirements. |
 
@@ -39,7 +39,7 @@ own network — whoever, or whatever, wrote it.
 
 ## Why this file exists
 
-Because the alternative is you finding [`.agents/`](.agents/) and
+Because the alternative is you finding [`agentic/`](agentic/) and
 [`AGENTS.md`](AGENTS.md) on your own and wondering what else wasn't
 mentioned. If you think a declaration here is wrong, or you find
 generated code that doesn't hold up, open an issue — that's a bug

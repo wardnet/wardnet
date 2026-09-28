@@ -123,8 +123,12 @@ func (e AnomalySeverity) Valid() bool {
 // Defines values for AnomalyType.
 const (
 	BlocklistRefreshFailing AnomalyType = "blocklist_refresh_failing"
+	DeviceAddressChurn      AnomalyType = "device_address_churn"
 	DhcpConflict            AnomalyType = "dhcp_conflict"
+	DhcpRenewalStorm        AnomalyType = "dhcp_renewal_storm"
 	DnsUpstreamUnreachable  AnomalyType = "dns_upstream_unreachable"
+	EgressPathDegraded      AnomalyType = "egress_path_degraded"
+	EgressPathUnreachable   AnomalyType = "egress_path_unreachable"
 	RouteTableLost          AnomalyType = "route_table_lost"
 	TunnelStartFailed       AnomalyType = "tunnel_start_failed"
 	TunnelUnhealthy         AnomalyType = "tunnel_unhealthy"
@@ -136,9 +140,17 @@ func (e AnomalyType) Valid() bool {
 	switch e {
 	case BlocklistRefreshFailing:
 		return true
+	case DeviceAddressChurn:
+		return true
 	case DhcpConflict:
 		return true
+	case DhcpRenewalStorm:
+		return true
 	case DnsUpstreamUnreachable:
+		return true
+	case EgressPathDegraded:
+		return true
+	case EgressPathUnreachable:
 		return true
 	case RouteTableLost:
 		return true
@@ -270,6 +282,39 @@ func (e DeviceConnectionMode) Valid() bool {
 	}
 }
 
+// Defines values for DeviceEventKind.
+const (
+	ConntrackFlushed DeviceEventKind = "conntrack_flushed"
+	Discovered       DeviceEventKind = "discovered"
+	Gone             DeviceEventKind = "gone"
+	IpChanged        DeviceEventKind = "ip_changed"
+	Returned         DeviceEventKind = "returned"
+	RoutingChanged   DeviceEventKind = "routing_changed"
+	ZoneChanged      DeviceEventKind = "zone_changed"
+)
+
+// Valid indicates whether the value is a known member of the DeviceEventKind enum.
+func (e DeviceEventKind) Valid() bool {
+	switch e {
+	case ConntrackFlushed:
+		return true
+	case Discovered:
+		return true
+	case Gone:
+		return true
+	case IpChanged:
+		return true
+	case Returned:
+		return true
+	case RoutingChanged:
+		return true
+	case ZoneChanged:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DeviceSignalKind.
 const (
 	DhcpHostname    DeviceSignalKind = "dhcp_hostname"
@@ -291,6 +336,30 @@ func (e DeviceSignalKind) Valid() bool {
 	case MdnsService:
 		return true
 	case ProbedPort:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for DeviceTimelineWindow.
+const (
+	OneHour         DeviceTimelineWindow = "one_hour"
+	SevenDays       DeviceTimelineWindow = "seven_days"
+	SixHours        DeviceTimelineWindow = "six_hours"
+	TwentyFourHours DeviceTimelineWindow = "twenty_four_hours"
+)
+
+// Valid indicates whether the value is a known member of the DeviceTimelineWindow enum.
+func (e DeviceTimelineWindow) Valid() bool {
+	switch e {
+	case OneHour:
+		return true
+	case SevenDays:
+		return true
+	case SixHours:
+		return true
+	case TwentyFourHours:
 		return true
 	default:
 		return false
@@ -342,21 +411,48 @@ func (e DeviceType) Valid() bool {
 	}
 }
 
+// Defines values for DhcpLeaseEventType.
+const (
+	DhcpLeaseEventTypeAssigned DhcpLeaseEventType = "assigned"
+	DhcpLeaseEventTypeConflict DhcpLeaseEventType = "conflict"
+	DhcpLeaseEventTypeExpired  DhcpLeaseEventType = "expired"
+	DhcpLeaseEventTypeReleased DhcpLeaseEventType = "released"
+	DhcpLeaseEventTypeRenewed  DhcpLeaseEventType = "renewed"
+)
+
+// Valid indicates whether the value is a known member of the DhcpLeaseEventType enum.
+func (e DhcpLeaseEventType) Valid() bool {
+	switch e {
+	case DhcpLeaseEventTypeAssigned:
+		return true
+	case DhcpLeaseEventTypeConflict:
+		return true
+	case DhcpLeaseEventTypeExpired:
+		return true
+	case DhcpLeaseEventTypeReleased:
+		return true
+	case DhcpLeaseEventTypeRenewed:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DhcpLeaseStatus.
 const (
-	Active   DhcpLeaseStatus = "active"
-	Expired  DhcpLeaseStatus = "expired"
-	Released DhcpLeaseStatus = "released"
+	DhcpLeaseStatusActive   DhcpLeaseStatus = "active"
+	DhcpLeaseStatusExpired  DhcpLeaseStatus = "expired"
+	DhcpLeaseStatusReleased DhcpLeaseStatus = "released"
 )
 
 // Valid indicates whether the value is a known member of the DhcpLeaseStatus enum.
 func (e DhcpLeaseStatus) Valid() bool {
 	switch e {
-	case Active:
+	case DhcpLeaseStatusActive:
 		return true
-	case Expired:
+	case DhcpLeaseStatusExpired:
 		return true
-	case Released:
+	case DhcpLeaseStatusReleased:
 		return true
 	default:
 		return false
@@ -1590,6 +1686,48 @@ type ApiAnomaly struct {
 	Type AnomalyType `json:"type"`
 }
 
+// ApiDeviceDhcpEvent One DHCP lease event on the timeline.
+//
+// Kept separate from [`ApiDeviceTimelineEvent`] rather than folded into the
+// same list: DHCP events come from the lease audit trail, which has its own
+// retention and its own vocabulary, and merging them would make a renewal
+// indistinguishable from an observation Wardnet made itself.
+type ApiDeviceDhcpEvent struct {
+	At      time.Time `json:"at"`
+	Details *string   `json:"details"`
+
+	// EventType Types of events that can occur for a DHCP lease.
+	EventType DhcpLeaseEventType `json:"event_type"`
+}
+
+// ApiDeviceDnsBucket DNS activity for one time bucket, split by result.
+//
+// The split is the point: during the outage that motivated this, the device
+// was at 1-2 queries a minute and *every one succeeded*, which is what ruled
+// DNS out. A total alone cannot say that.
+type ApiDeviceDnsBucket struct {
+	At time.Time `json:"at"`
+
+	// Results Result slug (`forwarded`, `blocked`, `cache_hit`, ...) to count.
+	Results map[string]int64 `json:"results"`
+}
+
+// ApiDeviceTimelineEvent One entry on a device's connectivity timeline.
+type ApiDeviceTimelineEvent struct {
+	At time.Time `json:"at"`
+
+	// Details Kind-specific payload — the addresses of a change, the reason for a
+	// conntrack flush.
+	Details *map[string]interface{} `json:"details"`
+
+	// Kind What happened to a device.
+	//
+	// Deliberately observational: every variant is something we *saw*, never a
+	// judgement about whether it was a problem. Judgement belongs to the anomaly
+	// subsystem, which reads these rows.
+	Kind DeviceEventKind `json:"kind"`
+}
+
 // ApiError Standard API error response.
 type ApiError struct {
 	Detail *string `json:"detail,omitempty"`
@@ -2375,6 +2513,13 @@ type DeviceDnsFilterSettings struct {
 	UpdatedAt  time.Time            `json:"updated_at"`
 }
 
+// DeviceEventKind What happened to a device.
+//
+// Deliberately observational: every variant is something we *saw*, never a
+// judgement about whether it was a problem. Judgement belongs to the anomaly
+// subsystem, which reads these rows.
+type DeviceEventKind string
+
 // DeviceMeResponse Response for GET /api/devices/me.
 type DeviceMeResponse struct {
 	AdminLocked bool `json:"admin_locked"`
@@ -2435,6 +2580,22 @@ type DeviceSignal struct {
 
 // DeviceSignalKind The kind of an [`DeviceSignal`].
 type DeviceSignalKind string
+
+// DeviceTimelineResponse Response for GET /api/devices/{id}/timeline.
+type DeviceTimelineResponse struct {
+	// BucketSecs How wide each [`ApiDeviceDnsBucket`] is. Minute buckets for short
+	// windows, hour buckets for long ones, so the payload stays bounded
+	// without a second pagination model.
+	BucketSecs int64                    `json:"bucket_secs"`
+	Dhcp       []ApiDeviceDhcpEvent     `json:"dhcp"`
+	Dns        []ApiDeviceDnsBucket     `json:"dns"`
+	Events     []ApiDeviceTimelineEvent `json:"events"`
+	From       time.Time                `json:"from"`
+	To         time.Time                `json:"to"`
+}
+
+// DeviceTimelineWindow How far back a timeline request reaches.
+type DeviceTimelineWindow string
 
 // DeviceType The type/category of a network device.
 type DeviceType string
@@ -2562,6 +2723,9 @@ type DhcpLease struct {
 	Status    DhcpLeaseStatus `json:"status"`
 	UpdatedAt time.Time       `json:"updated_at"`
 }
+
+// DhcpLeaseEventType Types of events that can occur for a DHCP lease.
+type DhcpLeaseEventType string
 
 // DhcpLeaseStatus The current status of a DHCP lease.
 type DhcpLeaseStatus string
@@ -4971,6 +5135,12 @@ type DdnsCheckParams struct {
 	Slug string `form:"slug" json:"slug"`
 }
 
+// DevicesTimelineParams defines parameters for DevicesTimeline.
+type DevicesTimelineParams struct {
+	// Window How far back to look. Defaults to the last 24 hours.
+	Window *DeviceTimelineWindow `form:"window,omitempty" json:"window,omitempty"`
+}
+
 // ListDeviceSettingsParams defines parameters for ListDeviceSettings.
 type ListDeviceSettingsParams struct {
 	// Enabled When `Some(false)`, restrict to devices where the kill switch is off.
@@ -6506,6 +6676,11 @@ type ClientInterface interface {
 	//
 	// Stop managing a device (issue #1181). Reverts every admin-set configuration to default and returns the device to unmanaged, after which it becomes subject to device retention and is deleted once it has been absent for 30 days. Destructive: this revokes the device's Private-DNS grant and its Remote peer credential, disconnecting it. Idempotent — each step is a no-op when there is nothing to revert, so a retry after a partial failure completes. Admin only.
 	ReleaseDevice(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DevicesTimeline performs a GET /api/devices/{id}/timeline (the `DevicesTimeline` operationId) request.
+	//
+	// A device's connectivity timeline: what it *did*, as opposed to how it is configured. Merges presence and address transitions, zone and routing rebinds, conntrack flushes, DHCP lease events, and DNS volume split by result. The split is the point — a device at one query a minute where every query succeeded rules DNS out, which a total alone cannot do. Admin only.
+	DevicesTimeline(ctx context.Context, id openapi_types.UUID, params *DevicesTimelineParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// AssignDeviceZoneWithBody performs a PUT /api/devices/{id}/zone (the `AssignDeviceZone` operationId) request,
 	// with any type of body and a specified content type.
@@ -8294,6 +8469,21 @@ func (c *Client) IdentifyDevice(ctx context.Context, id openapi_types.UUID, reqE
 // Stop managing a device (issue #1181). Reverts every admin-set configuration to default and returns the device to unmanaged, after which it becomes subject to device retention and is deleted once it has been absent for 30 days. Destructive: this revokes the device's Private-DNS grant and its Remote peer credential, disconnecting it. Idempotent — each step is a no-op when there is nothing to revert, so a retry after a partial failure completes. Admin only.
 func (c *Client) ReleaseDevice(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewReleaseDeviceRequest(c.Server, id)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DevicesTimeline performs a GET /api/devices/{id}/timeline (the `DevicesTimeline` operationId) request.
+//
+// A device's connectivity timeline: what it *did*, as opposed to how it is configured. Merges presence and address transitions, zone and routing rebinds, conntrack flushes, DHCP lease events, and DNS volume split by result. The split is the point — a device at one query a minute where every query succeeded rules DNS out, which a total alone cannot do. Admin only.
+func (c *Client) DevicesTimeline(ctx context.Context, id openapi_types.UUID, params *DevicesTimelineParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDevicesTimelineRequest(c.Server, id, params)
 	if err != nil {
 		return nil, err
 	}
@@ -12476,6 +12666,67 @@ func NewReleaseDeviceRequest(server string, id openapi_types.UUID) (*http.Reques
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDevicesTimelineRequest constructs an http.Request for the DevicesTimeline method
+func NewDevicesTimelineRequest(server string, id openapi_types.UUID, params *DevicesTimelineParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "id", id, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: "uuid"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/api/devices/%s/timeline", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Window != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "window", *params.Window, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -18086,6 +18337,13 @@ type ClientWithResponsesInterface interface {
 	// Returns a wrapper object for the known response body format(s).
 	ReleaseDeviceWithResponse(ctx context.Context, id openapi_types.UUID, reqEditors ...RequestEditorFn) (*ReleaseDeviceResp, error)
 
+	// DevicesTimelineWithResponse performs a GET /api/devices/{id}/timeline (the `DevicesTimeline` operationId) request.
+	//
+	// A device's connectivity timeline: what it *did*, as opposed to how it is configured. Merges presence and address transitions, zone and routing rebinds, conntrack flushes, DHCP lease events, and DNS volume split by result. The split is the point — a device at one query a minute where every query succeeded rules DNS out, which a total alone cannot do. Admin only.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	DevicesTimelineWithResponse(ctx context.Context, id openapi_types.UUID, params *DevicesTimelineParams, reqEditors ...RequestEditorFn) (*DevicesTimelineResp, error)
+
 	// AssignDeviceZoneWithBodyWithResponse performs a PUT /api/devices/{id}/zone (the `AssignDeviceZone` operationId) request,
 	// with any type of body and a specified content type.
 	//
@@ -22580,6 +22838,123 @@ func (r ReleaseDeviceResp) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ReleaseDeviceResp) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DevicesTimelineResp struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *DeviceTimelineResponse
+	// JSON401 the response for an HTTP 401 `application/json` response
+	JSON401 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON403 the response for an HTTP 403 `application/json` response
+	JSON403 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON404 the response for an HTTP 404 `application/json` response
+	JSON404 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+	// JSON500 the response for an HTTP 500 `application/json` response
+	JSON500 *struct {
+		Detail *string `json:"detail,omitempty"`
+		Error  string  `json:"error"`
+
+		// RequestId Request ID for correlation with server logs.
+		RequestId *string `json:"request_id,omitempty"`
+	}
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DevicesTimelineResp) GetJSON200() *DeviceTimelineResponse {
+	return r.JSON200
+}
+
+// GetJSON401 returns the response for an HTTP 401 `application/json` response
+func (r DevicesTimelineResp) GetJSON401() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON401
+}
+
+// GetJSON403 returns the response for an HTTP 403 `application/json` response
+func (r DevicesTimelineResp) GetJSON403() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON403
+}
+
+// GetJSON404 returns the response for an HTTP 404 `application/json` response
+func (r DevicesTimelineResp) GetJSON404() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON404
+}
+
+// GetJSON500 returns the response for an HTTP 500 `application/json` response
+func (r DevicesTimelineResp) GetJSON500() *struct {
+	Detail *string `json:"detail,omitempty"`
+	Error  string  `json:"error"`
+
+	// RequestId Request ID for correlation with server logs.
+	RequestId *string `json:"request_id,omitempty"`
+} {
+	return r.JSON500
+}
+
+// GetBody returns the raw response body bytes
+func (r DevicesTimelineResp) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DevicesTimelineResp) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DevicesTimelineResp) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DevicesTimelineResp) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -38529,6 +38904,19 @@ func (c *ClientWithResponses) ReleaseDeviceWithResponse(ctx context.Context, id 
 	return ParseReleaseDeviceResp(rsp)
 }
 
+// DevicesTimelineWithResponse performs a GET /api/devices/{id}/timeline (the `DevicesTimeline` operationId) request.
+//
+// A device's connectivity timeline: what it *did*, as opposed to how it is configured. Merges presence and address transitions, zone and routing rebinds, conntrack flushes, DHCP lease events, and DNS volume split by result. The split is the point — a device at one query a minute where every query succeeded rules DNS out, which a total alone cannot do. Admin only.
+//
+// Returns a wrapper object for the known response body format(s).
+func (c *ClientWithResponses) DevicesTimelineWithResponse(ctx context.Context, id openapi_types.UUID, params *DevicesTimelineParams, reqEditors ...RequestEditorFn) (*DevicesTimelineResp, error) {
+	rsp, err := c.DevicesTimeline(ctx, id, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDevicesTimelineResp(rsp)
+}
+
 // AssignDeviceZoneWithBodyWithResponse performs a PUT /api/devices/{id}/zone (the `AssignDeviceZone` operationId) request,
 // with any type of body and a specified content type.
 //
@@ -43111,6 +43499,84 @@ func ParseReleaseDeviceResp(rsp *http.Response) (*ReleaseDeviceResp, error) {
 			return nil, err
 		}
 		response.JSON400 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON401 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 403:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON403 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 404:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON404 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 500:
+		var dest struct {
+			Detail *string `json:"detail,omitempty"`
+			Error  string  `json:"error"`
+
+			// RequestId Request ID for correlation with server logs.
+			RequestId *string `json:"request_id,omitempty"`
+		}
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON500 = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDevicesTimelineResp parses an HTTP response from a DevicesTimelineWithResponse call
+func ParseDevicesTimelineResp(rsp *http.Response) (*DevicesTimelineResp, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DevicesTimelineResp{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest DeviceTimelineResponse
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 401:
 		var dest struct {

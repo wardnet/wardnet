@@ -145,6 +145,7 @@ async fn handle_event(event: WardnetEvent, enforcer: &dyn ZoneEnforcementService
         // Everything else is irrelevant to zone packet enforcement.
         WardnetEvent::RoutingRuleChanged { .. }
         | WardnetEvent::DeviceAdminLocked { .. }
+        | WardnetEvent::DeviceConntrackFlushed { .. }
         | WardnetEvent::TunnelUp { .. }
         | WardnetEvent::TunnelStartFailed { .. }
         | WardnetEvent::TunnelDown { .. }

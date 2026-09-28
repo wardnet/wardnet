@@ -41,6 +41,24 @@ pub trait DnsRepository: Send + Sync {
     /// returned rather than reported as a failed cleanup — the consequence is
     /// orphans surviving a tick, not lost retention.
     async fn cleanup_query_log(&self, retention_days: u32) -> anyhow::Result<u64>;
+
+    /// Per-bucket DNS result mix for one device, as `(bucket_ts, result, count)`.
+    ///
+    /// `device_id` is the device's UUID; resolving it to the lookup-table id is
+    /// this layer's job, so nothing above `wardnetd-data` learns that lookup
+    /// tables exist (ADR 0034). The resolution is a separate statement rather
+    /// than a subquery for the reason ADR 0035 records: an equality against a
+    /// resolved scalar seeks `idx_dns_query_log_device_id`, whereas the
+    /// `IN (SELECT ...)` form lets the planner prefer a full walk instead.
+    ///
+    /// Timestamps are epoch seconds.
+    async fn device_result_mix(
+        &self,
+        device_id: &str,
+        from: i64,
+        to: i64,
+        bucket_secs: i64,
+    ) -> anyhow::Result<Vec<(i64, String, i64)>>;
 }
 
 // ── Row / update structs ──────────────────────────────────────────────────
