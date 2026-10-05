@@ -264,7 +264,7 @@ pyroscope = { version = "2", features = ["backend-pprof-rs"] }
 # https://crates.io/crates/utoipa
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 # https://crates.io/crates/utoipa-axum
-utoipa-axum = "0.2"
+utoipa-axum = "0.3"
 
 # https://crates.io/crates/axum-server — TLS-terminating server with in-memory
 # RustlsConfig hot-reload (lock-free cert swap on ACME renewal).
