@@ -90,7 +90,7 @@ jobs:
           shared-key: daemon-debug
 
       - name: Install clippy SARIF tooling
-        uses: taiki-e/install-action@1ed6d7be6168f6c9046541087ff549b6bc581fdf # v2
+        uses: taiki-e/install-action@4cef1412cce204788f482e778a0b9187f9626a29 # v2
         with:
           tool: clippy-sarif,sarif-fmt
 
