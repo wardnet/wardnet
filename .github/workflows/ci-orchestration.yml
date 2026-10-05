@@ -42,7 +42,7 @@ jobs:
   # Reports whether this exact tree already passed the gate, so a push that
   # merely squashed an already-validated PR does not run everything again.
   attest:
-    uses: pedromvgomes/gt/.github/workflows/reusable-attest.yml@v1
+    uses: pedromvgomes/gt/.github/workflows/reusable-attest.yml@v2
     # A called workflow may only narrow these. Granting less than
     # reusable-attest declares fails the run at parse time, before any job
     # starts — so ci-gate never reports and every PR blocks.
