@@ -183,7 +183,7 @@ flate2 = "1"
 # https://crates.io/crates/tar — tarball extraction for release artefacts
 tar = "0.4"
 # https://crates.io/crates/minisign-verify — verify minisign signatures on release artefacts
-minisign-verify = "0.2"
+minisign-verify = "0.3"
 # https://crates.io/crates/minisign — sign + keygen, used only by tests that need to forge signatures over synthetic payloads
 minisign = { version = "0.9", default-features = false }
 # https://crates.io/crates/libc — used by wardnet-postupgrade-runner for memfd_create + fexecve syscalls
