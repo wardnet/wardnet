@@ -31,7 +31,7 @@
 # build never reads the real dist/ paths and works on a bare checkout.
 ARG WEB_DIST=placeholder
 
-FROM busybox:1.38@sha256:dc2d74b28e4cf8984fa52af1f39bc7c3d9c73760b41a74d629f5d11b1ab28616 AS web-placeholder
+FROM busybox:1.38@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e AS web-placeholder
 RUN mkdir -p \
         /web/admin-site/dist \
         /web/user-app/dist \
@@ -372,7 +372,7 @@ EOF
 # standalone one under end2end-tests/) means BuildKit reuses the
 # builder stage already materialised for the daemon image instead of
 # compiling wardnetd a third time.
-FROM busybox:1.36@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662 AS release-server
+FROM busybox:1.38@sha256:fd7dc98638c8e305f4dc34e979f1c0fdfdcaeb0fbf8fcff77ae834b6da3d7e6e AS release-server
 COPY --from=builder /tmp/release-bundle /srv
 
 # ---- Runtime stage: layer onto wardnet-base + run install.sh ----
