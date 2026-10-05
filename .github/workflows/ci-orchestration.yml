@@ -162,7 +162,7 @@ jobs:
   governance:
     needs: [attest]
     if: needs.attest.outputs.validated != 'true'
-    uses: pedromvgomes/gt/.github/workflows/reusable-governance.yml@v1
+    uses: pedromvgomes/gt/.github/workflows/reusable-governance.yml@v2
 
   # The single required check. `if: always()` so it still reports when a stage
   # was skipped, and a skipped stage passes — that is the point of preflight.
