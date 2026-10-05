@@ -22,4 +22,4 @@ permissions:
 
 jobs:
   sync:
-    uses: pedromvgomes/gt/.github/workflows/reusable-sync.yml@v1
+    uses: pedromvgomes/gt/.github/workflows/reusable-sync.yml@v2
