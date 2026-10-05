@@ -154,7 +154,7 @@ jobs:
   conventional-commits:
     needs: [attest]
     if: needs.attest.outputs.validated != 'true'
-    uses: pedromvgomes/gt/.github/workflows/reusable-conventional-commits.yml@v1
+    uses: pedromvgomes/gt/.github/workflows/reusable-conventional-commits.yml@v2
     permissions:
       contents: read
       pull-requests: read
