@@ -245,7 +245,7 @@ netlink-sys = "0.9"
 # CLI). build.rs runs bindgen against <linux/netfilter/nf_tables.h>, so the
 # BUILD env needs clang/libclang + kernel uapi headers; nothing C links at
 # runtime. Replaces the former `nft` shell-out (issue #307).
-rustables = "0.8.8"
+rustables = "0.9.0"
 
 # https://crates.io/crates/opentelemetry
 opentelemetry = "0.32"
