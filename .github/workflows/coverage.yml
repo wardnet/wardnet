@@ -126,7 +126,7 @@ jobs:
         run: make coverage-daemon-report-json
 
       - name: Upload daemon coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-daemon
           path: coverage/
@@ -180,7 +180,7 @@ jobs:
           cp source/marketing-site/coverage/lcov.info coverage/pkg-summaries/marketing-site/
 
       - name: Upload site coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-site
           path: coverage/
@@ -249,7 +249,7 @@ jobs:
           done
 
       - name: Upload frontend coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-frontend
           path: coverage/
@@ -301,7 +301,7 @@ jobs:
           cp source/sdk/wardnet-go/coverage.out coverage/go-profiles/sdk-wardnet-go/coverage.out
 
       - name: Upload Go coverage artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
           name: coverage-go
           path: coverage/
