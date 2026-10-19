@@ -256,7 +256,7 @@ opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "trace", "log
 # https://crates.io/crates/tracing-opentelemetry
 tracing-opentelemetry = "0.33"
 # https://crates.io/crates/opentelemetry-appender-tracing
-opentelemetry-appender-tracing = "0.32"
+opentelemetry-appender-tracing = "0.33"
 
 # https://crates.io/crates/pyroscope
 pyroscope = { version = "2", features = ["backend-pprof-rs"] }
