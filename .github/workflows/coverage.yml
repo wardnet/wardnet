@@ -380,28 +380,28 @@ jobs:
 
       - name: Download daemon coverage
         if: needs.daemon-coverage.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: coverage-daemon
           path: coverage/
 
       - name: Download site coverage
         if: needs.site-coverage.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: coverage-site
           path: coverage/
 
       - name: Download frontend coverage
         if: needs.frontend-coverage.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: coverage-frontend
           path: coverage/
 
       - name: Download Go coverage
         if: needs.go-coverage.result == 'success'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
         with:
           name: coverage-go
           path: coverage/
