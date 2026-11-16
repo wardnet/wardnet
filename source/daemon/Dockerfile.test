@@ -60,7 +60,7 @@ FROM web-${WEB_DIST} AS web
 # rust-version in source/daemon/rust-toolchain.toml.
 # The toolchain layer every Rust stage below shares, so the apt install and the
 # cargo-chef install are paid once and cached rather than repeated per stage.
-FROM rust:1.98-slim-bookworm@sha256:1469a27c125cb5a3aebfa4f4e4665d935b02fb72cc093b2c974b3d740e43f157 AS chef
+FROM rust:1.99-slim-bookworm@sha256:f2c004e3d2d8b547e8cf7ffbc29205385f4e71d23e53e4e383065db5e9f822cd AS chef
 
 # minisign is needed at build time to generate the ephemeral signing
 # key + sign the synthetic release tarball that install.sh consumes.
